@@ -1,0 +1,12 @@
+include LICENSE
+include README.rst
+
+include tiffile.py
+include setup_tiffile.py
+include tests/*.py
+
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * *-
+recursive-exclude test/data *
+recursive-exclude test/_tmp *
