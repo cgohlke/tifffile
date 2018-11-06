@@ -69,19 +69,23 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:Version: 2018.10.18
+:Version: 2018.11.6
 
 Requirements
 ------------
 * `CPython 2.7 or 3.5+ 64-bit <https://www.python.org>`_
 * `Numpy 1.14 <https://www.numpy.org>`_
-* `Imagecodecs 2018.10.18 <https://www.lfd.uci.edu/~gohlke/>`_
-  (optional for decoding LZW, JPEG, etc.)
-* `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional for plotting)
+* `Imagecodecs 2018.10.30 <https://www.lfd.uci.edu/~gohlke/>`_
+  (optional; used for decoding LZW, JPEG, etc.)
+* `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2018.11.6
+    Rename imsave function to imwrite.
+    Readd Python implementations of packints, delta, and bitorder codecs.
+    Fix TiffFrame.compression AttributeError (bug fix).
 2018.10.18
     Rename tiffile package to tifffile.
 2018.10.10
@@ -398,7 +402,7 @@ Examples
 Save a 3D numpy array to a multi-page, 16-bit grayscale TIFF file:
 
 >>> data = numpy.random.randint(0, 2**16, (4, 301, 219), 'uint16')
->>> imsave('temp.tif', data, photometric='minisblack')
+>>> imwrite('temp.tif', data, photometric='minisblack')
 
 Read the whole image stack from the TIFF file as numpy array:
 
@@ -423,19 +427,19 @@ Read images from a sequence of TIFF files as numpy array:
 Save a numpy array to a single-page RGB TIFF file:
 
 >>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
->>> imsave('temp.tif', data, photometric='rgb')
+>>> imwrite('temp.tif', data, photometric='rgb')
 
 Save a floating-point array and metadata, using zlib compression:
 
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
->>> imsave('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
+>>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
 
 Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to ImageJ file:
 
 >>> volume = numpy.random.randn(57*256*256).astype('float32')
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
->>> imsave('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
-...        metadata={'spacing': 3.947368, 'unit': 'um'})
+>>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
+...         metadata={'spacing': 3.947368, 'unit': 'um'})
 
 Read hyperstack and metadata from ImageJ file:
 
@@ -495,8 +499,8 @@ Read the second image series from the TIFF file:
 
 Read a image stack from a sequence of TIFF files with a file name pattern:
 
->>> imsave('temp_C001T001.tif', numpy.random.rand(64, 64))
->>> imsave('temp_C001T002.tif', numpy.random.rand(64, 64))
+>>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
+>>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
 >>> image_sequence = TiffSequence('temp_C001*.tif')
 >>> image_sequence.shape
 (1, 2)
@@ -510,11 +514,11 @@ Read a image stack from a sequence of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2018.10.18'
+__version__ = '2018.11.6'
 __docformat__ = 'restructuredtext en'
-__all__ = ('imsave', 'imread', 'imshow', 'memmap',
+__all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap',
            'TiffFile', 'TiffWriter', 'TiffSequence', 'FileHandle',
-           'TiffPage', 'TiffFrame', 'TiffTag',
+           'TiffPage', 'TiffFrame', 'TiffTag', 'TIFF',
            # utility functions used by oiffile, czifile, etc
            'lazyattr', 'natural_sorted', 'stripnull', 'transpose_axes',
            'squeeze_axes', 'create_output', 'repeat_nd', 'format_size',
@@ -584,8 +588,8 @@ def imread(files, **kwargs):
             return imseq.asarray(**kwargs)
 
 
-def imsave(file, data=None, shape=None, dtype=None, bigsize=2**32-2**25,
-           **kwargs):
+def imwrite(file, data=None, shape=None, dtype=None, bigsize=2**32-2**25,
+            **kwargs):
     """Write numpy array to TIFF file.
 
     Refer to the TiffWriter class and member functions for documentation.
@@ -643,6 +647,9 @@ def imsave(file, data=None, shape=None, dtype=None, bigsize=2**32-2**25,
         return tif.save(data, shape, dtype, **kwargs)
 
 
+imsave = imwrite
+
+
 def memmap(filename, shape=None, dtype=None, page=None, series=0, mode='r+',
            **kwargs):
     """Return memory-mapped numpy array stored in TIFF file.
@@ -673,14 +680,14 @@ def memmap(filename, shape=None, dtype=None, page=None, series=0, mode='r+',
         The file open mode. Default is to open existing file for reading and
         writing ('r+').
     kwargs : dict
-        Additional parameters passed to imsave() or TiffFile().
+        Additional parameters passed to imwrite() or TiffFile().
 
     """
     if shape is not None and dtype is not None:
         # create a new, empty array
         kwargs.update(data=None, shape=shape, dtype=dtype, returnoffset=True,
                       align=TIFF.ALLOCATIONGRANULARITY)
-        result = imsave(filename, **kwargs)
+        result = imwrite(filename, **kwargs)
         if result is None:
             # TODO: fail before creating file or writing data
             raise ValueError('image data are not memory-mappable')
@@ -1099,10 +1106,10 @@ class TiffWriter(object):
         if predictor:
             if datadtype.kind in 'iu':
                 predictortag = 2
-                predictor = imagecodecs.delta_encode
+                predictor = TIFF.PREDICTORS[2]
             elif datadtype.kind == 'f':
                 predictortag = 3
-                predictor = imagecodecs.floatpred_encode
+                predictor = TIFF.PREDICTORS[3]
             else:
                 raise ValueError('cannot apply predictor to %s' % datadtype)
 
@@ -3670,7 +3677,7 @@ class TiffPage(object):
                 result.byteswap(True)
                 result = result.newbyteorder()
             if lsb2msb:
-                imagecodecs.bitorder_decode(result, out=result)
+                bitorder_decode(result, out=result)
         else:
             result = create_output(out, shape, dtype)
 
@@ -3694,10 +3701,10 @@ class TiffPage(object):
 
                 def decompress(data, bitspersample=bitspersample, table=table,
                                colorspace=colorspace,
-                               outcolorspace=outcolorspace, out=None):
-                    return imagecodecs.jpeg_decode(data, bitspersample, table,
-                                                   colorspace, outcolorspace,
-                                                   out)
+                               outcolorspace=outcolorspace, out=None,
+                               _decompress=decompress):
+                    return _decompress(data, bitspersample, table,
+                                       colorspace, outcolorspace, out)
 
                 def unpack(data):
                     return data.reshape(-1)
@@ -3729,8 +3736,8 @@ class TiffPage(object):
             else:
 
                 def unpack(data, out=None):
-                    return imagecodecs.packints_decode(data, typecode,
-                                                       bitspersample, runlen)
+                    return packints_decode(data, typecode, bitspersample,
+                                           runlen)
 
             if istiled:
                 unpredict = TIFF.UNPREDICTORS[self.predictor]
@@ -3751,7 +3758,7 @@ class TiffPage(object):
 
                     if tile:
                         if lsb2msb:
-                            tile = imagecodecs.bitorder_decode(tile, out=tile)
+                            tile = bitorder_decode(tile, out=tile)
                         tile = decompress(tile)
                         tile = unpack(tile)
                         try:
@@ -3809,7 +3816,7 @@ class TiffPage(object):
                 index = 0
                 for strip in buffered_read(fh, lock, offsets, bytecounts):
                     if lsb2msb:
-                        strip = imagecodecs.bitorder_decode(strip, out=strip)
+                        strip = bitorder_decode(strip, out=strip)
                     strip = decompress(strip)
                     strip = unpack(strip)
                     size = min(result.size, strip.size, strip_size,
@@ -5118,6 +5125,10 @@ class FileHandle(object):
             size = self._size
         return self._fh.read(size)
 
+    def readinto(self, b):
+        """Read up to len(b) bytes into b, and return number of bytes read."""
+        return self._fh.readinto(b)
+
     def write(self, bytestring):
         """Write bytestring to file."""
         return self._fh.write(bytestring)
@@ -5149,10 +5160,15 @@ class FileHandle(object):
         if out is None:
             try:
                 result = numpy.fromfile(fh, dtype, count, sep)
-            except IOError:
+            except (IOError, TypeError):
                 # ByteIO
-                data = fh.read(size)
-                result = numpy.frombuffer(data, dtype, count).copy()
+                # data = fh.read(size)
+                # result = numpy.frombuffer(data, dtype, count).copy()
+                result = bytearray(size)
+                n = fh.readinto(result)
+                if n != size:
+                    raise ValueError('failed to read %i bytes' % size)
+                result = numpy.frombuffer(result, dtype, count)
             if native and not result.dtype.isnative:
                 # swap byte order and dtype without copy
                 result.byteswap(True)
@@ -6469,7 +6485,11 @@ class TIFF(object):
     def PREDICTORS():
         # Map PREDICTOR to predictor encode functions
         if imagecodecs is None:
-            return {None: identityfunc, 1: identityfunc}
+            return {
+                None: identityfunc,
+                1: identityfunc,
+                2: delta_encode,
+            }
         return {
             None: imagecodecs.none_encode,
             1: imagecodecs.none_encode,
@@ -6480,7 +6500,11 @@ class TIFF(object):
     def UNPREDICTORS():
         # Map PREDICTOR to predictor decode functions
         if imagecodecs is None:
-            return {None: identityfunc, 1: identityfunc}
+            return {
+                None: identityfunc,
+                1: identityfunc,
+                2: delta_decode,
+            }
         return {
             None: imagecodecs.none_decode,
             1: imagecodecs.none_decode,
@@ -6531,6 +6555,7 @@ class TIFF(object):
             8: imagecodecs.zlib_decode,
             32946: imagecodecs.zlib_decode,
             32773: imagecodecs.packbits_decode,
+            # 34892: imagecodecs.jpeg_decode,  # DNG lossy
             34925: imagecodecs.lzma_decode,
             34926: imagecodecs.zstd_decode,
             33003: imagecodecs.j2k_decode,
@@ -8859,6 +8884,131 @@ def unpack_rgb(data, dtype='<B', bitspersample=(5, 6, 5), rescale=True):
     return result.reshape(-1)
 
 
+def delta_encode(data, axis=-1, out=None):
+    """Encode Delta."""
+    if isinstance(data, (bytes, bytearray)):
+        data = numpy.frombuffer(data, dtype='u1')
+        diff = numpy.diff(data, axis=0)
+        return numpy.insert(diff, 0, data[0]).tobytes()
+
+    dtype = data.dtype
+    if dtype.kind == 'f':
+        data = data.view('u%i' % dtype.itemsize)
+
+    diff = numpy.diff(data, axis=axis)
+    key = [slice(None)] * data.ndim
+    key[axis] = 0
+    diff = numpy.insert(diff, 0, data[tuple(key)], axis=axis)
+
+    if dtype.kind == 'f':
+        return diff.view(dtype)
+    return diff
+
+
+def delta_decode(data, axis=-1, out=None):
+    """Decode Delta."""
+    if out is not None and not out.flags.writeable:
+        out = None
+    if isinstance(data, (bytes, bytearray)):
+        data = numpy.frombuffer(data, dtype='u1')
+        return numpy.cumsum(data, axis=0, dtype='u1', out=out).tobytes()
+    if data.dtype.kind == 'f':
+        view = data.view('u%i' % data.dtype.itemsize)
+        view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
+        return view.view(data.dtype)
+    return numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
+
+
+def bitorder_decode(data, out=None, _bitorder=[]):
+    """Reverse bits in each byte of byte string or numpy array.
+
+    Decode data where pixels with lower column values are stored in the
+    lower-order bits of the bytes (TIFF FillOrder is LSB2MSB).
+
+    Parameters
+    ----------
+    data : byte string or ndarray
+        The data to be bit reversed. If byte string, a new bit-reversed byte
+        string is returned. Numpy arrays are bit-reversed in-place.
+
+    Examples
+    --------
+    >>> bitorder_decode(b'\\x01\\x64')
+    b'\\x80&'
+    >>> data = numpy.array([1, 666], dtype='uint16')
+    >>> bitorder_decode(data)
+    >>> data
+    array([  128, 16473], dtype=uint16)
+
+    """
+    if not _bitorder:
+        _bitorder.append(
+            b'\x00\x80@\xc0 \xa0`\xe0\x10\x90P\xd00\xb0p\xf0\x08\x88H\xc8('
+            b'\xa8h\xe8\x18\x98X\xd88\xb8x\xf8\x04\x84D\xc4$\xa4d\xe4\x14'
+            b'\x94T\xd44\xb4t\xf4\x0c\x8cL\xcc,\xacl\xec\x1c\x9c\\\xdc<\xbc|'
+            b'\xfc\x02\x82B\xc2"\xa2b\xe2\x12\x92R\xd22\xb2r\xf2\n\x8aJ\xca*'
+            b'\xaaj\xea\x1a\x9aZ\xda:\xbaz\xfa\x06\x86F\xc6&\xa6f\xe6\x16'
+            b'\x96V\xd66\xb6v\xf6\x0e\x8eN\xce.\xaen\xee\x1e\x9e^\xde>\xbe~'
+            b'\xfe\x01\x81A\xc1!\xa1a\xe1\x11\x91Q\xd11\xb1q\xf1\t\x89I\xc9)'
+            b'\xa9i\xe9\x19\x99Y\xd99\xb9y\xf9\x05\x85E\xc5%\xa5e\xe5\x15'
+            b'\x95U\xd55\xb5u\xf5\r\x8dM\xcd-\xadm\xed\x1d\x9d]\xdd=\xbd}'
+            b'\xfd\x03\x83C\xc3#\xa3c\xe3\x13\x93S\xd33\xb3s\xf3\x0b\x8bK'
+            b'\xcb+\xabk\xeb\x1b\x9b[\xdb;\xbb{\xfb\x07\x87G\xc7\'\xa7g\xe7'
+            b'\x17\x97W\xd77\xb7w\xf7\x0f\x8fO\xcf/\xafo\xef\x1f\x9f_'
+            b'\xdf?\xbf\x7f\xff')
+        _bitorder.append(numpy.frombuffer(_bitorder[0], dtype='uint8'))
+    try:
+        view = data.view('uint8')
+        numpy.take(_bitorder[1], view, out=view)
+    except AttributeError:
+        return data.translate(_bitorder[0])
+    except ValueError:
+        raise NotImplementedError('slices of arrays not supported')
+
+
+def packints_decode(data, dtype, numbits, runlen=0, out=None):
+    """Decompress byte string to array of integers.
+
+    This implementation only handles itemsizes 1, 8, 16, 32, and 64 bits.
+    Install the imagecodecs package for decoding other integer sizes.
+
+    Parameters
+    ----------
+    data : byte str
+        Data to decompress.
+    dtype : numpy.dtype or str
+        A numpy boolean or integer type.
+    numbits : int
+        Number of bits per integer.
+    runlen : int
+        Number of consecutive integers, after which to start at next byte.
+
+    Examples
+    --------
+    >>> packints_decode(b'a', 'B', 1)
+    array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
+
+    """
+    if numbits == 1:  # bitarray
+        data = numpy.frombuffer(data, '|B')
+        data = numpy.unpackbits(data)
+        if runlen % 8:
+            data = data.reshape(-1, runlen + (8 - runlen % 8))
+            data = data[:, :runlen].reshape(-1)
+        return data.astype(dtype)
+    elif numbits in (8, 16, 32, 64):
+        return numpy.frombuffer(data, dtype)
+    else:
+        raise NotImplementedError(
+            'unpacking %s-bit integers to %s not supported'
+            % (numbits, numpy.dtype(dtype)))
+
+
+if imagecodecs is not None:
+    bitorder_decode = imagecodecs.bitorder_decode  # noqa
+    packints_decode = imagecodecs.packints_decode  # noqa
+
+
 def apply_colormap(image, colormap, contig=True):
     """Return palette-colored image.
 
@@ -9080,10 +9230,10 @@ def stack_pages(pages, out=None, maxworkers=None, *args, **kwargs):
         kwargs['maxworkers'] = maxworkers
         return pages[0].asarray(out=out, *args, **kwargs)
 
-    page0 = next(p for p in pages if p is not None)
+    page0 = next(p for p in pages if p is not None).keyframe
     page0.asarray(validate=None)  # ThreadPoolExecutor swallows exceptions
-    shape = (npages,) + page0.keyframe.shape
-    dtype = page0.keyframe.dtype
+    shape = (npages,) + page0.shape
+    dtype = page0.dtype
     out = create_output(out, shape, dtype)
 
     if maxworkers is None:
@@ -9167,6 +9317,9 @@ def buffered_read(fh, lock, offsets, bytecounts, buffersize=2**26):
                 fh.seek(offsets[i])
                 bytecount = bytecounts[i]
                 data.append(fh.read(bytecount))
+                # buffer = bytearray(bytecount)
+                # n = fh.readinto(buffer)
+                # data.append(buffer[:n])
                 size += bytecount
                 i += 1
         for segment in data:
