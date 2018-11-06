@@ -47,7 +47,7 @@ setup(
         'pathlib;python_version=="2.7"',
         'enum34;python_version=="2.7"',
         'futures;python_version=="2.7"',
-        'imagecodecs>=2018.10.18;platform_system=="Windows"',
+        'imagecodecs>=2018.10.30;platform_system=="Windows"',
         ],
     extras_require={
         'all': ['matplotlib>=2.2'],
