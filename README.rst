@@ -36,19 +36,23 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:Version: 2018.10.18
+:Version: 2018.11.6
 
 Requirements
 ------------
 * `CPython 2.7 or 3.5+ 64-bit <https://www.python.org>`_
 * `Numpy 1.14 <https://www.numpy.org>`_
-* `Imagecodecs 2018.10.18 <https://www.lfd.uci.edu/~gohlke/>`_
-  (optional for decoding LZW, JPEG, etc.)
-* `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional for plotting)
+* `Imagecodecs 2018.10.30 <https://www.lfd.uci.edu/~gohlke/>`_
+  (optional; used for decoding LZW, JPEG, etc.)
+* `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2018.11.6
+    Rename imsave function to imwrite.
+    Readd Python implementations of packints, delta, and bitorder codecs.
+    Fix TiffFrame.compression AttributeError (bug fix).
 2018.10.18
     Rename tiffile package to tifffile.
 2018.10.10
@@ -365,7 +369,7 @@ Examples
 Save a 3D numpy array to a multi-page, 16-bit grayscale TIFF file:
 
 >>> data = numpy.random.randint(0, 2**16, (4, 301, 219), 'uint16')
->>> imsave('temp.tif', data, photometric='minisblack')
+>>> imwrite('temp.tif', data, photometric='minisblack')
 
 Read the whole image stack from the TIFF file as numpy array:
 
@@ -390,19 +394,19 @@ Read images from a sequence of TIFF files as numpy array:
 Save a numpy array to a single-page RGB TIFF file:
 
 >>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
->>> imsave('temp.tif', data, photometric='rgb')
+>>> imwrite('temp.tif', data, photometric='rgb')
 
 Save a floating-point array and metadata, using zlib compression:
 
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
->>> imsave('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
+>>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
 
 Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to ImageJ file:
 
 >>> volume = numpy.random.randn(57*256*256).astype('float32')
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
->>> imsave('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
-...        metadata={'spacing': 3.947368, 'unit': 'um'})
+>>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
+...         metadata={'spacing': 3.947368, 'unit': 'um'})
 
 Read hyperstack and metadata from ImageJ file:
 
@@ -462,8 +466,8 @@ Read the second image series from the TIFF file:
 
 Read a image stack from a sequence of TIFF files with a file name pattern:
 
->>> imsave('temp_C001T001.tif', numpy.random.rand(64, 64))
->>> imsave('temp_C001T002.tif', numpy.random.rand(64, 64))
+>>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
+>>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
 >>> image_sequence = TiffSequence('temp_C001*.tif')
 >>> image_sequence.shape
 (1, 2)
