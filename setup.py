@@ -10,6 +10,8 @@ from setuptools import setup
 
 buildnumber = ''
 
+imagecodecs = 'imagecodecs>=2018.11.8'
+
 with open('tifffile/tifffile.py') as fh:
     code = fh.read()
 
@@ -47,12 +49,13 @@ setup(
         'pathlib;python_version=="2.7"',
         'enum34;python_version=="2.7"',
         'futures;python_version=="2.7"',
-        'imagecodecs>=2018.10.30;platform_system=="Windows"',
+        # require imagecodecs on Windows only
+        imagecodecs + ';platform_system=="Windows"',
         ],
     extras_require={
-        'all': ['matplotlib>=2.2'],
+        'all': ['matplotlib>=2.2', imagecodecs],
     },
-    tests_require=['pytest'],
+    tests_require=['pytest', imagecodecs],
     entry_points={
         'console_scripts': [
             'tifffile = tifffile:main',
