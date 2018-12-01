@@ -8,7 +8,7 @@ Tifffile is a Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, NIH,
 SGI, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS, ZIF,
-and GeoTIFF files.
+QPI, and GeoTIFF files.
 
 Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
 files in multi-page, memory-mappable, tiled, predicted, or compressed form.
@@ -16,9 +16,9 @@ files in multi-page, memory-mappable, tiled, predicted, or compressed form.
 Only a subset of the TIFF specification is supported, mainly uncompressed and
 losslessly compressed 1, 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
 grayscale and RGB(A) images.
-Specifically, reading slices of image data, image trees defined via SubIFDs,
-CCITT and OJPEG compression, chroma subsampling without JPEG compression,
-or IPTC and XMP metadata are not implemented.
+Specifically, reading slices of image data, CCITT and OJPEG compression,
+chroma subsampling without JPEG compression, or IPTC and XMP metadata are not
+implemented.
 
 TIFF(r), the Tagged Image File Format, is a trademark and under control of
 Adobe Systems Incorporated. BigTIFF allows for files greater than 4 GB.
@@ -36,19 +36,34 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:Version: 2018.11.6
+:Version: 2018.11.28
 
 Requirements
 ------------
 * `CPython 2.7 or 3.5+ 64-bit <https://www.python.org>`_
 * `Numpy 1.14 <https://www.numpy.org>`_
-* `Imagecodecs 2018.10.30 <https://www.lfd.uci.edu/~gohlke/>`_
+* `Imagecodecs 2018.11.8 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
-* Python 2 requires 'futures', 'enum34', and 'pathlib'.
+* Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2018.11.28
+    Pass 2739 tests.
+    Make SubIFDs accessible as TiffPage.pages.
+    Make parsing of TiffSequence axes pattern optional (backward incompatible).
+    Limit parsing of TiffSequence axes pattern to file names, not path names.
+    Do not interpolate in imshow if image dimensions <= 512, else use bilinear.
+    Use logging.warning instead of warnings.warn in many cases.
+    Fix numpy FutureWarning for out == 'memmap'.
+    Adjust ZSTD and WebP compression to libtiff-4.0.10 (WIP).
+    Decode old style LZW with imagecodecs >= 2018.11.8.
+    Remove TiffFile.qptiff_metadata (QPI metadata are per page).
+    Do not use keyword arguments before variable positional arguments.
+    Make either all or none return statements in a function return expression.
+    Use pytest parametrize to generate tests.
+    Replace test classes with functions.
 2018.11.6
     Rename imsave function to imwrite.
     Readd Python implementations of packints, delta, and bitorder codecs.
@@ -123,7 +138,7 @@ Revisions
     Use numpy.frombuffer instead of fromstring to read from binary data.
     Parse GeoTIFF metadata.
     Add option to apply horizontal differencing before compression.
-    Towards reading PerkinElmer QPTIFF (no test files).
+    Towards reading PerkinElmer QPI (QPTIFF, no test files).
     Do not index out of bounds data in tifffile.c unpackbits and decodelzw.
 2017.9.29 (tentative)
     Many backward incompatible changes improving speed and resource usage:
@@ -342,20 +357,20 @@ Acknowledgements
 References
 ----------
 1)  TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
-    http://partners.adobe.com/public/developer/tiff/
-2)  TIFF File Format FAQ. http://www.awaresystems.be/imaging/tiff/faq.html
+    https://www.adobe.io/open/standards/TIFF.html
+2)  TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
 3)  MetaMorph Stack (STK) Image File Format.
-    http://support.meta.moleculardevices.com/docs/t10243.pdf
+    http://mdc.custhelp.com/app/answers/detail/a_id/18862
 4)  Image File Format Description LSM 5/7 Release 6.0 (ZEN 2010).
     Carl Zeiss MicroImaging GmbH. BioSciences. May 10, 2011
 5)  The OME-TIFF format.
-    http://www.openmicroscopy.org/site/support/file-formats/ome-tiff
+    https://docs.openmicroscopy.org/ome-model/5.6.4/ome-tiff/
 6)  UltraQuant(r) Version 6.0 for Windows Start-Up Guide.
     http://www.ultralum.com/images%20ultralum/pdf/UQStart%20Up%20Guide.pdf
 7)  Micro-Manager File Formats.
-    http://www.micro-manager.org/wiki/Micro-Manager_File_Formats
+    https://micro-manager.org/wiki/Micro-Manager_File_Formats
 8)  Tags for TIFF and Related Specifications. Digital Preservation.
-    http://www.digitalpreservation.gov/formats/content/tiff_tags.shtml
+    https://www.loc.gov/preservation/digital/formats/content/tiff_tags.shtml
 9)  ScanImage BigTiff Specification - ScanImage 2016.
     http://scanimage.vidriotechnologies.com/display/SI2016/
     ScanImage+BigTiff+Specification
@@ -464,11 +479,11 @@ Read the second image series from the TIFF file:
 >>> series1.shape
 (5, 301, 219)
 
-Read a image stack from a sequence of TIFF files with a file name pattern:
+Read an image stack from a sequence of TIFF files with a file name pattern:
 
 >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
 >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
->>> image_sequence = TiffSequence('temp_C001*.tif')
+>>> image_sequence = TiffSequence('temp_C001*.tif', pattern='axes')
 >>> image_sequence.shape
 (1, 2)
 >>> image_sequence.axes
