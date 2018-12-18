@@ -10,7 +10,7 @@ from setuptools import setup
 
 buildnumber = ''
 
-imagecodecs = 'imagecodecs>=2018.11.8'
+imagecodecs = 'imagecodecs>=2018.12.16'
 
 with open('tifffile/tifffile.py') as fh:
     code = fh.read()
