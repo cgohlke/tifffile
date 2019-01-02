@@ -1,13 +1,8 @@
 # -*- coding: utf-8 -*-
 # test_tifffile.py
 
-# Copyright (c) 2008-2018, Christoph Gohlke
-# Copyright (c) 2008-2018, The Regents of the University of California
-# Produced at the Laboratory for Fluorescence Dynamics
-# All rights reserved.
-#
-# Copyright (c) 2008-2018, Christoph Gohlke
-# Copyright (c) 2008-2018, The Regents of the University of California
+# Copyright (c) 2008-2019, Christoph Gohlke
+# Copyright (c) 2008-2019, The Regents of the University of California
 # Produced at the Laboratory for Fluorescence Dynamics
 # All rights reserved.
 #
@@ -47,7 +42,7 @@ Data files are not public due to size and copyright restrictions.
 :Organization:
   Laboratory for Fluorescence Dynamics. University of California, Irvine
 
-:Version: 2018.11.28
+:Version: 2019.1.1
 
 """
 
@@ -1242,12 +1237,18 @@ def assert_filehandle(fh, offset=0):
 def test_filehandle_seekable():
     """Test FileHandle must be seekable."""
     try:
-        from urllib2 import build_opener
+        from urllib2 import build_opener, HTTPSHandler
     except ImportError:
-        from urllib.request import build_opener
-    opener = build_opener()
+        from urllib.request import build_opener, HTTPSHandler
+
+    import ssl
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    opener = build_opener(HTTPSHandler(context=context))
     opener.addheaders = [('User-Agent', 'test_tifffile.py')]
-    fh = opener.open('https://download.lfd.uci.edu/pythonlibs/test.tif')
+    fh = opener.open('https://localhost/tests/test.tif')
     with pytest.raises(ValueError):
         FileHandle(fh)
 
@@ -1397,6 +1398,9 @@ if not SKIP_EXTENDED:
     TIGER_IDS = ['-'.join(f.split(os.path.sep)[-2:]
                           ).replace('-tiger', '').replace('.tif', '')
                  for f in TIGER_FILES]
+else:
+    TIGER_FILES = []
+    TIGER_IDS = []
 
 
 @pytest.mark.skipif(SKIP_EXTENDED, reason='many tests')
@@ -1436,6 +1440,7 @@ def test_read_tigers(fname):
         # assert data shapes
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         # if 'palette' in fname:
         #     shape = (76, 73, 3)
         if 'rgb' in fname:
@@ -1630,6 +1635,7 @@ def test_read_lsb2msb():
         assert data[2350, 3550, 1] == 60457
         data = tif.asarray(series=1)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (4700, 7100)
         assert data[2350, 3550] == 56341
         assert__str__(tif)
@@ -1659,6 +1665,7 @@ def test_read_predictor3():
         # assert data
         data = tif.asarray(series=0)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (1500, 1500, 4)
         assert data.dtype.name == 'float32'
         assert tuple(data[750, 750]) == (0., 0., 0., 1.)
@@ -1678,6 +1685,7 @@ def test_read_gimp16():
         assert page.samplesperpixel == 3
         assert page.predictor == 2
         image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert tuple(image[110, 110]) == (23308, 17303, 41160)
         assert__str__(tif)
 
@@ -1695,6 +1703,7 @@ def test_read_gimp32():
         assert page.samplesperpixel == 3
         assert page.predictor == 2
         image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert_array_almost_equal(
             image[110, 110], (0.35565534, 0.26402164, 0.6280674))
         assert__str__(tif)
@@ -1756,6 +1765,7 @@ def test_read_vips():
         # assert data
         data = tif.asarray(series=0)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (347, 641, 3)
         assert data.dtype.name == 'uint8'
         assert tuple(data[132, 361]) == (114, 233, 58)
@@ -1794,6 +1804,7 @@ def test_read_sgi_depth():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (128, 128, 128)
         assert data.dtype.name == 'float32'
         assert data[64, 64, 64] == 0.0
@@ -1824,6 +1835,7 @@ def test_read_oxford():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (3, 81, 601)
         assert data.dtype.name == 'uint8'
         assert data[1, 24, 49] == 191
@@ -1853,6 +1865,7 @@ def test_read_cramps():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (607, 800)
         assert data.dtype.name == 'uint8'
         assert data[273, 426] == 34
@@ -1888,6 +1901,7 @@ def test_read_cramps_tile():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (607, 800)
         assert data.dtype.name == 'uint8'
         assert data[273, 426] == 34
@@ -1918,6 +1932,7 @@ def test_read_jello():
         # assert data
         data = page.asrgb(uint8=False)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (192, 256, 3)
         assert data.dtype.name == 'uint16'
         assert tuple(data[100, 140, :]) == (48895, 65279, 48895)
@@ -1948,6 +1963,7 @@ def test_read_django():
         # assert data
         data = page.asrgb(uint8=False)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (480, 320, 3)
         assert data.dtype.name == 'uint16'
         assert tuple(data[64, 64, :]) == (65535, 52171, 63222)
@@ -1978,6 +1994,7 @@ def test_read_quad_lzw():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (384, 512, 3)
         assert data.dtype.name == 'uint8'
         assert tuple(data[309, 460, :]) == (0, 163, 187)
@@ -2007,6 +2024,7 @@ def test_read_quad_lzw_le():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (384, 512, 3)
         assert data.dtype.name == 'uint8'
         assert tuple(data[309, 460, :]) == (0, 163, 187)
@@ -2043,9 +2061,72 @@ def test_read_quad_tile():
         data = tif.asarray()
         # assert 'invalid tile data (49153,) (1, 128, 128, 3)' in caplog.text
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (384, 512, 3)
         assert data.dtype.name == 'uint8'
         assert tuple(data[309, 460, :]) == (0, 163, 187)
+
+
+def test_read_incomplete_tile_contig():
+    """Test read PackBits compressed incomplete tile, contig RGB."""
+    fname = data_file('GDAL/contig_tiled.tif')
+    with TiffFile(fname) as tif:
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.photometric == RGB
+        assert page.planarconfig == CONTIG
+        assert page.compression == PACKBITS
+        assert page.imagewidth == 35
+        assert page.imagelength == 37
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (37, 35, 3)
+        assert series.dtype.name == 'uint8'
+        assert series.axes == 'YXS'
+        # assert data
+        data = page.asarray()
+        assert data.flags['C_CONTIGUOUS']
+        assert data.shape == (37, 35, 3)
+        assert data.dtype.name == 'uint8'
+        assert tuple(data[19, 31]) == (50, 50, 50)
+        assert tuple(data[36, 34]) == (70, 70, 70)
+        assert__str__(tif)
+
+
+def test_read_incomplete_tile_separate():
+    """Test read PackBits compressed incomplete tile, separate RGB."""
+    fname = data_file('GDAL/separate_tiled.tif')
+    with TiffFile(fname) as tif:
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.photometric == RGB
+        assert page.planarconfig == SEPARATE
+        assert page.compression == PACKBITS
+        assert page.imagewidth == 35
+        assert page.imagelength == 37
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (3, 37, 35)
+        assert series.dtype.name == 'uint8'
+        assert series.axes == 'SYX'
+        # assert data
+        data = page.asarray()
+        assert data.flags['C_CONTIGUOUS']
+        assert data.shape == (3, 37, 35)
+        assert data.dtype.name == 'uint8'
+        assert tuple(data[:, 19, 31]) == (50, 50, 50)
+        assert tuple(data[:, 36, 34]) == (70, 70, 70)
+        assert__str__(tif)
 
 
 def test_read_strike():
@@ -2073,6 +2154,7 @@ def test_read_strike():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (200, 256, 4)
         assert data.dtype.name == 'uint8'
         assert tuple(data[65, 139, :]) == (43, 34, 17, 91)
@@ -2106,6 +2188,7 @@ def test_read_pygame_icon():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (128, 128, 4)
         assert data.dtype.name == 'uint8'
         assert tuple(data[22, 112, :]) == (100, 99, 98, 132)
@@ -2137,6 +2220,7 @@ def test_read_rgba_wo_extra_samples():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (785, 1065, 4)
         assert data.dtype.name == 'uint8'
         assert tuple(data[560, 412, :]) == (60, 92, 74, 255)
@@ -2166,6 +2250,7 @@ def test_read_rgb565():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (64, 64, 3)
         assert data.dtype.name == 'uint8'
         assert tuple(data[56, 32, :]) == (239, 243, 247)
@@ -2191,6 +2276,7 @@ def test_read_vigranumpy():
         assert page.bitspersample == 8
         assert page.samplesperpixel == 1
         data = tif.asarray(series=0)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (3, 20, 20)
         assert data.dtype.name == 'uint8'
         assert tuple(data[:, 9, 9]) == (19, 90, 206)
@@ -2208,6 +2294,7 @@ def test_read_vigranumpy():
         assert page.samplesperpixel == 3
         data = tif.asarray(series=1)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (10, 10, 3)
         assert data.dtype.name == 'float32'
         assert round(abs(data[9, 9, 1]-214.5733642578125), 7) == 0
@@ -2225,6 +2312,7 @@ def test_read_vigranumpy():
         assert page.samplesperpixel == 3
         data = tif.asarray(series=2)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (20, 20, 3)
         assert data.dtype.name == 'uint8'
         assert tuple(data[9, 9, :]) == (19, 90, 206)
@@ -2241,6 +2329,7 @@ def test_read_vigranumpy():
         assert page.samplesperpixel == 1
         data = tif.asarray(series=3)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (10, 10)
         assert data.dtype.name == 'float32'
         assert round(abs(data[9, 9]-223.1648712158203), 7) == 0
@@ -2269,6 +2358,7 @@ def test_read_freeimage():
             assert page.samplesperpixel == 3
             data = tif.asarray(series=i)
             assert isinstance(data, numpy.ndarray)
+            assert data.flags['C_CONTIGUOUS']
             assert data.shape == shape
             assert data.dtype.name == 'uint8'
             assert__str__(tif)
@@ -2297,6 +2387,7 @@ def test_read_12bit():
         # assert data
         data = tif.asarray(478)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (304, 1024)
         assert data.dtype.name == 'uint16'
         assert round(abs(data[138, 475]-40), 7) == 0
@@ -2372,7 +2463,8 @@ def test_read_jpeg_baboon():
         assert series.axes == 'YXS'
         # assert data
         # with pytest.raises((ValueError, NotImplementedError)):
-        tif.asarray()
+        image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert__str__(tif)
 
 
@@ -2391,6 +2483,7 @@ def test_read_jpeg_ycbcr():
         assert page.samplesperpixel == 3
         # assert data
         image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (80, 128, 3)
         assert image.dtype == 'uint8'
         assert tuple(image[50, 50, :]) == (177, 149, 210)
@@ -2413,6 +2506,7 @@ def test_read_jpeg12_mandril():
         assert page.samplesperpixel == 3
         # assert data
         image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (480, 512, 3)
         assert image.dtype == 'uint16'
         assert tuple(image[128, 128, :]) == (1685, 1859, 1376)
@@ -2466,6 +2560,7 @@ def test_read_aperio_j2k():
         assert page.dtype == 'uint8'
         # assert data
         image = tif.pages[3].asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (2055, 2875, 3)
         assert image.dtype == 'uint8'
         assert image[512, 1024, 0] == 246
@@ -2497,6 +2592,7 @@ def test_read_lzma():
         assert series.axes == 'YX'
         # assert data
         data = tif.asarray()
+        assert data.flags['C_CONTIGUOUS']
         assert isinstance(data, numpy.ndarray)
         assert data.shape == (512, 512)
         assert data.dtype.name == 'uint8'
@@ -2519,6 +2615,7 @@ def test_read_webp():
         assert page.samplesperpixel == 3
         # assert data
         image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (50, 50, 3)
         assert image.dtype == 'uint8'
         assert image[25, 25, 0] == 92
@@ -2542,13 +2639,12 @@ def test_read_zstd():
         assert page.samplesperpixel == 1
         # assert data
         image = tif.asarray()  # fails with imagecodecs <= 2018.11.8
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (20, 20)
         assert image.dtype == 'uint8'
         assert image[18, 1] == 247
         assert__str__(tif)
 
-
-# Test special cases produced by photoshop
 
 def test_read_lena_be_f16_contig():
     """Test read big endian float16 horizontal differencing."""
@@ -2574,6 +2670,7 @@ def test_read_lena_be_f16_contig():
         # assert data
         data = tif.asarray(series=0)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (512, 512, 3)
         assert data.dtype.name == 'float16'
         assert_array_almost_equal(data[256, 256],
@@ -2605,6 +2702,7 @@ def test_read_lena_be_f16_lzw_planar():
         # assert data
         data = tif.asarray(series=0)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (3, 512, 512)
         assert data.dtype.name == 'float16'
         assert_array_almost_equal(data[:, 256, 256],
@@ -2636,6 +2734,7 @@ def test_read_lena_be_f32_deflate_contig():
         # assert data
         data = tif.asarray(series=0)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (512, 512, 3)
         assert data.dtype.name == 'float32'
         assert_array_almost_equal(data[256, 256],
@@ -2667,6 +2766,7 @@ def test_read_lena_le_f32_lzw_planar():
         # assert data
         data = tif.asarray(series=0)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (3, 512, 512)
         assert data.dtype.name == 'float32'
         assert_array_almost_equal(data[:, 256, 256],
@@ -2698,6 +2798,7 @@ def test_read_lena_be_rgb48():
         # assert data
         data = tif.asarray(series=0)
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (512, 512, 3)
         assert data.dtype.name == 'uint16'
         assert_array_equal(data[256, 256], (46259, 16706, 18504))
@@ -2733,6 +2834,7 @@ def test_read_huge_ps5_memmap():
         # assert data
         data = tif.asarray(out='memmap')  # memmap in a temp file
         assert isinstance(data, numpy.core.memmap)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (30000, 30000)
         assert data.dtype.name == 'float32'
         assert data[6597, 8135] == 0.008780896663665771
@@ -2762,6 +2864,7 @@ def test_read_movie():
         # assert data
         data = tif.pages[29999].asarray()  # last frame
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (64, 64)
         assert data.dtype.name == 'uint16'
         assert data[32, 32] == 460
@@ -2769,6 +2872,7 @@ def test_read_movie():
         # read selected pages
         # https://github.com/blink1073/tifffile/issues/51
         data = tif.asarray(key=[31, 999, 29999])
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (3, 64, 64)
         assert data[2, 32, 32] == 460
         del data
@@ -2807,6 +2911,7 @@ def test_read_100000_pages_movie():
         assert round(abs(tags['min']-86.0), 7) == 0
         # assert data
         data = tif.asarray()
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (100000, 64, 64)
         assert data.dtype.name == 'uint16'
         assert round(abs(data[7310, 25, 25]-100), 7) == 0
@@ -2822,6 +2927,7 @@ def test_read_movie_memmap():
         # assert data
         data = tif.asarray(out='memmap')
         assert isinstance(data, numpy.core.memmap)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (30000, 64, 64)
         assert data.dtype.name == 'uint16'
         assert data[29999, 32, 32] == 460
@@ -2854,6 +2960,7 @@ def test_read_chart_bl():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (18710, 13228)
         assert data.dtype.name == 'bool'
         assert data[0, 0] is numpy.bool_(True)
@@ -2889,6 +2996,7 @@ def test_read_srtm_20_13():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (6000, 6000)
         assert data.dtype.name == 'int16'
         assert data[5199, 5107] == 1019
@@ -2921,6 +3029,7 @@ def test_read_gel_scan():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (6976, 4992, 3)
         assert data.dtype.name == 'uint8'
         assert tuple(data[2229, 1080, :]) == (164, 164, 164)
@@ -2954,6 +3063,7 @@ def test_read_caspian():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (3, 220, 279)
         assert data.dtype.name == 'float64'
         assert round(abs(data[2, 100, 140]-353.0), 7) == 0
@@ -2994,6 +3104,7 @@ def test_read_subifds_array():
         assert page.imagelength == 300
         # assert data
         image = page.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (300, 400, 3)
         assert image.dtype == 'uint8'
         assert tuple(image[124, 292]) == (236, 109, 95)
@@ -3022,6 +3133,7 @@ def test_read_subifd4():
         assert page.samplesperpixel == 3
         # assert data
         image = page.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (32, 32, 3)
         assert image.dtype == 'uint8'
         assert image[15, 15, 0] == 255
@@ -3051,6 +3163,7 @@ def test_read_subifd8():
         assert page.samplesperpixel == 3
         # assert data
         image = page.asarray()
+        assert image.flags['C_CONTIGUOUS']
         assert image.shape == (32, 32, 3)
         assert image.dtype == 'uint8'
         assert image[15, 15, 0] == 255
@@ -3189,6 +3302,7 @@ def test_read_lsm_take1():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (1, 1, 1, 512, 512)  # (512, 512)?
         assert data.dtype.name == 'uint8'
         assert data[..., 256, 256] == 101
@@ -3263,6 +3377,7 @@ def test_read_lsm_2chzt():
         # assert data
         data = tif.asarray(out='memmap')
         assert isinstance(data, numpy.core.memmap)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (19, 21, 2, 300, 400)
         assert data.dtype.name == 'uint8'
         assert data[18, 20, 1, 199, 299] == 39
@@ -3338,6 +3453,7 @@ def test_read_lsm_earpax2isl11():
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (1, 19, 3, 512, 512)
         assert data.dtype.name == 'uint8'
         assert tuple(data[0, 18, :, 200, 320]) == (17, 22, 21)
@@ -3402,6 +3518,7 @@ def test_read_lsm_mb231paxgfp_060214():
         # assert data
         data = tif.asarray(out='memmap', maxworkers=None)
         assert isinstance(data, numpy.core.memmap)
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (60, 31, 2, 512, 512)
         assert data.dtype.name == 'uint16'
         assert data[59, 30, 1, 256, 256] == 222
@@ -3751,7 +3868,7 @@ def test_read_ndpi_cmu_1_ndpi():
 @pytest.mark.skipif(SKIP_EXTENDED, reason='large image')
 def test_read_ndpi_cmu_2():
     """Test read Hamamatsu NDPI slide, JPEG."""
-    # JPEG stream too large to be opened with libjpeg
+    # JPEG stream too large to be opened with unpatched libjpeg
     fname = data_file('HamamatsuNDPI/CMU-2.ndpi')
     with TiffFile(fname) as tif:
         assert tif.is_ndpi
@@ -3766,8 +3883,10 @@ def test_read_ndpi_cmu_2():
         assert page.compression == JPEG
         assert page.shape == (33792, 79872, 3)
         assert page.ndpi_tags['Magnification'] == 20.0
-        with pytest.raises(RuntimeError):
-            page.asarray()
+        # with pytest.raises(RuntimeError):
+        data = page.asarray()
+        assert data.shape == (33792, 79872, 3)
+        assert data.dtype == 'uint8'
         # page 5
         page = tif.pages[-1]
         assert page.is_ndpi
@@ -5667,6 +5786,7 @@ def test_write(data, byteorder, bigtiff, dtype, shape):
             data = random_data(dtype, shape)
             imwrite(fname, data, byteorder=byteorder, bigtiff=bigtiff)
             image = imread(fname)
+            assert image.flags['C_CONTIGUOUS']
             assert_array_equal(data.squeeze(), image.squeeze())
 
         assert shape == image.shape
@@ -8001,6 +8121,7 @@ def test_sequence_glob_pattern():
     assert tifs.axes == 'I'
     data = tifs.asarray()
     assert isinstance(data, numpy.ndarray)
+    assert data.flags['C_CONTIGUOUS']
     assert data.shape == (10, 480, 640)
     assert data.dtype == 'uint8'
     assert data[9, 256, 256] == 135
@@ -8016,6 +8137,7 @@ def test_sequence_name_list():
     assert tifs.axes == 'I'
     data = tifs.asarray()
     assert isinstance(data, numpy.ndarray)
+    assert data.flags['C_CONTIGUOUS']
     assert data.shape == (2, 480, 640)
     assert data.dtype == 'uint8'
     assert data[1, 256, 256] == 135
@@ -8032,6 +8154,7 @@ def test_sequence_oif_series():
     # memory map
     data = tifs.asarray(out='memmap')
     assert isinstance(data, numpy.core.memmap)
+    assert data.flags['C_CONTIGUOUS']
     assert data.shape == (2, 378, 256, 256)
     assert data.dtype == 'uint16'
     assert data[1, 377, 70, 146] == 29
@@ -8048,6 +8171,7 @@ def test_sequence_leica_series():
     # memory map
     data = tifs.asarray(out='memmap')
     assert isinstance(data, numpy.core.memmap)
+    assert data.flags['C_CONTIGUOUS']
     assert data.shape == (46, 512, 512, 3)
     assert data.dtype == 'uint8'
     assert tuple(data[45, 256, 256]) == (93, 56, 56)
@@ -8063,6 +8187,7 @@ def test_sequence_zip_container():
     assert tifs.axes == 'I'
     data = tifs.asarray()
     assert isinstance(data, numpy.ndarray)
+    assert data.flags['C_CONTIGUOUS']
     assert data.shape == (10, 480, 640)
     assert data.dtype == 'uint8'
     assert data[9, 256, 256] == 135
@@ -8090,6 +8215,7 @@ def test_depend_czifile():
         assert czi.axes == 'TCZYX0'
         # verify data
         data = czi.asarray()
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (1, 1, 104, 365, 364, 1)
         assert data.dtype == 'uint8'
         assert data[0, 0, 52, 182, 182, 0] == 10
@@ -8123,6 +8249,7 @@ def test_depend_oiffile():
         assert tifs.axes == 'CZ'
         # verify data
         data = tifs.asarray(out='memmap')
+        assert data.flags['C_CONTIGUOUS']
         assert data.shape == (2, 378, 256, 256)
         assert data.dtype == 'uint16'
         assert data[1, 377, 70, 146] == 29
