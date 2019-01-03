@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 # tifffile_geodb.py
 
-# GeoTIFF GeoKey Database
-# Adapted from http://gis.ess.washington.edu/data/raster/drg/docs/geotiff.txt
+"""GeoTIFF GeoKey Database.
+
+Adapted from http://gis.ess.washington.edu/data/raster/drg/docs/geotiff.txt
+
+"""
 
 import enum
 
