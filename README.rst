@@ -8,7 +8,7 @@ Tifffile is a Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, NIH,
 SGI, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS, ZIF,
-QPI, and GeoTIFF files.
+QPI, NDPI, and GeoTIFF files.
 
 Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
 files in multi-page, memory-mappable, tiled, predicted, or compressed form.
@@ -36,19 +36,31 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:Version: 2018.11.28
+:Version: 2019.1.1
 
 Requirements
 ------------
-* `CPython 2.7 or 3.5+ 64-bit <https://www.python.org>`_
-* `Numpy 1.14 <https://www.numpy.org>`_
-* `Imagecodecs 2018.11.8 <https://pypi.org/project/imagecodecs/>`_
+This release has been tested with the following requirements and dependencies
+(other versions may work):
+
+* `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
+* `Numpy 1.15.4 <https://www.numpy.org>`_
+* `Imagecodecs 2018.1.1 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.1.1
+    Require imagecodecs >= 2018.12.16.
+    Do not use JPEG tables from keyframe.
+    Enable decoding large JPEG in NDPI.
+    Decode some old style JPEG.
+    Reorder OME channel axis to match PlanarConfiguration storage.
+    Return tiled images as contiguous arrays.
+    Add decode_lzw proxy function for compatibility with old czifile module.
+    Use dedicated logger.
 2018.11.28
     Pass 2739 tests.
     Make SubIFDs accessible as TiffPage.pages.
