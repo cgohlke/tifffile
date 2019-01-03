@@ -10,7 +10,7 @@ from setuptools import setup
 
 buildnumber = ''
 
-imagecodecs = 'imagecodecs>=2018.12.16'
+imagecodecs = 'imagecodecs>=2019.1.1'
 
 with open('tifffile/tifffile.py') as fh:
     code = fh.read()
@@ -71,7 +71,6 @@ setup(
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
