@@ -42,7 +42,7 @@ Data files are not public due to size and copyright restrictions.
 :Organization:
   Laboratory for Fluorescence Dynamics. University of California, Irvine
 
-:Version: 2019.1.1
+:Version: 2019.1.4
 
 """
 
