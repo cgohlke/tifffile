@@ -69,7 +69,7 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:Version: 2019.1.1
+:Version: 2019.1.4
 
 Requirements
 ------------
@@ -78,14 +78,17 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Imagecodecs 2018.1.1 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2019.1.1 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.1.4
+    Fix decoding deflate without imagecodecs installed.
 2019.1.1
+    Update copyright year.
     Require imagecodecs >= 2018.12.16.
     Do not use JPEG tables from keyframe.
     Enable decoding large JPEG in NDPI.
@@ -112,7 +115,7 @@ Revisions
 2018.11.6
     Rename imsave function to imwrite.
     Readd Python implementations of packints, delta, and bitorder codecs.
-    Fix TiffFrame.compression AttributeError (bug fix).
+    Fix TiffFrame.compression AttributeError.
 2018.10.18
     Rename tiffile package to tifffile.
 2018.10.10
@@ -126,7 +129,7 @@ Revisions
 2018.9.27
     Read Olympus SIS (WIP).
     Allow to write non-BigTIFF files up to ~4 GB (bug fix).
-    Fix parsing date and time fields in SEM metadata (bug fix).
+    Fix parsing date and time fields in SEM metadata.
     Detect some circular IFD references.
     Enable WebP codecs via imagecodecs.
     Add option to read TiffSequence from ZIP containers.
@@ -134,7 +137,7 @@ Revisions
     Move TIFF struct format constants out of TiffFile namespace.
 2018.8.31
     Pass 2699 tests.
-    Fix wrong TiffTag.valueoffset (bug fix).
+    Fix wrong TiffTag.valueoffset.
     Towards reading Hamamatsu NDPI (WIP).
     Enable PackBits compression of byte and bool arrays.
     Fix parsing NULL terminated CZ_SEM strings.
@@ -172,7 +175,7 @@ Revisions
     Do not use badly typed ImageDescription.
     Coherce bad ASCII string tags to bytes.
     Tuning of __str__ functions.
-    Fix reading 'undefined' tag values (bug fix).
+    Fix reading 'undefined' tag values.
     Read and write ZSTD compressed data.
     Use hexdump to print byte strings.
     Determine TIFF byte order from data dtype in imsave.
@@ -226,7 +229,7 @@ Revisions
     Add functions to parse STK, MetaSeries, ScanImage, SVS, Pilatus metadata.
     Read tags from EXIF and GPS IFDs.
     Use pformat for tag and metadata values.
-    Fix reading some UIC tags (bug fix).
+    Fix reading some UIC tags.
     Do not modify input array in imshow (bug fix).
     Fix Python implementation of unpack_ints.
 2017.5.23
@@ -272,7 +275,7 @@ Revisions
     Pass 1932 tests.
     TiffWriter, imread, and imsave accept open binary file streams.
 2016.04.13
-    Correctly handle reversed fill order in 2 and 4 bps images (bug fix).
+    Fix reversed fill order in 2 and 4 bps images.
     Implement reverse_bitorder in C.
 2016.03.18
     Fix saving additional ImageJ metadata.
@@ -541,7 +544,7 @@ Read an image stack from a sequence of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.1.1'
+__version__ = '2019.1.4'
 __docformat__ = 'restructuredtext en'
 __all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap',
            'TiffFile', 'TiffWriter', 'TiffSequence', 'FileHandle',
@@ -581,6 +584,7 @@ import numpy
 try:
     import imagecodecs
 except ImportError:
+    import zlib
     imagecodecs = None
 
 # delay import of mmap, pprint, fractions, xml, tkinter, lxml, matplotlib,
@@ -6607,13 +6611,15 @@ class TIFF(object):
     def COMPESSORS():
         # Map COMPRESSION to compress functions
         if imagecodecs is None:
-            import zlib
-            # import lzma
+            def zlib_encode(data, level=6, out=None):
+                """Compress Zlib DEFLATE."""
+                return zlib.compress(data, level)
+
             return {
                 None: identityfunc,
                 1: identityfunc,
-                8: zlib.compress,
-                32946: zlib.compress,
+                8: zlib_encode,
+                32946: zlib_encode,
                 # 34925: lzma.compress
             }
         return {
@@ -6630,13 +6636,15 @@ class TIFF(object):
     def DECOMPESSORS():
         # Map COMPRESSION to decompress functions
         if imagecodecs is None:
-            import zlib
-            # import lzma
+            def zlib_decode(data, out=None):
+                """Decompress Zlib DEFLATE."""
+                return zlib.decompress(data)
+
             return {
                 None: identityfunc,
                 1: identityfunc,
-                8: zlib.decompress,
-                32946: zlib.decompress,
+                8: zlib_decode,
+                32946: zlib_decode,
                 # 34925: lzma.decompress
             }
         return {
@@ -9158,7 +9166,7 @@ if imagecodecs is not None:
 def decode_lzw(encoded):
     """Decompress LZW encoded byte string."""
     raise DeprecationWarning(
-        'The decode_lzw function will be removed from the tifffile package.\n'
+        'The decode_lzw function was removed from the tifffile package.\n'
         'Use the lzw_decode function from the imagecodecs package instead.')
     import imagecodecs
     return imagecodecs.lzw_decode(encoded)
