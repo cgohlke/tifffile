@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # lsm2bin.py
 
@@ -14,7 +15,10 @@ import sys
 try:
     from .tifffile import lsm2bin
 except ImportError:
-    from tifffile import lsm2bin
+    try:
+        from tifffile.tifffile import lsm2bin
+    except ImportError:
+        from tifffile import lsm2bin
 
 
 def main(argv=None):
