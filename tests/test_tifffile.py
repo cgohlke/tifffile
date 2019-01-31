@@ -42,7 +42,9 @@ Data files are not public due to size and copyright restrictions.
 :Organization:
   Laboratory for Fluorescence Dynamics. University of California, Irvine
 
-:Version: 2019.1.4
+:License: 3-clause BSD
+
+:Version: 2019.1.30
 
 """
 
@@ -4566,6 +4568,36 @@ def test_read_ome_rgb():
         assert__str__(tif)
 
 
+def test_read_ome_samplesperpixel():
+    """Test read OME image stack with SamplesPerPixel>1."""
+    # Reported by Grzegorz Bokota on 2019.1.30
+    fname = data_file('OME/test_samplesperpixel.ome.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_ome
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 6
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
+        assert page.compression == LZW
+        assert page.imagewidth == 1024
+        assert page.imagelength == 1024
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (6, 3, 1024, 1024)
+        assert series.dtype.name == 'uint8'
+        assert series.axes == 'ZCYX'
+        # assert data
+        data = tif.asarray()
+        assert data.shape == (6, 3, 1024, 1024)
+        assert data.dtype.name == 'uint8'
+        assert tuple(data[5, :, 191, 449]) == (253, 0, 28)
+        assert__str__(tif)
+
+
 def test_read_ome_float_modulo_attributes():
     """Test read OME with floating point modulo attributes."""
     # reported by Start Berg. File by Lorenz Maier.
@@ -6136,6 +6168,29 @@ def test_write_subfiletype(subfiletype):
             assert page.is_mask == subfiletype & 0b100
             assert page.is_mrc == subfiletype & 0b1000
             assert_array_equal(data, page.asarray())
+            assert__str__(tif)
+
+
+@pytest.mark.parametrize('dt', [None, True, datetime, '2019:01:30 04:05:37'])
+def test_write_datetime_tag(dt):
+    """Test write datetime tag."""
+    arg = dt
+    if dt is datetime:
+        arg = datetime.datetime.now()
+    data = random_data('uint8', (31, 32))
+    with TempFileName('datetime') as fname:
+        imwrite(fname, data, datetime=arg)
+        with TiffFile(fname) as tif:
+            if dt is None:
+                assert 'DateTime' not in tif.pages[0].tags
+            elif dt is True:
+                assert tif.pages[0].tags['DateTime'].value.startswith(
+                    datetime.datetime.now().strftime('%Y:%m:%d %H:'))
+            elif dt is datetime:
+                assert (tif.pages[0].tags['DateTime'].value ==
+                        arg.strftime('%Y:%m:%d %H:%M:%S'))
+            else:
+                assert tif.pages[0].tags['DateTime'].value == dt
             assert__str__(tif)
 
 
@@ -8196,6 +8251,21 @@ def test_sequence_zip_container():
 ###############################################################################
 
 # Test packages depending on tifffile
+
+def test_depend_lfdfiles():
+    """Test lfdfiles conversion to TIFF."""
+    from lfdfiles import SimfcsZ64  # noqa
+    filename = data_file('SimFCS/simfcs.Z64')
+    with TempFileName('simfcsz_z64', ext='.tif') as outfile:
+        z64 = SimfcsZ64(filename)
+        z64.totiff(outfile)
+        with TiffFile(outfile) as tif:
+            assert len(tif.pages) == 256
+            assert len(tif.series) == 1
+            assert tif.series[0].shape == (256, 256, 256)
+            assert tif.series[0].dtype == 'float32'
+            assert_array_equal(z64.asarray(), tif.asarray())
+
 
 def test_depend_cmapfile():
     """Test cmapfile.lsm2cmap."""
