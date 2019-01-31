@@ -37,7 +37,7 @@
 Tifffile is a Python library to
 
 (1) store numpy arrays in TIFF (Tagged Image File Format) files, and
-(2) read image and metadata from TIFF like files used in bioimaging.
+(2) read image and metadata from TIFF-like files used in bioimaging.
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, NIH,
 SGI, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS, ZIF,
@@ -69,7 +69,9 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:Version: 2019.1.4
+:License: 3-clause BSD
+
+:Version: 2019.1.30
 
 Requirements
 ------------
@@ -78,27 +80,32 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Imagecodecs 2019.1.1 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2019.1.20 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.1.30
+    Pass 2747 tests.
+    Use black background in imshow.
+    Do not write datetime tag by default (backward incompatible).
+    Fix OME-TIFF with SamplesPerPixel > 1.
+    Allow 64-bit IFD offsets for NDPI (files > 4GB still not supported).
 2019.1.4
-    Fix decoding deflate without imagecodecs installed.
+    Fix decoding deflate without imagecodecs.
 2019.1.1
     Update copyright year.
     Require imagecodecs >= 2018.12.16.
     Do not use JPEG tables from keyframe.
     Enable decoding large JPEG in NDPI.
-    Decode some old style JPEG.
+    Decode some old-style JPEG.
     Reorder OME channel axis to match PlanarConfiguration storage.
     Return tiled images as contiguous arrays.
     Add decode_lzw proxy function for compatibility with old czifile module.
     Use dedicated logger.
 2018.11.28
-    Pass 2739 tests.
     Make SubIFDs accessible as TiffPage.pages.
     Make parsing of TiffSequence axes pattern optional (backward incompatible).
     Limit parsing of TiffSequence axes pattern to file names, not path names.
@@ -106,7 +113,7 @@ Revisions
     Use logging.warning instead of warnings.warn in many cases.
     Fix numpy FutureWarning for out == 'memmap'.
     Adjust ZSTD and WebP compression to libtiff-4.0.10 (WIP).
-    Decode old style LZW with imagecodecs >= 2018.11.8.
+    Decode old-style LZW with imagecodecs >= 2018.11.8.
     Remove TiffFile.qptiff_metadata (QPI metadata are per page).
     Do not use keyword arguments before variable positional arguments.
     Make either all or none return statements in a function return expression.
@@ -119,7 +126,6 @@ Revisions
 2018.10.18
     Rename tiffile package to tifffile.
 2018.10.10
-    Pass 2710 tests.
     Read ZIF, the Zoomable Image Format (WIP).
     Decode YCbCr JPEG as RGB (tentative).
     Improve restoration of incomplete tiles.
@@ -136,7 +142,6 @@ Revisions
     Remove TiffFile.isnative.
     Move TIFF struct format constants out of TiffFile namespace.
 2018.8.31
-    Pass 2699 tests.
     Fix wrong TiffTag.valueoffset.
     Towards reading Hamamatsu NDPI (WIP).
     Enable PackBits compression of byte and bool arrays.
@@ -157,7 +162,6 @@ Revisions
     Save RGBA with unassociated extrasample by default (backward incompatible).
     Add option to specify ExtraSamples values.
 2018.6.17
-    Pass 2680 tests.
     Towards reading JPEG and other compressions via imagecodecs package (WIP).
     Read SampleFormat VOID as UINT.
     Add function to validate TIFF using 'jhove -m TIFF-hul'.
@@ -170,7 +174,6 @@ Revisions
     Return correct number of pages for truncated series (bug fix).
     Move EXIF tags to TIFF.TAG as per TIFF/EP standard.
 2018.2.18
-    Pass 2293 tests.
     Always save RowsPerStrip and Resolution tags as required by TIFF standard.
     Do not use badly typed ImageDescription.
     Coherce bad ASCII string tags to bytes.
@@ -190,7 +193,6 @@ Revisions
     Do not index out of bounds data in tifffile.c unpackbits and decodelzw.
 2017.9.29 (tentative)
     Many backward incompatible changes improving speed and resource usage:
-    Pass 2268 tests.
     Add detail argument to __str__ function. Remove info functions.
     Fix potential issue correcting offsets of large LSM files with positions.
     Remove TiffFile sequence interface; use TiffFile.pages instead.
@@ -233,7 +235,6 @@ Revisions
     Do not modify input array in imshow (bug fix).
     Fix Python implementation of unpack_ints.
 2017.5.23
-    Pass 1961 tests.
     Write correct number of SampleFormat values (bug fix).
     Use Adobe deflate code to write ZIP compressed files.
     Add option to pass tag values as packed binary data for writing.
@@ -259,7 +260,6 @@ Revisions
     Remove maxpages argument (backward incompatible).
     Remove test_tifffile function.
 2016.10.28
-    Pass 1944 tests.
     Improve detection of ImageJ hyperstacks.
     Read TVIPS metadata created by EM-MENU (by Marco Oster).
     Add option to disable using OME-XML metadata.
@@ -272,7 +272,6 @@ Revisions
     Do not write RGB color images with 2 samples.
     Reorder TiffWriter.save keyword arguments (backward incompatible).
 2016.4.18
-    Pass 1932 tests.
     TiffWriter, imread, and imsave accept open binary file streams.
 2016.04.13
     Fix reversed fill order in 2 and 4 bps images.
@@ -280,7 +279,6 @@ Revisions
 2016.03.18
     Fix saving additional ImageJ metadata.
 2016.2.22
-    Pass 1920 tests.
     Write 8 bytes double tag values using offset if necessary (bug fix).
     Add option to disable writing second image description tag.
     Detect tags with incorrect counts.
@@ -307,7 +305,6 @@ Revisions
     Chroma subsampling is not supported.
     Memory-map data in TiffPageSeries if possible (optional).
 2015.8.17
-    Pass 1906 tests.
     Write ImageJ hyperstacks (optional).
     Read and write LZMA compressed data.
     Specify datetime when saving (optional).
@@ -331,7 +328,6 @@ Revisions
     Add function to determine if image data in TiffPage is memory-mappable.
     Do not close files if multifile_close parameter is False.
 2014.8.10
-    Pass 1730 tests.
     Return all extrasamples by default (backward incompatible).
     Read data from series of pages into memory-mapped array (optional).
     Squeeze OME dimensions (backward incompatible).
@@ -379,6 +375,24 @@ The API is not stable yet and might change between revisions.
 Tested on little-endian platforms only.
 
 Python 2.7, 3.4, and 32-bit versions are deprecated.
+
+There are several TIFF-like formats (not adhering to the TIFF6 specification)
+that allow files to exceed the 4 GB limit:
+
+* **BigTIFF** is identified by version number 43 and uses different file
+  header, IFD, and tag structures with 64-bit offsets. It also adds more data
+  types.
+* **ImageJ** hyperstacks store all image data, which may exceed 4 GB,
+  contiguously after the first IFD. The size of the image data can be
+  determined from the ImageDescription of the first IFD. Files > 4 GB only
+  contain one IFD.
+* **LSM** stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
+  The StripOffsets of each series and position require separate unwrapping.
+  The StripByteCounts tag contains the number of bytes for the uncompressed
+  data.
+* **NDPI** uses some 64-bit offsets in the file header, IFD, and tag structures
+  and might require correcting 32-bit offsets found in tags.
+  JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
 
 Other libraries for reading scientific TIFF files from Python:
 
@@ -544,9 +558,9 @@ Read an image stack from a sequence of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.1.4'
+__version__ = '2019.1.30'
 __docformat__ = 'restructuredtext en'
-__all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap',
+__all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap', 'lsm2bin',
            'TiffFile', 'TiffWriter', 'TiffSequence', 'FileHandle',
            'TiffPage', 'TiffFrame', 'TiffTag', 'TIFF',
            # utility functions used by oiffile, czifile, etc
@@ -962,7 +976,7 @@ class TiffWriter(object):
             If True (default) and the data and parameters are compatible with
             previous ones, if any, the image data are stored contiguously after
             the previous one. Parameters 'photometric' and 'planarconfig'
-            are ignored. Parameters 'description', datetime', and 'extratags'
+            are ignored. Parameters 'description', 'datetime', and 'extratags'
             are written to the first page of a contiguous series only.
         align : int
             Byte boundary on which to align the image data in the file.
@@ -991,9 +1005,9 @@ class TiffWriter(object):
         description : str
             The subject of the image. Must be 7-bit ASCII. Cannot be used with
             the ImageJ format. Saved with the first page only.
-        datetime : datetime
-            Date and time of image creation in '%Y:%m:%d %H:%M:%S' format.
-            If None (default), the current date and time is used.
+        datetime : datetime, str, or bool
+            Date and time of image creation in '%Y:%m:%d %H:%M:%S' format or
+            datetime object. Else if True, the current date and time is used.
             Saved with the first page only.
         resolution : (float, float[, str]) or ((int, int), (int, int)[, str])
             X and Y resolutions in pixels per resolution unit as float or
@@ -1457,10 +1471,16 @@ class TiffWriter(object):
 
         if software:
             addtag('Software', 's', 0, software, writeonce=True)
-        if datetime is None:
-            datetime = self._now()
-        addtag('DateTime', 's', 0, datetime.strftime('%Y:%m:%d %H:%M:%S'),
-               writeonce=True)
+        if datetime:
+            if isinstance(datetime, str):
+                if len(datetime) != 19 or datetime[16] != ':':
+                    raise ValueError('invalid datetime string')
+            else:
+                try:
+                    datetime = datetime.strftime('%Y:%m:%d %H:%M:%S')
+                except AttributeError:
+                    datetime = self._now().strftime('%Y:%m:%d %H:%M:%S')
+            addtag('DateTime', 's', 0, datetime, writeonce=True)
         addtag('Compression', 'H', 1, compresstag)
         if predictor:
             addtag('Predictor', 'H', 1, predictortag)
@@ -1948,6 +1968,10 @@ class TiffFile(object):
                 # Classic TIFF
                 if byteorder == '>':
                     self.tiff = TIFF.CLASSIC_BE
+                elif kwargs.get('is_ndpi', False):
+                    # NDPI uses 64 bit IFD offsets
+                    # TODO: fix offsets in NDPI tags if file size > 4 GB
+                    self.tiff = TIFF.NDPI_LE
                 else:
                     self.tiff = TIFF.CLASSIC_LE
             else:
@@ -1955,8 +1979,6 @@ class TiffFile(object):
 
             # file handle is at offset to offset to first page
             self.pages = TiffPages(self)
-
-            # TODO: fix offsets in NDPI file > 4 GB
 
             if self.is_lsm and (self.filehandle.size >= 2**32 or
                                 self.pages[0].compression != 1 or
@@ -2482,7 +2504,7 @@ class TiffFile(object):
                 attr = pixels.attrib
                 # dtype = attr.get('PixelType', None)
                 axes = ''.join(reversed(attr['DimensionOrder']))
-                shape = list(int(attr['Size'+ax]) for ax in axes)
+                shape = idxshape = list(int(attr['Size'+ax]) for ax in axes)
                 size = product(shape[:-2])
                 ifds = None
                 spp = 1  # samples per pixel
@@ -2495,6 +2517,11 @@ class TiffFile(object):
                         if ifds is None:
                             spp = int(attr.get('SamplesPerPixel', spp))
                             ifds = [None] * (size // spp)
+                            if spp > 1:
+                                # correct channel dimension for spp
+                                idxshape = list((shape[i] // spp if ax == 'C'
+                                                 else shape[i])
+                                                for i, ax in enumerate(axes))
                         elif int(attr.get('SamplesPerPixel', 1)) != spp:
                             raise ValueError(
                                 'cannot handle differing SamplesPerPixel')
@@ -2509,7 +2536,7 @@ class TiffFile(object):
                     num = int(attr.get('PlaneCount', num))
                     idx = [int(attr.get('First'+ax, 0)) for ax in axes[:-2]]
                     try:
-                        idx = numpy.ravel_multi_index(idx, shape[:-2])
+                        idx = numpy.ravel_multi_index(idx, idxshape[:-2])
                     except ValueError:
                         # ImageJ produces invalid ome-xml when cropping
                         log.warning('OME series: invalid TiffData index')
@@ -2782,14 +2809,18 @@ class TiffFile(object):
         info = [info]
         info.append('\n'.join(str(s) for s in self.series))
         if detail >= 3:
-            info.extend((TiffPage.__str__(p, detail=detail, width=width)
-                         for p in self.pages
-                         if p is not None))
-        else:
-            info.extend((TiffPage.__str__(s.pages[0], detail=detail,
-                                          width=width)
-                         for s in self.series
-                         if s.pages[0] is not None))
+            info.extend((
+                TiffPage.__str__(p, detail=detail, width=width)
+                for p in self.pages
+                if p is not None))
+        elif self.series:
+            info.extend((
+                TiffPage.__str__(s.pages[0], detail=detail, width=width)
+                for s in self.series
+                if s.pages[0] is not None))
+        elif self.pages and self.pages[0]:
+            info.append(
+                TiffPage.__str__(self.pages[0], detail=detail, width=width))
         if detail >= 2:
             for name in sorted(self.flags):
                 if hasattr(self, name + '_metadata'):
@@ -3068,8 +3099,8 @@ class TiffPages(object):
             self.parent = parent
             fh = parent.filehandle
             self._nextpageoffset = fh.tell()
-            offset = struct.unpack(parent.tiff.offsetformat,
-                                   fh.read(parent.tiff.offsetsize))[0]
+            offset = struct.unpack(parent.tiff.ifdoffsetformat,
+                                   fh.read(parent.tiff.ifdoffsetsize))[0]
         elif 'SubIFDs' not in parent.tags:
             self.complete = True
             return
@@ -3203,8 +3234,8 @@ class TiffPages(object):
             return
 
         tiff = self.parent.tiff
-        offsetformat = tiff.offsetformat
-        offsetsize = tiff.offsetsize
+        offsetformat = tiff.ifdoffsetformat
+        offsetsize = tiff.ifdoffsetsize
         tagnoformat = tiff.tagnoformat
         tagnosize = tiff.tagnosize
         tagsize = tiff.tagsize
@@ -3273,7 +3304,7 @@ class TiffPages(object):
         pages = self.pages
         if not pages:
             raise IndexError('index out of range')
-        if key is 0:  # comparison to literal
+        if key is 0:  # noqa: comparison to literal
             return pages[key]
 
         if isinstance(key, slice):
@@ -5467,10 +5498,13 @@ class TIFF(object):
 
     def CLASSIC_LE():
         class ClassicTiffLe(object):
+            __slots__ = []
             version = 42
             byteorder = '<'
             offsetsize = 4
             offsetformat = '<I'
+            ifdoffsetsize = 4
+            ifdoffsetformat = '<I'
             tagnosize = 2
             tagnoformat = '<H'
             tagsize = 12
@@ -5481,10 +5515,13 @@ class TIFF(object):
 
     def CLASSIC_BE():
         class ClassicTiffBe(object):
+            __slots__ = []
             version = 42
             byteorder = '>'
             offsetsize = 4
             offsetformat = '>I'
+            ifdoffsetsize = 4
+            ifdoffsetformat = '>I'
             tagnosize = 2
             tagnoformat = '>H'
             tagsize = 12
@@ -5495,10 +5532,13 @@ class TIFF(object):
 
     def BIG_LE():
         class BigTiffLe(object):
+            __slots__ = []
             version = 43
             byteorder = '<'
             offsetsize = 8
             offsetformat = '<Q'
+            ifdoffsetsize = 8
+            ifdoffsetformat = '<Q'
             tagnosize = 8
             tagnoformat = '<Q'
             tagsize = 20
@@ -5509,10 +5549,13 @@ class TIFF(object):
 
     def BIG_BE():
         class BigTiffBe(object):
+            __slots__ = []
             version = 43
             byteorder = '>'
             offsetsize = 8
             offsetformat = '>Q'
+            ifdoffsetsize = 8
+            ifdoffsetformat = '>Q'
             tagnosize = 8
             tagnoformat = '>Q'
             tagsize = 20
@@ -5520,6 +5563,23 @@ class TIFF(object):
             tagformat2 = '>Q8s'
 
         return BigTiffBe
+
+    def NDPI_LE():
+        class NdpiTiffLe(object):
+            __slots__ = []
+            version = 42
+            byteorder = '<'
+            offsetsize = 4
+            offsetformat = '<I'
+            ifdoffsetsize = 8  # NDPI uses 8 bytes IFD offsets
+            ifdoffsetformat = '<Q'
+            tagnosize = 2
+            tagnoformat = '<H'
+            tagsize = 12
+            tagformat1 = '<HH'
+            tagformat2 = '<I4s'
+
+        return NdpiTiffLe
 
     def TAGS():
         # TIFF tag codes and names from TIFF6, TIFF/EP, EXIF, and other specs
@@ -8612,7 +8672,7 @@ def json_description_metadata(description):
 
     """
     if description[:6] == 'shape=':
-        # old style 'shaped' description; not JSON
+        # old-style 'shaped' description; not JSON
         shape = tuple(int(i) for i in description[7:-1].split(','))
         return dict(shape=shape)
     if description[:1] == '{' and description[-1:] == '}':
@@ -10356,7 +10416,7 @@ def lsm2bin(lsmfile, binfile=None, tile=(256, 256), verbose=True):
 
 def imshow(data, photometric='RGB', planarconfig=None, bitspersample=None,
            interpolation=None, cmap=None, vmin=0, vmax=None,
-           figure=None, title=None, dpi=96, subplot=111, maxdim=2**17,
+           figure=None, title=None, dpi=96, subplot=111, maxdim=2**16,
            **kwargs):
     """Plot n-dimensional images using matplotlib.pyplot.
 
@@ -10520,6 +10580,7 @@ def imshow(data, photometric='RGB', planarconfig=None, bitspersample=None,
         pyplot.subplots_adjust(bottom=0.03*(dims+2), top=0.98-size*0.03,
                                left=0.1, right=0.95, hspace=0.05, wspace=0.0)
     subplot = pyplot.subplot(subplot)
+    subplot.set_facecolor((0, 0, 0))
 
     if title:
         try:
