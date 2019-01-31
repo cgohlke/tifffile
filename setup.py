@@ -10,7 +10,7 @@ from setuptools import setup
 
 buildnumber = ''
 
-imagecodecs = 'imagecodecs>=2019.1.1'
+imagecodecs = 'imagecodecs>=2019.1.20'
 
 with open('tifffile/tifffile.py') as fh:
     code = fh.read()
@@ -55,7 +55,8 @@ setup(
     extras_require={
         'all': ['matplotlib>=2.2', imagecodecs],
     },
-    tests_require=['pytest', imagecodecs],
+    tests_require=['pytest', imagecodecs,
+                   'czifile', 'cmapfile', 'oiffile', 'lfdfiles'],
     entry_points={
         'console_scripts': [
             'tifffile = tifffile:main',
