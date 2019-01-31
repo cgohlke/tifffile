@@ -4,7 +4,7 @@ Read and write TIFF(r) files
 Tifffile is a Python library to
 
 (1) store numpy arrays in TIFF (Tagged Image File Format) files, and
-(2) read image and metadata from TIFF like files used in bioimaging.
+(2) read image and metadata from TIFF-like files used in bioimaging.
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, NIH,
 SGI, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS, ZIF,
@@ -36,7 +36,9 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:Version: 2019.1.4
+:License: 3-clause BSD
+
+:Version: 2019.1.30
 
 Requirements
 ------------
@@ -45,27 +47,32 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Imagecodecs 2019.1.1 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2019.1.20 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.1.30
+    Pass 2747 tests.
+    Use black background in imshow.
+    Do not write datetime tag by default (backward incompatible).
+    Fix OME-TIFF with SamplesPerPixel > 1.
+    Allow 64-bit IFD offsets for NDPI (files > 4GB still not supported).
 2019.1.4
-    Fix decoding deflate without imagecodecs installed.
+    Fix decoding deflate without imagecodecs.
 2019.1.1
     Update copyright year.
     Require imagecodecs >= 2018.12.16.
     Do not use JPEG tables from keyframe.
     Enable decoding large JPEG in NDPI.
-    Decode some old style JPEG.
+    Decode some old-style JPEG.
     Reorder OME channel axis to match PlanarConfiguration storage.
     Return tiled images as contiguous arrays.
     Add decode_lzw proxy function for compatibility with old czifile module.
     Use dedicated logger.
 2018.11.28
-    Pass 2739 tests.
     Make SubIFDs accessible as TiffPage.pages.
     Make parsing of TiffSequence axes pattern optional (backward incompatible).
     Limit parsing of TiffSequence axes pattern to file names, not path names.
@@ -73,7 +80,7 @@ Revisions
     Use logging.warning instead of warnings.warn in many cases.
     Fix numpy FutureWarning for out == 'memmap'.
     Adjust ZSTD and WebP compression to libtiff-4.0.10 (WIP).
-    Decode old style LZW with imagecodecs >= 2018.11.8.
+    Decode old-style LZW with imagecodecs >= 2018.11.8.
     Remove TiffFile.qptiff_metadata (QPI metadata are per page).
     Do not use keyword arguments before variable positional arguments.
     Make either all or none return statements in a function return expression.
@@ -86,7 +93,6 @@ Revisions
 2018.10.18
     Rename tiffile package to tifffile.
 2018.10.10
-    Pass 2710 tests.
     Read ZIF, the Zoomable Image Format (WIP).
     Decode YCbCr JPEG as RGB (tentative).
     Improve restoration of incomplete tiles.
@@ -103,7 +109,6 @@ Revisions
     Remove TiffFile.isnative.
     Move TIFF struct format constants out of TiffFile namespace.
 2018.8.31
-    Pass 2699 tests.
     Fix wrong TiffTag.valueoffset.
     Towards reading Hamamatsu NDPI (WIP).
     Enable PackBits compression of byte and bool arrays.
@@ -124,7 +129,6 @@ Revisions
     Save RGBA with unassociated extrasample by default (backward incompatible).
     Add option to specify ExtraSamples values.
 2018.6.17
-    Pass 2680 tests.
     Towards reading JPEG and other compressions via imagecodecs package (WIP).
     Read SampleFormat VOID as UINT.
     Add function to validate TIFF using 'jhove -m TIFF-hul'.
@@ -137,7 +141,6 @@ Revisions
     Return correct number of pages for truncated series (bug fix).
     Move EXIF tags to TIFF.TAG as per TIFF/EP standard.
 2018.2.18
-    Pass 2293 tests.
     Always save RowsPerStrip and Resolution tags as required by TIFF standard.
     Do not use badly typed ImageDescription.
     Coherce bad ASCII string tags to bytes.
@@ -157,7 +160,6 @@ Revisions
     Do not index out of bounds data in tifffile.c unpackbits and decodelzw.
 2017.9.29 (tentative)
     Many backward incompatible changes improving speed and resource usage:
-    Pass 2268 tests.
     Add detail argument to __str__ function. Remove info functions.
     Fix potential issue correcting offsets of large LSM files with positions.
     Remove TiffFile sequence interface; use TiffFile.pages instead.
@@ -200,7 +202,6 @@ Revisions
     Do not modify input array in imshow (bug fix).
     Fix Python implementation of unpack_ints.
 2017.5.23
-    Pass 1961 tests.
     Write correct number of SampleFormat values (bug fix).
     Use Adobe deflate code to write ZIP compressed files.
     Add option to pass tag values as packed binary data for writing.
@@ -226,7 +227,6 @@ Revisions
     Remove maxpages argument (backward incompatible).
     Remove test_tifffile function.
 2016.10.28
-    Pass 1944 tests.
     Improve detection of ImageJ hyperstacks.
     Read TVIPS metadata created by EM-MENU (by Marco Oster).
     Add option to disable using OME-XML metadata.
@@ -239,7 +239,6 @@ Revisions
     Do not write RGB color images with 2 samples.
     Reorder TiffWriter.save keyword arguments (backward incompatible).
 2016.4.18
-    Pass 1932 tests.
     TiffWriter, imread, and imsave accept open binary file streams.
 2016.04.13
     Fix reversed fill order in 2 and 4 bps images.
@@ -247,7 +246,6 @@ Revisions
 2016.03.18
     Fix saving additional ImageJ metadata.
 2016.2.22
-    Pass 1920 tests.
     Write 8 bytes double tag values using offset if necessary (bug fix).
     Add option to disable writing second image description tag.
     Detect tags with incorrect counts.
@@ -274,7 +272,6 @@ Revisions
     Chroma subsampling is not supported.
     Memory-map data in TiffPageSeries if possible (optional).
 2015.8.17
-    Pass 1906 tests.
     Write ImageJ hyperstacks (optional).
     Read and write LZMA compressed data.
     Specify datetime when saving (optional).
@@ -298,7 +295,6 @@ Revisions
     Add function to determine if image data in TiffPage is memory-mappable.
     Do not close files if multifile_close parameter is False.
 2014.8.10
-    Pass 1730 tests.
     Return all extrasamples by default (backward incompatible).
     Read data from series of pages into memory-mapped array (optional).
     Squeeze OME dimensions (backward incompatible).
@@ -346,6 +342,24 @@ The API is not stable yet and might change between revisions.
 Tested on little-endian platforms only.
 
 Python 2.7, 3.4, and 32-bit versions are deprecated.
+
+There are several TIFF-like formats (not adhering to the TIFF6 specification)
+that allow files to exceed the 4 GB limit:
+
+* **BigTIFF** is identified by version number 43 and uses different file
+  header, IFD, and tag structures with 64-bit offsets. It also adds more data
+  types.
+* **ImageJ** hyperstacks store all image data, which may exceed 4 GB,
+  contiguously after the first IFD. The size of the image data can be
+  determined from the ImageDescription of the first IFD. Files > 4 GB only
+  contain one IFD.
+* **LSM** stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
+  The StripOffsets of each series and position require separate unwrapping.
+  The StripByteCounts tag contains the number of bytes for the uncompressed
+  data.
+* **NDPI** uses some 64-bit offsets in the file header, IFD, and tag structures
+  and might require correcting 32-bit offsets found in tags.
+  JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
 
 Other libraries for reading scientific TIFF files from Python:
 
