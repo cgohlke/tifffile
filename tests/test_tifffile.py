@@ -44,7 +44,7 @@ Data files are not public due to size and copyright restrictions.
 
 :License: 3-clause BSD
 
-:Version: 2019.1.30
+:Version: 2019.2.10
 
 """
 
@@ -231,6 +231,28 @@ def test_issue_version_mismatch():
     ver = ':Version: ' + tifffile.__version__
     assert ver in __doc__
     assert ver in tifffile.__doc__
+
+
+def test_issue_legacy_kwargs():
+    """Test legacy arguments still work in some cases.
+
+    Imread accepts 'pages', 'fastij' and 'multifile_close'.
+    Specifying 'key' and 'pages' raises TypeError.
+    Specifying 'pages' in TiffFile constructor raises TypeError.
+
+    """
+    data = random_data('uint8', (3, 21, 31))
+    with TempFileName('legacy_kwargs') as fname:
+        imwrite(fname, data, photometric='MINISBLACK')
+        a = imread(fname, fastij=True, multifile_close=True, pages=[1, 2])
+        assert_array_equal(a, data[1:])
+        with TiffFile(fname, fastij=True, multifile_close=True) as tif:
+            assert_array_equal(tif.asarray(), data)
+        with pytest.raises(TypeError):
+            imread(fname, key=0, pages=[1, 2])
+        with pytest.raises(TypeError):
+            with TiffFile(fname, pages=[1, 2]) as tif:
+                pass
 
 
 def test_issue_specific_pages():
@@ -6079,6 +6101,7 @@ def test_write_extratags():
             assert 'ImageDescription' not in tif.pages[1].tags
             assert tif.pages[0].tags['PageName'].value == pagename
             assert tif.pages[1].tags['PageName'].value == pagename
+            assert '50001' not in tif.pages[1].tags
             tags = tif.pages[0].tags
             assert tags['50001'].value == 49
             assert tags['50002'].value == (49, 50)
