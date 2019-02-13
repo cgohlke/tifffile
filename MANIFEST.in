@@ -1,8 +1,8 @@
 include LICENSE
 include README.rst
 
-include tiffile.py
-include setup_tiffile.py
+# include tiffile.py
+# include setup_tiffile.py
 include tests/*.py
 
 recursive-exclude * __pycache__
