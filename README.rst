@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.1.30
+:Version: 2019.2.10
 
 Requirements
 ------------
@@ -47,15 +47,18 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Imagecodecs 2019.1.20 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2019.2.2 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.2.10
+    Pass 2748 tests.
+    Assemble IFDs in memory to speed-up writing on some slow media.
+    Handle discontinued arguments 'fastij', 'multifile_close', and 'pages'.
 2019.1.30
-    Pass 2747 tests.
     Use black background in imshow.
     Do not write datetime tag by default (backward incompatible).
     Fix OME-TIFF with SamplesPerPixel > 1.
@@ -346,20 +349,22 @@ Python 2.7, 3.4, and 32-bit versions are deprecated.
 There are several TIFF-like formats (not adhering to the TIFF6 specification)
 that allow files to exceed the 4 GB limit:
 
-* **BigTIFF** is identified by version number 43 and uses different file
-  header, IFD, and tag structures with 64-bit offsets. It also adds more data
-  types.
-* **ImageJ** hyperstacks store all image data, which may exceed 4 GB,
+* *BigTIFF* is identified by version number 43 and uses different file
+  header, IFD, and tag structures with 64-bit offsets. It adds more data types.
+  Tifffile can read and write BigTIFF files.
+* *ImageJ* hyperstacks store all image data, which may exceed 4 GB,
   contiguously after the first IFD. The size of the image data can be
-  determined from the ImageDescription of the first IFD. Files > 4 GB only
-  contain one IFD.
-* **LSM** stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
+  determined from the ImageDescription of the first IFD. Files > 4 GB contain
+  one IFD only. Tifffile can read and write ImageJ hyperstacks.
+* *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
-  data.
-* **NDPI** uses some 64-bit offsets in the file header, IFD, and tag structures
+  data. Tifffile can read large LSM files.
+* *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures
   and might require correcting 32-bit offsets found in tags.
   JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
+  Tifffile can read NDPI files < 4 GB and decompress large JPEG tiles using
+  the imagecodecs library on Windows.
 
 Other libraries for reading scientific TIFF files from Python:
 
@@ -368,13 +373,15 @@ Other libraries for reading scientific TIFF files from Python:
 *  `GDAL <https://github.com/OSGeo/gdal/tree/master/gdal/swig/python>`_
 *  `OpenSlide-python <https://github.com/openslide/openslide-python>`_
 *  `PyLibTiff <https://github.com/pearu/pylibtiff>`_
-*  `SimpleITK <http://www.simpleitk.org>`_
+*  `SimpleITK <https://github.com/SimpleITK/SimpleITK>`_
 *  `PyLSM <https://launchpad.net/pylsm>`_
 *  `PyMca.TiffIO.py <https://github.com/vasole/pymca>`_ (same as fabio.TiffIO)
 *  `BioImageXD.Readers <http://www.bioimagexd.net/>`_
-*  `Cellcognition.io <http://cellcognition.org/>`_
+*  `CellCognition <https://cellcognition-project.org/>`_
 *  `pymimage <https://github.com/ardoi/pymimage>`_
 *  `pytiff <https://github.com/FZJ-INM1-BDA/pytiff>`_
+*  `ScanImageTiffReaderPython
+   <https://gitlab.com/vidriotech/scanimagetiffreader-python>`_
 
 Acknowledgements
 ----------------
@@ -423,7 +430,7 @@ Read the whole image stack from the TIFF file as numpy array:
 >>> image_stack.dtype
 dtype('uint16')
 
-Read the image from first page (IFD) in the TIFF file:
+Read the image from first page (IFD) in the TIFF file as numpy array:
 
 >>> image = imread('temp.tif', key=0)
 >>> image.shape
@@ -445,14 +452,14 @@ Save a floating-point array and metadata, using zlib compression:
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
 >>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
 
-Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to ImageJ file:
+Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to a ImageJ file:
 
 >>> volume = numpy.random.randn(57*256*256).astype('float32')
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
 >>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
 ...         metadata={'spacing': 3.947368, 'unit': 'um'})
 
-Read hyperstack and metadata from ImageJ file:
+Read hyperstack and metadata from the ImageJ file:
 
 >>> with TiffFile('temp.tif') as tif:
 ...     imagej_hyperstack = tif.asarray()
@@ -461,6 +468,12 @@ Read hyperstack and metadata from ImageJ file:
 (57, 256, 256)
 >>> imagej_metadata['slices']
 57
+
+Read images from a selected range of pages:
+
+>>> image = imread('temp.tif', key=range(4, 40, 2))
+>>> image.shape
+(18, 256, 256)
 
 Create an empty TIFF file and write to the memory-mapped numpy array:
 
