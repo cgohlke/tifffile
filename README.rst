@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.2.10
+:Version: 2019.2.22
 
 Requirements
 ------------
@@ -47,20 +47,34 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Imagecodecs 2019.2.2 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2019.2.22 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.2.22
+    Pass 2751 tests, 80% coverage.
+    Use imagecodecs-lite as a fallback for imagecodecs.
+    Simplify reading numpy arrays from file.
+    Use TiffFrames when reading arrays from page sequences.
+    Support slices and iterators in TiffSequence sequence interface.
+    Auto-detect uniform series.
+    Use page hash to determine generic series.
+    Turn off page cache (tentative).
+    Pass through more parameters in imread.
+    Discontinue movie parameter in imread and TiffFile (breaking).
+    Discontinue bigsize parameter in imwrite (breaking).
+    Raise TiffFileError in case of issues with TIFF structure.
+    Return TiffFile.ome_metadata as XML (breaking).
+    Ignore OME series when last dimensions are not stored in TIFF pages.
 2019.2.10
-    Pass 2748 tests.
     Assemble IFDs in memory to speed-up writing on some slow media.
-    Handle discontinued arguments 'fastij', 'multifile_close', and 'pages'.
+    Handle discontinued arguments fastij, multifile_close, and pages.
 2019.1.30
     Use black background in imshow.
-    Do not write datetime tag by default (backward incompatible).
+    Do not write datetime tag by default (breaking).
     Fix OME-TIFF with SamplesPerPixel > 1.
     Allow 64-bit IFD offsets for NDPI (files > 4GB still not supported).
 2019.1.4
@@ -77,7 +91,7 @@ Revisions
     Use dedicated logger.
 2018.11.28
     Make SubIFDs accessible as TiffPage.pages.
-    Make parsing of TiffSequence axes pattern optional (backward incompatible).
+    Make parsing of TiffSequence axes pattern optional (breaking).
     Limit parsing of TiffSequence axes pattern to file names, not path names.
     Do not interpolate in imshow if image dimensions <= 512, else use bilinear.
     Use logging.warning instead of warnings.warn in many cases.
@@ -123,13 +137,13 @@ Revisions
     Add option to concurrently decode image tiles using threads.
     Do not skip empty tiles (bug fix).
     Read JPEG and J2K compressed strips and tiles.
-    Allow floating point predictor on write.
+    Allow floating-point predictor on write.
     Add option to specify subfiletype on write.
     Depend on imagecodecs package instead of _tifffile, lzma, etc modules.
     Remove reverse_bitorder, unpack_ints, and decode functions.
     Use pytest instead of unittest.
 2018.6.20
-    Save RGBA with unassociated extrasample by default (backward incompatible).
+    Save RGBA with unassociated extrasample by default (breaking).
     Add option to specify ExtraSamples values.
 2018.6.17
     Towards reading JPEG and other compressions via imagecodecs package (WIP).
@@ -227,7 +241,7 @@ Revisions
     Allow saving Color Filter Array (CFA) images.
     Add info functions returning more information about TiffFile and TiffPage.
     Add option to read specific pages only.
-    Remove maxpages argument (backward incompatible).
+    Remove maxpages argument (breaking).
     Remove test_tifffile function.
 2016.10.28
     Improve detection of ImageJ hyperstacks.
@@ -240,7 +254,7 @@ Revisions
     Add option to specify resolution unit.
     Write grayscale images with extra samples when planarconfig is specified.
     Do not write RGB color images with 2 samples.
-    Reorder TiffWriter.save keyword arguments (backward incompatible).
+    Reorder TiffWriter.save keyword arguments (breaking).
 2016.4.18
     TiffWriter, imread, and imsave accept open binary file streams.
 2016.04.13
@@ -259,9 +273,9 @@ Revisions
     Add command line options to specify vmin and vmax values for colormapping.
 2015.10.06
     New helper function to apply colormaps.
-    Renamed is_palette attributes to is_indexed (backward incompatible).
-    Color-mapped samples are now contiguous (backward incompatible).
-    Do not color-map ImageJ hyperstacks (backward incompatible).
+    Renamed is_palette attributes to is_indexed (breaking).
+    Color-mapped samples are now contiguous (breaking).
+    Do not color-map ImageJ hyperstacks (breaking).
     Towards reading Leica SCN.
 2015.9.25
     Read images with reversed bit order (FillOrder is LSB2MSB).
@@ -281,7 +295,7 @@ Revisions
     Save tiled and color-mapped images (optional).
     Ignore void bytecounts and offsets if possible.
     Ignore bogus image_depth tag created by ISS Vista software.
-    Decode floating point horizontal differencing (not tiled).
+    Decode floating-point horizontal differencing (not tiled).
     Save image data contiguously if possible.
     Only read first IFD from ImageJ files if possible.
     Read ImageJ 'raw' format (files larger than 4 GB).
@@ -289,7 +303,7 @@ Revisions
     Try to read incomplete tiles.
     Open file dialog if no filename is passed on command line.
     Ignore errors when decoding OME-XML.
-    Rename decoder functions (backward incompatible).
+    Rename decoder functions (breaking).
 2014.8.24
     TiffWriter class for incremental writing images.
     Simplify examples.
@@ -298,12 +312,12 @@ Revisions
     Add function to determine if image data in TiffPage is memory-mappable.
     Do not close files if multifile_close parameter is False.
 2014.8.10
-    Return all extrasamples by default (backward incompatible).
+    Return all extrasamples by default (breaking).
     Read data from series of pages into memory-mapped array (optional).
-    Squeeze OME dimensions (backward incompatible).
+    Squeeze OME dimensions (breaking).
     Workaround missing EOI code in strips.
     Support image and tile depth tags (SGI extension).
-    Better handling of STK/UIC tags (backward incompatible).
+    Better handling of STK/UIC tags (breaking).
     Disable color mapping for STK.
     Julian to datetime converter.
     TIFF ASCII type may be NULL separated.
@@ -344,7 +358,12 @@ The API is not stable yet and might change between revisions.
 
 Tested on little-endian platforms only.
 
-Python 2.7, 3.4, and 32-bit versions are deprecated.
+Python 2.7 and 32-bit versions are deprecated.
+
+Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
+package for decoding LZW, JPEG, and other compressed images. Alternatively,
+the `imagecodecs-lite <https://pypi.org/project/imagecodecs-lite/>`_ package
+can be used for decoding LZW compressed images.
 
 There are several TIFF-like formats (not adhering to the TIFF6 specification)
 that allow files to exceed the 4 GB limit:
@@ -353,9 +372,10 @@ that allow files to exceed the 4 GB limit:
   header, IFD, and tag structures with 64-bit offsets. It adds more data types.
   Tifffile can read and write BigTIFF files.
 * *ImageJ* hyperstacks store all image data, which may exceed 4 GB,
-  contiguously after the first IFD. The size of the image data can be
-  determined from the ImageDescription of the first IFD. Files > 4 GB contain
-  one IFD only. Tifffile can read and write ImageJ hyperstacks.
+  contiguously after the first IFD. Files > 4 GB contain one IFD only.
+  The size (shape and dtype) of the image data can be determined from the
+  ImageDescription of the first IFD. Tifffile can read and write ImageJ
+  hyperstacks.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
