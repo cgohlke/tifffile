@@ -26,16 +26,31 @@ readme = re.search(r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}from', code,
 readme = '\n'.join([description, '=' * len(description)]
                    + readme.splitlines()[1:])
 
-license = re.search(r'(# Copyright.*?(?:\r\n|\r|\n))(?:\r\n|\r|\n)+""', code,
-                    re.MULTILINE | re.DOTALL).groups()[0]
-
-license = license.replace('# ', '').replace('#', '')
-
 if 'sdist' in sys.argv:
-    with open('LICENSE', 'w') as fh:
-        fh.write(license)
+    # update README, LICENSE, and CHANGES files
+
     with open('README.rst', 'w') as fh:
         fh.write(readme)
+
+    license = re.search(r'(# Copyright.*?(?:\r\n|\r|\n))(?:\r\n|\r|\n)+""',
+                        code, re.MULTILINE | re.DOTALL).groups()[0]
+
+    license = license.replace('# ', '').replace('#', '')
+
+    with open('LICENSE', 'w') as fh:
+        fh.write(license)
+
+    revisions = re.search(r'(?:\r\n|\r|\n){2}(Revisions.*)   \.\.\.', readme,
+                          re.MULTILINE | re.DOTALL).groups()[0].strip()
+
+    with open('CHANGES.rst', 'r') as fh:
+        old = fh.read()
+
+    d = revisions.splitlines()[-1]
+    old = old.split(d)[-1]
+    with open('CHANGES.rst', 'w') as fh:
+        fh.write(revisions.strip())
+        fh.write(old)
 
 setup(
     name='tifffile',
