@@ -39,9 +39,9 @@ Tifffile is a Python library to
 (1) store numpy arrays in TIFF (Tagged Image File Format) files, and
 (2) read image and metadata from TIFF-like files used in bioimaging.
 
-Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, NIH,
-SGI, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS, ZIF,
-QPI, NDPI, and GeoTIFF files.
+Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
+NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
+ZIF, QPI, NDPI, and GeoTIFF files.
 
 Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
 files in multi-page, memory-mappable, tiled, predicted, or compressed form.
@@ -71,14 +71,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.2.22
+:Version: 2019.3.8
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
+* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
 * `Imagecodecs 2019.2.22 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for decoding LZW, JPEG, etc.)
@@ -87,12 +87,18 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.3.8
+    Pass 2753 tests, 80% coverage.
+    Fix MemoryError when RowsPerStrip > ImageLength.
+    Fix SyntaxWarning on Python 3.8.
+    Fail to decode JPEG to planar RGB for now.
+    Separate public from private test files (WIP).
+    Allow testing without data files or imagecodecs.
 2019.2.22
-    Pass 2751 tests, 80% coverage.
     Use imagecodecs-lite as a fallback for imagecodecs.
     Simplify reading numpy arrays from file.
     Use TiffFrames when reading arrays from page sequences.
-    Support slices and iterators in TiffSequence sequence interface.
+    Support slices and iterators in TiffPageSeries sequence interface.
     Auto-detect uniform series.
     Use page hash to determine generic series.
     Turn off page cache (tentative).
@@ -151,7 +157,7 @@ Revisions
     Deprecate 32-bit platforms (too many memory errors during tests).
 2018.9.27
     Read Olympus SIS (WIP).
-    Allow to write non-BigTIFF files up to ~4 GB (bug fix).
+    Allow to write non-BigTIFF files up to ~4 GB (fix).
     Fix parsing date and time fields in SEM metadata.
     Detect some circular IFD references.
     Enable WebP codecs via imagecodecs.
@@ -168,7 +174,7 @@ Revisions
     Move usage examples to module docstring.
     Enable multi-threading for compressed tiles and pages by default.
     Add option to concurrently decode image tiles using threads.
-    Do not skip empty tiles (bug fix).
+    Do not skip empty tiles (fix).
     Read JPEG and J2K compressed strips and tiles.
     Allow floating-point predictor on write.
     Add option to specify subfiletype on write.
@@ -178,7 +184,7 @@ Revisions
 2018.6.20
     Save RGBA with unassociated extrasample by default (breaking).
     Add option to specify ExtraSamples values.
-2018.6.17
+2018.6.17 (included with 0.15.1)
     Towards reading JPEG and other compressions via imagecodecs package (WIP).
     Read SampleFormat VOID as UINT.
     Add function to validate TIFF using 'jhove -m TIFF-hul'.
@@ -188,7 +194,7 @@ Revisions
     Raise DOS limit to 16 TB.
     Lazy load lzma and zstd compressors and decompressors.
     Add option to save IJMetadata tags.
-    Return correct number of pages for truncated series (bug fix).
+    Return correct number of pages for truncated series (fix).
     Move EXIF tags to TIFF.TAG as per TIFF/EP standard.
 2018.2.18
     Always save RowsPerStrip and Resolution tags as required by TIFF standard.
@@ -208,7 +214,7 @@ Revisions
     Add option to apply horizontal differencing before compression.
     Towards reading PerkinElmer QPI (QPTIFF, no test files).
     Do not index out of bounds data in tifffile.c unpackbits and decodelzw.
-2017.9.29 (tentative)
+2017.9.29
     Many backward incompatible changes improving speed and resource usage:
     Add detail argument to __str__ function. Remove info functions.
     Fix potential issue correcting offsets of large LSM files with positions.
@@ -249,10 +255,10 @@ Revisions
     Read tags from EXIF and GPS IFDs.
     Use pformat for tag and metadata values.
     Fix reading some UIC tags.
-    Do not modify input array in imshow (bug fix).
+    Do not modify input array in imshow (fix).
     Fix Python implementation of unpack_ints.
 2017.5.23
-    Write correct number of SampleFormat values (bug fix).
+    Write correct number of SampleFormat values (fix).
     Use Adobe deflate code to write ZIP compressed files.
     Add option to pass tag values as packed binary data for writing.
     Defer tag validation to attribute access.
@@ -262,128 +268,15 @@ Revisions
     Read ScanImage metadata.
     Remove is_rgb and is_indexed attributes from TiffFile.
     Create files used by doctests.
-2017.1.12
+2017.1.12 (included with scikit-image 0.14.x)
     Read Zeiss SEM metadata.
     Read OME-TIFF with invalid references to external files.
     Rewrite C LZW decoder (5x faster).
     Read corrupted LSM files missing EOI code in LZW stream.
 2017.1.1
-    Add option to append images to existing TIFF files.
-    Read files without pages.
-    Read S-FEG and Helios NanoLab tags created by FEI software.
-    Allow saving Color Filter Array (CFA) images.
-    Add info functions returning more information about TiffFile and TiffPage.
-    Add option to read specific pages only.
-    Remove maxpages argument (breaking).
-    Remove test_tifffile function.
-2016.10.28
-    Improve detection of ImageJ hyperstacks.
-    Read TVIPS metadata created by EM-MENU (by Marco Oster).
-    Add option to disable using OME-XML metadata.
-    Allow non-integer range attributes in modulo tags (by Stuart Berg).
-2016.6.21
-    Do not always memmap contiguous data in page series.
-2016.5.13
-    Add option to specify resolution unit.
-    Write grayscale images with extra samples when planarconfig is specified.
-    Do not write RGB color images with 2 samples.
-    Reorder TiffWriter.save keyword arguments (breaking).
-2016.4.18
-    TiffWriter, imread, and imsave accept open binary file streams.
-2016.04.13
-    Fix reversed fill order in 2 and 4 bps images.
-    Implement reverse_bitorder in C.
-2016.03.18
-    Fix saving additional ImageJ metadata.
-2016.2.22
-    Write 8 bytes double tag values using offset if necessary (bug fix).
-    Add option to disable writing second image description tag.
-    Detect tags with incorrect counts.
-    Disable color mapping for LSM.
-2015.11.13
-    Read LSM 6 mosaics.
-    Add option to specify directory of memory-mapped files.
-    Add command line options to specify vmin and vmax values for colormapping.
-2015.10.06
-    New helper function to apply colormaps.
-    Renamed is_palette attributes to is_indexed (breaking).
-    Color-mapped samples are now contiguous (breaking).
-    Do not color-map ImageJ hyperstacks (breaking).
-    Towards reading Leica SCN.
-2015.9.25
-    Read images with reversed bit order (FillOrder is LSB2MSB).
-2015.9.21
-    Read RGB OME-TIFF.
-    Warn about malformed OME-XML.
-2015.9.16
-    Detect some corrupted ImageJ metadata.
-    Better axes labels for 'shaped' files.
-    Do not create TiffTag for default values.
-    Chroma subsampling is not supported.
-    Memory-map data in TiffPageSeries if possible (optional).
-2015.8.17
-    Write ImageJ hyperstacks (optional).
-    Read and write LZMA compressed data.
-    Specify datetime when saving (optional).
-    Save tiled and color-mapped images (optional).
-    Ignore void bytecounts and offsets if possible.
-    Ignore bogus image_depth tag created by ISS Vista software.
-    Decode floating-point horizontal differencing (not tiled).
-    Save image data contiguously if possible.
-    Only read first IFD from ImageJ files if possible.
-    Read ImageJ 'raw' format (files larger than 4 GB).
-    TiffPageSeries class for pages with compatible shape and data type.
-    Try to read incomplete tiles.
-    Open file dialog if no filename is passed on command line.
-    Ignore errors when decoding OME-XML.
-    Rename decoder functions (breaking).
-2014.8.24
-    TiffWriter class for incremental writing images.
-    Simplify examples.
-2014.8.19
-    Add memmap function to FileHandle.
-    Add function to determine if image data in TiffPage is memory-mappable.
-    Do not close files if multifile_close parameter is False.
-2014.8.10
-    Return all extrasamples by default (breaking).
-    Read data from series of pages into memory-mapped array (optional).
-    Squeeze OME dimensions (breaking).
-    Workaround missing EOI code in strips.
-    Support image and tile depth tags (SGI extension).
-    Better handling of STK/UIC tags (breaking).
-    Disable color mapping for STK.
-    Julian to datetime converter.
-    TIFF ASCII type may be NULL separated.
-    Unwrap strip offsets for LSM files greater than 4 GB.
-    Correct strip byte counts in compressed LSM files.
-    Skip missing files in OME series.
-    Read embedded TIFF files.
-2014.2.05
-    Save rational numbers as type 5 (bug fix).
-2013.12.20
-    Keep other files in OME multi-file series closed.
-    FileHandle class to abstract binary file handle.
-    Disable color mapping for bad OME-TIFF produced by bio-formats.
-    Read bad OME-XML produced by ImageJ when cropping.
-2013.11.3
-    Allow zlib compress data in imsave function (optional).
-    Memory-map contiguous image data (optional).
-2013.10.28
-    Read MicroManager metadata and little-endian ImageJ tag.
-    Save extra tags in imsave function.
-    Save tags in ascending order by code (bug fix).
-2012.10.18
-    Accept file like objects (read from OIB files).
-2012.8.21
-    Rename TIFFfile to TiffFile and TIFFpage to TiffPage.
-    TiffSequence class for reading sequence of TIFF files.
-    Read UltraQuant tags.
-    Allow float numbers as resolution in imsave function.
-2012.8.3
-    Read MD GEL tags and NIH Image header.
-2012.7.25
-    Read ImageJ tags.
     ...
+
+Refer to the CHANGES file for older revisions.
 
 Notes
 -----
@@ -472,7 +365,7 @@ Examples
 --------
 Save a 3D numpy array to a multi-page, 16-bit grayscale TIFF file:
 
->>> data = numpy.random.randint(0, 2**16, (4, 301, 219), 'uint16')
+>>> data = numpy.random.randint(0, 2**12, (4, 301, 219), 'uint16')
 >>> imwrite('temp.tif', data, photometric='minisblack')
 
 Read the whole image stack from the TIFF file as numpy array:
@@ -483,7 +376,7 @@ Read the whole image stack from the TIFF file as numpy array:
 >>> image_stack.dtype
 dtype('uint16')
 
-Read the image from first page (IFD) in the TIFF file as numpy array:
+Read the image from first page in the TIFF file as numpy array:
 
 >>> image = imread('temp.tif', key=0)
 >>> image.shape
@@ -505,7 +398,7 @@ Save a floating-point array and metadata, using zlib compression:
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
 >>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
 
-Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to a ImageJ file:
+Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to an ImageJ file:
 
 >>> volume = numpy.random.randn(57*256*256).astype('float32')
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
@@ -522,6 +415,23 @@ Read hyperstack and metadata from the ImageJ file:
 >>> imagej_metadata['slices']
 57
 
+Read the "XResolution" tag from the first page in the TIFF file:
+
+>>> with TiffFile('temp.tif') as tif:
+...     tag = tif.pages[0].tags['XResolution']
+>>> tag.value
+(2000, 5351)
+>>> tag.name
+'XResolution'
+>>> tag.code
+282
+>>> tag.count
+1
+>>> tag.dtype
+'2I'
+>>> tag.valueoffset
+360
+
 Read images from a selected range of pages:
 
 >>> image = imread('temp.tif', key=range(4, 40, 2))
@@ -537,7 +447,7 @@ Create an empty TIFF file and write to the memory-mapped numpy array:
 ((256, 256), dtype('float32'))
 >>> del memmap_image
 
-Memory-map image data in the TIFF file:
+Memory-map image data of the first page in the TIFF file:
 
 >>> memmap_image = memmap('temp.tif', page=0)
 >>> memmap_image[255, 255]
@@ -566,7 +476,7 @@ Save two image series to a TIFF file:
 >>> data1 = numpy.random.randint(0, 255, (5, 301, 219), 'uint16')
 >>> with TiffWriter('temp.tif') as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
-...     tif.save(data1, compress=6, photometric='minisblack')
+...     tif.save(data1, compress=6, photometric='minisblack', contiguous=False)
 
 Read the second image series from the TIFF file:
 
@@ -591,7 +501,7 @@ Read an image stack from a sequence of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.2.22'
+__version__ = '2019.3.8'
 __docformat__ = 'restructuredtext en'
 __all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap', 'lsm2bin',
            'TiffFile', 'TiffFileError', 'TiffWriter', 'TiffSequence',
@@ -619,12 +529,13 @@ import binascii
 import datetime
 import threading
 import collections
-from concurrent.futures import ThreadPoolExecutor
 
 try:
     from collections.abc import Iterable
 except ImportError:
     from collections import Iterable
+
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy
 
@@ -1245,8 +1156,7 @@ class TiffWriter(object):
                 planarconfig = None
             if planarconfig == SEPARATE:
                 raise ValueError('ImageJ does not support planar images')
-            else:
-                planarconfig = CONTIG if ijrgb else None
+            planarconfig = CONTIG if ijrgb else None
 
         # define compress function
         if compress:
@@ -1598,9 +1508,9 @@ class TiffWriter(object):
                      (shape[3] + tile[1] - 1) // tile[1],
                      (shape[4] + tile[2] - 1) // tile[2])
             numtiles = product(tiles) * shape[1]
-            stripbytecounts = [
+            databytecounts = [
                 product(tile) * shape[-1] * datadtype.itemsize] * numtiles
-            addtag(tagbytecounts, offsetformat, numtiles, stripbytecounts)
+            addtag(tagbytecounts, offsetformat, numtiles, databytecounts)
             addtag(tagoffsets, offsetformat, numtiles, [0] * numtiles)
             contiguous = contiguous and product(tiles) == 1
             if not contiguous:
@@ -1609,11 +1519,11 @@ class TiffWriter(object):
         elif contiguous and (bilevel or rowsperstrip is None):
             # one strip per plane
             if bilevel:
-                stripbytecounts = [product(datashape[2:])] * shape[1]
+                databytecounts = [product(datashape[2:])] * shape[1]
             else:
-                stripbytecounts = [
+                databytecounts = [
                     product(datashape[2:]) * datadtype.itemsize] * shape[1]
-            addtag(tagbytecounts, offsetformat, shape[1], stripbytecounts)
+            addtag(tagbytecounts, offsetformat, shape[1], databytecounts)
             addtag(tagoffsets, offsetformat, shape[1], [0] * shape[1])
             addtag('RowsPerStrip', 'I', 1, shape[-3])
         else:
@@ -1631,15 +1541,15 @@ class TiffWriter(object):
             numstrips1 = (shape[-3] + rowsperstrip - 1) // rowsperstrip
             numstrips = numstrips1 * shape[1]
             if compress:
-                stripbytecounts = [0] * numstrips
+                databytecounts = [0] * numstrips
             else:
                 # TODO: save bilevel data with rowsperstrip
                 stripsize = rowsperstrip * rowsize
-                stripbytecounts = [stripsize] * numstrips
+                databytecounts = [stripsize] * numstrips
                 stripsize -= rowsize * (numstrips1 * rowsperstrip - shape[-3])
                 for i in range(numstrips1-1, numstrips, numstrips1):
-                    stripbytecounts[i] = stripsize
-            addtag(tagbytecounts, offsetformat, numstrips, stripbytecounts)
+                    databytecounts[i] = stripsize
+            addtag(tagbytecounts, offsetformat, numstrips, databytecounts)
             addtag(tagoffsets, offsetformat, numstrips, [0] * numstrips)
 
         if data is None and not contiguous:
@@ -1697,18 +1607,18 @@ class TiffWriter(object):
                         ifd.seek(pos)
                         ifd.write(value)
                         if code == tagoffsets:
-                            stripoffsetsoffset = offset, pos
+                            dataoffsetsoffset = offset, pos
                         elif code == tagbytecounts:
-                            stripbytecountsoffset = offset, pos
+                            databytecountsoffset = offset, pos
                         elif code == 270 and value.endswith(b'\0\0\0\0'):
                             # image description buffer
                             self._descriptionoffset = ifdpos + pos
                             self._descriptionlenoffset = (
                                 ifdpos + tagoffset + tagindex*tagsize + 4)
                     elif code == tagoffsets:
-                        stripoffsetsoffset = offset, None
+                        dataoffsetsoffset = offset, None
                     elif code == tagbytecounts:
-                        stripbytecountsoffset = offset, None
+                        databytecountsoffset = offset, None
                 ifdsize = ifd.tell()
                 if ifdsize % 2:
                     ifd.write(b'\0')
@@ -1729,7 +1639,7 @@ class TiffWriter(object):
                     fh.write_array(data)
             elif tile:
                 if data is None:
-                    fh.write_empty(numtiles * stripbytecounts[0])
+                    fh.write_empty(numtiles * databytecounts[0])
                 else:
                     stripindex = 0
                     for plane in data[pageindex]:
@@ -1747,7 +1657,7 @@ class TiffWriter(object):
                                     if compress:
                                         t = compress(chunk)
                                         fh.write(t)
-                                        stripbytecounts[stripindex] = len(t)
+                                        databytecounts[stripindex] = len(t)
                                         stripindex += 1
                                     else:
                                         fh.write_array(chunk)
@@ -1762,35 +1672,35 @@ class TiffWriter(object):
                         strip = plane[0, i*rowsperstrip: (i+1)*rowsperstrip]
                         strip = compress(strip)
                         fh.write(strip)
-                        stripbytecounts[stripindex] = len(strip)
+                        databytecounts[stripindex] = len(strip)
                         stripindex += 1
             else:
                 fh.write_array(data[pageindex])
 
             # update strip/tile offsets
-            offset, pos = stripoffsetsoffset
+            offset, pos = dataoffsetsoffset
             ifd.seek(offset)
             if pos:
                 ifd.write(pack(offsetformat, ifdpos + pos))
-                stripoffset = dataoffset
                 ifd.seek(pos)
-                for size in stripbytecounts:
-                    ifd.write(pack(offsetformat, stripoffset))
-                    stripoffset += size
+                offset = dataoffset
+                for size in databytecounts:
+                    ifd.write(pack(offsetformat, offset))
+                    offset += size
             else:
                 ifd.write(pack(offsetformat, dataoffset))
 
             if compress:
                 # update strip/tile bytecounts
-                offset, pos = stripbytecountsoffset
+                offset, pos = databytecountsoffset
                 ifd.seek(offset)
                 if pos:
                     ifd.write(pack(offsetformat, ifdpos + pos))
                     ifd.seek(pos)
-                    for size in stripbytecounts:
+                    for size in databytecounts:
                         ifd.write(pack(offsetformat, size))
                 else:
-                    ifd.write(pack(offsetformat, stripbytecounts[0]))
+                    ifd.write(pack(offsetformat, databytecounts[0]))
 
             fhpos = fh.tell()
             fh.seek(ifdpos)
@@ -1808,14 +1718,14 @@ class TiffWriter(object):
         self._datashape = (1,) + input_shape
         self._datadtype = datadtype
         self._dataoffset = dataoffset
-        self._databytecounts = stripbytecounts
+        self._databytecounts = databytecounts
 
         if contiguous:
             # write remaining IFDs/tags later
             self._tags = tags
             # return offset and size of image data
             if returnoffset:
-                return dataoffset, sum(stripbytecounts)
+                return dataoffset, sum(databytecounts)
         return None
 
     def _write_remaining_pages(self):
@@ -1877,9 +1787,9 @@ class TiffWriter(object):
                 ifd.write(value)
                 if code == self._tagoffsets:
                     # save strip/tile offsets for later updates
-                    stripoffsetsoffset = offset, pos
+                    dataoffsetsoffset = offset, pos
             elif code == self._tagoffsets:
-                stripoffsetsoffset = offset, None
+                dataoffsetsoffset = offset, None
 
         ifdsize = ifd.tell()
         if ifdsize % 2:
@@ -1900,17 +1810,16 @@ class TiffWriter(object):
         for _ in range(pageno):
             # update strip/tile offsets in IFD
             dataoffset += pagedatasize  # offset to image data
-            offset, pos = stripoffsetsoffset
+            offset, pos = dataoffsetsoffset
+            ifd.seek(offset)
             if pos:
-                ifd.seek(offset)
                 ifd.write(pack(offsetformat, ifdpos + pos))
                 ifd.seek(pos)
-                stripoffset = dataoffset
+                offset = dataoffset
                 for size in self._databytecounts:
-                    ifd.write(pack(offsetformat, stripoffset))
-                    stripoffset += size
+                    ifd.write(pack(offsetformat, offset))
+                    offset += size
             else:
-                ifd.seek(offset)
                 ifd.write(pack(offsetformat, dataoffset))
             # update pointer at ifdoffset to point to next IFD in file
             ifdpos += ifdsize
@@ -2200,18 +2109,15 @@ class TiffFile(object):
         if key is None:
             pass
         elif series is None:
-            # from self.pages
             pages = self.pages._getlist(key)
+        elif isinstance(key, inttypes):
+            pages = [pages[key]]
+        elif isinstance(key, slice):
+            pages = pages[key]
+        elif isinstance(key, Iterable):
+            pages = [pages[k] for k in key]
         else:
-            # from series.pages
-            if isinstance(key, inttypes):
-                pages = [pages[key]]
-            elif isinstance(key, slice):
-                pages = pages[key]
-            elif isinstance(key, Iterable):
-                pages = [pages[k] for k in key]
-            else:
-                raise TypeError('key must be an int, slice, or sequence')
+            raise TypeError('key must be an int, slice, or sequence')
 
         if not pages:
             raise ValueError('no pages selected')
@@ -3335,7 +3241,7 @@ class TiffPages(object):
             index %= len(self)
         if self._keyframe.index == index:
             return
-        if index is 0:  # noqa: comparison to literal
+        if index == 0:
             self._keyframe = self.pages[0]
             return
         if self._indexed or index < len(self.pages):
@@ -3484,9 +3390,6 @@ class TiffPages(object):
         following TiffFrames.
 
         """
-        if key is 0:  # noqa: comparison to literal
-            return [self.pages[key]]
-
         getitem = self._getitem
         _useframes = self.useframes
 
@@ -3502,6 +3405,8 @@ class TiffPages(object):
         elif isinstance(key, inttypes):
             # return single TiffPage
             self.useframes = False
+            if key == 0:
+                return [self.pages[key]]
             try:
                 return [getitem(key)]
             finally:
@@ -3563,10 +3468,9 @@ class TiffPages(object):
         pages = self.pages
         getitem = self._getitem
 
-        if key is 0:  # noqa: comparison to literal
-            return pages[key]
-
         if isinstance(key, inttypes):
+            if key == 0:
+                return pages[key]
             return getitem(key)
 
         if isinstance(key, slice):
@@ -3807,6 +3711,7 @@ class TiffPage(object):
         elif 'ImageLength' in tags:
             if 'RowsPerStrip' not in tags or tags['RowsPerStrip'].count > 1:
                 self.rowsperstrip = self.imagelength
+            self.rowsperstrip = min(self.rowsperstrip, self.imagelength)
             # self.stripsperimage = int(math.floor(
             #    float(self.imagelength + self.rowsperstrip - 1) /
             #    self.rowsperstrip))
@@ -4047,6 +3952,7 @@ class TiffPage(object):
             decompress = TIFF.DECOMPESSORS[self.compression]
 
             if self.compression in (6, 7):  # COMPRESSION.JPEG
+                colorspace = None
                 outcolorspace = None
                 jpegtables = None
                 if lsb2msb:
@@ -4062,15 +3968,16 @@ class TiffPage(object):
                 #     fh.seek(tags['JPEGInterchangeFormat'].value)
                 #     fh.read(tags['JPEGInterchangeFormatLength'].value)
                 if 'ExtraSamples' in tags:
-                    colorspace = None
+                    pass
+                elif self.photometric == 6:
+                    # YCBCR -> RGB
+                    outcolorspace = 'RGB'
+                elif self.photometric == 2 and self.planarconfig == 2:
+                    # TODO: decode JPEG to planar RGB
+                    raise NotImplementedError(
+                        'cannot decode JPEG to planar RGB')
                 else:
-                    colorspace = TIFF.PHOTOMETRIC(self.photometric).name
-                    outcolorspace = colorspace
-                    if colorspace == 'YCBCR':
-                        outcolorspace = 'RGB'
-                    elif colorspace in ('MINISBLACK', 'MINISWHITE'):
-                        outcolorspace = colorspace
-                        colorspace = None
+                    outcolorspace = TIFF.PHOTOMETRIC(self.photometric).name
                 if istiled:
                     heightwidth = tilelength, tilewidth
                 else:
@@ -9835,23 +9742,27 @@ def clean_offsets_counts(offsets, counts):
     Use to sanitize StripOffsets and StripByteCounts tag values.
 
     """
+    # TODO: cythonize this
     offsets = list(offsets)
     counts = list(counts)
-    if len(offsets) != len(counts):
+    size = len(offsets)
+    if size != len(counts):
         raise ValueError('StripOffsets and StripByteCounts mismatch')
     j = 0
     for i, (o, b) in enumerate(zip(offsets, counts)):
-        if o > 0 and b > 0:
-            if i > j:
-                offsets[j] = o
-                counts[j] = b
-            j += 1
-        elif b > 0 and o <= 0:
+        if b > 0:
+            if o > 0:
+                if i > j:
+                    offsets[j] = o
+                    counts[j] = b
+                j += 1
+                continue
             raise ValueError('invalid offset')
-        else:
-            log.warning('clean_offsets_counts: empty byte count')
+        log.warning('clean_offsets_counts: empty bytecount')
+    if size == len(offsets):
+        return offsets, counts
     if j == 0:
-        j = 1
+        return [offsets[0]], [counts[0]]
     return offsets[:j], counts[:j]
 
 
@@ -10822,7 +10733,7 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
     dims = data.ndim
     if dims < 2:
         raise ValueError('not an image')
-    elif dims == 2:
+    if dims == 2:
         dims = 0
         isrgb = False
     else:
@@ -11123,9 +11034,8 @@ def main(argv=None):
     except Exception as exc:
         if settings.debug:
             raise
-        else:
-            print('\n\n%s: %s' % (exc.__class__.__name__, exc))
-            sys.exit(0)
+        print('\n\n%s: %s' % (exc.__class__.__name__, exc))
+        sys.exit(0)
 
     if not settings.quiet:
         print('%.3f ms' % ((time.time()-start) * 1e3))
@@ -11160,14 +11070,12 @@ def main(argv=None):
                         images.append((None, notnone(s.pages), None))
                         if settings.debug:
                             raise
-                        else:
-                            print('\nSeries %i failed with %s: %s... ' %
-                                  (i, exc.__class__.__name__, exc), end='')
+                        print('\nSeries %i failed with %s: %s... ' %
+                              (i, exc.__class__.__name__, exc), end='')
         except Exception as exc:
             if settings.debug:
                 raise
-            else:
-                print('%s: %s' % (exc.__class__.__name__, exc))
+            print('%s: %s' % (exc.__class__.__name__, exc))
 
         if not settings.quiet:
             print('%.3f ms' % ((time.time()-start) * 1e3))
