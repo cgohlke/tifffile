@@ -1,7 +1,14 @@
 Revisions
 ---------
+2019.3.18
+    Pass 2756 tests.
+    Fix regression decoding JPEG with RGB photometrics.
+    Fix reading OME-TIFF files with corrupted but unused pages.
+    Allow to load TiffFrame without specifying keyframe.
+    Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
+    Rename property is_chroma_subsampled to is_subsampled.
+    Make more attributes and methods private (WIP).
 2019.3.8
-    Pass 2753 tests, 80% coverage.
     Fix MemoryError when RowsPerStrip > ImageLength.
     Fix SyntaxWarning on Python 3.8.
     Fail to decode JPEG to planar RGB for now.
