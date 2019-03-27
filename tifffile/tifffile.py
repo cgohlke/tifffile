@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.3.8
+:Version: 2019.3.18
 
 Requirements
 ------------
@@ -87,8 +87,15 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.3.18
+    Pass 2756 tests.
+    Fix regression decoding JPEG with RGB photometrics.
+    Fix reading OME-TIFF files with corrupted but unused pages.
+    Allow to load TiffFrame without specifying keyframe.
+    Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
+    Rename property is_chroma_subsampled to is_subsampled.
+    Make more attributes and methods private (WIP).
 2019.3.8
-    Pass 2753 tests, 80% coverage.
     Fix MemoryError when RowsPerStrip > ImageLength.
     Fix SyntaxWarning on Python 3.8.
     Fail to decode JPEG to planar RGB for now.
@@ -311,6 +318,11 @@ that allow files to exceed the 4 GB limit:
   JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
   Tifffile can read NDPI files < 4 GB and decompress large JPEG tiles using
   the imagecodecs library on Windows.
+* *ScanImage* optionally writes corrupt non-BigTIFF files > 2 GB. The values
+  of StripOffsets and StripByteCounts can be recovered using the constant
+  differences of the offsets of IFD and tag values throughout the file.
+  TiffFile can read such files on Python 3 if the image data is stored
+  contiguously in each page.
 
 Other libraries for reading scientific TIFF files from Python:
 
@@ -501,7 +513,7 @@ Read an image stack from a sequence of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.3.8'
+__version__ = '2019.3.18'
 __docformat__ = 'restructuredtext en'
 __all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap', 'lsm2bin',
            'TiffFile', 'TiffFileError', 'TiffWriter', 'TiffSequence',
@@ -2002,8 +2014,9 @@ class TiffFile(object):
                                 self.pages[0].compression != 1 or
                                 self.pages[1].compression != 1):
                 self._lsm_load_pages()
-                self._lsm_fix_strip_offsets()
-                self._lsm_fix_strip_bytecounts()
+            elif self.is_scanimage and (not self.is_bigtiff and
+                                        self.filehandle.size >= 2**31):
+                self.pages._load_virtual_frames()
             elif _useframes:
                 self.pages.useframes = True
 
@@ -2201,10 +2214,10 @@ class TiffFile(object):
 
         """
         pages = self.pages
-        pages.clear(False)
+        pages._clear(False)
         pages.useframes = False
         if pages.cache:
-            pages.load()
+            pages._load()
 
         result = []
         keys = []
@@ -2491,7 +2504,7 @@ class TiffFile(object):
         self.pages.cache = True
         self.pages.useframes = True
         self.pages.keyframe = 0
-        self.pages.load()
+        self.pages._load(keyframe=None)
 
         uuid = root.attrib.get('UUID', None)
         self._files = {uuid: self}
@@ -2586,7 +2599,7 @@ class TiffFile(object):
                                 tif.pages.cache = True
                                 tif.pages.useframes = True
                                 tif.pages.keyframe = 0
-                                tif.pages.load()
+                                tif.pages._load(keyframe=None)
                             except (IOError, FileNotFoundError, ValueError):
                                 log.warning("OME series: failed to read '%s'",
                                             fname)
@@ -2604,7 +2617,8 @@ class TiffFile(object):
                     else:
                         pages = self.pages
                         try:
-                            for i in range(num if num else len(pages)):
+                            for i in range(num if num else
+                                           min(len(pages), len(ifds))):
                                 ifds[idx + i] = pages[ifd + i]
                         except IndexError:
                             log.warning('OME series: index out of range')
@@ -2613,7 +2627,7 @@ class TiffFile(object):
                     # skip images without data
                     continue
 
-                # set a keyframe on all IFDs
+                # find a keyframe
                 keyframe = None
                 for i in ifds:
                     # try find a TiffPage
@@ -2628,9 +2642,6 @@ class TiffFile(object):
                             keyframe = keyframe.parent.pages[keyframe.index]
                             ifds[i] = keyframe
                             break
-                for i in ifds:
-                    if i is not None:
-                        i.keyframe = keyframe
 
                 # move channel axis to match PlanarConfiguration storage
                 # TODO: is this a bug or a inconsistency in the OME spec?
@@ -2643,12 +2654,18 @@ class TiffFile(object):
                 # FIXME: this implementation assumes the last dimensions are
                 # stored in TIFF pages. Apparently that is not always the case.
                 # For now, verify that shapes of keyframe and series match
+                # If not, skip series.
                 if keyframe.shape != tuple(shape[-len(keyframe.shape):]):
                     log.warning('OME series: incompatible page shape %s; '
                                 'expected %s', keyframe.shape,
                                 tuple(shape[-len(keyframe.shape):]))
                     del ifds
                     continue
+
+                # set a keyframe on all IFDs
+                for i in ifds:
+                    if i is not None:
+                        i.keyframe = keyframe
 
                 series.append(
                     TiffPageSeries(ifds, shape, keyframe.dtype, axes,
@@ -2695,7 +2712,8 @@ class TiffFile(object):
         if self.pages[1].is_reduced:
             pages = self.pages._getlist(slice(1, None, 2), validate=False)
             dtype = pages[0].dtype
-            cp, i = 1, 0
+            cp = 1
+            i = 0
             while cp < len(pages) and i < len(shape)-2:
                 cp *= shape[i]
                 i += 1
@@ -2708,15 +2726,25 @@ class TiffFile(object):
         return series
 
     def _lsm_load_pages(self):
-        """Load all pages from LSM file."""
-        self.pages.cache = True
-        self.pages.useframes = True
-        self.pages.keyframe = 1
-        self.pages.keyframe = 0
-        self.pages.load()
-        # second series: thumbnails
-        keyframe = self.pages[1]
-        for page in self.pages[1::2]:
+        """Load and fix all pages from LSM file."""
+        # cache all pages to preserve corrected values
+        pages = self.pages
+        pages.cache = True
+        pages.useframes = True
+        # use first and second page as keyframes
+        pages.keyframe = 1
+        pages.keyframe = 0
+        # load remaining pages as frames
+        pages._load(keyframe=None)
+        # fix offsets and bytecounts first
+        self._lsm_fix_strip_offsets()
+        self._lsm_fix_strip_bytecounts()
+        # assign keyframes for data and thumbnail series
+        keyframe = pages[0]
+        for page in pages[::2]:
+            page.keyframe = keyframe
+        keyframe = pages[1]
+        for page in pages[1::2]:
             page.keyframe = keyframe
 
     def _lsm_fix_strip_offsets(self):
@@ -2756,8 +2784,7 @@ class TiffFile(object):
             indices = numpy.arange(npages).reshape(-1, 2)
 
         # images of reduced page might be stored first
-        if (pages[0].offsets_bytecounts[0][0] >
-                pages[1].offsets_bytecounts[0][0]):
+        if pages[0]._offsetscounts[0][0] > pages[1]._offsetscounts[0][0]:
             indices = indices[..., ::-1]
 
         # unwrap offsets
@@ -2766,12 +2793,12 @@ class TiffFile(object):
         for i in indices.flat:
             page = pages[int(i)]
             dataoffsets = []
-            for currentoffset in page.offsets_bytecounts[0]:
+            for currentoffset in page._offsetscounts[0]:
                 if currentoffset < previousoffset:
                     wrap += 2**32
                 dataoffsets.append(currentoffset + wrap)
                 previousoffset = currentoffset
-            page.offsets_bytecounts = dataoffsets, page.offsets_bytecounts[1]
+            page._offsetscounts = dataoffsets, page._offsetscounts[1]
 
     def _lsm_fix_strip_bytecounts(self):
         """Set databytecounts to size of compressed data.
@@ -2784,22 +2811,20 @@ class TiffFile(object):
         if pages[0].compression == 1:
             return
         # sort pages by first strip offset
-        pages = sorted(pages, key=lambda p: p.offsets_bytecounts[0][0])
+        pages = sorted(pages, key=lambda p: p._offsetscounts[0][0])
         npages = len(pages) - 1
         for i, page in enumerate(pages):
             if page.index % 2:
                 continue
-            offsets = page.offsets_bytecounts[0]
-            bytecounts = page.offsets_bytecounts[1]
+            offsets, bytecounts = page._offsetscounts
             if i < npages:
-                lastoffset = pages[i+1].offsets_bytecounts[0][0]
+                lastoffset = pages[i+1]._offsetscounts[0][0]
             else:
                 # LZW compressed strips might be longer than uncompressed
                 lastoffset = min(offsets[-1] + 2*bytecounts[-1], self._fh.size)
-            offsets = offsets + [lastoffset]
-            page.offsets_bytecounts = (page.offsets_bytecounts[0],
-                                       tuple(offsets[j+1] - offsets[j]
-                                             for j in range(len(bytecounts))))
+            for j in range(len(bytecounts) - 1):
+                bytecounts[j] = offsets[j+1] - offsets[j]
+            bytecounts[-1] = lastoffset - offsets[-1]
 
     def __getattr__(self, name):
         """Return 'is_flag' attributes from first page."""
@@ -3145,7 +3170,7 @@ class TiffFile(object):
 
 
 class TiffPages(object):
-    """Sequence of TIFF image file directories.
+    """Sequence of TIFF image file directories (IFD chain).
 
     Instances of TiffPages have a state (cache, keyframe, etc.) and are not
     thread-safe.
@@ -3207,7 +3232,7 @@ class TiffPages(object):
 
     @property
     def cache(self):
-        """Return if pages/frames are currenly being cached."""
+        """Return if pages/frames are currently being cached."""
         return self._cache
 
     @cache.setter
@@ -3215,7 +3240,7 @@ class TiffPages(object):
         """Enable or disable caching of pages/frames. Clear cache if False."""
         value = bool(value)
         if self._cache and not value:
-            self.clear()
+            self._clear()
         self._cache = value
 
     @property
@@ -3269,7 +3294,7 @@ class TiffPages(object):
             self._seek(-1)
         return self._nextpageoffset
 
-    def load(self):
+    def _load(self, keyframe=True):
         """Read all remaining pages from file."""
         if self._cached:
             return
@@ -3281,7 +3306,8 @@ class TiffPages(object):
         if not self._cache:
             return
         fh = self.parent.filehandle
-        keyframe = self._keyframe
+        if keyframe is not None:
+            keyframe = self._keyframe
         for i, page in enumerate(pages):
             if isinstance(page, inttypes):
                 fh.seek(page)
@@ -3289,7 +3315,46 @@ class TiffPages(object):
                 pages[i] = page
         self._cached = True
 
-    def clear(self, fully=True):
+    def _load_virtual_frames(self):
+        """Calculate virtual TiffFrames."""
+        pages = self.pages
+        try:
+            if sys.version_info[0] == 2:
+                raise ValueError('not supported on Python 2')
+            if len(pages) > 1:
+                raise ValueError('pages already loaded')
+            page = pages[0]
+            bytecounts = page._offsetscounts[1]
+            if len(bytecounts) != 1:
+                raise ValueError('data not contiguous')
+            self._seek(4)
+            delta = pages[2] - pages[1]
+            if pages[3] - pages[2] != delta or pages[4] - pages[3] != delta:
+                raise ValueError('page offsets not equidistant')
+            page1 = self._getitem(1, validate=page.hash)
+            offsetoffset = page1._offsetscounts[0][0] - page1.offset
+            if offsetoffset < 0 or offsetoffset > delta:
+                raise ValueError('page offsets not equidistant')
+            pages = [page, page1]
+            filesize = self.parent.filehandle.size - delta
+            for index, offset in enumerate(range(page1.offset+delta,
+                                                 filesize, delta)):
+                offsets = [offset + offsetoffset]
+                offset = offset if offset < 2**31 else None
+                pages.append(
+                    TiffFrame(parent=page.parent, index=index+2, offset=None,
+                              offsets=offsets, bytecounts=bytecounts,
+                              keyframe=page))
+        except Exception as exc:
+            log.warning(
+                'TiffPages: failed to load virtual frames: %s', str(exc))
+        assert pages[1]
+        self.pages = pages
+        self._cache = True
+        self._cached = True
+        self._indexed = True
+
+    def _clear(self, fully=True):
         """Delete all but first page from cache. Set keyframe to first page."""
         pages = self.pages
         if not pages:
@@ -3298,12 +3363,12 @@ class TiffPages(object):
         if fully:
             # delete all but first TiffPage/TiffFrame
             for i, page in enumerate(pages[1:]):
-                if not isinstance(page, inttypes):
+                if not isinstance(page, inttypes) and page.offset is not None:
                     pages[i+1] = page.offset
         elif TiffFrame is not TiffPage:
             # delete only TiffFrames
             for i, page in enumerate(pages):
-                if isinstance(page, TiffFrame):
+                if isinstance(page, TiffFrame) and page.offset is not None:
                     pages[i] = page.offset
         self._cached = False
 
@@ -3347,8 +3412,8 @@ class TiffPages(object):
                     raise TiffFileError(
                         'suspicious number of tags: %i' % tagno)
             except Exception:
-                log.warning('TiffPages: corrupted tag list at offset %i',
-                            offset)
+                log.warning('TiffPages: corrupted tag list of page %i @ %i',
+                            lenpages, offset)
                 del pages[-1]
                 lenpages -= 1
                 self._indexed = True
@@ -3455,8 +3520,7 @@ class TiffPages(object):
                 return page
 
         self._seek(key)
-        page = self._tiffpage(self.parent, index=key, keyframe=self._keyframe,
-                              validate=validate)
+        page = self._tiffpage(self.parent, index=key, keyframe=self._keyframe)
         if validate and validate != page.hash:
             raise RuntimeError('page hash mismatch')
         if self._cache:
@@ -3566,7 +3630,7 @@ class TiffPage(object):
     description = ''
     description1 = ''
 
-    def __init__(self, parent, index, keyframe=None, validate=None):
+    def __init__(self, parent, index, keyframe=None):
         """Initialize instance from file.
 
         The file handle position must be at offset to a valid IFD.
@@ -3797,8 +3861,6 @@ class TiffPage(object):
             self.dataoffsets = tags['TileOffsets'].value
         elif 'StripOffsets' in tags:
             self.dataoffsets = tags['StripOffsets'].value
-        else:
-            self.dataoffsets = (0,)
 
         if 'TileByteCounts' in tags:
             self.databytecounts = tags['TileByteCounts'].value
@@ -3829,7 +3891,7 @@ class TiffPage(object):
             If str or open file, the file name or file object used to
             create a memory-map to an array stored in a binary file on disk.
         squeeze : bool
-            If True, all length-1 dimensions (except X and Y) are
+            If True (default), all length-1 dimensions (except X and Y) are
             squeezed out from the array.
             If False, the shape of the returned array might be different from
             the page.shape.
@@ -3866,7 +3928,7 @@ class TiffPage(object):
         # properties from TiffPage or TiffFrame
         fh = self.parent.filehandle
         byteorder = self.parent.tiff.byteorder
-        offsets, bytecounts = self.offsets_bytecounts
+        offsets, bytecounts = self._offsetscounts
         self_ = self
         self = self.keyframe  # self or keyframe
 
@@ -3891,8 +3953,8 @@ class TiffPage(object):
                 if tag.count != 1 and any((i-tag.value[0] for i in tag.value)):
                     raise ValueError(
                         'sample formats do not match %s' % tag.value)
-            if self.is_chroma_subsampled and (self.compression not in (6, 7) or
-                                              self.planarconfig == 2):
+            if self.is_subsampled and (self.compression not in (6, 7) or
+                                       self.planarconfig == 2):
                 raise NotImplementedError('chroma subsampling not supported')
             if validate is None:
                 return None
@@ -3972,10 +4034,12 @@ class TiffPage(object):
                 elif self.photometric == 6:
                     # YCBCR -> RGB
                     outcolorspace = 'RGB'
-                elif self.photometric == 2 and self.planarconfig == 2:
-                    # TODO: decode JPEG to planar RGB
-                    raise NotImplementedError(
-                        'cannot decode JPEG to planar RGB')
+                elif self.photometric == 2:
+                    if self.planarconfig == 2:
+                        # TODO: decode JPEG to planar RGB
+                        raise NotImplementedError(
+                            'cannot decode JPEG to planar RGB')
+                    colorspace = outcolorspace = 'RGB'
                 else:
                     outcolorspace = TIFF.PHOTOMETRIC(self.photometric).name
                 if istiled:
@@ -4181,14 +4245,14 @@ class TiffPage(object):
                 self.planarconfig))
 
     @lazyattr
-    def offsets_bytecounts(self):
+    def _offsetscounts(self):
         """Return simplified offsets and bytecounts."""
         if self.is_contiguous:
-            offset, byte_count = self.is_contiguous
-            return [offset], [byte_count]
+            offset, bytecount = self.is_contiguous
+            return [offset], [bytecount]
         if self.is_tiled:
             return self.dataoffsets, self.databytecounts
-        return clean_offsets_counts(self.dataoffsets, self.databytecounts)
+        return clean_offsetscounts(self.dataoffsets, self.databytecounts)
 
     @lazyattr
     def is_contiguous(self):
@@ -4228,7 +4292,7 @@ class TiffPage(object):
 
         """
         return (self.is_contiguous and self.fillorder == 1 and
-                self.predictor == 1 and not self.is_chroma_subsampled)
+                self.predictor == 1 and not self.is_subsampled)
 
     @lazyattr
     def is_memmappable(self):
@@ -4500,7 +4564,7 @@ class TiffPage(object):
         return 'TileWidth' in self.tags
 
     @property
-    def is_chroma_subsampled(self):
+    def is_subsampled(self):
         """Page contains chroma subsampled image."""
         return ('YCbCrSubSampling' in self.tags and
                 self.tags['YCbCrSubSampling'].value != (1, 1))
@@ -4677,39 +4741,51 @@ class TiffFrame(object):
     Not compatible with Python 2.
 
     """
-    __slots__ = 'index', 'keyframe', 'parent', 'offset', 'offsets_bytecounts'
+    __slots__ = 'index', 'parent', 'offset', '_offsetscounts', '_keyframe'
 
     is_mdgel = False
     pages = None
     tags = {}
 
-    def __init__(self, parent, index, keyframe, validate=False):
-        """Read specified tags from file.
+    def __init__(self, parent, index, offset=None, keyframe=None,
+                 offsets=None, bytecounts=None):
+        """Initialize TiffFrame from file or values.
 
         The file handle position must be at the offset to a valid IFD.
 
         """
+        self._keyframe = None
         self.parent = parent
         self.index = index
-        self.keyframe = keyframe
-        self.offset = parent.filehandle.tell()
+        self.offset = offset
 
-        if keyframe.is_contiguous:
-            tags = {273, 324}
+        if offsets is not None:
+            # initialize "virtual frame" from offsets and bytecounts
+            self._offsetscounts = offsets, bytecounts
+            self._keyframe = keyframe
+            return
+
+        if offset is None:
+            self.offset = parent.filehandle.tell()
         else:
+            parent.filehandle.seek(offset)
+
+        if keyframe is None:
             tags = {273, 279, 324, 325}
-        if validate:
-            tags.add(256)
+        elif keyframe.is_contiguous:
+            tags = {256, 273, 324}
+        else:
+            tags = {256, 273, 279, 324, 325}
+
+        dataoffsets = databytecounts = []
 
         for code, tag in self._gettags(tags):
             if code == 273 or code == 324:
-                dataoffsets = tag.value
+                dataoffsets = list(tag.value)
             elif code == 279 or code == 325:
-                databytecounts = tag.value
-            elif code == 256:
-                # Q&D sanity check
-                if keyframe.imagewidth != tag.value:
-                    raise RuntimeError('incompatible keyframe')
+                databytecounts = list(tag.value)
+            elif code == 256 and keyframe.imagewidth != tag.value:
+                raise RuntimeError('incompatible keyframe')
             # elif code == 270:
             #     tagname = tag.name
             #     if tagname not in tags:
@@ -4718,16 +4794,14 @@ class TiffFrame(object):
             #         tags['ImageDescription1'] = bytes2str(tag.value)
             # else:
             #     tags[tag.name] = tag.value
-        if validate and len(dataoffsets) != len(keyframe.dataoffsets):
-            raise RuntimeError('incompatible keyframe')
-        if keyframe.is_contiguous:
-            self.offsets_bytecounts = ((dataoffsets[0], ),
-                                       (keyframe.is_contiguous[1], ))
-        elif keyframe.is_tiled:
-            self.offsets_bytecounts = dataoffsets, databytecounts
-        else:
-            self.offsets_bytecounts = clean_offsets_counts(dataoffsets,
-                                                           databytecounts)
+
+        if not dataoffsets:
+            log.warning('TiffFrame %i is missing required tags', index)
+
+        self._offsetscounts = dataoffsets, databytecounts
+
+        if keyframe is not None:
+            self.keyframe = keyframe
 
     def _gettags(self, codes=None, lock=None):
         """Return list of (code, TiffTag) from file."""
@@ -4771,44 +4845,78 @@ class TiffFrame(object):
 
     def aspage(self):
         """Return TiffPage from file."""
+        if self.offset is None:
+            raise ValueError('cannot return virtual frame as page.')
         self.parent.filehandle.seek(self.offset)
-        return TiffPage(self.parent, index=self.index, keyframe=None)
+        return TiffPage(self.parent, index=self.index)
 
     def asarray(self, *args, **kwargs):
         """Read image data from file and return as numpy array."""
         # TODO: fix TypeError on Python 2
         #   "TypeError: unbound method asarray() must be called with TiffPage
         #   instance as first argument (got TiffFrame instance instead)"
+        if self._keyframe is None:
+            raise RuntimeError('keyframe not set')
         kwargs['validate'] = False
         return TiffPage.asarray(self, *args, **kwargs)
 
     def asrgb(self, *args, **kwargs):
         """Read image data from file and return RGB image as numpy array."""
+        if self._keyframe is None:
+            raise RuntimeError('keyframe not set')
         kwargs['validate'] = False
         return TiffPage.asrgb(self, *args, **kwargs)
 
     @property
+    def keyframe(self):
+        """Return keyframe."""
+        return self._keyframe
+
+    @keyframe.setter
+    def keyframe(self, keyframe):
+        """Set keyframe."""
+        if self._keyframe == keyframe:
+            return
+        if self._keyframe is not None:
+            raise RuntimeError('cannot reset keyframe')
+        if len(self._offsetscounts[0]) != len(keyframe.dataoffsets):
+            raise RuntimeError('incompatible keyframe')
+        if keyframe.is_tiled:
+            pass
+        if keyframe.is_contiguous:
+            self._offsetscounts = ([self._offsetscounts[0][0]],
+                                   [keyframe.is_contiguous[1]])
+        else:
+            self._offsetscounts = clean_offsetscounts(*self._offsetscounts)
+        self._keyframe = keyframe
+
+    @property
     def is_contiguous(self):
         """Return offset and size of contiguous data, else None."""
-        if self.keyframe.is_contiguous:
-            return (self.offsets_bytecounts[0][0],
-                    self.keyframe.is_contiguous[1])
+        if self._keyframe is None:
+            raise RuntimeError('keyframe not set')
+        if self._keyframe.is_contiguous:
+            return self._offsetscounts[0][0], self._keyframe.is_contiguous[1]
         return None
 
     @property
     def is_memmappable(self):
         """Return if page's image data in file can be memory-mapped."""
-        return self.keyframe.is_memmappable
+        if self._keyframe is None:
+            raise RuntimeError('keyframe not set')
+        return self._keyframe.is_memmappable
 
     @property
     def hash(self):
         """Return checksum to identify pages in same series."""
-        return self.keyframe.hash
+        if self._keyframe is None:
+            raise RuntimeError('keyframe not set')
+        return self._keyframe.hash
 
     def __getattr__(self, name):
         """Return attribute from keyframe."""
         if name in TIFF.FRAME_ATTRS:
-            return getattr(self.keyframe, name)
+            return getattr(self._keyframe, name)
         # this error could be raised because an AttributeError was
         # raised inside a @property function
         raise AttributeError("'%s' object has no attribute '%s'" %
@@ -4816,17 +4924,20 @@ class TiffFrame(object):
 
     def __str__(self, detail=0, width=79):
         """Return string containing information about frame."""
-        info = '  '.join(s for s in (
-            'x'.join(str(i) for i in self.shape),
-            str(self.dtype)))
-        if detail > 1:
-            of, bc = self.offsets_bytecounts
-            of = pformat('  Offsets: %s' % str(of),
-                         width=width, height=detail)
-            bc = pformat('  Bytecounts: %s' % str(bc),
-                         width=width, height=detail)
-            info += '\n%s\n%s' % (of, bc)
-        return 'TiffFrame %i @%i  %s' % (self.index, self.offset, info)
+        if self._keyframe is None:
+            info = ''
+            kf = None
+        else:
+            info = '  '.join(s for s in ('x'.join(str(i) for i in self.shape),
+                                         str(self.dtype)))
+            kf = TiffPage.__str__(self._keyframe, width=width-11)
+        if detail > 3:
+            of, bc = self._offsetscounts
+            of = pformat(of, width=width-9, height=detail-3)
+            bc = pformat(bc, width=width-13, height=detail-3)
+            info = '\n Keyframe %s\n Offsets %s\n Bytecounts %s' % (
+                kf, of, bc)
+        return 'TiffFrame %i @%s  %s' % (self.index, self.offset, info)
 
 
 class TiffTag(object):
@@ -4936,14 +5047,14 @@ class TiffTag(object):
         although they fit into the tag value element of the tag.
 
         """
-        if self.code == 258 and self.count == 2:
-            # TODO: test this case; need example file
-            log.warning('TiffTag %i: correcting LSM bitspersample tag',
-                        self.code)
-            value = struct.pack('<HH', *self.value)
-            self.valueoffset = struct.unpack('<I', value)[0]
-            parent.filehandle.seek(self.valueoffset)
-            self.value = struct.unpack('<HH', parent.filehandle.read(4))
+        if self.code != 258 or self.count != 2:
+            return
+        # TODO: test this case; need example file
+        log.warning('TiffTag %i: correcting LSM bitspersample tag', self.code)
+        value = struct.pack('<HH', *self.value)
+        self.valueoffset = struct.unpack('<I', value)[0]
+        parent.filehandle.seek(self.valueoffset)
+        self.value = struct.unpack('<HH', parent.filehandle.read(4))
 
     def __str__(self, detail=0, width=79):
         """Return string containing information about tag."""
@@ -6955,7 +7066,7 @@ class TIFF(object):
     def FILE_FLAGS():
         # TiffFile and TiffPage 'is_\*' attributes
         exclude = set('reduced mask final memmappable '
-                      'contiguous tiled chroma_subsampled'.split())
+                      'contiguous tiled subsampled'.split())
         return set(a[3:] for a in dir(TiffPage)
                    if a[:3] == 'is_' and a[3:] not in exclude)
 
@@ -9735,7 +9846,7 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
     return out
 
 
-def clean_offsets_counts(offsets, counts):
+def clean_offsetscounts(offsets, counts):
     """Return cleaned offsets and byte counts.
 
     Remove zero offsets and counts.
@@ -9758,7 +9869,7 @@ def clean_offsets_counts(offsets, counts):
                 j += 1
                 continue
             raise ValueError('invalid offset')
-        log.warning('clean_offsets_counts: empty bytecount')
+        log.warning('clean_offsetscounts: empty bytecount')
     if size == len(offsets):
         return offsets, counts
     if j == 0:
