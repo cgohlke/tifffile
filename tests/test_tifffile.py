@@ -45,7 +45,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: 3-clause BSD
 
-:Version: 2019.3.8
+:Version: 2019.3.18
 
 """
 
@@ -140,6 +140,7 @@ FILE_FLAGS += [name for name in dir(TiffFile) if name.startswith('is_')]
 PAGE_FLAGS = [name for name in dir(TiffPage) if name.startswith('is_')]
 
 HERE = os.path.dirname(__file__)
+# HERE = os.path.join(HERE, 'tests')
 TEMP_DIR = os.path.join(HERE, '_tmp')
 PRIVATE_DIR = os.path.join(HERE, 'data', 'private')
 PUBLIC_DIR = os.path.join(HERE, 'data', 'public')
@@ -148,10 +149,10 @@ if not os.path.exists(TEMP_DIR):
     TEMP_DIR = tempfile.gettempdir()
 
 if not os.path.exists(PUBLIC_DIR):
-    SKIP_PUBLIC_FILE = True  # TODO: decorate tests
+    SKIP_PUBLIC_FILE = True
 
 if not os.path.exists(PRIVATE_DIR):
-    SKIP_PRIVATE_FILE = True  # TODO: decorate tests
+    SKIP_PRIVATE_FILE = True
 
 if not SKIP_CODECS:
     try:
@@ -406,7 +407,7 @@ def test_issue_incorrect_rowsperstrip_count():
         assert page.bitspersample == 4
         assert page.samplesperpixel == 1
         assert page.rowsperstrip == 32
-        assert page.offsets_bytecounts == ([8], [89])
+        assert page._offsetscounts == ([8], [89])
         # assert data
         image = page.asrgb()
         assert image.shape == (32, 32, 3)
@@ -423,7 +424,7 @@ def test_issue_no_bytecounts(caplog):
         page = tif.pages[0]
         assert page.is_contiguous
         assert page.planarconfig == CONTIG
-        assert page.offsets_bytecounts == ([512], [0])
+        assert page._offsetscounts == ([512], [0])
         # assert data
         image = tif.asarray()
         assert image.shape == (800, 1200)
@@ -1165,7 +1166,7 @@ def test_func_create_output_asarray(out, key):
         # assert file
         with TiffFile(fname) as tif:
             tif.pages.useframes = True
-            tif.pages.load()
+            tif.pages._load()
 
             if key is None:
                 # default
@@ -2645,6 +2646,33 @@ def test_read_jpeg12_mandril():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS or SKIP_HUGE, reason=REASON)
+def test_read_jpeg_lsb2msb():
+    """Test read huge tiled, JPEG compressed, with lsb2msb specified.
+
+    Also test JPEG with RGB photometric.
+
+    """
+    fname = private_file('large/jpeg_lsb2msb.tif')
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 1
+        page = tif.pages[0]
+        assert page.compression == JPEG
+        assert page.photometric == RGB
+        assert page.imagewidth == 49128
+        assert page.imagelength == 59683
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        # assert data
+        image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
+        assert image.shape == (59683, 49128, 3)
+        assert image.dtype == 'uint8'
+        assert tuple(image[38520, 43767, :]) == (255, 255, 255)
+        assert tuple(image[47866, 30076, :]) == (52, 39, 23)
+        assert__str__(tif)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_aperio_j2k():
     """Test read SVS slide with J2K compression."""
@@ -3341,7 +3369,7 @@ def test_read_lsm_mosaic():
         assert page.samplesperpixel == 32
         # assert strip offsets are corrected
         page = tif.pages[-2]
-        assert page.offsets_bytecounts[0][0] == 9070895981
+        assert page._offsetscounts[0][0] == 9070895981
         # assert series properties
         series = tif.series[0]
         assert series.shape == (2, 5, 54, 32, 512, 512)
@@ -3580,7 +3608,7 @@ def test_read_lsm_earpax2isl11():
         assert page.samplesperpixel == 3
         # assert corrected strip_byte_counts
         assert page.tags['StripByteCounts'].value == (262144, 262144, 262144)
-        assert page.offsets_bytecounts[1] == (131514, 192933, 167874)
+        assert page._offsetscounts[1] == [131514, 192933, 167874]
         page = tif.pages[1]
         assert page.is_reduced
         assert page.photometric == RGB
@@ -3711,8 +3739,8 @@ def test_read_lsm_lzw_no_eoi():
         assert page.samplesperpixel == 2
         page = tif.pages[834]
         assert isinstance(page, TiffFrame)
-        assert page.offsets_bytecounts[0] == [344655101, 345109987]
-        assert page.offsets_bytecounts[1] == (454886, 326318)
+        assert page._offsetscounts[0] == [344655101, 345109987]
+        assert page._offsetscounts[1] == [454886, 326318]
         # assert second channel is not corrupted
         data = page.asarray()
         assert tuple(data[:, 0, 0]) == (288, 238)
@@ -4069,7 +4097,7 @@ def test_read_svs_cmu_1():
         # first page
         page = tif.pages[0]
         assert page.is_svs
-        assert page.is_chroma_subsampled
+        assert page.is_subsampled
         assert page.photometric == RGB
         assert page.is_tiled
         assert page.compression == JPEG
@@ -4103,7 +4131,7 @@ def test_read_svs_jp2k_33003_1():
         # first page
         page = tif.pages[0]
         assert page.is_svs
-        assert not page.is_chroma_subsampled
+        assert not page.is_subsampled
         assert page.photometric == RGB
         assert page.is_tiled
         assert page.compression.name == 'APERIO_JP2000_YCBC'
@@ -4155,6 +4183,51 @@ def test_read_scanimage_no_framedata():
         # description tags
         metadata = scanimage_description_metadata(page.description)
         assert metadata['state.software.version'] == 3.6
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_HUGE or SKIP_PY2, reason=REASON)
+def test_read_scanimage_2gb():
+    """Test read ScanImage non-BigTIFF > 2 GB.
+
+    https://github.com/MouseLand/suite2p/issues/149
+
+    """
+    fname = private_file('ScanImage/M161209TH_01__001.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_scanimage
+        if SKIP_PY2:
+            assert len(tif.pages) == 4061  # correction not working
+        else:
+            assert len(tif.pages) == 5980
+        assert len(tif.series) == 1
+        # no non-tiff scanimage_metadata
+        assert 'FrameData' not in tif.scanimage_metadata
+        # assert page properties
+        page = tif.pages[0]
+        assert page.is_scanimage
+        assert page.is_contiguous
+        assert page.compression == NONE
+        assert page.imagewidth == 512
+        assert page.imagelength == 512
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        # using virtual frames
+        frame = tif.pages[-1]
+        assert isinstance(frame, TiffFrame)
+        assert frame.offset is None
+        assert frame.index == 5979
+        assert frame._offsetscounts[0][0] == 3163182856
+        assert frame._offsetscounts[1][0] == 524288
+        # description tags
+        metadata = scanimage_description_metadata(page.description)
+        assert metadata['scanimage.SI5.VERSION_MAJOR'] == 5
+        # assert data
+        if not SKIP_PY2:
+            data = tif.asarray()
+            assert data[5979, 256, 256] == 71
+            data = frame.asarray()
+            assert data[256, 256] == 71
         assert__str__(tif)
 
 
@@ -4876,6 +4949,38 @@ def test_read_ome_cropped(caplog):
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS_LITE, reason=REASON)
+def test_read_ome_corrupted_page(caplog):
+    """Test read OME with corrupted but not referenced page."""
+    # https://forum.image.sc/t/qupath-0-2-0-not-able-to-open-ome-tiff/23821/3
+    fname = private_file('ome/2019_02_19__7760_s1.ome.tiff')
+    with TiffFile(fname) as tif:
+        assert tif.is_ome
+        assert tif.is_bigtiff
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 5
+        assert len(tif.series) == 1
+        if not SKIP_PY2:
+            assert 'TiffFrame 4 is missing required tags' in caplog.text
+        # assert page properties
+        page = tif.pages[0]
+        assert page.imagewidth == 7506
+        assert page.imagelength == 7506
+        assert page.bitspersample == 16
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (4, 7506, 7506)
+        assert series.dtype.name == 'uint16'
+        assert series.axes == 'CYX'
+        # assert data
+        data = tif.asarray()
+        assert data.shape == (4, 7506, 7506)
+        assert data.dtype.name == 'uint16'
+        assert tuple(data[:, 2684, 2684]) == (496, 657, 7106, 469)
+        del data
+        assert__str__(tif)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_ome_nikon(caplog):
     """Test read bad OME by Nikon."""
@@ -4887,7 +4992,7 @@ def test_read_ome_nikon(caplog):
         assert tif.byteorder == '<'
         assert len(tif.pages) == 1000
         assert len(tif.series) == 1
-        assert 'index out of range' in caplog.text
+        # assert 'index out of range' in caplog.text
         # assert page properties
         page = tif.pages[0]
         assert page.photometric != RGB
