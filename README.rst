@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.3.8
+:Version: 2019.3.18
 
 Requirements
 ------------
@@ -54,8 +54,15 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.3.18
+    Pass 2756 tests.
+    Fix regression decoding JPEG with RGB photometrics.
+    Fix reading OME-TIFF files with corrupted but unused pages.
+    Allow to load TiffFrame without specifying keyframe.
+    Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
+    Rename property is_chroma_subsampled to is_subsampled.
+    Make more attributes and methods private (WIP).
 2019.3.8
-    Pass 2753 tests, 80% coverage.
     Fix MemoryError when RowsPerStrip > ImageLength.
     Fix SyntaxWarning on Python 3.8.
     Fail to decode JPEG to planar RGB for now.
@@ -278,6 +285,11 @@ that allow files to exceed the 4 GB limit:
   JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
   Tifffile can read NDPI files < 4 GB and decompress large JPEG tiles using
   the imagecodecs library on Windows.
+* *ScanImage* optionally writes corrupt non-BigTIFF files > 2 GB. The values
+  of StripOffsets and StripByteCounts can be recovered using the constant
+  differences of the offsets of IFD and tag values throughout the file.
+  TiffFile can read such files on Python 3 if the image data is stored
+  contiguously in each page.
 
 Other libraries for reading scientific TIFF files from Python:
 
