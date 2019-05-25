@@ -38,24 +38,29 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.3.18
+:Version: 2019.5.22
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
+* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.3, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Imagecodecs 2019.2.22 <https://pypi.org/project/imagecodecs/>`_
-  (optional; used for decoding LZW, JPEG, etc.)
+* `Imagecodecs 2019.5.22 <https://pypi.org/project/imagecodecs/>`_
+  (optional; used for encoding and decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.5.22
+    Pass 2783 tests.
+    Add optional chroma subsampling for JPEG compression.
+    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (tentative).
+    Fix writing tiled images with WebP compression.
+    Improve handling GeoTIFF sparse files.
 2019.3.18
-    Pass 2756 tests.
     Fix regression decoding JPEG with RGB photometrics.
     Fix reading OME-TIFF files with corrupted but unused pages.
     Allow to load TiffFrame without specifying keyframe.
@@ -65,7 +70,7 @@ Revisions
 2019.3.8
     Fix MemoryError when RowsPerStrip > ImageLength.
     Fix SyntaxWarning on Python 3.8.
-    Fail to decode JPEG to planar RGB for now.
+    Fail to decode JPEG to planar RGB (tentative).
     Separate public from private test files (WIP).
     Allow testing without data files or imagecodecs.
 2019.2.22
@@ -166,7 +171,7 @@ Revisions
     Accept pathlib.Path as filenames.
     Move 'software' argument from TiffWriter __init__ to save.
     Raise DOS limit to 16 TB.
-    Lazy load lzma and zstd compressors and decompressors.
+    Lazy load LZMA and ZSTD compressors and decompressors.
     Add option to save IJMetadata tags.
     Return correct number of pages for truncated series (fix).
     Move EXIF tags to TIFF.TAG as per TIFF/EP standard.
@@ -261,12 +266,12 @@ Tested on little-endian platforms only.
 Python 2.7 and 32-bit versions are deprecated.
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
-package for decoding LZW, JPEG, and other compressed images. Alternatively,
-the `imagecodecs-lite <https://pypi.org/project/imagecodecs-lite/>`_ package
-can be used for decoding LZW compressed images.
+package for encoding and decoding LZW, JPEG, and other compressed images.
+The `imagecodecs-lite <https://pypi.org/project/imagecodecs-lite/>`_ package,
+which easier to build, can be used for decoding LZW compressed images instead.
 
-There are several TIFF-like formats (not adhering to the TIFF6 specification)
-that allow files to exceed the 4 GB limit:
+Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
+some of which allow file sizes to exceed the 4 GB limit:
 
 * *BigTIFF* is identified by version number 43 and uses different file
   header, IFD, and tag structures with 64-bit offsets. It adds more data types.
@@ -288,32 +293,43 @@ that allow files to exceed the 4 GB limit:
 * *ScanImage* optionally writes corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
-  TiffFile can read such files on Python 3 if the image data is stored
+  Tifffile can read such files on Python 3 if the image data is stored
   contiguously in each page.
+* *GeoTIFF* sparse files allow strip or tile offsets and byte counts to be 0.
+  Such segments are implicitly set to 0 or the NODATA value on reading.
+  Tifffile can read GeoTIFF sparse files.
 
 Other libraries for reading scientific TIFF files from Python:
 
-*  `Python-bioformats <https://github.com/CellProfiler/python-bioformats>`_
-*  `Imread <https://github.com/luispedro/imread>`_
-*  `GDAL <https://github.com/OSGeo/gdal/tree/master/gdal/swig/python>`_
-*  `OpenSlide-python <https://github.com/openslide/openslide-python>`_
-*  `PyLibTiff <https://github.com/pearu/pylibtiff>`_
-*  `SimpleITK <https://github.com/SimpleITK/SimpleITK>`_
-*  `PyLSM <https://launchpad.net/pylsm>`_
-*  `PyMca.TiffIO.py <https://github.com/vasole/pymca>`_ (same as fabio.TiffIO)
-*  `BioImageXD.Readers <http://www.bioimagexd.net/>`_
-*  `CellCognition <https://cellcognition-project.org/>`_
-*  `pymimage <https://github.com/ardoi/pymimage>`_
-*  `pytiff <https://github.com/FZJ-INM1-BDA/pytiff>`_
-*  `ScanImageTiffReaderPython
-   <https://gitlab.com/vidriotech/scanimagetiffreader-python>`_
+* `Python-bioformats <https://github.com/CellProfiler/python-bioformats>`_
+* `Imread <https://github.com/luispedro/imread>`_
+* `GDAL <https://github.com/OSGeo/gdal/tree/master/gdal/swig/python>`_
+* `OpenSlide-python <https://github.com/openslide/openslide-python>`_
+* `PyLibTiff <https://github.com/pearu/pylibtiff>`_
+* `SimpleITK <https://github.com/SimpleITK/SimpleITK>`_
+* `PyLSM <https://launchpad.net/pylsm>`_
+* `PyMca.TiffIO.py <https://github.com/vasole/pymca>`_ (same as fabio.TiffIO)
+* `BioImageXD.Readers <http://www.bioimagexd.net/>`_
+* `CellCognition <https://cellcognition-project.org/>`_
+* `pymimage <https://github.com/ardoi/pymimage>`_
+* `pytiff <https://github.com/FZJ-INM1-BDA/pytiff>`_
+* `ScanImageTiffReaderPython
+  <https://gitlab.com/vidriotech/scanimagetiffreader-python>`_
+* `bigtiff <https://pypi.org/project/bigtiff>`_
+
+Some libraries are using tifffile to write OME-TIFF files:
+
+* `Zeiss Apeer OME-TIFF library
+  <https://github.com/apeer-micro/apeer-ometiff-library>`_
+* `Allen Institute for Cell Science imageio
+  <https://pypi.org/project/aicsimageio>`_
 
 Acknowledgements
 ----------------
-*   Egor Zindy, University of Manchester, for lsm_scan_info specifics.
-*   Wim Lewis for a bug fix and some LSM functions.
-*   Hadrien Mary for help on reading MicroManager files.
-*   Christian Kliche for help writing tiled and color-mapped files.
+* Egor Zindy, University of Manchester, for lsm_scan_info specifics.
+* Wim Lewis for a bug fix and some LSM functions.
+* Hadrien Mary for help on reading MicroManager files.
+* Christian Kliche for help writing tiled and color-mapped files.
 
 References
 ----------
@@ -339,6 +355,7 @@ References
     Exif Version 2.31.
     http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 11) ZIF, the Zoomable Image File format. http://zif.photo/
+12) GeoTIFF File Format https://www.gdal.org/frmt_gtiff.html
 
 Examples
 --------
@@ -383,6 +400,27 @@ Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to an ImageJ file:
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
 >>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
 ...         metadata={'spacing': 3.947368, 'unit': 'um'})
+
+Get the shape and dtype of the images stored in the TIFF file:
+
+>>> tif = TiffFile('temp.tif')
+>>> len(tif.pages)  # number of pages in the file
+57
+>>> page = tif.pages[0]  # get shape and dtype of the image in the first page
+>>> page.shape
+(256, 256)
+>>> page.dtype
+dtype('float32')
+>>> page.axes
+'YX'
+>>> series = tif.series[0]  # get shape and dtype of the first image series
+>>> series.shape
+(57, 256, 256)
+>>> series.dtype
+dtype('float32')
+>>> series.axes
+'ZYX'
+>>> tif.close()
 
 Read hyperstack and metadata from the ImageJ file:
 
@@ -433,7 +471,7 @@ Memory-map image data of the first page in the TIFF file:
 1.0
 >>> del memmap_image
 
-Successively append images to a BigTIFF file:
+Successively append images to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
