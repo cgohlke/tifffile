@@ -45,7 +45,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: 3-clause BSD
 
-:Version: 2019.3.18
+:Version: 2019.5.22
 
 """
 
@@ -65,7 +65,8 @@ from io import BytesIO
 
 import pytest
 import numpy
-from numpy.testing import assert_array_equal, assert_array_almost_equal
+from numpy.testing import (assert_array_equal, assert_array_almost_equal,
+                           assert_allclose)
 
 import tifffile
 
@@ -75,7 +76,9 @@ try:
         imwrite, imsave, imread, imshow,   # noqa
         TiffFile, TiffWriter, TiffSequence, TiffFileError,  # noqa
         FileHandle, lazyattr, natural_sorted, stripnull, memmap,  # noqa
-        repeat_nd, format_size, product, create_output)  # noqa
+        repeat_nd, format_size, product, create_output, # noqa
+        decodelzw, decode_lzw  # noqa; deprecated
+        )  # noqa
 except NameError:
     STAR_IMPORTED = None
 
@@ -94,8 +97,9 @@ from tifffile.tifffile import (  # noqa
     metaseries_description_metadata, fluoview_description_metadata,
     reshape_axes, apply_colormap, askopenfilename,
     reshape_nd, read_scanimage_metadata, matlabstr2py, bytes2str,
-    pformat, snipstr, byteorder_isnative,
-    lsm2bin, create_output, hexdump, validate_jhove)
+    pformat, snipstr, byteorder_isnative, enumarg,
+    lsm2bin, create_output, hexdump, validate_jhove,
+    )
 
 
 # skip certain tests
@@ -149,10 +153,10 @@ if not os.path.exists(TEMP_DIR):
     TEMP_DIR = tempfile.gettempdir()
 
 if not os.path.exists(PUBLIC_DIR):
-    SKIP_PUBLIC_FILE = True
+    SKIP_PUBLIC = True
 
 if not os.path.exists(PRIVATE_DIR):
-    SKIP_PRIVATE_FILE = True
+    SKIP_PRIVATE = True
 
 if not SKIP_CODECS:
     try:
@@ -240,7 +244,7 @@ class TempFileName():
         if not name:
             self.name = tempfile.NamedTemporaryFile(prefix='test_').name
         else:
-            self.name = os.path.join(TEMP_DIR, "test_%s%s" % (name, ext))
+            self.name = os.path.join(TEMP_DIR, 'test_%s%s' % (name, ext))
 
     def __enter__(self):
         return self.name
@@ -407,7 +411,7 @@ def test_issue_incorrect_rowsperstrip_count():
         assert page.bitspersample == 4
         assert page.samplesperpixel == 1
         assert page.rowsperstrip == 32
-        assert page._offsetscounts == ([8], [89])
+        assert page._offsetscounts == ((8,), (89,))
         # assert data
         image = page.asrgb()
         assert image.shape == (32, 32, 3)
@@ -424,7 +428,7 @@ def test_issue_no_bytecounts(caplog):
         page = tif.pages[0]
         assert page.is_contiguous
         assert page.planarconfig == CONTIG
-        assert page._offsetscounts == ([512], [0])
+        assert page._offsetscounts == ((512,), (0,))
         # assert data
         image = tif.asarray()
         assert image.shape == (800, 1200)
@@ -3157,8 +3161,9 @@ def test_read_srtm_20_13():
         assert page.imagelength == 6000
         assert page.bitspersample == 16
         assert page.samplesperpixel == 1
-        assert page.tags['GDAL_NODATA'].value == "-32768"
-        assert page.tags['GeoAsciiParamsTag'].value == "WGS 84|"
+        assert page.nodata == -32768
+        assert page.tags['GDAL_NODATA'].value == '-32768'
+        assert page.tags['GeoAsciiParamsTag'].value == 'WGS 84|'
         # assert series properties
         series = tif.series[0]
         assert series.shape == (6000, 6000)
@@ -3608,7 +3613,7 @@ def test_read_lsm_earpax2isl11():
         assert page.samplesperpixel == 3
         # assert corrected strip_byte_counts
         assert page.tags['StripByteCounts'].value == (262144, 262144, 262144)
-        assert page._offsetscounts[1] == [131514, 192933, 167874]
+        assert page._offsetscounts[1] == (131514, 192933, 167874)
         page = tif.pages[1]
         assert page.is_reduced
         assert page.photometric == RGB
@@ -3739,8 +3744,8 @@ def test_read_lsm_lzw_no_eoi():
         assert page.samplesperpixel == 2
         page = tif.pages[834]
         assert isinstance(page, TiffFrame)
-        assert page._offsetscounts[0] == [344655101, 345109987]
-        assert page._offsetscounts[1] == [454886, 326318]
+        assert page._offsetscounts[0] == (344655101, 345109987)
+        assert page._offsetscounts[1] == (454886, 326318)
         # assert second channel is not corrupted
         data = page.asarray()
         assert tuple(data[:, 0, 0]) == (288, 238)
@@ -6244,6 +6249,41 @@ def test_write(data, byteorder, bigtiff, dtype, shape):
             assert_jhove(fname)
 
 
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+@pytest.mark.parametrize('tile', [False, True])
+@pytest.mark.parametrize('codec', [
+    'deflate', 'lzma', 'packbits', 'zstd',  # 'lzw'
+    'webp', 'png', 'jpeg', 'jpegxr', 'jpeg2000'])
+def test_write_codecs(tile, codec):
+    """Test write various compression."""
+    level = {'webp': -1, 'jpeg': 99}.get(codec, None)
+    tile = (16, 16) if tile else None
+    data = numpy.load(public_file('tifffile/rgb.u1.npy'))
+    data = numpy.repeat(data[numpy.newaxis], 3, axis=0)
+    data[1] = 255 - data[1]
+    shape = data.shape
+    with TempFileName('codecs_%s%s' % (codec,
+                                       '_tile' if tile else '')) as fname:
+        imwrite(fname, data, compress=(codec, level), tile=tile,
+                photometric='RGB')
+        assert_jhove(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == shape[0]
+            page = tif.pages[0]
+            assert not page.is_contiguous
+            assert page.compression == enumarg(TIFF.COMPRESSION, codec)
+            assert page.photometric in (RGB, YCBCR)
+            assert page.imagewidth == data.shape[-2]
+            assert page.imagelength == data.shape[-3]
+            assert page.samplesperpixel == data.shape[-1]
+            image = tif.asarray()
+            if codec in ('webp', 'png', 'zstd'):
+                assert_array_equal(data, image)
+            else:
+                assert_allclose(data, image, atol=10)
+            assert__str__(tif)
+
+
 def test_write_nopages():
     """Test write TIFF with no pages."""
     with TempFileName('nopages') as fname:
@@ -6723,6 +6763,40 @@ def test_write_compress_none():
             assert len(page.dataoffsets) == 3
             image = tif.asarray()
             assert_array_equal(data, image)
+            assert__str__(tif)
+
+
+# @pytest.mark.parametrize('optimize', [None, False, True])
+# @pytest.mark.parametrize('smoothing', [None, 10])
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+@pytest.mark.parametrize('subsampling', ['444', '422', '420', '411'])
+@pytest.mark.parametrize('dtype', ['u1', 'u2'])
+def test_write_compress_jpeg(dtype, subsampling):
+    """Test write JPEG compression with subsampling."""
+    filename = 'compress_jpeg_%s_%s' % (dtype, subsampling)
+    subsampling, atol = {'444': [(1, 1), 5],
+                         '422': [(2, 1), 10],
+                         '420': [(2, 2), 20],
+                         '411': [(4, 1), 40], }[subsampling]
+    data = numpy.load(public_file('tifffile/rgb.u1.npy')).astype(dtype)
+    data = data[:32, :16].copy()  # make divisable by subsamples
+    with TempFileName(filename) as fname:
+        imwrite(fname, data, compress=('JPEG', 99), subsampling=subsampling)
+        assert_jhove(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert not page.is_contiguous
+            if subsampling[0] > 1:
+                assert page.is_subsampled
+                assert page.tags['YCbCrSubSampling'].value == subsampling
+            assert page.compression == JPEG
+            assert page.photometric == YCBCR
+            assert page.imagewidth == data.shape[1]
+            assert page.imagelength == data.shape[0]
+            assert page.samplesperpixel == 3
+            image = tif.asarray()
+            assert_allclose(data, image, atol=atol)
             assert__str__(tif)
 
 
@@ -8793,8 +8867,14 @@ def test_depend_cmapfile():
     """Test cmapfile.lsm2cmap."""
     from cmapfile import CmapFile, lsm2cmap  # noqa
     filename = private_file('LSM/3d_zfish_onephoton_zoom.lsm')
+    data = imread(filename)
     with TempFileName('cmapfile', ext='.cmap') as cmapfile:
         lsm2cmap(filename, cmapfile)
+        fname = os.path.join(os.path.split(cmapfile)[0],
+                             'test_cmapfile.ch0000.cmap')
+        with CmapFile(fname, mode='r') as cmap:
+            assert_array_equal(cmap['map00000']['data00000'],
+                               data.squeeze()[:, 0, :, :])
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -8817,9 +8897,28 @@ def test_depend_czifile():
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_32BIT or SKIP_HUGE, reason=REASON)
 def test_depend_czi2tif():
     """Test czifile.czi2tif."""
+    from czifile.czifile import czi2tif, CziFile
+    fname = private_file('CZI/pollen.czi')
+    with CziFile(fname) as czi:
+        metadata = czi.metadata()
+        data = czi.asarray().squeeze()
+    with TempFileName('czi2tif') as tif:
+        czi2tif(fname, tif, bigtiff=False)
+        with TiffFile(tif) as t:
+            im = t.asarray()
+            assert t.pages[0].description == metadata
+        assert_array_equal(im, data)
+        del im
+        del data
+        assert_jhove(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_32BIT or SKIP_HUGE, reason=REASON)
+def test_depend_czi2tif_airy():
+    """Test czifile.czi2tif with AiryScan."""
     from czifile.czifile import czi2tif
     fname = private_file('CZI/AiryscanSRChannel.czi')
-    with TempFileName('czi2tif') as tif:
+    with TempFileName('czi2tif_airy') as tif:
         czi2tif(fname, tif, verbose=True, truncate=True, bigtiff=False)
         im = memmap(tif)
         assert im.shape == (32, 6, 1680, 1680)
