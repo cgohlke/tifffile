@@ -1,7 +1,12 @@
 Revisions
 ---------
+2019.5.22
+    Pass 2783 tests.
+    Add optional chroma subsampling for JPEG compression.
+    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (tentative).
+    Fix writing tiled images with WebP compression.
+    Improve handling GeoTIFF sparse files.
 2019.3.18
-    Pass 2756 tests.
     Fix regression decoding JPEG with RGB photometrics.
     Fix reading OME-TIFF files with corrupted but unused pages.
     Allow to load TiffFrame without specifying keyframe.
@@ -11,7 +16,7 @@ Revisions
 2019.3.8
     Fix MemoryError when RowsPerStrip > ImageLength.
     Fix SyntaxWarning on Python 3.8.
-    Fail to decode JPEG to planar RGB for now.
+    Fail to decode JPEG to planar RGB (tentative).
     Separate public from private test files (WIP).
     Allow testing without data files or imagecodecs.
 2019.2.22
@@ -112,7 +117,7 @@ Revisions
     Accept pathlib.Path as filenames.
     Move 'software' argument from TiffWriter __init__ to save.
     Raise DOS limit to 16 TB.
-    Lazy load lzma and zstd compressors and decompressors.
+    Lazy load LZMA and ZSTD compressors and decompressors.
     Add option to save IJMetadata tags.
     Return correct number of pages for truncated series (fix).
     Move EXIF tags to TIFF.TAG as per TIFF/EP standard.
