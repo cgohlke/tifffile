@@ -71,24 +71,29 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.3.18
+:Version: 2019.5.22
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.2, 64-bit <https://www.python.org>`_
+* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.3, 64-bit <https://www.python.org>`_
 * `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Imagecodecs 2019.2.22 <https://pypi.org/project/imagecodecs/>`_
-  (optional; used for decoding LZW, JPEG, etc.)
+* `Imagecodecs 2019.5.22 <https://pypi.org/project/imagecodecs/>`_
+  (optional; used for encoding and decoding LZW, JPEG, etc.)
 * `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.5.22
+    Pass 2783 tests.
+    Add optional chroma subsampling for JPEG compression.
+    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (tentative).
+    Fix writing tiled images with WebP compression.
+    Improve handling GeoTIFF sparse files.
 2019.3.18
-    Pass 2756 tests.
     Fix regression decoding JPEG with RGB photometrics.
     Fix reading OME-TIFF files with corrupted but unused pages.
     Allow to load TiffFrame without specifying keyframe.
@@ -98,7 +103,7 @@ Revisions
 2019.3.8
     Fix MemoryError when RowsPerStrip > ImageLength.
     Fix SyntaxWarning on Python 3.8.
-    Fail to decode JPEG to planar RGB for now.
+    Fail to decode JPEG to planar RGB (tentative).
     Separate public from private test files (WIP).
     Allow testing without data files or imagecodecs.
 2019.2.22
@@ -199,7 +204,7 @@ Revisions
     Accept pathlib.Path as filenames.
     Move 'software' argument from TiffWriter __init__ to save.
     Raise DOS limit to 16 TB.
-    Lazy load lzma and zstd compressors and decompressors.
+    Lazy load LZMA and ZSTD compressors and decompressors.
     Add option to save IJMetadata tags.
     Return correct number of pages for truncated series (fix).
     Move EXIF tags to TIFF.TAG as per TIFF/EP standard.
@@ -294,12 +299,12 @@ Tested on little-endian platforms only.
 Python 2.7 and 32-bit versions are deprecated.
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
-package for decoding LZW, JPEG, and other compressed images. Alternatively,
-the `imagecodecs-lite <https://pypi.org/project/imagecodecs-lite/>`_ package
-can be used for decoding LZW compressed images.
+package for encoding and decoding LZW, JPEG, and other compressed images.
+The `imagecodecs-lite <https://pypi.org/project/imagecodecs-lite/>`_ package,
+which easier to build, can be used for decoding LZW compressed images instead.
 
-There are several TIFF-like formats (not adhering to the TIFF6 specification)
-that allow files to exceed the 4 GB limit:
+Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
+some of which allow file sizes to exceed the 4 GB limit:
 
 * *BigTIFF* is identified by version number 43 and uses different file
   header, IFD, and tag structures with 64-bit offsets. It adds more data types.
@@ -321,32 +326,43 @@ that allow files to exceed the 4 GB limit:
 * *ScanImage* optionally writes corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
-  TiffFile can read such files on Python 3 if the image data is stored
+  Tifffile can read such files on Python 3 if the image data is stored
   contiguously in each page.
+* *GeoTIFF* sparse files allow strip or tile offsets and byte counts to be 0.
+  Such segments are implicitly set to 0 or the NODATA value on reading.
+  Tifffile can read GeoTIFF sparse files.
 
 Other libraries for reading scientific TIFF files from Python:
 
-*  `Python-bioformats <https://github.com/CellProfiler/python-bioformats>`_
-*  `Imread <https://github.com/luispedro/imread>`_
-*  `GDAL <https://github.com/OSGeo/gdal/tree/master/gdal/swig/python>`_
-*  `OpenSlide-python <https://github.com/openslide/openslide-python>`_
-*  `PyLibTiff <https://github.com/pearu/pylibtiff>`_
-*  `SimpleITK <https://github.com/SimpleITK/SimpleITK>`_
-*  `PyLSM <https://launchpad.net/pylsm>`_
-*  `PyMca.TiffIO.py <https://github.com/vasole/pymca>`_ (same as fabio.TiffIO)
-*  `BioImageXD.Readers <http://www.bioimagexd.net/>`_
-*  `CellCognition <https://cellcognition-project.org/>`_
-*  `pymimage <https://github.com/ardoi/pymimage>`_
-*  `pytiff <https://github.com/FZJ-INM1-BDA/pytiff>`_
-*  `ScanImageTiffReaderPython
-   <https://gitlab.com/vidriotech/scanimagetiffreader-python>`_
+* `Python-bioformats <https://github.com/CellProfiler/python-bioformats>`_
+* `Imread <https://github.com/luispedro/imread>`_
+* `GDAL <https://github.com/OSGeo/gdal/tree/master/gdal/swig/python>`_
+* `OpenSlide-python <https://github.com/openslide/openslide-python>`_
+* `PyLibTiff <https://github.com/pearu/pylibtiff>`_
+* `SimpleITK <https://github.com/SimpleITK/SimpleITK>`_
+* `PyLSM <https://launchpad.net/pylsm>`_
+* `PyMca.TiffIO.py <https://github.com/vasole/pymca>`_ (same as fabio.TiffIO)
+* `BioImageXD.Readers <http://www.bioimagexd.net/>`_
+* `CellCognition <https://cellcognition-project.org/>`_
+* `pymimage <https://github.com/ardoi/pymimage>`_
+* `pytiff <https://github.com/FZJ-INM1-BDA/pytiff>`_
+* `ScanImageTiffReaderPython
+  <https://gitlab.com/vidriotech/scanimagetiffreader-python>`_
+* `bigtiff <https://pypi.org/project/bigtiff>`_
+
+Some libraries are using tifffile to write OME-TIFF files:
+
+* `Zeiss Apeer OME-TIFF library
+  <https://github.com/apeer-micro/apeer-ometiff-library>`_
+* `Allen Institute for Cell Science imageio
+  <https://pypi.org/project/aicsimageio>`_
 
 Acknowledgements
 ----------------
-*   Egor Zindy, University of Manchester, for lsm_scan_info specifics.
-*   Wim Lewis for a bug fix and some LSM functions.
-*   Hadrien Mary for help on reading MicroManager files.
-*   Christian Kliche for help writing tiled and color-mapped files.
+* Egor Zindy, University of Manchester, for lsm_scan_info specifics.
+* Wim Lewis for a bug fix and some LSM functions.
+* Hadrien Mary for help on reading MicroManager files.
+* Christian Kliche for help writing tiled and color-mapped files.
 
 References
 ----------
@@ -372,6 +388,7 @@ References
     Exif Version 2.31.
     http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 11) ZIF, the Zoomable Image File format. http://zif.photo/
+12) GeoTIFF File Format https://www.gdal.org/frmt_gtiff.html
 
 Examples
 --------
@@ -416,6 +433,27 @@ Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to an ImageJ file:
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
 >>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
 ...         metadata={'spacing': 3.947368, 'unit': 'um'})
+
+Get the shape and dtype of the images stored in the TIFF file:
+
+>>> tif = TiffFile('temp.tif')
+>>> len(tif.pages)  # number of pages in the file
+57
+>>> page = tif.pages[0]  # get shape and dtype of the image in the first page
+>>> page.shape
+(256, 256)
+>>> page.dtype
+dtype('float32')
+>>> page.axes
+'YX'
+>>> series = tif.series[0]  # get shape and dtype of the first image series
+>>> series.shape
+(57, 256, 256)
+>>> series.dtype
+dtype('float32')
+>>> series.axes
+'ZYX'
+>>> tif.close()
 
 Read hyperstack and metadata from the ImageJ file:
 
@@ -466,7 +504,7 @@ Memory-map image data of the first page in the TIFF file:
 1.0
 >>> del memmap_image
 
-Successively append images to a BigTIFF file:
+Successively append images to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
@@ -513,7 +551,7 @@ Read an image stack from a sequence of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.3.18'
+__version__ = '2019.5.22'
 __docformat__ = 'restructuredtext en'
 __all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap', 'lsm2bin',
            'TiffFile', 'TiffFileError', 'TiffWriter', 'TiffSequence',
@@ -522,7 +560,7 @@ __all__ = ('imwrite', 'imsave', 'imread', 'imshow', 'memmap', 'lsm2bin',
            'lazyattr', 'natural_sorted', 'stripnull', 'transpose_axes',
            'squeeze_axes', 'create_output', 'repeat_nd', 'format_size',
            'product', 'xml2dict', 'pformat', 'str2bytes', '_app_show',
-           'decode_lzw')
+           'decode_lzw', 'decodelzw')
 
 import sys
 import os
@@ -888,10 +926,10 @@ class TiffWriter(object):
     def save(self, data=None, shape=None, dtype=None, returnoffset=False,
              photometric=None, planarconfig=None, extrasamples=None, tile=None,
              contiguous=True, align=16, truncate=False, compress=0,
-             rowsperstrip=None, predictor=False, colormap=None,
-             description=None, datetime=None, resolution=None, subfiletype=0,
-             software='tifffile.py', metadata={}, ijmetadata=None,
-             extratags=()):
+             rowsperstrip=None, predictor=False, subsampling=None,
+             colormap=None, description=None, datetime=None, resolution=None,
+             subfiletype=0, software='tifffile.py', metadata={},
+             ijmetadata=None, extratags=()):
         """Write numpy array and tags to TIFF file.
 
         The data shape's last dimensions are assumed to be image depth,
@@ -935,7 +973,7 @@ class TiffWriter(object):
             'ASSOCALPHA': single, true transparency with pre-multiplied color.
             'UNASSALPHA': independent transparency masks.
         tile : tuple of int
-            The shape (depth, length, width) of image tiles to write.
+            The shape ([depth,] length, width) of image tiles to write.
             If None (default), image data are written in strips.
             The tile length and width must be a multiple of 16.
             If the tile depth is provided, the SGI ImageDepth and TileDepth
@@ -961,10 +999,12 @@ class TiffWriter(object):
         compress : int or str or (str, int)
             If 0 (default), data are written uncompressed.
             If 0-9, the level of ADOBE_DEFLATE compression.
-            If a str, one of TIFF.COMPRESSION, e.g. 'LZMA' or 'ZSTD'.
-            If a tuple, first item is one of TIFF.COMPRESSION and second item
-            is compression level.
+            If a str, one of TIFF.COMPESSORS, e.g. 'LZMA' or 'ZSTD'.
+            If a tuple, the first item is one of TIFF.COMPESSORS and the
+            second item is the compression level.
             Compression cannot be used to write contiguous files.
+            Compressors may require certain data shapes, types or value ranges.
+            E.g. JPEG requires grayscale or RGB(A), uint8 or 12-bit uint16.
         rowsperstrip : int
             The number of rows per strip. By default strips will be ~64 KB
             if compression is enabled, else rowsperstrip is set to the image
@@ -972,6 +1012,15 @@ class TiffWriter(object):
         predictor : bool
             If True, apply horizontal differencing or floating-point predictor
             before compression.
+        subsampling : tuple of int
+            The horizontal and vertical subsampling factors used for the
+            chrominance components of images.
+            One of (1, 1), (2, 1), (2, 2), or (4, 1).
+            Currently applies to JPEG compression of RGB images only.
+            Images will be stored in YCbCr colorspace.
+            Segment widths must be a multiple of the horizontal factor.
+            Segment lengths and rowsperstrip must be a multiple of the vertical
+            factor.
         colormap : numpy.ndarray
             RGB color values for the corresponding data value.
             Must be of shape (3, 2**(data.itemsize*8)) and dtype uint16.
@@ -1133,7 +1182,9 @@ class TiffWriter(object):
             compresstag = enumarg(TIFF.COMPRESSION, compress)
 
         if predictor:
-            if datadtype.kind in 'iu':
+            if compresstag == 7:
+                predictor = False  # disable predictor for lossy compression
+            elif datadtype.kind in 'iu':
                 predictortag = 2
                 predictor = TIFF.PREDICTORS[2]
             elif datadtype.kind == 'f':
@@ -1169,17 +1220,6 @@ class TiffWriter(object):
             if planarconfig == SEPARATE:
                 raise ValueError('ImageJ does not support planar images')
             planarconfig = CONTIG if ijrgb else None
-
-        # define compress function
-        if compress:
-            compressor = TIFF.COMPESSORS[compresstag]
-            if predictor:
-                def compress(data, level=compresslevel):
-                    data = predictor(data, axis=-2)
-                    return compressor(data, level)
-            else:
-                def compress(data, level=compresslevel):
-                    return compressor(data, level)
 
         # verify colormap and indices
         if colormap is not None:
@@ -1296,6 +1336,13 @@ class TiffWriter(object):
                 raise ValueError('invalid SubfileType MASK')
             photometric = TIFF.PHOTOMETRIC.MASK
 
+        if bilevel:
+            bitspersample = 1
+        elif compresstag == 7 and datadtype == 'uint16':
+            bitspersample = 12  # use 12-bit JPEG compression
+        else:
+            bitspersample = datadtype.itemsize * 8
+
         # normalize shape to 6D
         assert len(datashape) in (5, 6)
         if len(datashape) == 5:
@@ -1306,9 +1353,6 @@ class TiffWriter(object):
         shape = datashape
         if data is not None:
             data = data.reshape(shape)
-
-        if tile and not volume:
-            tile = (1, tile[-2], tile[-1])
 
         if photometric == PALETTE:
             if (samplesperpixel != 1 or extrasamples or
@@ -1463,7 +1507,7 @@ class TiffWriter(object):
         if tile:
             addtag('TileWidth', 'I', 1, tile[-1])
             addtag('TileLength', 'I', 1, tile[-2])
-            if tile[0] > 1:
+            if volume:
                 addtag('ImageDepth', 'I', 1, shape[-4])
                 addtag('TileDepth', 'I', 1, tile[0])
         addtag('NewSubfileType', 'I', 1, subfiletype)
@@ -1471,7 +1515,6 @@ class TiffWriter(object):
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
             addtag('SampleFormat', 'H', samplesperpixel,
                    (sampleformat,) * samplesperpixel)
-        addtag('PhotometricInterpretation', 'H', 1, photometric.value)
         if colormap is not None:
             addtag('ColorMap', 'H', colormap.size, colormap)
         addtag('SamplesPerPixel', 'H', 1, samplesperpixel)
@@ -1480,9 +1523,9 @@ class TiffWriter(object):
         elif planarconfig and samplesperpixel > 1:
             addtag('PlanarConfiguration', 'H', 1, planarconfig.value)
             addtag('BitsPerSample', 'H', samplesperpixel,
-                   (datadtype.itemsize * 8,) * samplesperpixel)
+                   (bitspersample,) * samplesperpixel)
         else:
-            addtag('BitsPerSample', 'H', 1, datadtype.itemsize * 8)
+            addtag('BitsPerSample', 'H', 1, bitspersample)
         if extrasamples:
             if extrasamples_ is not None:
                 if extrasamples != len(extrasamples_):
@@ -1494,6 +1537,27 @@ class TiffWriter(object):
             else:
                 # Unspecified alpha channel
                 addtag('ExtraSamples', 'H', extrasamples, (0,) * extrasamples)
+
+        if compresstag == 7 and photometric == RGB:
+            # JPEG compression with subsampling. Store as YCbCr
+            # TODO: use JPEGTables for multiple tiles or strips
+            if subsampling is None:
+                subsampling = (1, 1)
+            elif subsampling not in ((1, 1), (2, 1), (2, 2), (4, 1)):
+                raise ValueError('invalid subsampling factors')
+            elif tile and (tile[-1] % subsampling[0] or
+                           tile[-2] % subsampling[1]):
+                raise ValueError('tile shape not a multiple of subsampling')
+            elif shape[-2] % subsampling[0] or shape[-3] % subsampling[1]:
+                raise ValueError('image shape not a multiple of subsampling')
+            if extrasamples > 1:
+                raise ValueError('JPEG subsampling requires RGB(A) images')
+            if subsampling != (1, 1):
+                addtag('YCbCrSubSampling', 'H', 2, subsampling)
+            addtag('PhotometricInterpretation', 'H', 1, 6)  # YCBCR
+        else:
+            addtag('PhotometricInterpretation', 'H', 1, photometric.value)
+
         if resolution is not None:
             addtag('XResolution', '2I', 1, rational(resolution[0]))
             addtag('YResolution', '2I', 1, rational(resolution[1]))
@@ -1516,9 +1580,13 @@ class TiffWriter(object):
         contiguous = not compress
         if tile:
             # one chunk per tile per plane
-            tiles = ((shape[2] + tile[0] - 1) // tile[0],
-                     (shape[3] + tile[1] - 1) // tile[1],
-                     (shape[4] + tile[2] - 1) // tile[2])
+            if len(tile) == 3:
+                tiles = ((shape[2] + tile[0] - 1) // tile[0],
+                         (shape[3] + tile[1] - 1) // tile[1],
+                         (shape[4] + tile[2] - 1) // tile[2])
+            else:
+                tiles = ((shape[3] + tile[0] - 1) // tile[0],
+                         (shape[4] + tile[1] - 1) // tile[1])
             numtiles = product(tiles) * shape[1]
             databytecounts = [
                 product(tile) * shape[-1] * datadtype.itemsize] * numtiles
@@ -1548,6 +1616,9 @@ class TiffWriter(object):
                 rowsperstrip = 1
             elif rowsperstrip > shape[-3]:
                 rowsperstrip = shape[-3]
+            if subsampling and rowsperstrip % subsampling[1]:
+                rowsperstrip = (math.ceil(rowsperstrip / subsampling[1]) *
+                                subsampling[1])
             addtag('RowsPerStrip', 'I', 1, rowsperstrip)
 
             numstrips1 = (shape[-3] + rowsperstrip - 1) // rowsperstrip
@@ -1570,6 +1641,24 @@ class TiffWriter(object):
         # add extra tags from user
         for t in extratags:
             addtag(*t)
+
+        # define compress function
+        if compress:
+            compressor = TIFF.COMPESSORS[compresstag]
+            if predictor:
+                def compress(data, compressor=compressor, level=compresslevel):
+                    data = predictor(data, axis=-2)
+                    return compressor(data, level)
+            elif subsampling:
+                # JPEG with subsampling. Store RGB as YCbCr
+                # TODO: use JPEGTables for multiple tiles or strips
+                def compress(data, compressor=compressor, level=compresslevel,
+                             subsampling=subsampling):
+                    return compressor(data, level, subsampling=subsampling,
+                                      colorspace=2, outcolorspace=3)
+            else:
+                def compress(data, compressor=compressor, level=compresslevel):
+                    return compressor(data, level)
 
         # TODO: check TIFFReadDirectoryCheckOrder warning in files containing
         #   multiple tags of same code
@@ -1650,17 +1739,18 @@ class TiffWriter(object):
                 else:
                     fh.write_array(data)
             elif tile:
+                # TODO: refactor this
                 if data is None:
                     fh.write_empty(numtiles * databytecounts[0])
-                else:
+                elif len(tile) == 3:
                     stripindex = 0
                     for plane in data[pageindex]:
                         for tz in range(tiles[0]):
                             for ty in range(tiles[1]):
                                 for tx in range(tiles[2]):
-                                    c0 = min(tile[0], shape[2] - tz*tile[0])
-                                    c1 = min(tile[1], shape[3] - ty*tile[1])
-                                    c2 = min(tile[2], shape[4] - tx*tile[2])
+                                    c0 = min(tile[0], shape[2]-tz*tile[0])
+                                    c1 = min(tile[1], shape[3]-ty*tile[1])
+                                    c2 = min(tile[2], shape[4]-tx*tile[2])
                                     chunk[c0:, c1:, c2:] = 0
                                     chunk[:c0, :c1, :c2] = plane[
                                         tz*tile[0]:tz*tile[0]+c0,
@@ -1674,6 +1764,26 @@ class TiffWriter(object):
                                     else:
                                         fh.write_array(chunk)
                                         # fh.flush()
+                else:
+                    stripindex = 0
+                    for plane in data[pageindex]:
+                        for ty in range(tiles[0]):
+                            for tx in range(tiles[1]):
+                                c1 = min(tile[0], shape[3]-ty*tile[0])
+                                c2 = min(tile[1], shape[4]-tx*tile[1])
+                                chunk[c1:, c2:] = 0
+                                chunk[:c1, :c2] = plane[
+                                    0,
+                                    ty*tile[0]:ty*tile[0]+c1,
+                                    tx*tile[1]:tx*tile[1]+c2]
+                                if compress:
+                                    t = compress(chunk)
+                                    fh.write(t)
+                                    databytecounts[stripindex] = len(t)
+                                    stripindex += 1
+                                else:
+                                    fh.write_array(chunk)
+                                    # fh.flush()
             elif compress:
                 # write one strip per rowsperstrip
                 assert data.shape[2] == 1  # not handling depth
@@ -2737,6 +2847,7 @@ class TiffFile(object):
         # load remaining pages as frames
         pages._load(keyframe=None)
         # fix offsets and bytecounts first
+        # TODO: fix multiple conversions between lists and tuples
         self._lsm_fix_strip_offsets()
         self._lsm_fix_strip_bytecounts()
         # assign keyframes for data and thumbnail series
@@ -2798,7 +2909,7 @@ class TiffFile(object):
                     wrap += 2**32
                 dataoffsets.append(currentoffset + wrap)
                 previousoffset = currentoffset
-            page._offsetscounts = dataoffsets, page._offsetscounts[1]
+            page._offsetscounts = tuple(dataoffsets), page._offsetscounts[1]
 
     def _lsm_fix_strip_bytecounts(self):
         """Set databytecounts to size of compressed data.
@@ -2822,9 +2933,11 @@ class TiffFile(object):
             else:
                 # LZW compressed strips might be longer than uncompressed
                 lastoffset = min(offsets[-1] + 2*bytecounts[-1], self._fh.size)
+            bytecounts = list(bytecounts)
             for j in range(len(bytecounts) - 1):
                 bytecounts[j] = offsets[j+1] - offsets[j]
             bytecounts[-1] = lastoffset - offsets[-1]
+            page._offsetscounts = offsets, tuple(bytecounts)
 
     def __getattr__(self, name):
         """Return 'is_flag' attributes from first page."""
@@ -3629,6 +3742,7 @@ class TiffPage(object):
     software = ''
     description = ''
     description1 = ''
+    nodata = 0
 
     def __init__(self, parent, index, keyframe=None):
         """Initialize instance from file.
@@ -3861,7 +3975,6 @@ class TiffPage(object):
             self.dataoffsets = tags['TileOffsets'].value
         elif 'StripOffsets' in tags:
             self.dataoffsets = tags['StripOffsets'].value
-
         if 'TileByteCounts' in tags:
             self.databytecounts = tags['TileByteCounts'].value
         elif 'StripByteCounts' in tags:
@@ -3871,8 +3984,20 @@ class TiffPage(object):
                 product(self.shape) * (self.bitspersample // 8),)
             if self.compression != 1:
                 log.warning('TiffPage: ByteCounts tag is missing')
-
         # assert len(self.shape) == len(self.axes)
+
+        if 'GDAL_NODATA' in tags:
+            try:
+                pytype = type(dtype.type(0).item())
+                self.nodata = pytype(tags['GDAL_NODATA'].value)
+            except Exception:
+                pass
+
+    @lazyattr
+    def decode(self):
+        """Decode single tile or strip."""
+        raise NotImplementedError()
+        # TODO: retun function to decode single strips or tiles
 
     def asarray(self, out=None, squeeze=True, lock=None, reopen=True,
                 maxsize=None, maxworkers=None, validate=True):
@@ -3922,7 +4047,8 @@ class TiffPage(object):
             Photometric conversion, pre-multiplied alpha, orientation, and
             colorimetry corrections are not applied. Specifically, CMYK images
             are not converted to RGB, MinIsWhite images are not inverted,
-            and color palettes are not applied.
+            and color palettes are not applied. An exception are YCbCr JPEG
+            compressed images, which will be converted to RGB.
 
         """
         # properties from TiffPage or TiffFrame
@@ -4092,10 +4218,14 @@ class TiffPage(object):
             if istiled:
                 unpredict = TIFF.UNPREDICTORS[self.predictor]
 
-                def decode(tile, tileindex):
+                def decode(tile, tileindex, tileshape=tileshape,
+                           tiledshape=tiledshape, lsb2msb=lsb2msb,
+                           decompress=decompress, unpack=unpack,
+                           unpredict=unpredict, nodata=self.nodata,
+                           out=result[0]):
                     return tile_decode(tile, tileindex, tileshape, tiledshape,
                                        lsb2msb, decompress, unpack, unpredict,
-                                       result[0])
+                                       nodata, out)
 
                 tileiter = buffered_read(fh, lock, offsets, bytecounts)
                 if maxworkers is None:
@@ -4120,6 +4250,10 @@ class TiffPage(object):
                 result = result.reshape(-1)
                 index = 0
                 for strip in buffered_read(fh, lock, offsets, bytecounts):
+                    if strip is None:
+                        result[index:index+stripsize] = self.nodata
+                        index += stripsize
+                        continue
                     if lsb2msb:
                         strip = bitorder_decode(strip, out=strip)
                     strip = decompress(strip, out=outsize)
@@ -4249,10 +4383,8 @@ class TiffPage(object):
         """Return simplified offsets and bytecounts."""
         if self.is_contiguous:
             offset, bytecount = self.is_contiguous
-            return [offset], [bytecount]
-        if self.is_tiled:
-            return self.dataoffsets, self.databytecounts
-        return clean_offsetscounts(self.dataoffsets, self.databytecounts)
+            return ((offset,), (bytecount,))
+        return self.dataoffsets, self.databytecounts
 
     @lazyattr
     def is_contiguous(self):
@@ -4466,14 +4598,22 @@ class TiffPage(object):
         geokeys = TIFF.GEO_KEYS
         geocodes = TIFF.GEO_CODES
         for index in range(gkd[3]):
-            keyid, tagid, count, offset = gkd[4 + index * 4: index * 4 + 8]
+            try:
+                keyid, tagid, count, offset = gkd[4 + index * 4: index * 4 + 8]
+            except Exception as exception:
+                log.warning('GeoTIFF tags: %s', str(exception))
+                continue
             keyid = geokeys.get(keyid, keyid)
             if tagid == 0:
                 value = offset
             else:
                 tagname = TIFF.TAGS[tagid]
                 # deltags.append(tagname)
-                value = tags[tagname].value[offset: offset + count]
+                try:
+                    value = tags[tagname].value[offset: offset + count]
+                except KeyError:
+                    log.warning('GeoTIFF tags: %s not found', tagname)
+                    continue
                 if tagid == 34737 and count > 1 and value[-1] == '|':
                     value = value[:-1]
                 value = value if count > 1 else value[0]
@@ -4781,9 +4921,9 @@ class TiffFrame(object):
 
         for code, tag in self._gettags(tags):
             if code == 273 or code == 324:
-                dataoffsets = list(tag.value)
+                dataoffsets = tag.value
             elif code == 279 or code == 325:
-                databytecounts = list(tag.value)
+                databytecounts = tag.value
             elif code == 256 and keyframe.imagewidth != tag.value:
                 raise RuntimeError('incompatible keyframe')
             # elif code == 270:
@@ -4884,10 +5024,8 @@ class TiffFrame(object):
         if keyframe.is_tiled:
             pass
         if keyframe.is_contiguous:
-            self._offsetscounts = ([self._offsetscounts[0][0]],
-                                   [keyframe.is_contiguous[1]])
-        else:
-            self._offsetscounts = clean_offsetscounts(*self._offsetscounts)
+            self._offsetscounts = ((self._offsetscounts[0][0], ),
+                                   (keyframe.is_contiguous[1], ))
         self._keyframe = keyframe
 
     @property
@@ -5117,7 +5255,7 @@ class TiffPageSeries(object):
             self.parent = pages[0].parent
         else:
             self.parent = None
-        if len(pages) == 1 and not truncated:
+        if not truncated and len(pages) == 1:
             self._len = int(product(self.shape) // product(pages[0].shape))
         else:
             self._len = len(pages)
@@ -6686,8 +6824,8 @@ class TIFF(object):
             LZMA = 34925
             ZSTD_DEPRECATED = 34926
             WEBP_DEPRECATED = 34927
-            OPS_PNG = 34933  # Objective Pathology Services
-            OPS_JPEGXR = 34934  # Objective Pathology Services
+            PNG = 34933  # Objective Pathology Services
+            JPEGXR = 34934  # Objective Pathology Services
             ZSTD = 50000
             WEBP = 50001
             PIXTIFF = 50013
@@ -6983,10 +7121,14 @@ class TIFF(object):
             return {
                 None: imagecodecs.none_encode,
                 1: imagecodecs.none_encode,
+                7: imagecodecs.jpeg_encode,
                 8: imagecodecs.zlib_encode,
                 32946: imagecodecs.zlib_encode,
                 32773: imagecodecs.packbits_encode,
+                34712: imagecodecs.j2k_encode,
                 34925: imagecodecs.lzma_encode,
+                34933: imagecodecs.png_encode,
+                34934: imagecodecs.jxr_encode,
                 50000: imagecodecs.zstd_encode,
                 50001: imagecodecs.webp_encode
             }
@@ -9328,55 +9470,53 @@ def olympusini_metadata(inistr):
         pass
     for band in bands:
         band['LUT'] = numpy.array(band['LUT'], 'uint8')
-
     return result
 
 
 def tile_decode(tile, tileindex, tileshape, tiledshape,
-                lsb2msb, decompress, unpack, unpredict, out):
+                lsb2msb, decompress, unpack, unpredict, nodata, out):
     """Decode tile segment bytes into 5D output array."""
     _, imagedepth, imagelength, imagewidth, _ = out.shape
     tileddepth, tiledlength, tiledwidth = tiledshape
     tiledepth, tilelength, tilewidth, samples = tileshape
     tilesize = tiledepth * tilelength * tilewidth * samples
-
     pl = tileindex // (tiledwidth * tiledlength * tileddepth)
     td = (tileindex // (tiledwidth * tiledlength)) % tileddepth * tiledepth
     tl = (tileindex // tiledwidth) % tiledlength * tilelength
     tw = tileindex % tiledwidth * tilewidth
 
-    if tile:
-        if lsb2msb:
-            tile = bitorder_decode(tile, out=tile)
-        tile = decompress(tile)
-        tile = unpack(tile)
-        # decompression / unpacking might return too many bytes
-        tile = tile[:tilesize]
-        try:
-            # complete tile according to TIFF specification
-            tile.shape = tileshape
-        except ValueError:
-            # tile fills remaining space; found in some JPEG compressed slides
-            s = (min(imagedepth - td, tiledepth),
-                 min(imagelength - tl, tilelength),
-                 min(imagewidth - tw, tilewidth),
-                 samples)
-            try:
-                tile.shape = s
-            except ValueError:
-                # incomplete tile; see gdal issue #1179
-                log.warning('tile_decode: incomplete tile %s %s',
-                            tile.shape, tileshape)
-                t = numpy.zeros(tilesize, tile.dtype)
-                s = min(tile.size, tilesize)
-                t[:s] = tile[:s]
-                tile = t.reshape(tileshape)
+    if tile is None:
+        out[pl, td:td+tiledepth, tl:tl+tilelength, tw:tw+tilewidth] = nodata
+        return
 
-        tile = unpredict(tile, axis=-2, out=tile)
-        out[pl, td:td+tiledepth, tl:tl+tilelength, tw:tw+tilewidth] = (
-            tile[:imagedepth-td, :imagelength-tl, :imagewidth-tw])
-    else:
-        out[pl, td:td+tiledepth, tl:tl+tilelength, tw:tw+tilewidth] = 0
+    if lsb2msb:
+        tile = bitorder_decode(tile, out=tile)
+    tile = decompress(tile)
+    tile = unpack(tile)
+    # decompression / unpacking might return too many bytes
+    tile = tile[:tilesize]
+    try:
+        # complete tile according to TIFF specification
+        tile.shape = tileshape
+    except ValueError:
+        # tile fills remaining space; found in some JPEG compressed slides
+        s = (min(imagedepth - td, tiledepth),
+             min(imagelength - tl, tilelength),
+             min(imagewidth - tw, tilewidth),
+             samples)
+        try:
+            tile.shape = s
+        except ValueError:
+            # incomplete tile; see gdal issue #1179
+            log.warning('tile_decode: incomplete tile %s %s',
+                        tile.shape, tileshape)
+            t = numpy.zeros(tilesize, tile.dtype)
+            s = min(tile.size, tilesize)
+            t[:s] = tile[:s]
+            tile = t.reshape(tileshape)
+    tile = unpredict(tile, axis=-2, out=tile)
+    out[pl, td:td+tiledepth, tl:tl+tilelength, tw:tw+tilewidth] = (
+        tile[:imagedepth-td, :imagelength-tl, :imagewidth-tw])
 
 
 def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
@@ -9567,6 +9707,9 @@ def decode_lzw(encoded):
         'The decode_lzw function was removed from the tifffile package.\n'
         'Use the lzw_decode function from the imagecodecs package instead.')
     return imagecodecs.lzw_decode(encoded)
+
+
+decodelzw = decode_lzw
 
 
 def apply_colormap(image, colormap, contig=True):
@@ -9842,39 +9985,7 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
 
     filecache.clear()
     page0.parent.filehandle.lock = None
-
     return out
-
-
-def clean_offsetscounts(offsets, counts):
-    """Return cleaned offsets and byte counts.
-
-    Remove zero offsets and counts.
-    Use to sanitize StripOffsets and StripByteCounts tag values.
-
-    """
-    # TODO: cythonize this
-    offsets = list(offsets)
-    counts = list(counts)
-    size = len(offsets)
-    if size != len(counts):
-        raise ValueError('StripOffsets and StripByteCounts mismatch')
-    j = 0
-    for i, (o, b) in enumerate(zip(offsets, counts)):
-        if b > 0:
-            if o > 0:
-                if i > j:
-                    offsets[j] = o
-                    counts[j] = b
-                j += 1
-                continue
-            raise ValueError('invalid offset')
-        log.warning('clean_offsetscounts: empty bytecount')
-    if size == len(offsets):
-        return offsets, counts
-    if j == 0:
-        return [offsets[0]], [counts[0]]
-    return offsets[:j], counts[:j]
 
 
 def buffered_read(fh, lock, offsets, bytecounts, buffersize=None):
@@ -9888,13 +9999,16 @@ def buffered_read(fh, lock, offsets, bytecounts, buffersize=None):
         with lock:
             size = 0
             while size < buffersize and i < length:
-                fh.seek(offsets[i])
-                bytecount = bytecounts[i]
-                data.append(fh.read(bytecount))
-                # buffer = bytearray(bytecount)
-                # n = fh.readinto(buffer)
-                # data.append(buffer[:n])
-                size += bytecount
+                if offsets[i] > 0 and bytecounts[i] > 0:
+                    fh.seek(offsets[i])
+                    bytecount = bytecounts[i]
+                    data.append(fh.read(bytecount))
+                    # buffer = bytearray(bytecount)
+                    # n = fh.readinto(buffer)
+                    # data.append(buffer[:n])
+                    size += bytecount
+                else:
+                    data.append(None)
                 i += 1
         for segment in data:
             yield segment
@@ -10852,8 +10966,7 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
             data = numpy.swapaxes(data, -3, -2)
             data = numpy.swapaxes(data, -2, -1)
         elif not isrgb and (data.shape[-1] < data.shape[-2] // 8 and
-                            data.shape[-1] < data.shape[-3] // 8 and
-                            data.shape[-1] < 5):
+                            data.shape[-1] < data.shape[-3] // 8):
             data = numpy.swapaxes(data, -3, -1)
             data = numpy.swapaxes(data, -2, -1)
         isrgb = isrgb and data.shape[-1] in (3, 4)
@@ -11213,10 +11326,9 @@ def main(argv=None):
                 if img is None:
                     continue
                 vmin, vmax = settings.vmin, settings.vmax
-                if 'GDAL_NODATA' in page.tags:
+                if page.keyframe.nodata:
                     try:
-                        vmin = numpy.min(
-                            img[img > float(page.tags['GDAL_NODATA'].value)])
+                        vmin = numpy.min(img[img > page.keyframe.nodata])
                     except ValueError:
                         pass
                 if tif.is_stk:
