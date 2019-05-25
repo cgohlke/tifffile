@@ -10,7 +10,7 @@ from setuptools import setup
 
 buildnumber = ''
 
-imagecodecs = 'imagecodecs>=2019.1.20'
+imagecodecs = 'imagecodecs>=2019.5.22'
 
 with open('tifffile/tifffile.py') as fh:
     code = fh.read()
@@ -23,8 +23,8 @@ description = re.search(r'"""(.*)\.(?:\r\n|\r|\n)', code).groups()[0]
 readme = re.search(r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}from', code,
                    re.MULTILINE | re.DOTALL).groups()[0]
 
-readme = '\n'.join([description, '=' * len(description)]
-                   + readme.splitlines()[1:])
+readme = '\n'.join([description, '=' * len(description)] +
+                   readme.splitlines()[1:])
 
 if 'sdist' in sys.argv:
     # update README, LICENSE, and CHANGES files
