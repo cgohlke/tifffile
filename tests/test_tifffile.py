@@ -45,7 +45,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: 3-clause BSD
 
-:Version: 2019.5.22
+:Version: 2019.5.30
 
 """
 
@@ -4966,7 +4966,7 @@ def test_read_ome_corrupted_page(caplog):
         assert len(tif.pages) == 5
         assert len(tif.series) == 1
         if not SKIP_PY2:
-            assert 'TiffFrame 4 is missing required tags' in caplog.text
+            assert 'TiffFrame 4: missing required tags' in caplog.text
         # assert page properties
         page = tif.pages[0]
         assert page.imagewidth == 7506
@@ -6254,33 +6254,50 @@ def test_write(data, byteorder, bigtiff, dtype, shape):
 @pytest.mark.parametrize('codec', [
     'deflate', 'lzma', 'packbits', 'zstd',  # 'lzw'
     'webp', 'png', 'jpeg', 'jpegxr', 'jpeg2000'])
-def test_write_codecs(tile, codec):
+@pytest.mark.parametrize('mode', ['gray', 'rgb', 'planar'])
+def test_write_codecs(mode, tile, codec):
     """Test write various compression."""
+    if mode in ('gray', 'planar') and codec == 'webp':
+        pytest.skip("WebP doesn't support grayscale or planar mode")
     level = {'webp': -1, 'jpeg': 99}.get(codec, None)
     tile = (16, 16) if tile else None
     data = numpy.load(public_file('tifffile/rgb.u1.npy'))
+    if mode == 'rgb':
+        photometric = RGB
+        planarconfig = CONTIG
+    elif mode == 'planar':
+        photometric = RGB
+        planarconfig = SEPARATE
+        data = numpy.moveaxis(data, -1, 0).copy()
+    else:
+        planarconfig = None
+        photometric = MINISBLACK
+        data = data[..., :1].copy()
     data = numpy.repeat(data[numpy.newaxis], 3, axis=0)
     data[1] = 255 - data[1]
     shape = data.shape
-    with TempFileName('codecs_%s%s' % (codec,
-                                       '_tile' if tile else '')) as fname:
+    with TempFileName('codecs_%s_%s%s' % (mode, codec,
+                                          '_tile' if tile else '')) as fname:
         imwrite(fname, data, compress=(codec, level), tile=tile,
-                photometric='RGB')
+                photometric=photometric, planarconfig=planarconfig,
+                subsampling=(1, 1))
         assert_jhove(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == shape[0]
             page = tif.pages[0]
             assert not page.is_contiguous
             assert page.compression == enumarg(TIFF.COMPRESSION, codec)
-            assert page.photometric in (RGB, YCBCR)
-            assert page.imagewidth == data.shape[-2]
-            assert page.imagelength == data.shape[-3]
-            assert page.samplesperpixel == data.shape[-1]
+            assert page.photometric in (photometric, YCBCR)
+            if planarconfig is not None:
+                assert page.planarconfig == planarconfig
+            assert page.imagewidth == 31
+            assert page.imagelength == 32
+            assert page.samplesperpixel == 1 if mode == 'gray' else 3
             image = tif.asarray()
-            if codec in ('webp', 'png', 'zstd'):
-                assert_array_equal(data, image)
-            else:
+            if codec in ('jpeg', ):
                 assert_allclose(data, image, atol=10)
+            else:
+                assert_array_equal(data, image)
             assert__str__(tif)
 
 
