@@ -1,9 +1,16 @@
 Revisions
 ---------
+2019.5.30
+    Pass 2815 tests.
+    Ignore invalid frames in OME-TIFF.
+    Set default subsampling to (2, 2) for RGB JPEG compression.
+    Fix reading and writing planar RGB JPEG compression.
+    Replace buffered_read with FileHandle.read_segments.
+    Include page or frame numbers in exceptions and warnings.
+    Add Timer class.
 2019.5.22
-    Pass 2783 tests.
     Add optional chroma subsampling for JPEG compression.
-    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (tentative).
+    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (WIP).
     Fix writing tiled images with WebP compression.
     Improve handling GeoTIFF sparse files.
 2019.3.18
@@ -11,7 +18,7 @@ Revisions
     Fix reading OME-TIFF files with corrupted but unused pages.
     Allow to load TiffFrame without specifying keyframe.
     Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
-    Rename property is_chroma_subsampled to is_subsampled.
+    Rename property is_chroma_subsampled to is_subsampled (breaking).
     Make more attributes and methods private (WIP).
 2019.3.8
     Fix MemoryError when RowsPerStrip > ImageLength.
