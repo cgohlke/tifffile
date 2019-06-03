@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.5.22
+:Version: 2019.5.30
 
 Requirements
 ------------
@@ -54,10 +54,17 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.5.30
+    Pass 2815 tests.
+    Ignore invalid frames in OME-TIFF.
+    Set default subsampling to (2, 2) for RGB JPEG compression.
+    Fix reading and writing planar RGB JPEG compression.
+    Replace buffered_read with FileHandle.read_segments.
+    Include page or frame numbers in exceptions and warnings.
+    Add Timer class.
 2019.5.22
-    Pass 2783 tests.
     Add optional chroma subsampling for JPEG compression.
-    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (tentative).
+    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (WIP).
     Fix writing tiled images with WebP compression.
     Improve handling GeoTIFF sparse files.
 2019.3.18
@@ -65,7 +72,7 @@ Revisions
     Fix reading OME-TIFF files with corrupted but unused pages.
     Allow to load TiffFrame without specifying keyframe.
     Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
-    Rename property is_chroma_subsampled to is_subsampled.
+    Rename property is_chroma_subsampled to is_subsampled (breaking).
     Make more attributes and methods private (WIP).
 2019.3.8
     Fix MemoryError when RowsPerStrip > ImageLength.
@@ -268,7 +275,8 @@ Python 2.7 and 32-bit versions are deprecated.
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed images.
 The `imagecodecs-lite <https://pypi.org/project/imagecodecs-lite/>`_ package,
-which easier to build, can be used for decoding LZW compressed images instead.
+which is easier to build, can be used for decoding LZW compressed images
+instead.
 
 Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
 some of which allow file sizes to exceed the 4 GB limit:
