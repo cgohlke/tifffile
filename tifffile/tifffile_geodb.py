@@ -12,6 +12,7 @@ import enum
 
 class Proj(enum.IntEnum):
     """Projection Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Alabama_CS27_East = 10101
@@ -443,6 +444,7 @@ class Proj(enum.IntEnum):
 
 class PCS(enum.IntEnum):
     """Projected CS Type Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Adindan_UTM_zone_37N = 20137
@@ -1446,6 +1448,7 @@ class PCS(enum.IntEnum):
 
 class GCSE(enum.IntEnum):
     """Unspecified GCS based on ellipsoid."""
+
     Undefined = 0
     User_Defined = 32767
     Airy1830 = 4001
@@ -1487,6 +1490,7 @@ class GCSE(enum.IntEnum):
 
 class GCS(enum.IntEnum):
     """Geographic CS Type Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Adindan = 4201
@@ -1634,6 +1638,7 @@ class GCS(enum.IntEnum):
 
 class Ellipse(enum.IntEnum):
     """Ellipsoid Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Airy_1830 = 7001
@@ -1675,6 +1680,7 @@ class Ellipse(enum.IntEnum):
 
 class DatumE(enum.IntEnum):
     """Ellipsoid-Only Geodetic Datum Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Airy1830 = 6001
@@ -1716,6 +1722,7 @@ class DatumE(enum.IntEnum):
 
 class Datum(enum.IntEnum):
     """Geodetic Datum Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Adindan = 6201
@@ -1843,6 +1850,7 @@ class Datum(enum.IntEnum):
 
 class ModelType(enum.IntEnum):
     """Model Type Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Projected = 1
@@ -1852,6 +1860,7 @@ class ModelType(enum.IntEnum):
 
 class RasterPixel(enum.IntEnum):
     """Raster Type Codes."""
+
     Undefined = 0
     User_Defined = 32767
     IsArea = 1
@@ -1860,6 +1869,7 @@ class RasterPixel(enum.IntEnum):
 
 class Linear(enum.IntEnum):
     """Linear Units."""
+
     Undefined = 0
     User_Defined = 32767
     Meter = 9001
@@ -1881,6 +1891,7 @@ class Linear(enum.IntEnum):
 
 class Angular(enum.IntEnum):
     """Angular Units."""
+
     Undefined = 0
     User_Defined = 32767
     Radian = 9101
@@ -1895,6 +1906,7 @@ class Angular(enum.IntEnum):
 
 class PM(enum.IntEnum):
     """Prime Meridian Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Greenwich = 8901
@@ -1912,6 +1924,7 @@ class PM(enum.IntEnum):
 
 class CT(enum.IntEnum):
     """Coordinate Transformation Codes."""
+
     Undefined = 0
     User_Defined = 32767
     TransverseMercator = 1
@@ -1947,6 +1960,7 @@ class CT(enum.IntEnum):
 
 class VertCS(enum.IntEnum):
     """Vertical CS Type Codes."""
+
     Undefined = 0
     User_Defined = 32767
     Airy_1830_ellipsoid = 5001
