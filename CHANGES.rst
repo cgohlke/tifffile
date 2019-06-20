@@ -1,7 +1,12 @@
 Revisions
 ---------
+2019.6.18
+    Pass 2817 tests.
+    Fix reading planar RGB ImageJ files created by Bio-Formats.
+    Fix reading single-file, multi-image OME-TIFF without UUID.
+    Presume LSM stores uncompressed images contiguously per page.
+    Reformat some complex expressions.
 2019.5.30
-    Pass 2815 tests.
     Ignore invalid frames in OME-TIFF.
     Set default subsampling to (2, 2) for RGB JPEG compression.
     Fix reading and writing planar RGB JPEG compression.
