@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.5.30
+:Version: 2019.6.18
 
 Requirements
 ------------
@@ -49,13 +49,18 @@ This release has been tested with the following requirements and dependencies
 * `Numpy 1.15.4 <https://www.numpy.org>`_
 * `Imagecodecs 2019.5.22 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for encoding and decoding LZW, JPEG, etc.)
-* `Matplotlib 2.2 <https://www.matplotlib.org>`_ (optional; used for plotting)
+* `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
 * Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
+2019.6.18
+    Pass 2817 tests.
+    Fix reading planar RGB ImageJ files created by Bio-Formats.
+    Fix reading single-file, multi-image OME-TIFF without UUID.
+    Presume LSM stores uncompressed images contiguously per page.
+    Reformat some complex expressions.
 2019.5.30
-    Pass 2815 tests.
     Ignore invalid frames in OME-TIFF.
     Set default subsampling to (2, 2) for RGB JPEG compression.
     Fix reading and writing planar RGB JPEG compression.
