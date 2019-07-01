@@ -70,7 +70,7 @@ setup(
         'futures;python_version=="2.7"',
         # require imagecodecs on Windows only
         imagecodecs + ';platform_system=="Windows"',
-        ],
+    ],
     extras_require={
         'all': ['matplotlib>=2.2', imagecodecs],
     },
@@ -79,8 +79,8 @@ setup(
     entry_points={
         'console_scripts': [
             'tifffile = tifffile:main',
-            'lsm2bin = tifffile.lsm2bin:main'
-            ]},
+            'lsm2bin = tifffile.lsm2bin:main',
+        ]},
     platforms=['any'],
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -94,5 +94,5 @@ setup(
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
-        ],
+    ],
 )
