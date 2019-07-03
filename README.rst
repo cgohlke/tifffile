@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.6.18
+:Version: 2019.7.2
 
 Requirements
 ------------
@@ -54,8 +54,16 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.7.2
+    Pass 2868 tests.
+    Do not write SampleFormat tag for unsigned data types.
+    Write ByteCount tag values as SHORT or LONG if possible.
+    Allow to specify axes in FileSequence pattern via group names.
+    Add option to concurrently read FileSequence using threads.
+    Derive TiffSequence from FileSequence.
+    Use str(datetime.timedelta) to format Timer duration.
+    Use perf_counter for Timer if possible.
 2019.6.18
-    Pass 2817 tests.
     Fix reading planar RGB ImageJ files created by Bio-Formats.
     Fix reading single-file, multi-image OME-TIFF without UUID.
     Presume LSM stores uncompressed images contiguously per page.
@@ -284,16 +292,21 @@ which is easier to build, can be used for decoding LZW compressed images
 instead.
 
 Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
-some of which allow file sizes to exceed the 4 GB limit:
+some of which allow file or data sizes to exceed the 4 GB limit:
 
 * *BigTIFF* is identified by version number 43 and uses different file
   header, IFD, and tag structures with 64-bit offsets. It adds more data types.
   Tifffile can read and write BigTIFF files.
 * *ImageJ* hyperstacks store all image data, which may exceed 4 GB,
   contiguously after the first IFD. Files > 4 GB contain one IFD only.
-  The size (shape and dtype) of the image data can be determined from the
-  ImageDescription of the first IFD. Tifffile can read and write ImageJ
-  hyperstacks.
+  The size (shape and dtype) of the up to 6-dimensional image data can be
+  determined from the ImageDescription tag of the first IFD, which is Latin-1
+  encoded. Tifffile can read and write ImageJ hyperstacks.
+* *OME-TIFF* stores up to 8-dimensional data in one or multiple TIFF of BigTIFF
+  files. The 8-bit UTF-8 encoded OME-XML metadata found in the ImageDescription
+  tag of the first IFD defines the position of TIFF IFDs in the high
+  dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
+  metadata is stored in a separate file.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
@@ -303,7 +316,7 @@ some of which allow file sizes to exceed the 4 GB limit:
   JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
   Tifffile can read NDPI files < 4 GB and decompress large JPEG tiles using
   the imagecodecs library on Windows.
-* *ScanImage* optionally writes corrupt non-BigTIFF files > 2 GB. The values
+* *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
   Tifffile can read such files on Python 3 if the image data is stored
@@ -514,7 +527,7 @@ Read the second image series from the TIFF file:
 >>> series1.shape
 (5, 301, 219)
 
-Read an image stack from a sequence of TIFF files with a file name pattern:
+Read an image stack from a series of TIFF files with a file name pattern:
 
 >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
 >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
