@@ -1,7 +1,15 @@
 Revisions
 ---------
+2019.7.2
+    Pass 2868 tests.
+    Do not write SampleFormat tag for unsigned data types.
+    Write ByteCount tag values as SHORT or LONG if possible.
+    Allow to specify axes in FileSequence pattern via group names.
+    Add option to concurrently read FileSequence using threads.
+    Derive TiffSequence from FileSequence.
+    Use str(datetime.timedelta) to format Timer duration.
+    Use perf_counter for Timer if possible.
 2019.6.18
-    Pass 2817 tests.
     Fix reading planar RGB ImageJ files created by Bio-Formats.
     Fix reading single-file, multi-image OME-TIFF without UUID.
     Presume LSM stores uncompressed images contiguously per page.
