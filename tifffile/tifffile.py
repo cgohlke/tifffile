@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.6.18
+:Version: 2019.7.2
 
 Requirements
 ------------
@@ -87,8 +87,16 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.7.2
+    Pass 2868 tests.
+    Do not write SampleFormat tag for unsigned data types.
+    Write ByteCount tag values as SHORT or LONG if possible.
+    Allow to specify axes in FileSequence pattern via group names.
+    Add option to concurrently read FileSequence using threads.
+    Derive TiffSequence from FileSequence.
+    Use str(datetime.timedelta) to format Timer duration.
+    Use perf_counter for Timer if possible.
 2019.6.18
-    Pass 2817 tests.
     Fix reading planar RGB ImageJ files created by Bio-Formats.
     Fix reading single-file, multi-image OME-TIFF without UUID.
     Presume LSM stores uncompressed images contiguously per page.
@@ -317,16 +325,21 @@ which is easier to build, can be used for decoding LZW compressed images
 instead.
 
 Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
-some of which allow file sizes to exceed the 4 GB limit:
+some of which allow file or data sizes to exceed the 4 GB limit:
 
 * *BigTIFF* is identified by version number 43 and uses different file
   header, IFD, and tag structures with 64-bit offsets. It adds more data types.
   Tifffile can read and write BigTIFF files.
 * *ImageJ* hyperstacks store all image data, which may exceed 4 GB,
   contiguously after the first IFD. Files > 4 GB contain one IFD only.
-  The size (shape and dtype) of the image data can be determined from the
-  ImageDescription of the first IFD. Tifffile can read and write ImageJ
-  hyperstacks.
+  The size (shape and dtype) of the up to 6-dimensional image data can be
+  determined from the ImageDescription tag of the first IFD, which is Latin-1
+  encoded. Tifffile can read and write ImageJ hyperstacks.
+* *OME-TIFF* stores up to 8-dimensional data in one or multiple TIFF of BigTIFF
+  files. The 8-bit UTF-8 encoded OME-XML metadata found in the ImageDescription
+  tag of the first IFD defines the position of TIFF IFDs in the high
+  dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
+  metadata is stored in a separate file.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
@@ -336,7 +349,7 @@ some of which allow file sizes to exceed the 4 GB limit:
   JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
   Tifffile can read NDPI files < 4 GB and decompress large JPEG tiles using
   the imagecodecs library on Windows.
-* *ScanImage* optionally writes corrupt non-BigTIFF files > 2 GB. The values
+* *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
   Tifffile can read such files on Python 3 if the image data is stored
@@ -547,7 +560,7 @@ Read the second image series from the TIFF file:
 >>> series1.shape
 (5, 301, 219)
 
-Read an image stack from a sequence of TIFF files with a file name pattern:
+Read an image stack from a series of TIFF files with a file name pattern:
 
 >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
 >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
@@ -564,27 +577,27 @@ Read an image stack from a sequence of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.6.18'
+__version__ = '2019.7.2'
 __docformat__ = 'restructuredtext en'
 __all__ = (
     'imwrite',
-    'imsave',
     'imread',
     'imshow',
     'memmap',
     'lsm2bin',
-    'FileHandle',
     'TiffFile',
     'TiffFileError',
-    'TiffWriter',
     'TiffSequence',
+    'TiffWriter',
     'TiffPage',
+    'TiffPageSeries',
     'TiffFrame',
     'TiffTag',
     'TIFF',
-    # utility functions used by oiffile, czifile, etc
+    # utility classes and functions used by oiffile, czifile, etc
+    'FileHandle',
+    'FileSequence',
     'Timer',
-    'imagej_description_metadata',
     'lazyattr',
     'natural_sorted',
     'stripnull',
@@ -593,13 +606,18 @@ __all__ = (
     'create_output',
     'repeat_nd',
     'format_size',
+    'astype',
     'product',
     'xml2dict',
     'pformat',
     'str2bytes',
+    'nullfunc',
+    'update_kwargs',
+    'parse_kwargs',
     'askopenfilename',
     '_app_show',
     # deprecated
+    'imsave',
     'decode_lzw',
     'decodelzw',
 )
@@ -650,7 +668,7 @@ log = logging.getLogger(__name__)  # .addHandler(logging.NullHandler())
 def imread(files, **kwargs):
     """Return image data from TIFF file(s) as numpy array.
 
-    Refer to the TiffFile and  TiffSequence classes and their asarray
+    Refer to the TiffFile and TiffSequence classes and their asarray
     functions for documentation.
 
     Parameters
@@ -661,7 +679,8 @@ def imread(files, **kwargs):
     kwargs : dict
         Parameters 'name', 'offset', 'size', 'multifile', and 'is_ome'
         are passed to the TiffFile constructor.
-        The 'pattern' parameter is passed to the TiffSequence constructor.
+        The 'pattern' and 'ioworkers' parameters are passed to the
+        TiffSequence constructor.
         Other parameters are passed to the asarray functions.
         The first image series in the file is returned if no arguments are
         provided.
@@ -680,7 +699,7 @@ def imread(files, **kwargs):
         'fastij',
         'movie',
     )
-    kwargs_seq = parse_kwargs(kwargs, 'pattern')
+    kwargs_seq = parse_kwargs(kwargs, 'pattern', 'ioworkers')
 
     if kwargs.get('pages', None) is not None:
         if kwargs.get('key', None) is not None:
@@ -727,7 +746,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     shape : tuple
         If 'data' is None, shape of an empty array to save to the file.
     dtype : numpy.dtype
-        If 'data' is None, data-type of an empty array to save to the file.
+        If 'data' is None, datatype of an empty array to save to the file.
     kwargs : dict
         Parameters 'append', 'byteorder', 'bigtiff', and 'imagej', are passed
         to the TiffWriter constructor. Other parameters are passed to the
@@ -768,9 +787,6 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
         return tif.save(data, shape, dtype, **kwargs)
 
 
-imsave = imwrite
-
-
 def memmap(filename, shape=None, dtype=None, page=None, series=0, mode='r+',
            **kwargs):
     """Return memory-mapped numpy array stored in TIFF file.
@@ -792,7 +808,7 @@ def memmap(filename, shape=None, dtype=None, page=None, series=0, mode='r+',
     shape : tuple
         Shape of the empty array.
     dtype : numpy.dtype
-        Data-type of the empty array.
+        Datatype of the empty array.
     page : int
         Index of the page which image data to memory-map.
     series : int
@@ -1015,7 +1031,7 @@ class TiffWriter(object):
         shape : tuple or None
             Shape of the empty array to save. Used only if 'data' is None.
         dtype : numpy.dtype or None
-            Data-type of the empty array to save. Used only if 'data' is None.
+            Datatype of the empty array to save. Used only if 'data' is None.
         returnoffset : bool
             If True and the image data in the file is memory-mappable, return
             the offset and number of bytes of the image data in the file.
@@ -1070,7 +1086,7 @@ class TiffWriter(object):
             Compressors may require certain data shapes, types or value ranges.
             E.g. JPEG requires grayscale or RGB(A), uint8 or 12-bit uint16.
         rowsperstrip : int
-            The number of rows per strip. By default strips will be ~64 KB
+            The number of rows per strip. By default, strips will be ~64 KB
             if compression is enabled, else rowsperstrip is set to the image
             length. Bilevel images are always stored in one strip per plane.
         predictor : bool
@@ -1590,7 +1606,7 @@ class TiffWriter(object):
                 addtag('ImageDepth', 'I', 1, shape[-4])
                 addtag('TileDepth', 'I', 1, tile[0])
         addtag('NewSubfileType', 'I', 1, subfiletype)
-        if not bilevel:
+        if not bilevel and not datadtype.kind == 'u':
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
             addtag('SampleFormat', 'H', samplesperpixel,
                    (sampleformat,) * samplesperpixel)
@@ -1660,6 +1676,21 @@ class TiffWriter(object):
             for t in imagej_metadata_tag(ijmetadata, byteorder):
                 addtag(*t)
 
+        def bytecount_format(bytecounts, compress=compress, size=offsetsize):
+            """Return bytecount format."""
+            if len(bytecounts) == 1:
+                return {4: 'I', 8: 'Q'}[size]
+            bytecount = bytecounts[0]
+            if compress:
+                bytecount = bytecount * 10
+            if bytecount < 2**16:
+                return 'H'
+            if bytecount < 2**32:
+                return 'I'
+            if size == 4:
+                return 'I'
+            return 'Q'
+
         contiguous = not compress
         if tile:
             # one chunk per tile per plane
@@ -1677,12 +1708,14 @@ class TiffWriter(object):
             numtiles = product(tiles) * shape[1]
             databytecounts = [
                 product(tile) * shape[-1] * datadtype.itemsize] * numtiles
-            addtag(tagbytecounts, offsetformat, numtiles, databytecounts)
+            bytecountformat = bytecount_format(databytecounts)
+            addtag(tagbytecounts, bytecountformat, numtiles, databytecounts)
             addtag(tagoffsets, offsetformat, numtiles, [0] * numtiles)
             contiguous = contiguous and product(tiles) == 1
             if not contiguous:
                 # allocate tile buffer
                 chunk = numpy.empty(tile + (shape[-1],), dtype=datadtype)
+            bytecountformat = bytecountformat * numtiles
         elif contiguous and (bilevel or rowsperstrip is None):
             # one strip per plane
             if bilevel:
@@ -1690,9 +1723,11 @@ class TiffWriter(object):
             else:
                 databytecounts = [
                     product(datashape[2:]) * datadtype.itemsize] * shape[1]
-            addtag(tagbytecounts, offsetformat, shape[1], databytecounts)
+            bytecountformat = bytecount_format(databytecounts)
+            addtag(tagbytecounts, bytecountformat, shape[1], databytecounts)
             addtag(tagoffsets, offsetformat, shape[1], [0] * shape[1])
             addtag('RowsPerStrip', 'I', 1, shape[-3])
+            bytecountformat = bytecountformat * shape[1]
         else:
             # use rowsperstrip
             rowsize = product(shape[-2:]) * datadtype.itemsize
@@ -1710,17 +1745,16 @@ class TiffWriter(object):
 
             numstrips1 = (shape[-3] + rowsperstrip - 1) // rowsperstrip
             numstrips = numstrips1 * shape[1]
-            if compress:
-                databytecounts = [0] * numstrips
-            else:
-                # TODO: save bilevel data with rowsperstrip
-                stripsize = rowsperstrip * rowsize
-                databytecounts = [stripsize] * numstrips
-                stripsize -= rowsize * (numstrips1 * rowsperstrip - shape[-3])
-                for i in range(numstrips1 - 1, numstrips, numstrips1):
-                    databytecounts[i] = stripsize
-            addtag(tagbytecounts, offsetformat, numstrips, databytecounts)
+            # TODO: save bilevel data with rowsperstrip
+            stripsize = rowsperstrip * rowsize
+            databytecounts = [stripsize] * numstrips
+            stripsize -= rowsize * (numstrips1 * rowsperstrip - shape[-3])
+            for i in range(numstrips1 - 1, numstrips, numstrips1):
+                databytecounts[i] = stripsize
+            bytecountformat = bytecount_format(databytecounts)
+            addtag(tagbytecounts, bytecountformat, numstrips, databytecounts)
             addtag(tagoffsets, offsetformat, numstrips, [0] * numstrips)
+            bytecountformat = bytecountformat * numstrips
 
         if data is None and not contiguous:
             raise ValueError('cannot write non-contiguous empty file')
@@ -1919,10 +1953,7 @@ class TiffWriter(object):
                 if pos:
                     ifd.write(pack(offsetformat, ifdpos + pos))
                     ifd.seek(pos)
-                    for size in databytecounts:
-                        ifd.write(pack(offsetformat, size))
-                else:
-                    ifd.write(pack(offsetformat, databytecounts[0]))
+                ifd.write(pack(bytecountformat, *databytecounts))
 
             fhpos = fh.tell()
             fh.seek(ifdpos)
@@ -2304,10 +2335,10 @@ class TiffFile(object):
             If True (default), validate various tags.
             Passed to TiffPage.asarray().
         maxworkers : int or None
-            Maximum number of threads to concurrently get data from pages
-            or tiles. If None (default), mutli-threading is enabled if data
-            are compressed. If 0, up to half the CPU cores are used.
-            If 1, mutli-threading is disabled.
+            Maximum number of threads to concurrently get data from multiple
+            pages or compressed segments.
+            If None (default), up to half the CPU cores are used.
+            If 1, multi-threading is disabled.
             Reading data from file is limited to a single thread.
             Using multiple threads can significantly speed up this function
             if the bottleneck is decoding compressed data, e.g. in case of
@@ -2633,7 +2664,6 @@ class TiffFile(object):
         slices = ij.get('slices', 1)
         channels = ij.get('channels', 1)
         mode = ij.get('mode', None)
-        hyperstack = ij.get('hyperstack', False)
 
         shape = []
         axes = []
@@ -4269,9 +4299,8 @@ class TiffPage(object):
             Maximum size of data before a ValueError is raised.
             Can be used to catch DOS. Default: 16 TB.
         maxworkers : int or None
-            Maximum number of threads to concurrently decode tile data.
-            If None (default), up to half the CPU cores are used for
-            compressed tiles.
+            Maximum number of threads to concurrently decode compressed
+            segments. If None (default), up to half the CPU cores are used.
             See remarks in TiffFile.asarray.
         validate : bool
             If True (default), validate various parameters.
@@ -4476,11 +4505,13 @@ class TiffPage(object):
                                        nodata, out)
 
                 tileiter = fh.read_segments(offsets, bytecounts, lock)
-                if maxworkers is None:
-                    maxworkers = 0 if self.compression > 1 else 1
-                if maxworkers == 0:
+
+                if self.compression == 1 or len(offsets) < 3:
+                    maxworkers = 1
+                elif maxworkers is None or maxworkers < 1:
                     import multiprocessing  # noqa: delay import
-                    maxworkers = multiprocessing.cpu_count() // 2
+                    maxworkers = max(multiprocessing.cpu_count() // 2, 1)
+
                 if maxworkers < 2:
                     for i, tile in enumerate(tileiter):
                         decode(tile, i)
@@ -5683,17 +5714,15 @@ class TiffPageSeries(object):
         return 'TiffPageSeries %i  %s' % (self.index, s)
 
 
-class TiffSequence(object):
-    """Sequence of TIFF files.
-
-    The image data in all files must match shape, dtype, etc.
+class FileSequence(object):
+    """Series of files containing array data of compatible shape and data type.
 
     Attributes
     ----------
     files : list
         List of file names.
     shape : tuple
-        Shape of image sequence. Excludes shape of image array.
+        Shape of file series. Excludes shape of individual arrays.
     axes : str
         Labels of axes in shape.
 
@@ -5712,39 +5741,37 @@ class TiffSequence(object):
             """
     }
 
-    class ParseError(Exception):
-        """Custom TiffSequence parser error."""
-
-    def __init__(self, files=None, container=None, sort=None, pattern=None,
-                 imread=None):
+    def __init__(self, fromfile, files, container=None, sort=None,
+                 pattern=None):
         """Initialize instance from multiple files.
 
         Parameters
         ----------
+        fromfile : function or class
+            Array read function or class with asarray function returning numpy
+            array from single file.
         files : str, pathlib.Path, or sequence thereof
-            Glob filename pattern or sequence of file names.
-            Default is '\\*.tif'.
+            Glob filename pattern or sequence of file names. Default: \\*.
             Binary streams are not supported.
         container : str or container instance
             Name or open instance of ZIP file in which files are stored.
         sort : function
-            Sort function used to sort file names when 'files' is a  pattern.
+            Sort function used to sort file names when 'files' is a pattern.
             The default (None) is natural_sorted. Use sort=False to disable
             sorting.
         pattern : str
-            Regular expression pattern that matches axes names and sequence
-            indices in file names. By default (None), no pattern matching is
-            performed. The predefined 'axes' pattern matches Olympus OIF and
-            Leica TIFF series.
-        imread : function or class
-            Image read function or class with asarray function returning numpy
-            array from single file.
+            Regular expression pattern that matches axes and sequence indices
+            in file names. By default (None), no pattern matching is performed.
+            Axes can be specified by matching groups preceding the index groups
+            in the file name, be provided as group names for the index groups,
+            or be omitted. The predefined 'axes' pattern matches  Olympus OIF
+            and Leica TIFF series.
 
         """
+        if files is None:
+            files = '*'
         if sort is None:
             sort = natural_sorted
-        if files is None:
-            files = '*.tif'
         self._container = container
         if container:
             import fnmatch  # noqa
@@ -5776,50 +5803,62 @@ class TiffSequence(object):
             files = [str(pathlib.Path(f)) for f in files]
         elif not isinstance(files[0], basestring):
             raise ValueError('not a file name')
-        self.files = files
 
-        if imread is None:
-            imread = TiffFile
+        if hasattr(fromfile, 'asarray'):
+            # redefine fromfile to use asarray from fromfile class
+            if not callable(fromfile.asarray):
+                raise ValueError('invalid fromfile function')
+            _fromfile0 = fromfile
 
-        if hasattr(imread, 'asarray'):
-            # redefine imread to use asarray from class
-            _imread0 = imread
+            def fromfile(fname, **kwargs):
+                with _fromfile0(fname) as handle:
+                    return handle.asarray(**kwargs)
 
-            def imread(fname, **kwargs):
-                with _imread0(fname) as im:
-                    return im.asarray(**kwargs)
+        elif not callable(fromfile):
+            raise ValueError('invalid fromfile function')
 
         if container:
-            # redefine imread to read from container
-            _imread1 = imread
+            # redefine fromfile to read from container
+            _fromfile1 = fromfile
 
-            def imread(fname, **kwargs):
-                with self._container.open(fname) as fh:
-                    with io.BytesIO(fh.read()) as fh2:
-                        return _imread1(fh2, **kwargs)
+            def fromfile(fname, **kwargs):
+                with self._container.open(fname) as handle1:
+                    with io.BytesIO(handle1.read()) as handle2:
+                        return _fromfile1(handle2, **kwargs)
 
-        self.imread = imread
-        self.axes = 'I'
-        self.shape = (len(files),)
-        self._startindex = (0,)
-        self._indices = tuple((i,) for i in range(len(files)))
+        axes = 'I'
+        shape = (len(files),)
+        indices = tuple((i,) for i in range(len(files)))
+        startindex = (0,)
 
-        self.pattern = self._patterns.get(pattern, pattern)
-        if self.pattern:
+        pattern = self._patterns.get(pattern, pattern)
+        if pattern:
             try:
-                self._parse()
-                if not self.axes:
-                    self.axes = 'I'
-            except TiffSequence.ParseError:
-                pass
+                axes, shape, indices, startindex = parse_filenames(files,
+                                                                   pattern)
+            except ValueError as exception:
+                log.warning(
+                    'FileSequence: failed to parse file names (%s)', exception)
+
+        if product(shape) != len(files):
+            log.warning(
+                'FileSequence: files are missing. Missing data are zeroed')
+
+        self.fromfile = fromfile
+        self.files = files
+        self.pattern = pattern
+        self.axes = axes.upper()
+        self.shape = shape
+        self._indices = indices
+        self._startindex = startindex
 
     def __str__(self):
-        """Return string with information about image sequence."""
+        """Return string with information about file series."""
         return '\n'.join((
             str(self._container) if self._container else self.files[0],
             ' size: %i' % len(self.files),
-            ' axes: %s' % self.axes,
             ' shape: %s' % str(self.shape),
+            ' axes: %s' % self.axes,
         ))
 
     def __len__(self):
@@ -5836,71 +5875,82 @@ class TiffSequence(object):
             self._container.close()
         self._container = None
 
-    def asarray(self, file=None, out=None, **kwargs):
+    def asarray(self, file=None, ioworkers=1, out=None, **kwargs):
         """Read image data from files and return as numpy array.
 
-        The kwargs parameters are passed to the imread function.
+        Raise IndexError or ValueError if array shapes do not match.
 
-        Raise IndexError or ValueError if image shapes do not match.
+        Parameters
+        ----------
+        file : int or None
+            Index or name of single file to read.
+        ioworkers : int or None
+            Maximum number of threads to execute the array read function
+            asynchronously. Default: 1.
+            If None, default to the number of processors multiplied by 5.
+            Using threads can significantly improve runtime when
+            reading many small files from a network share.
+        out : numpy.ndarray, str, or file-like object
+            Buffer where image data will be saved.
+            If None (default), a new array will be created.
+            If numpy.ndarray, a writable array of compatible dtype and shape.
+            If 'memmap', create a memory-mapped array in a temporary file.
+            If str or open file, the file name or file object used to
+            create a memory-map to an array stored in a binary file on disk.
+        kwargs : dict
+            Additional parameters passed to the array read function.
 
         """
         if file is not None:
             if isinstance(file, int):
-                return self.imread(self.files[file], **kwargs)
-            return self.imread(file, **kwargs)
+                return self.fromfile(self.files[file], **kwargs)
+            return self.fromfile(file, **kwargs)
 
-        im = self.imread(self.files[0], **kwargs)
+        im = self.fromfile(self.files[0], **kwargs)
         shape = self.shape + im.shape
         result = create_output(out, shape, dtype=im.dtype)
         result = result.reshape(-1, *im.shape)
-        for index, fname in zip(self._indices, self.files):
+
+        def func(index, fname):
+            """Read single image from file into result."""
             index = [i - j for i, j in zip(index, self._startindex)]
             index = numpy.ravel_multi_index(index, self.shape)
-            im = self.imread(fname, **kwargs)
+            im = self.fromfile(fname, **kwargs)
             result[index] = im
+
+        if len(self.files) < 3:
+            ioworkers = 1
+        elif ioworkers is None or ioworkers < 1:
+            import multiprocessing  # noqa: delay import
+            ioworkers = max(multiprocessing.cpu_count() * 5, 1)
+
+        if ioworkers < 2:
+            for index, fname in zip(self._indices, self.files):
+                func(index, fname)
+        else:
+            func(self._indices[0], self.files[0])
+            with ThreadPoolExecutor(ioworkers) as executor:
+                executor.map(func, self._indices[1:], self.files[1:])
+
         result.shape = shape
         return result
 
-    def _parse(self):
-        """Get axes and shape from file names."""
-        if not self.pattern:
-            raise TiffSequence.ParseError('invalid pattern')
-        pattern = re.compile(self.pattern, re.IGNORECASE | re.VERBOSE)
-        matches = pattern.findall(os.path.split(self.files[0])[-1])
-        if not matches:
-            raise TiffSequence.ParseError('pattern does not match file names')
-        matches = matches[-1]
-        if len(matches) % 2:
-            raise TiffSequence.ParseError(
-                'pattern does not match axis name and index')
-        axes = ''.join(m for m in matches[::2] if m)
-        if not axes:
-            raise TiffSequence.ParseError('pattern does not match file names')
 
-        indices = []
-        for fname in self.files:
-            fname = os.path.split(fname)[-1]
-            matches = pattern.findall(fname)[-1]
-            if axes != ''.join(m for m in matches[::2] if m):
-                raise ValueError('axes do not match within image sequence')
-            indices.append([int(m) for m in matches[1::2] if m])
-        shape = tuple(numpy.max(indices, axis=0))
-        startindex = tuple(numpy.min(indices, axis=0))
-        shape = tuple(i - j + 1 for i, j in zip(shape, startindex))
-        if product(shape) != len(self.files):
-            log.warning(
-                'TiffSequence: files are missing. Missing data are zeroed')
+class TiffSequence(FileSequence):
+    """Series of TIFF files."""
 
-        self.axes = axes.upper()
-        self.shape = shape
-        self._indices = indices
-        self._startindex = startindex
+    def __init__(self, files=None, container=None, sort=None, pattern=None,
+                 imread=imread):
+        """Initialize instance from multiple TIFF files."""
+        super(TiffSequence, self).__init__(
+            imread, '*.tif' if files is None else files,
+            container=container, sort=sort, pattern=pattern)
 
 
 class FileHandle(object):
     """Binary file handle.
 
-    A limited, special purpose file handler that can:
+    A limited, special purpose file handle that can:
 
     * handle embedded files (for CZI within CZI files)
     * re-open closed files (for multi-file formats, such as OME-TIFF)
@@ -6302,39 +6352,53 @@ class Timer(object):
 
     __slots__ = ('started', 'stopped', 'duration')
 
+    try:
+        clock = time.perf_counter
+    except AttributeError:
+        clock = time.clock
+
     def __init__(self, message='', end=' '):
         """Initialize timer and print message."""
         if message:
             print_(message, end=end, flush=True)
         self.duration = 0
-        self.started = self.stopped = time.time()
+        self.started = self.stopped = Timer.clock()
 
     def start(self, message='', end=' '):
         """Start timer and return current time."""
         if message:
             print_(message, end=end, flush=True)
         self.duration = 0
-        self.started = self.stopped = time.time()
+        self.started = self.stopped = Timer.clock()
         return self.started
 
     def stop(self, message='', end=' '):
         """Return duration of timer till start."""
-        self.stopped = time.time()
+        self.stopped = Timer.clock()
         if message:
             print_(message, end=end, flush=True)
         self.duration = self.stopped - self.started
         return self.duration
 
-    def print(self, message='', fmt='{:1.0f} ms', factor=1000, end=None):
+    def print(self, message='', end=None):
         """Print duration from timer start till last stop or now."""
-        if self.duration <= 0:
-            # not stopped
-            duration = time.time() - self.started
-        else:
-            duration = self.duration
+        msg = str(self)
         if message:
             print_(message, end=' ')
-        print_(fmt.format(factor * duration), end=end, flush=True)
+        print_(msg, end=end, flush=True)
+
+    def __str__(self):
+        """Return duration from timer start till last stop or now as string."""
+        if self.duration <= 0:
+            # not stopped
+            duration = Timer.clock() - self.started
+        else:
+            duration = self.duration
+        s = str(datetime.timedelta(seconds=duration))
+        i = 0
+        while i < len(s) and s[i:i + 2] in '0:0010203040506070809':
+            i += 1
+        return '%s s' % s[i:]
 
     def __enter__(self):
         return self
@@ -10247,17 +10311,6 @@ if imagecodecs is not None:
     packints_decode = imagecodecs.packints_decode  # noqa
 
 
-def decode_lzw(encoded):
-    """Decompress LZW encoded byte string."""
-    warnings.warn(
-        'The decode_lzw function was removed from the tifffile package.\n'
-        'Use the lzw_decode function from the imagecodecs package instead.')
-    return imagecodecs.lzw_decode(encoded)
-
-
-decodelzw = decode_lzw
-
-
 def apply_colormap(image, colormap, contig=True):
     """Return palette-colored image.
 
@@ -10286,6 +10339,62 @@ def apply_colormap(image, colormap, contig=True):
     if contig:
         image = numpy.ascontiguousarray(image)
     return image
+
+
+def parse_filenames(files, pattern):
+    """Return shape and axes from sequence of file names matching pattern.
+
+    >>> parse_filenames(['c1001.ext', 'c2002.ext'],
+    ...                 r'([^\\d])(\\d)(?P<t>\\d+)\\.ext')
+    ('ct', (2, 2), [(1, 1), (2, 2)], (1, 1))
+
+    """
+    if not pattern:
+        raise ValueError('invalid pattern')
+    pattern = re.compile(pattern, re.IGNORECASE | re.VERBOSE)
+
+    def parse(fname, pattern=pattern):
+        """Return axes and indices from file name."""
+        fname = os.path.split(fname)[-1]
+        axes = []
+        indices = []
+        groupindex = {v: k for k, v in pattern.groupindex.items()}
+        match = pattern.search(fname)
+        if not match:
+            raise ValueError('pattern does not match file name')
+        ax = None
+        for i, m in enumerate(match.groups()):
+            if m is None:
+                continue
+            if m[0].isalpha():
+                if ax is not None:
+                    raise ValueError('invalid pattern')
+                ax = m
+            elif m[0].isdigit():
+                if i + 1 in groupindex:
+                    ax = groupindex[i + 1]
+                else:
+                    ax = 'Q' if ax is None else ax
+                axes.append(ax[0])
+                indices.append(int(m))
+                ax = None
+        return ''.join(axes), tuple(indices)
+
+    axes = None
+    indices = []
+    for fname in files:
+        ax, idx = parse(fname)
+        if axes is None:
+            axes = ax
+        elif axes != ax:
+            raise ValueError('axes do not match within image sequence')
+        indices.append(idx)
+    shape = tuple(numpy.max(indices, axis=0))
+    startindex = tuple(numpy.min(indices, axis=0))
+    shape = tuple(i - j + 1 for i, j in zip(shape, startindex))
+    # if product(shape) != len(files):
+    #     raise VaueError('files are missing')
+    return axes, shape, indices, startindex
 
 
 def reorient(image, orientation):
@@ -10488,25 +10597,23 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
         return pages[0].asarray(out=out, **kwargs)
 
     page0 = next(p for p in pages if p is not None).keyframe
-    page0.asarray(validate=None)  # ThreadPoolExecutor swallows exceptions
     shape = (npages,) + page0.shape
     dtype = page0.dtype
     out = create_output(out, shape, dtype)
 
-    if maxworkers is None:
-        if page0.compression > 1:
-            if page0.is_tiled:
-                maxworkers = 1
-                kwargs['maxworkers'] = 0
-            else:
-                maxworkers = 0
-        else:
-            maxworkers = 1
-    if maxworkers == 0:
+    if maxworkers is None or maxworkers < 1:
         import multiprocessing  # noqa: delay import
+        maxworkers = max(multiprocessing.cpu_count() // 2, 1)
 
-        maxworkers = multiprocessing.cpu_count() // 2
-    if maxworkers > 1:
+    if maxworkers == 1:
+        kwargs['maxworkers'] = 1
+    elif npages < 3:
+        kwargs['maxworkers'] = maxworkers
+        maxworkers = 1
+    elif page0.compression > 1 and len(page0.dataoffsets) > 2:
+        kwargs['maxworkers'] = min(maxworkers, len(page0.dataoffsets))
+        maxworkers = max(maxworkers - kwargs['maxworkers'], 1)
+    else:
         kwargs['maxworkers'] = 1
 
     page0.parent.filehandle.lock = maxworkers > 1
@@ -10514,7 +10621,8 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
     filecache = OpenFileCache(size=max(4, maxworkers),
                               lock=page0.parent.filehandle.lock)
 
-    def func(page, index, out=out, filecache=filecache, kwargs=kwargs):
+    def func(page, index, out=out, filecache=filecache, validate=0,
+             kwargs=kwargs):
         """Read, decode, and copy page data."""
         if page is not None:
             filecache.open(page.parent.filehandle)
@@ -10527,8 +10635,10 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
             func(page, i)
     else:
         # TODO: add exception handling
+        # read first page un-threaded to catch exceptions
+        func(page0, 0, validate=True)
         with ThreadPoolExecutor(maxworkers) as executor:
-            executor.map(func, pages, range(npages))
+            executor.map(func, pages[1:], range(1, npages))
 
     filecache.clear()
     page0.parent.filehandle.lock = None
@@ -11394,7 +11504,7 @@ def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
         dtype = series.dtype
         size = product(shape) * dtype.itemsize
 
-        verbose('%.3f s' % timer.stop())
+        verbose(timer)
         # verbose(lsm, flush=True)
         verbose('Image\n  axes:  %s\n  shape: %s\n  dtype: %s\n  size:  %s'
                 % (axes, shape, dtype, format_size(size)), flush=True)
@@ -11428,7 +11538,7 @@ def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
                             if binfile:
                                 out.tofile(binfile % (m, p, t, y, x))
                             verbose('.', end='', flush=True)
-        verbose('%.3f s' % timer.stop())
+        verbose(timer, flush=True)
 
 
 def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
@@ -11811,7 +11921,7 @@ def main(argv=None):
         sys.exit(0)
 
     if not settings.quiet:
-        print('%.3f ms' % (timer.stop() * 1e3))
+        print(timer)
 
     if tif.is_ome:
         settings.norgb = True
@@ -11851,13 +11961,13 @@ def main(argv=None):
             print('%s: %s' % (exc.__class__.__name__, exc))
 
         if not settings.quiet:
-            print('%.3f ms' % (timer.stop() * 1e3))
+            print(timer)
 
     if not settings.quiet:
         print_('Generating report:', end='   ', flush=True)
         timer.start()
         info = TiffFile.__str__(tif, detail=int(settings.detail))
-        print('%.3f ms' % (timer.stop() * 1e3))
+        print(timer)
         print()
         print(info)
         print()
@@ -11971,6 +12081,19 @@ else:
         """Return view over BytesIO buffer."""
         return bio.getbuffer()
 
+
+# deprecated
+
+def decodelzw(encoded):
+    """Decompress LZW encoded byte string."""
+    warnings.warn(
+        'The decodelzw function was removed from the tifffile package.\n'
+        'Use the lzw_decode function from the imagecodecs package instead.')
+    return imagecodecs.lzw_decode(encoded)
+
+
+decode_lzw = decodelzw
+imsave = imwrite
 
 if __name__ == '__main__':
     sys.exit(main())
