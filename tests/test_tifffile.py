@@ -45,7 +45,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: 3-clause BSD
 
-:Version: 2019.6.18
+:Version: 2019.7.2
 
 """
 
@@ -77,14 +77,17 @@ try:
     from tifffile import *
     STAR_IMPORTED = (
         imwrite,
-        imsave,
         imread,
         imshow,
-        TiffFile,
         TiffWriter,
-        TiffSequence,
+        TiffFile,
         TiffFileError,
+        TiffSequence,
+        TiffPage,
+        TiffFrame,
         FileHandle,
+        FileSequence,
+        Timer,
         lazyattr,
         natural_sorted,
         stripnull,
@@ -94,10 +97,6 @@ try:
         product,
         create_output,
         askopenfilename,
-        Timer,
-        imagej_description_metadata,
-        decodelzw,  # deprecated
-        decode_lzw  # deprecated
     )
 except NameError:
     STAR_IMPORTED = None
@@ -124,6 +123,7 @@ from tifffile.tifffile import (
     excel_datetime,
     squeeze_axes,
     transpose_axes,
+    parse_filenames,
     unpack_rgb,
     stripascii,
     sequence,
@@ -141,7 +141,6 @@ from tifffile.tifffile import (
     fluoview_description_metadata,
     reshape_axes,
     apply_colormap,
-    askopenfilename,
     reshape_nd,
     read_scanimage_metadata,
     matlabstr2py,
@@ -284,11 +283,11 @@ def assert__str__(tif, detail=3):
 
 
 if SKIP_VALIDATE:
-    def assert_jhove(*args, **kwargs):
+    def assert_valid(*args, **kwargs):
         """Do not validate TIFF file."""
         return
 else:
-    def assert_jhove(filename, *args, **kwargs):
+    def assert_valid(filename, *args, **kwargs):
         """Validate TIFF file using jhove script."""
         validate_jhove(filename, 'jhove.cmd', *args, **kwargs)
 
@@ -334,6 +333,13 @@ def test_issue_version_mismatch():
     ver = ':Version: ' + tifffile.__version__
     assert ver in __doc__
     assert ver in tifffile.__doc__
+
+
+def test_issue_deprecated_import():
+    """Test deprecated functions can still be imported."""
+    from tifffile import imsave
+    from tifffile import decodelzw
+    from tifffile import decode_lzw
 
 
 def test_issue_legacy_kwargs():
@@ -413,15 +419,27 @@ def test_issue_bad_ascii(caplog):
     assert 'coercing invalid ASCII to bytes' in caplog.text
 
 
-def test_issue_sample_format():
+def test_issue_sampleformat():
     """Test write correct number of SampleFormat values."""
     # https://github.com/ngageoint/geopackage-tiff-java/issues/5
-    data = random_data('uint16', (256, 256, 4))
-    with TempFileName('sample_format') as fname:
+    data = random_data('int16', (256, 256, 4))
+    with TempFileName('sampleformat') as fname:
         imwrite(fname, data)
         with TiffFile(fname) as tif:
             tags = tif.pages[0].tags
-            assert tags['SampleFormat'].value == (1, 1, 1, 1)
+            assert tags['SampleFormat'].value == (2, 2, 2, 2)
+            assert tags['ExtraSamples'].value == 2
+            assert__str__(tif)
+
+
+def test_issue_sampleformat_default():
+    """Test SampleFormat are not written for UINT."""
+    data = random_data('uint8', (256, 256, 4))
+    with TempFileName('sampleformat_default') as fname:
+        imwrite(fname, data)
+        with TiffFile(fname) as tif:
+            tags = tif.pages[0].tags
+            'SampleFormat' not in tags
             assert tags['ExtraSamples'].value == 2
             assert__str__(tif)
 
@@ -694,6 +712,33 @@ def test_func_apply_colormap():
     image = numpy.arange(256, dtype='uint8')
     colormap = numpy.vstack([image, image, image]).astype('uint16') * 256
     assert_array_equal(apply_colormap(image, colormap)[-1], colormap[:, -1])
+
+
+def test_func_parse_filenames():
+    """Test parse_filenames function."""
+    func = parse_filenames
+    files = ['c1t001.ext', 'c1t002.ext', 'c2t002.ext']  # 'c2t001.ext' missing
+    # group names
+    p = r'(?P<a>\d).[!\d](?P<b>\d+)\.ext'
+    assert func(files[:1], p) == ('ab', (1, 1), [(1, 1)], (1, 1))
+    assert func(files[:2], p) == ('ab', (1, 2), [(1, 1), (1, 2)], (1, 1))
+    assert func(files, p) == ('ab', (2, 2), [(1, 1), (1, 2), (2, 2)], (1, 1))
+    # unknown axes
+    p = r'(\d)[^\d](\d+)\.ext'
+    assert func(files[:1], p) == ('QQ', (1, 1), [(1, 1)], (1, 1))
+    assert func(files[:2], p) == ('QQ', (1, 2), [(1, 1), (1, 2)], (1, 1))
+    assert func(files, p) == ('QQ', (2, 2), [(1, 1), (1, 2), (2, 2)], (1, 1))
+    # match axes
+    p = r'([^\d])(\d)([^\d])(\d+)\.ext'
+    assert func(files[:1], p) == ('ct', (1, 1), [(1, 1)], (1, 1))
+    assert func(files[:2], p) == ('ct', (1, 2), [(1, 1), (1, 2)], (1, 1))
+    assert func(files, p) == ('ct', (2, 2), [(1, 1), (1, 2), (2, 2)], (1, 1))
+    # misc
+    files = ['c0t001.ext', 'c0t002.ext', 'c2t002.ext']  # 'c2t001.ext' missing
+    p = r'([^\d])(\d)[^\d](?P<b>\d+)\.ext'
+    assert func(files[:1], p) == ('cb', (1, 1), [(0, 1)], (0, 1))
+    assert func(files[:2], p) == ('cb', (1, 2), [(0, 1), (0, 2)], (0, 1))
+    assert func(files, p) == ('cb', (3, 2), [(0, 1), (0, 2), (2, 2)], (0, 1))
 
 
 def test_func_reshape_axes():
@@ -6382,7 +6427,7 @@ def test_write(data, byteorder, bigtiff, dtype, shape):
         assert shape == image.shape
         assert dtype == image.dtype
         if not bigtiff:
-            assert_jhove(fname)
+            assert_valid(fname)
 
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
@@ -6417,7 +6462,7 @@ def test_write_codecs(mode, tile, codec):
         imwrite(fname, data, compress=(codec, level), tile=tile,
                 photometric=photometric, planarconfig=planarconfig,
                 subsampling=(1, 1))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == shape[0]
             page = tif.pages[0]
@@ -6437,6 +6482,56 @@ def test_write_codecs(mode, tile, codec):
             assert__str__(tif)
 
 
+@pytest.mark.parametrize('bytecount', [16, 256])
+@pytest.mark.parametrize('count', [1, 2, 4])
+@pytest.mark.parametrize('compress', [0, 6])
+@pytest.mark.parametrize('tiled', [0, 1])
+@pytest.mark.parametrize('bigtiff', [0, 1])
+def test_write_bytecount(bigtiff, tiled, compress, count, bytecount):
+    """Test write bytecount formats."""
+    if tiled:
+        tag = 'TileByteCounts'
+        rowsperstrip = None
+        tile = (bytecount, bytecount)
+        shape = {1: (bytecount, bytecount),
+                 2: (bytecount * 2, bytecount),
+                 4: (bytecount * 2, bytecount * 2)
+                 }[count]
+    else:
+        tag = 'StripByteCounts'
+        tile = None
+        rowsperstrip = bytecount
+        shape = (bytecount * count, bytecount)
+    data = random_data('uint8', shape)
+
+    if count == 1:
+        dtype = 'Q' if bigtiff else 'I'
+    elif bytecount == 256:
+        dtype = 'I'
+    else:
+        dtype = 'H'
+
+    with TempFileName('bytecounts_%i%i%i%i%i'
+                      % (bigtiff, tiled, compress, count, bytecount)) as fname:
+        imwrite(fname, data, bigtiff=bigtiff, tile=tile, compress=compress,
+                rowsperstrip=rowsperstrip)
+        if not bigtiff:
+            assert_valid(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert page.tags[tag].count == count
+            assert page.tags[tag].dtype[-1] == dtype
+            assert page.is_contiguous != bool(compress)
+            assert page.planarconfig == CONTIG
+            assert page.photometric == MINISBLACK
+            assert page.imagewidth == shape[1]
+            assert page.imagelength == shape[0]
+            assert page.samplesperpixel == 1
+            assert_array_equal(page.asarray(), data)
+            assert__str__(tif)
+
+
 def test_write_nopages():
     """Test write TIFF with no pages."""
     with TempFileName('nopages') as fname:
@@ -6447,7 +6542,7 @@ def test_write_nopages():
             tif.asarray()
         if not SKIP_VALIDATE:
             with pytest.raises(ValueError):
-                assert_jhove(fname)
+                assert_valid(fname)
 
 
 def test_write_append_not_exists():
@@ -6521,7 +6616,7 @@ def test_write_append():
             assert_array_equal(tif.asarray(series=1)[1], data)
             assert__str__(tif)
 
-        assert_jhove(fname)
+        assert_valid(fname)
 
 
 def test_write_append_bytesio():
@@ -6606,7 +6701,7 @@ def test_write_pages():
     data = random_data('float32', (17, 219, 301))
     with TempFileName('pages') as fname:
         imwrite(fname, data, photometric='minisblack')
-        assert_jhove(fname)
+        assert_valid(fname)
         # assert file
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 17
@@ -6632,7 +6727,7 @@ def test_write_truncate():
     shape = (4, 5, 6, 1)
     with TempFileName('truncate') as fname:
         imwrite(fname, random_data('uint8', shape), truncate=True)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1  # not 4
             page = tif.pages[0]
@@ -6653,7 +6748,7 @@ def test_write_is_shaped():
     """Test files are written with shape."""
     with TempFileName('is_shaped') as fname:
         imwrite(fname, random_data('uint8', (4, 5, 6, 3)))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 4
             page = tif.pages[0]
@@ -6663,7 +6758,7 @@ def test_write_is_shaped():
     with TempFileName('is_shaped_with_description') as fname:
         descr = "test is_shaped_with_description"
         imwrite(fname, random_data('uint8', (5, 6, 3)), description=descr)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -6686,7 +6781,7 @@ def test_write_extratags():
                  ]
     with TempFileName('extratags') as fname:
         imwrite(fname, data, extratags=extratags)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             assert tif.pages[0].description1 == description
@@ -6718,7 +6813,7 @@ def test_write_double_tags():
     ]
     with TempFileName('double_tags') as fname:
         imwrite(fname, data, extratags=extratags)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             tags = tif.pages[0].tags
@@ -6755,7 +6850,7 @@ def test_write_short_tags():
     ]
     with TempFileName('short_tags') as fname:
         imwrite(fname, data, extratags=extratags)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             tags = tif.pages[0].tags
@@ -6774,7 +6869,7 @@ def test_write_subfiletype(subfiletype):
         data = data.astype('bool')
     with TempFileName('subfiletype_%i' % subfiletype) as fname:
         imwrite(fname, data, subfiletype=subfiletype)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             page = tif.pages[0]
             assert page.subfiletype == subfiletype
@@ -6815,7 +6910,7 @@ def test_write_description_tag():
     description = "Created by TestTiffWriter\nLorem ipsum dolor..."
     with TempFileName('description_tag') as fname:
         imwrite(fname, data, description=description)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             assert tif.pages[0].description == description
@@ -6830,7 +6925,7 @@ def test_write_description_tag_nojson():
     description = "Created by TestTiffWriter\nLorem ipsum dolor..."
     with TempFileName('description_tag_nojson') as fname:
         imwrite(fname, data, description=description, metadata=None)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             assert tif.pages[0].description == description
@@ -6845,7 +6940,7 @@ def test_write_software_tag():
     software = "test_tifffile.py"
     with TempFileName('software_tag') as fname:
         imwrite(fname, data, software=software)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             assert tif.pages[0].software == software
@@ -6859,7 +6954,7 @@ def test_write_resolution_float():
     resolution = (92.0, 92.0)
     with TempFileName('resolution_float') as fname:
         imwrite(fname, data, resolution=resolution)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             assert tif.pages[0].tags['XResolution'].value == (92, 1)
@@ -6875,7 +6970,7 @@ def test_write_resolution_rational():
     resolution = ((300, 1), (300, 1))
     with TempFileName('resolution_rational') as fname:
         imwrite(fname, data, resolution=resolution)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.pages[0].tags['XResolution'].value == (300, 1)
@@ -6888,7 +6983,7 @@ def test_write_resolution_unit():
     resolution = (92.0, (9200, 100), None)
     with TempFileName('resolution_unit') as fname:
         imwrite(fname, data, resolution=resolution)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.pages[0].tags['XResolution'].value == (92, 1)
@@ -6902,7 +6997,7 @@ def test_write_compress_none():
     data = WRITE_DATA
     with TempFileName('compress_none') as fname:
         imwrite(fname, data, compress=0)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -6937,7 +7032,7 @@ def test_write_compress_jpeg(dtype, subsampling):
     data = data[:32, :16].copy()  # make divisable by subsamples
     with TempFileName(filename) as fname:
         imwrite(fname, data, compress=('JPEG', 99), subsampling=subsampling)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -6960,7 +7055,7 @@ def test_write_compress_deflate():
     data = WRITE_DATA
     with TempFileName('compress_deflate') as fname:
         imwrite(fname, data, compress=('DEFLATE', 6))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -6983,7 +7078,7 @@ def test_write_compress_deflate_level():
     data = WRITE_DATA
     with TempFileName('compress_deflate_level') as fname:
         imwrite(fname, data, compress=9)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7005,7 +7100,7 @@ def test_write_compress_lzma():
     data = WRITE_DATA
     with TempFileName('compress_lzma') as fname:
         imwrite(fname, data, compress='LZMA')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7029,7 +7124,7 @@ def test_write_compress_zstd():
     data = WRITE_DATA
     with TempFileName('compress_zstd') as fname:
         imwrite(fname, data, compress='ZSTD')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7053,7 +7148,7 @@ def test_write_compress_webp():
     data = WRITE_DATA.astype('uint8').reshape((219, 301, 3))
     with TempFileName('compress_webp') as fname:
         imwrite(fname, data, compress=('WEBP', -1))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7080,7 +7175,7 @@ def test_write_compress_packbits(dtype):
     data[..., :] = uncompressed
     with TempFileName('compress_packits_%s' % dtype) as fname:
         imwrite(fname, data, compress='PACKBITS')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             page = tif.pages[0]
@@ -7100,7 +7195,7 @@ def test_write_compress_rowsperstrip():
     data = WRITE_DATA
     with TempFileName('compress_rowsperstrip') as fname:
         imwrite(fname, data, compress=6, rowsperstrip=32)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7123,7 +7218,7 @@ def test_write_compress_tiled():
     data = WRITE_DATA
     with TempFileName('compress_tiled') as fname:
         imwrite(fname, data, compress=6, tile=(32, 32))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7146,7 +7241,7 @@ def test_write_compress_predictor():
     data = WRITE_DATA
     with TempFileName('compress_predictor') as fname:
         imwrite(fname, data, compress=6, predictor=True)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7171,7 +7266,7 @@ def test_write_compressed_predictor_tiled(dtype):
     with TempFileName('compress_tiled_predictor_%s' % dtype) as fname:
         imwrite(fname, data, compress=6, predictor=True, tile=(32, 32))
         if dtype[0] != 'f':
-            assert_jhove(fname)
+            assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7194,7 +7289,7 @@ def test_write_rowsperstrip():
     data = WRITE_DATA
     with TempFileName('rowsperstrip') as fname:
         imwrite(fname, data, rowsperstrip=32, contiguous=False, metadata=False)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7221,7 +7316,7 @@ def test_write_write_bigendian():
     data = random_data('float32', (2, 3, 219, 301)).newbyteorder()
     with TempFileName('write_bigendian') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             assert len(tif.series) == 1
@@ -7289,7 +7384,7 @@ def test_write_pixel():
     data = numpy.zeros(1, dtype='uint8')
     with TempFileName('pixel') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.series[0].axes == 'Y'
@@ -7310,7 +7405,7 @@ def test_write_small():
     data = random_data('uint8', (1, 1))
     with TempFileName('small') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7331,7 +7426,7 @@ def test_write_2d_as_rgb():
     data = numpy.arange(3 * 256, dtype='uint16').reshape(256, 3) // 3
     with TempFileName('2d_as_rgb_contig') as fname:
         imwrite(fname, data, photometric=RGB)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.series[0].axes == 'XS'
@@ -7356,7 +7451,7 @@ def test_write_invalid_contig_rgb():
     # default to pages
     with TempFileName('invalid_contig_rgb_pages') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 219
             assert tif.series[0].axes == 'QYX'
@@ -7373,7 +7468,7 @@ def test_write_invalid_contig_rgb():
     # better save as contig samples
     with TempFileName('invalid_contig_rgb_samples') as fname:
         imwrite(fname, data, planarconfig='CONTIG')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.series[0].axes == 'YXS'
@@ -7398,7 +7493,7 @@ def test_write_invalid_planar_rgb():
     # default to pages
     with TempFileName('invalid_planar_rgb_pages') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             assert tif.series[0].axes == 'QYX'
@@ -7415,7 +7510,7 @@ def test_write_invalid_planar_rgb():
     # or save as planar samples
     with TempFileName('invalid_planar_rgb_samples') as fname:
         imwrite(fname, data, planarconfig='SEPARATE')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.series[0].axes == 'SYX'
@@ -7436,7 +7531,7 @@ def test_write_extrasamples_gray():
     data = random_data('uint8', (301, 219, 2))
     with TempFileName('extrasamples_gray') as fname:
         imwrite(fname, data, extrasamples='UNASSALPHA')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7458,7 +7553,7 @@ def test_write_extrasamples_gray_planar():
     with TempFileName('extrasamples_gray_planar') as fname:
         imwrite(fname, data, planarconfig='SEPARATE',
                 extrasamples='UNASSALPHA')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7480,7 +7575,7 @@ def test_write_extrasamples_gray_mix():
     with TempFileName('extrasamples_gray_mix') as fname:
         imwrite(fname, data, photometric='MINISBLACK',
                 extrasamples=['ASSOCALPHA', 'UNASSALPHA', 'UNSPECIFIED'])
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7500,7 +7595,7 @@ def test_write_extrasamples_unspecified():
     data = random_data('uint8', (301, 219, 5))
     with TempFileName('extrasamples_unspecified') as fname:
         imwrite(fname, data, photometric='RGB')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7520,7 +7615,7 @@ def test_write_extrasamples_assocalpha():
     data = random_data('uint8', (219, 301, 4))
     with TempFileName('extrasamples_assocalpha') as fname:
         imwrite(fname, data, photometric='RGB', extrasamples='ASSOCALPHA')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7541,7 +7636,7 @@ def test_write_extrasamples_mix():
     with TempFileName('extrasamples_mix') as fname:
         imwrite(fname, data, photometric='RGB',
                 extrasamples=['ASSOCALPHA', 'UNASSALPHA', 'UNSPECIFIED'])
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7561,7 +7656,7 @@ def test_write_extrasamples_contig():
     data = random_data('uint8', (3, 219, 301))
     with TempFileName('extrasamples_contig') as fname:
         imwrite(fname, data, planarconfig='CONTIG')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7578,7 +7673,7 @@ def test_write_extrasamples_contig():
     # better save as RGB planar
     with TempFileName('extrasamples_contig_planar') as fname:
         imwrite(fname, data, planarconfig='SEPARATE')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7598,7 +7693,7 @@ def test_write_extrasamples_contig_rgb2():
     data = random_data('uint8', (3, 219, 301))
     with TempFileName('extrasamples_contig_rgb2') as fname:
         imwrite(fname, data, photometric=RGB, planarconfig='CONTIG')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7615,7 +7710,7 @@ def test_write_extrasamples_contig_rgb2():
     # better save as planar
     with TempFileName('extrasamples_contig_rgb2_planar') as fname:
         imwrite(fname, data, photometric=RGB, planarconfig='SEPARATE')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7635,7 +7730,7 @@ def test_write_extrasamples_planar():
     data = random_data('uint8', (219, 301, 3))
     with TempFileName('extrasamples_planar') as fname:
         imwrite(fname, data, planarconfig='SEPARATE')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7656,7 +7751,7 @@ def test_write_extrasamples_planar_rgb2():
     data = random_data('uint8', (219, 301, 3))
     with TempFileName('extrasamples_planar_rgb2') as fname:
         imwrite(fname, data, photometric=RGB, planarconfig='SEPARATE')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7677,7 +7772,7 @@ def test_write_minisblack_planar():
     data = random_data('uint8', (3, 219, 301))
     with TempFileName('minisblack_planar') as fname:
         imwrite(fname, data, photometric='MINISBLACK')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 3
             page = tif.pages[0]
@@ -7697,7 +7792,7 @@ def test_write_minisblack_contig():
     data = random_data('uint8', (219, 301, 3))
     with TempFileName('minisblack_contig') as fname:
         imwrite(fname, data, photometric='MINISBLACK')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 219
             page = tif.pages[0]
@@ -7717,7 +7812,7 @@ def test_write_scalar():
     data = random_data('uint8', (219, 301))
     with TempFileName('scalar') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7737,7 +7832,7 @@ def test_write_scalar_3d():
     data = random_data('uint8', (63, 219, 301))
     with TempFileName('scalar_3d') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 63
             page = tif.pages[62]
@@ -7758,7 +7853,7 @@ def test_write_scalar_4d():
     data = random_data('uint8', (3, 2, 219, 301))
     with TempFileName('scalar_4d') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 6
             page = tif.pages[5]
@@ -7778,7 +7873,7 @@ def test_write_contig_extrasample():
     data = random_data('uint8', (219, 301, 2))
     with TempFileName('contig_extrasample') as fname:
         imwrite(fname, data, planarconfig='CONTIG')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7798,7 +7893,7 @@ def test_write_planar_extrasample():
     data = random_data('uint8', (2, 219, 301))
     with TempFileName('planar_extrasample') as fname:
         imwrite(fname, data, planarconfig='SEPARATE')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7818,7 +7913,7 @@ def test_write_rgb_contig():
     data = random_data('uint8', (219, 301, 3))
     with TempFileName('rgb_contig') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7838,7 +7933,7 @@ def test_write_rgb_planar():
     data = random_data('uint8', (3, 219, 301))
     with TempFileName('rgb_planar') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7858,7 +7953,7 @@ def test_write_rgba_contig():
     data = random_data('uint8', (219, 301, 4))
     with TempFileName('rgba_contig') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7879,7 +7974,7 @@ def test_write_rgba_planar():
     data = random_data('uint8', (4, 219, 301))
     with TempFileName('rgba_planar') as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7900,7 +7995,7 @@ def test_write_extrasamples_contig_rgb():
     data = random_data('uint8', (219, 301, 8))
     with TempFileName('extrasamples_contig') as fname:
         imwrite(fname, data, photometric=RGB)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7922,7 +8017,7 @@ def test_write_extrasamples_planar_rgb():
     data = random_data('uint8', (8, 219, 301))
     with TempFileName('extrasamples_planar') as fname:
         imwrite(fname, data, photometric=RGB)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7944,7 +8039,7 @@ def test_write_tiled_compressed():
     data = random_data('uint8', (3, 219, 301))
     with TempFileName('tiled_compressed') as fname:
         imwrite(fname, data, compress=5, tile=(96, 64))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7967,7 +8062,7 @@ def test_write_tiled():
     data = random_data('uint16', (219, 301))
     with TempFileName('tiled') as fname:
         imwrite(fname, data, tile=(96, 64))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -7990,7 +8085,7 @@ def test_write_tiled_planar():
     data = random_data('uint8', (4, 219, 301))
     with TempFileName('tiled_planar') as fname:
         imwrite(fname, data, tile=(1, 96, 64))  #
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -8014,7 +8109,7 @@ def test_write_tiled_contig():
     data = random_data('uint8', (219, 301, 3))
     with TempFileName('tiled_contig') as fname:
         imwrite(fname, data, tile=(96, 64))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -8037,7 +8132,7 @@ def test_write_tiled_pages():
     data = random_data('uint8', (5, 219, 301, 3))
     with TempFileName('tiled_pages') as fname:
         imwrite(fname, data, tile=(96, 64))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 5
             page = tif.pages[0]
@@ -8061,7 +8156,7 @@ def test_write_volume():
     data = random_data('uint8', (253, 64, 96))
     with TempFileName('volume') as fname:
         imwrite(fname, data, tile=(64, 64, 64))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -8089,7 +8184,7 @@ def test_write_volume_5d_planar_rgb():
     data[:] = numpy.arange(256, dtype='uint8').reshape(1, 1, -1, 1, 1)
     with TempFileName('volume_5d_planar_rgb') as fname:
         imwrite(fname, data, tile=(256, 64, 96))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             page = tif.pages[0]
@@ -8122,7 +8217,7 @@ def test_write_volume_5d_contig_rgb():
     data[:] = numpy.arange(256, dtype='uint8').reshape(1, 1, -1, 1, 1, 1)
     with TempFileName('volume_5d_contig_rgb') as fname:
         imwrite(fname, data, tile=(256, 64, 96))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 6
             page = tif.pages[0]
@@ -8162,7 +8257,7 @@ def test_write_volume_5d_contig_rgb_empty():
     with TempFileName('volume_5d_contig_rgb_empty') as fname:
         with TiffWriter(fname) as tif:
             tif.save(shape=shape, dtype='uint8', tile=(256, 64, 96))
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 6
             page = tif.pages[0]
@@ -8220,7 +8315,7 @@ def test_write_3gb():
     data = numpy.empty((4096 - 32, 1024, 1024), dtype='uint8')
     with TempFileName('3gb', remove=False) as fname:
         imwrite(fname, data)
-        assert_jhove(fname)
+        assert_valid(fname)
         # assert file
         with TiffFile(fname) as tif:
             assert not tif.is_bigtiff
@@ -8264,7 +8359,7 @@ def test_write_palette(dtype, compress):
     cmap = random_data('uint16', (3, 2**(data.itemsize * 8)))
     with TempFileName('palette_%i%s' % (compress, dtype)) as fname:
         imwrite(fname, data, colormap=cmap, compress=compress)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 3
             page = tif.pages[0]
@@ -8294,7 +8389,7 @@ def test_write_palette_django():
         assert__str__(tif)
     with TempFileName('palette_django') as fname:
         imwrite(fname, data, colormap=cmap, compress=6)
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -8331,7 +8426,7 @@ def test_write_multiple_series():
             tif.save(data1[0, 0, 0], tile=(64, 64))
             # series 5
             tif.save(image1, compress=6, description='DEFLATE')
-        assert_jhove(fname)
+        assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 124
             assert len(tif.series) == 6
@@ -8455,7 +8550,7 @@ def test_write_imagej(byteorder, dtype, shape):
         imwrite(fname, data, byteorder=byteorder, imagej=True)
         image = imread(fname)
         assert_array_equal(data.squeeze(), image.squeeze())
-        assert_jhove(fname)
+        assert_valid(fname)
 
 
 def test_write_imagej_voxel_size():
@@ -8474,7 +8569,7 @@ def test_write_imagej_voxel_size():
             assert series.axes == 'ZYX'
             assert series.shape == (4, 256, 256)
             assert__str__(tif)
-        assert_jhove(fname)
+        assert_valid(fname)
 
 
 def test_write_imagej_metadata():
@@ -8488,7 +8583,7 @@ def test_write_imagej_metadata():
             assert 'unit' in tif.imagej_metadata
             assert tif.imagej_metadata['unit'] == 'um'
             assert__str__(tif)
-        assert_jhove(fname)
+        assert_valid(fname)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -8509,7 +8604,7 @@ def test_write_imagej_ijmetadata_tag():
     assert ijmetadata['Ranges'] == (0.0, 255.0, 0.0, 255.0, 0.0, 255.0)
     assert ijmetadata['Labels'] == ['Red', 'Green', 'Blue']
     assert ijmetadata['LUTs'][2][2, 255] == 255
-    assert_jhove(fname)
+    assert_valid(fname)
 
     with TempFileName('imagej_ijmetadata') as fname:
         imwrite(fname, data, byteorder='>', imagej=True,
@@ -8530,7 +8625,7 @@ def test_write_imagej_ijmetadata_tag():
     assert ijmetadata2['Ranges'] == ijmetadata['Ranges']
     assert ijmetadata2['Labels'] == ijmetadata['Labels']
     assert_array_equal(ijmetadata2['LUTs'][2], ijmetadata['LUTs'][2])
-    assert_jhove(fname)
+    assert_valid(fname)
 
 
 def test_write_imagej_hyperstack():
@@ -8564,7 +8659,7 @@ def test_write_imagej_hyperstack():
             assert_array_equal(data.squeeze(), image.squeeze())
             del image
             assert__str__(tif)
-        assert_jhove(fname)
+        assert_valid(fname)
 
 
 def test_write_imagej_hyperstack_nontrunc():
@@ -8603,7 +8698,7 @@ def test_write_imagej_hyperstack_nontrunc():
                 image = page.asarray()
                 assert_array_equal(data[i], image)
             assert__str__(tif)
-        assert_jhove(fname)
+        assert_valid(fname)
 
 
 def test_write_imagej_append():
@@ -8616,7 +8711,7 @@ def test_write_imagej_append():
             for image in data:
                 tif.save(image)
 
-        assert_jhove(fname)
+        assert_valid(fname)
 
         # assert file
         with TiffFile(fname) as tif:
@@ -8651,7 +8746,7 @@ def test_write_imagej_raw():
         with pytest.warns(UserWarning):
             # UserWarning: truncating ImageJ file
             imwrite(fname, data, imagej=True)
-        assert_jhove(fname)
+        assert_valid(fname)
         # assert file
         with TiffFile(fname) as tif:
             assert not tif.is_bigtiff
@@ -8952,7 +9047,7 @@ def test_sequence_oif_series():
     assert tifs.shape == (2, 378)
     assert tifs.axes == 'CZ'
     # memory map
-    data = tifs.asarray(out='memmap')
+    data = tifs.asarray(out='memmap', ioworkers=None)
     assert isinstance(data, numpy.core.memmap)
     assert data.flags['C_CONTIGUOUS']
     assert data.shape == (2, 378, 256, 256)
@@ -9072,7 +9167,7 @@ def test_depend_czi2tif():
         assert_array_equal(im, data)
         del im
         del data
-        assert_jhove(tif)
+        assert_valid(tif)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_32BIT or SKIP_HUGE, reason=REASON)
@@ -9087,7 +9182,7 @@ def test_depend_czi2tif_airy():
         assert im.shape == (32, 6, 1680, 1680)
         assert tuple(im[17, :, 1500, 1000]) == (95, 109, 3597, 0, 0, 0)
         del im
-        assert_jhove(tif)
+        assert_valid(tif)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
