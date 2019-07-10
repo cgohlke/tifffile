@@ -1,6 +1,7 @@
 include LICENSE
 include README.rst
 include CHANGES.rst
+include ACKNOWLEDGEMENTS.rst
 
 # include tiffile.py
 # include setup_tiffile.py
