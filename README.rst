@@ -38,15 +38,15 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.7.2
+:Version: 2019.7.20
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.3, 64-bit <https://www.python.org>`_
-* `Numpy 1.15.4 <https://www.numpy.org>`_
+* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.4, 64-bit <https://www.python.org>`_
+* `Numpy 1.16.4 <https://www.numpy.org>`_
 * `Imagecodecs 2019.5.22 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for encoding and decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
@@ -54,6 +54,9 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.7.20
+    Fix OME-XML detection for files created by Imaris.
+    Remove or replace assert statements.
 2019.7.2
     Pass 2868 tests.
     Do not write SampleFormat tag for unsigned data types.
@@ -349,13 +352,6 @@ Some libraries are using tifffile to write OME-TIFF files:
   <https://github.com/apeer-micro/apeer-ometiff-library>`_
 * `Allen Institute for Cell Science imageio
   <https://pypi.org/project/aicsimageio>`_
-
-Acknowledgements
-----------------
-* Egor Zindy, University of Manchester, for lsm_scan_info specifics.
-* Wim Lewis for a bug fix and some LSM functions.
-* Hadrien Mary for help on reading MicroManager files.
-* Christian Kliche for help writing tiled and color-mapped files.
 
 References
 ----------
