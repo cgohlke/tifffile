@@ -45,7 +45,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: 3-clause BSD
 
-:Version: 2019.7.2
+:Version: 2019.7.20
 
 """
 
