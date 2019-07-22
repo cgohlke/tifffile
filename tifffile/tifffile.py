@@ -71,15 +71,15 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.7.2
+:Version: 2019.7.20
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.3, 64-bit <https://www.python.org>`_
-* `Numpy 1.15.4 <https://www.numpy.org>`_
+* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.4, 64-bit <https://www.python.org>`_
+* `Numpy 1.16.4 <https://www.numpy.org>`_
 * `Imagecodecs 2019.5.22 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for encoding and decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
@@ -87,6 +87,9 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2019.7.20
+    Fix OME-XML detection for files created by Imaris.
+    Remove or replace assert statements.
 2019.7.2
     Pass 2868 tests.
     Do not write SampleFormat tag for unsigned data types.
@@ -383,13 +386,6 @@ Some libraries are using tifffile to write OME-TIFF files:
 * `Allen Institute for Cell Science imageio
   <https://pypi.org/project/aicsimageio>`_
 
-Acknowledgements
-----------------
-* Egor Zindy, University of Manchester, for lsm_scan_info specifics.
-* Wim Lewis for a bug fix and some LSM functions.
-* Hadrien Mary for help on reading MicroManager files.
-* Christian Kliche for help writing tiled and color-mapped files.
-
 References
 ----------
 1)  TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
@@ -577,7 +573,7 @@ Read an image stack from a series of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.7.2'
+__version__ = '2019.7.20'
 __docformat__ = 'restructuredtext en'
 __all__ = (
     'imwrite',
@@ -659,7 +655,7 @@ except ImportError:
     except ImportError:
         imagecodecs = None
 
-# delay import of mmap, pprint, fractions, xml, tkinter, lxml, matplotlib,
+# delay import of mmap, pprint, fractions, xml, lxml, matplotlib, tkinter,
 #   subprocess, multiprocessing, tempfile, zipfile, fnmatch
 
 log = logging.getLogger(__name__)  # .addHandler(logging.NullHandler())
@@ -1084,7 +1080,9 @@ class TiffWriter(object):
             second item is the compression level.
             Compression cannot be used to write contiguous files.
             Compressors may require certain data shapes, types or value ranges.
-            E.g. JPEG requires grayscale or RGB(A), uint8 or 12-bit uint16.
+            For example, JPEG requires grayscale or RGB(A), uint8 or 12-bit
+            uint16. JPEG compression is experimental. JPEG markers and TIFF
+            tags may not match.
         rowsperstrip : int
             The number of rows per strip. By default, strips will be ~64 KB
             if compression is enabled, else rowsperstrip is set to the image
@@ -1434,7 +1432,8 @@ class TiffWriter(object):
             bitspersample = datadtype.itemsize * 8
 
         # normalize shape to 6D
-        assert len(datashape) in (5, 6)
+        if len(datashape) not in (5, 6):
+            raise RuntimeError('len(datashape) not in (5, 6)')
         if len(datashape) == 5:
             datashape = datashape[:2] + (1,) + datashape[2:]
         if datashape[0] == -1:
@@ -1470,10 +1469,12 @@ class TiffWriter(object):
             else:
                 datashape[-2] = datashape[-2] // 8
             datashape = tuple(datashape)
-            assert datasize == product(datashape)
+            if datasize != product(datashape):
+                raise RuntimeError('datasize != product(datashape)')
             if data is not None:
                 data = numpy.packbits(data, axis=-2)
-                assert datashape[-2] == data.shape[-2]
+                if datashape[-2] != data.shape[-2]:
+                    raise RuntimeError('datashape[-2] != data.shape[-2]')
 
         tags = []  # list of (code, ifdentry, ifdvalue, writeonce)
 
@@ -1534,8 +1535,10 @@ class TiffWriter(object):
                 if isinstance(value, bytes):
                     ifdvalue = value
                 elif isinstance(value, numpy.ndarray):
-                    assert value.size == count
-                    assert value.dtype.char == dtype
+                    if value.size != count:
+                        raise RuntimeError('value.size != count')
+                    if value.dtype.char != dtype:
+                        raise RuntimeError('value.dtype.char != dtype')
                     ifdvalue = value.tostring()
                 elif isinstance(value, (tuple, list)):
                     ifdvalue = pack(str(count) + dtype, *value)
@@ -1917,7 +1920,9 @@ class TiffWriter(object):
                                     # fh.flush()
             elif compress:
                 # write one strip per rowsperstrip
-                assert data.shape[2] == 1  # not handling depth
+                if data.shape[2] != 1:
+                    # not handling depth
+                    raise RuntimeError('data.shape[2] != 1')
                 numstrips = (shape[-3] + rowsperstrip - 1) // rowsperstrip
                 stripindex = 0
                 for plane in data[pageindex]:
@@ -2207,7 +2212,7 @@ class TiffFile(object):
             if 'pages' in kwargs:
                 raise TypeError(
                     "the TiffFile 'pages' argument is no longer supported.\n\n"
-                    "Use TiffFile.asarray(keys=[...]) to read image data "
+                    "Use TiffFile.asarray(key=[...]) to read image data "
                     "from specific pages.\n")
 
             for key, value in kwargs.items():
@@ -3080,7 +3085,8 @@ class TiffFile(object):
                     break
             if ntimes:
                 div, mod = divmod(npages, 2 * positions * ntimes)
-                assert mod == 0
+                if mod != 0:
+                    raise RuntimeError('mod != 0')
                 shape = (positions, ntimes, div, 2)
                 indices = numpy.arange(product(shape)).reshape(shape)
                 indices = numpy.moveaxis(indices, 1, 0)
@@ -3680,14 +3686,13 @@ class TiffPages(object):
                         bytecounts=bytecounts,
                         keyframe=page)
                 )
+            self.pages = pages
+            self._cache = True
+            self._cached = True
+            self._indexed = True
         except Exception as exc:
             log.warning(
                 'TiffPages: failed to load virtual frames: %s', str(exc))
-        assert pages[1]
-        self.pages = pages
-        self._cache = True
-        self._cached = True
-        self._indexed = True
 
     def _clear(self, fully=True):
         """Delete all but first page from cache. Set keyframe to first page."""
@@ -4136,7 +4141,8 @@ class TiffPage(object):
         samplesperpixel = self.samplesperpixel
 
         if self.is_stk:
-            assert self.imagedepth == 1
+            if imagedepth != 1:
+                raise ValueError('STK imagedepth must be 1')
             uictag = tags['UIC2tag'].value
             planes = tags['UIC2tag'].count
             if self.planarconfig == 1:
@@ -4253,7 +4259,6 @@ class TiffPage(object):
             if self.compression != 1:
                 log.warning('TiffPage %i: ByteCounts tag is missing',
                             self.index)
-        # assert len(self.shape) == len(self.axes)
 
         if 'GDAL_NODATA' in tags:
             try:
@@ -5118,7 +5123,7 @@ class TiffPage(object):
         if self.index > 1 or not self.description:
             return False
         d = self.description
-        return d[:14] == '<?xml version=' and d[-6:] == '</OME>'
+        return d[:13] == '<?xml version' and d[-4:] == 'OME>'
 
     @property
     def is_scn(self):
@@ -8885,7 +8890,8 @@ def read_uic1tag(fh, byteorder, dtype, count, offsetsize, planecount=None):
     Return empty dictionary if planecount is unknown.
 
     """
-    assert dtype in ('2I', '1I') and byteorder == '<'
+    if dtype not in ('2I', '1I') or byteorder != '<':
+        raise ValueError('invalid UIC1Tag')
     result = {}
     if dtype == '2I':
         # pre MetaMorph 2.5 (not tested)
@@ -8905,7 +8911,8 @@ def read_uic1tag(fh, byteorder, dtype, count, offsetsize, planecount=None):
 
 def read_uic2tag(fh, byteorder, dtype, planecount, offsetsize):
     """Read MetaMorph STK UIC2Tag from file and return as dict."""
-    assert dtype == '2I' and byteorder == '<'
+    if dtype != '2I' or byteorder != '<':
+        raise ValueError('invalid UIC2Tag')
     values = fh.read_array('<u4', 6 * planecount).reshape(planecount, 6)
     return {
         'ZDistance': values[:, 0] / values[:, 1],
@@ -8918,14 +8925,16 @@ def read_uic2tag(fh, byteorder, dtype, planecount, offsetsize):
 
 def read_uic3tag(fh, byteorder, dtype, planecount, offsetsize):
     """Read MetaMorph STK UIC3Tag from file and return as dict."""
-    assert dtype == '2I' and byteorder == '<'
+    if dtype != '2I' or byteorder != '<':
+        raise ValueError('invalid UIC3Tag')
     values = fh.read_array('<u4', 2 * planecount).reshape(planecount, 2)
     return {'Wavelengths': values[:, 0] / values[:, 1]}
 
 
 def read_uic4tag(fh, byteorder, dtype, planecount, offsetsize):
     """Read MetaMorph STK UIC4Tag from file and return as dict."""
-    assert dtype == '1I' and byteorder == '<'
+    if dtype != '1I' or byteorder != '<':
+        raise ValueError('invalid UIC4Tag')
     result = {}
     while True:
         tagid = struct.unpack('<H', fh.read(2))[0]
@@ -9049,7 +9058,8 @@ def read_uic_image_property(fh):
 
 def read_cz_lsminfo(fh, byteorder, dtype, count, offsetsize):
     """Read CZ_LSMINFO tag from file and return as dict."""
-    assert byteorder == '<'
+    if byteorder != '<':
+        raise ValueError('invalid CZ_LSMINFO structure')
     magic_number, structure_size = struct.unpack('<II', fh.read(8))
     if magic_number not in (50350412, 67127628):
         raise ValueError('invalid CZ_LSMINFO structure')
