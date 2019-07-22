@@ -1,5 +1,8 @@
 Revisions
 ---------
+2019.7.20
+    Fix OME-XML detection for files created by Imaris.
+    Remove or replace assert statements.
 2019.7.2
     Pass 2868 tests.
     Do not write SampleFormat tag for unsigned data types.
