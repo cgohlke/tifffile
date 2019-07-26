@@ -1,10 +1,13 @@
 Revisions
 ---------
+2019.7.26
+    Pass 2869 tests.
+    Fix infinite loop reading more than two tags of same code in IFD.
+    Delay import of logging module.
 2019.7.20
     Fix OME-XML detection for files created by Imaris.
     Remove or replace assert statements.
 2019.7.2
-    Pass 2868 tests.
     Do not write SampleFormat tag for unsigned data types.
     Write ByteCount tag values as SHORT or LONG if possible.
     Allow to specify axes in FileSequence pattern via group names.
