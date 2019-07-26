@@ -45,7 +45,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: 3-clause BSD
 
-:Version: 2019.7.20
+:Version: 2019.7.26
 
 """
 
@@ -363,6 +363,17 @@ def test_issue_legacy_kwargs():
         with pytest.raises(TypeError):
             with TiffFile(fname, pages=[1, 2]) as tif:
                 pass
+
+
+def test_issue_infinite_loop():
+    """Test infinite loop reading more than two tags of same code in IFD."""
+    # Reported by D. Hughes on 2019.7.26
+    # the test file is corrupted but should not cause infinite loop
+    fname = private_file('gdk-pixbuf/bug784903-overflow-dimensions.tiff')
+    with TiffFile(fname) as tif:
+        page = tif.pages[0]
+        assert page.compression == 0  # invalid
+        assert__str__(tif)
 
 
 def test_issue_specific_pages():
