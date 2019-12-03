@@ -1,6 +1,6 @@
 Revisions
 ---------
-2019.7.26
+2019.7.26.2
     Pass 2869 tests.
     Fix infinite loop reading more than two tags of same code in IFD.
     Delay import of logging module.
