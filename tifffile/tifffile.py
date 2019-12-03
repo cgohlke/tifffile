@@ -9,16 +9,16 @@
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
 #
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
 #
-# * Neither the name of the copyright holder nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
 #
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.7.26
+:Version: 2019.7.26.2
 
 Requirements
 ------------
@@ -87,7 +87,7 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2019.7.26
+2019.7.26.2
     Pass 2869 tests.
     Fix infinite loop reading more than two tags of same code in IFD.
     Delay import of logging module.
@@ -576,7 +576,7 @@ Read an image stack from a series of TIFF files with a file name pattern:
 
 from __future__ import division, print_function
 
-__version__ = '2019.7.26'
+__version__ = '2019.7.26.2'
 __docformat__ = 'restructuredtext en'
 __all__ = (
     'imwrite',
@@ -11102,6 +11102,8 @@ def xml2dict(xml, sanitize=True, prefix=None):
 
     >>> xml2dict('<?xml version="1.0" ?><root attr="name"><key>1</key></root>')
     {'root': {'key': 1, 'attr': 'name'}}
+    >>> xml2dict('<level1><level2>3.5322</level2></level1>')
+    {'level1': {'level2': 3.5322}}
 
     """
     from xml.etree import cElementTree as etree  # delayed import
@@ -11111,7 +11113,9 @@ def xml2dict(xml, sanitize=True, prefix=None):
         at, tx = prefix
 
     def astype(value):
-        # return value as int, float, bool, or str
+        # return string value as int, float, bool, or unchanged
+        if not isinstance(value, basestring):
+            return value
         for t in (int, float, asbool):
             try:
                 return t(value)
