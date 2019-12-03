@@ -10,7 +10,8 @@ from setuptools import setup
 
 buildnumber = ''
 
-imagecodecs = 'imagecodecs>=2019.5.22'
+imagecodecs = 'imagecodecs>=2019.11.28'
+imagecodecs_lite = 'imagecodecs-lite>=2019.12.2'
 
 with open('tifffile/tifffile.py') as fh:
     code = fh.read()
@@ -38,6 +39,7 @@ if 'sdist' in sys.argv:
     license = license.replace('# ', '').replace('#', '')
 
     with open('LICENSE', 'w') as fh:
+        fh.write('BSD 3-Clause License\n\n')
         fh.write(license)
 
     revisions = re.search(r'(?:\r\n|\r|\n){2}(Revisions.*)   \.\.\.', readme,
@@ -64,12 +66,13 @@ setup(
     packages=['tifffile'],
     python_requires='>=2.7',
     install_requires=[
-        'numpy>=1.11.3',
+        'numpy>=1.14.6',
         'pathlib;python_version=="2.7"',
         'enum34;python_version=="2.7"',
         'futures;python_version=="2.7"',
         # require imagecodecs on Windows only
         imagecodecs + ';platform_system=="Windows"',
+        imagecodecs_lite + ';platform_system!="Windows"',
     ],
     extras_require={
         'all': ['matplotlib>=2.2', imagecodecs],
