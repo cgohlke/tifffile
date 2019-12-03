@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: 3-clause BSD
 
-:Version: 2019.7.26
+:Version: 2019.7.26.2
 
 Requirements
 ------------
@@ -54,7 +54,7 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2019.7.26
+2019.7.26.2
     Pass 2869 tests.
     Fix infinite loop reading more than two tags of same code in IFD.
     Delay import of logging module.
