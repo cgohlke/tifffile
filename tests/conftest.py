@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # tifffile/tests/conftest.py
 
 collect_ignore = ['_tmp', 'data']
