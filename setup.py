@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # tifffile/setup.py
 
 """Tifffile package setuptools script."""
@@ -10,9 +9,6 @@ from setuptools import setup
 
 buildnumber = ''
 
-imagecodecs = 'imagecodecs>=2019.11.28'
-imagecodecs_lite = 'imagecodecs-lite>=2019.12.2'
-
 with open('tifffile/tifffile.py') as fh:
     code = fh.read()
 
@@ -21,8 +17,8 @@ version += ('.' + buildnumber) if buildnumber else ''
 
 description = re.search(r'"""(.*)\.(?:\r\n|\r|\n)', code).groups()[0]
 
-readme = re.search(r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}from', code,
-                   re.MULTILINE | re.DOTALL).groups()[0]
+readme = re.search(r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}__version__',
+                   code, re.MULTILINE | re.DOTALL).groups()[0]
 
 readme = '\n'.join([description, '=' * len(description)] +
                    readme.splitlines()[1:])
@@ -64,21 +60,17 @@ setup(
     url='https://www.lfd.uci.edu/~gohlke/',
     license='BSD',
     packages=['tifffile'],
-    python_requires='>=2.7',
+    python_requires='>=3.6',
     install_requires=[
-        'numpy>=1.14.6',
-        'pathlib;python_version=="2.7"',
-        'enum34;python_version=="2.7"',
-        'futures;python_version=="2.7"',
-        # require imagecodecs on Windows only
-        imagecodecs + ';platform_system=="Windows"',
-        imagecodecs_lite + ';platform_system!="Windows"',
+        'numpy>=1.15.1',
+        'imagecodecs>=2020.1.31',
     ],
     extras_require={
-        'all': ['matplotlib>=2.2', imagecodecs],
+        'all': ['matplotlib>=3.1'],
     },
-    tests_require=['pytest', imagecodecs,
-                   'czifile', 'cmapfile', 'oiffile', 'lfdfiles'],
+    tests_require=[
+        'pytest', 'czifile', 'cmapfile', 'oiffile', 'lfdfiles', 'roifile'
+        ],
     entry_points={
         'console_scripts': [
             'tifffile = tifffile:main',
@@ -91,10 +83,7 @@ setup(
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',
         'Operating System :: OS Independent',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3 :: Only',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
