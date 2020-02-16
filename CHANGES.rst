@@ -1,7 +1,26 @@
 Revisions
 ---------
-2019.7.26.2
-    Pass 2869 tests.
+2020.2.16
+    Pass 2899 tests.
+    Add function to decode individual strips or tiles.
+    Read strips and tiles in order of their offsets.
+    Enable multi-threading when decompressing multiple strips.
+    Replace TiffPage.tags dictionary with TiffTags (breaking).
+    Replace TIFF.TAGS dictionary with TiffTagRegistry.
+    Remove TIFF.TAG_NAMES (breaking).
+    Improve handling of TiffSequence parameters in imread.
+    Match last uncommon parts of file paths to FileSequence pattern (breaking).
+    Allow letters in FileSequence pattern for indexing well plate rows.
+    Allow to reorder axes in FileSequence.
+    Allow to write > 4 GB arrays to plain TIFF when using compression.
+    Allow to write zero size numpy arrays to nonconformant TIFF (tentative).
+    Fix xml2dict.
+    Require imagecodecs >= 2020.1.31.
+    Remove support for imagecodecs-lite (breaking).
+    Remove verify parameter to asarray function (breaking).
+    Remove deprecated lzw_decode functions (breaking).
+    Remove support for Python 2.7 and 3.5 (breaking).
+2019.7.26
     Fix infinite loop reading more than two tags of same code in IFD.
     Delay import of logging module.
 2019.7.20
@@ -29,7 +48,7 @@ Revisions
     Add Timer class.
 2019.5.22
     Add optional chroma subsampling for JPEG compression.
-    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (WIP).
+    Enable writing PNG, JPEG, JPEGXR, and JPEG2K compression (WIP).
     Fix writing tiled images with WebP compression.
     Improve handling GeoTIFF sparse files.
 2019.3.18
@@ -52,7 +71,7 @@ Revisions
     Support slices and iterators in TiffPageSeries sequence interface.
     Auto-detect uniform series.
     Use page hash to determine generic series.
-    Turn off page cache (tentative).
+    Turn off TiffPages cache (tentative).
     Pass through more parameters in imread.
     Discontinue movie parameter in imread and TiffFile (breaking).
     Discontinue bigsize parameter in imwrite (breaking).
@@ -150,11 +169,11 @@ Revisions
 2018.2.18
     Always save RowsPerStrip and Resolution tags as required by TIFF standard.
     Do not use badly typed ImageDescription.
-    Coherce bad ASCII string tags to bytes.
+    Coerce bad ASCII string tags to bytes.
     Tuning of __str__ functions.
     Fix reading 'undefined' tag values.
     Read and write ZSTD compressed data.
-    Use hexdump to print byte strings.
+    Use hexdump to print bytes.
     Determine TIFF byte order from data dtype in imsave.
     Add option to specify RowsPerStrip for compressed strips.
     Allow memory-map of arrays with non-native byte order.
