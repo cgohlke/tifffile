@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 # tifffile.py
 
-# Copyright (c) 2008-2019, Christoph Gohlke
-# Copyright (c) 2008-2019, The Regents of the University of California
-# Produced at the Laboratory for Fluorescence Dynamics
+# Copyright (c) 2008-2020, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,25 +38,25 @@ Tifffile is a Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
 NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
-ZIF, QPI, NDPI, and GeoTIFF files.
+ZIF, QPTIFF, NDPI, and GeoTIFF files.
 
 Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
 files in multi-page, memory-mappable, tiled, predicted, or compressed form.
 
 Only a subset of the TIFF specification is supported, mainly uncompressed and
-losslessly compressed 1, 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
-grayscale and RGB(A) images.
+losslessly compressed 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
+grayscale and multi-sample images.
 Specifically, reading slices of image data, CCITT and OJPEG compression,
-chroma subsampling without JPEG compression, or IPTC and XMP metadata are not
-implemented.
+chroma subsampling without JPEG compression, color space transformations,
+samples with differing types, or IPTC and XMP metadata are not implemented.
 
 TIFF(r), the Tagged Image File Format, is a trademark and under control of
-Adobe Systems Incorporated. BigTIFF allows for files greater than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, and OME-TIFF, are custom extensions
-defined by Molecular Devices (Universal Imaging Corporation), Carl Zeiss
-MicroImaging, Olympus, Silicon Graphics International, Media Cybernetics,
-Molecular Dynamics, and the Open Microscopy Environment consortium
-respectively.
+Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, and OME-TIFF, are custom
+extensions defined by Molecular Devices (Universal Imaging Corporation),
+Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
+Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, and the
+Open Microscopy Environment consortium respectively.
 
 For command line usage run ``python -m tifffile --help``
 
@@ -69,26 +66,44 @@ For command line usage run ``python -m tifffile --help``
 :Organization:
   Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-:License: 3-clause BSD
+:License: BSD 3-Clause
 
-:Version: 2019.7.26.2
+:Version: 2020.2.16
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 2.7.16, 3.5.4, 3.6.8, 3.7.4, 64-bit <https://www.python.org>`_
-* `Numpy 1.16.4 <https://www.numpy.org>`_
-* `Imagecodecs 2019.5.22 <https://pypi.org/project/imagecodecs/>`_
+* `CPython 3.6.8, 3.7.6, 3.8.1 64-bit <https://www.python.org>`_
+* `Numpy 1.16.6 <https://www.numpy.org>`_
+* `Imagecodecs 2020.1.31 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for encoding and decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
-* Python 2.7 requires 'futures', 'enum34', and 'pathlib'.
 
 Revisions
 ---------
-2019.7.26.2
-    Pass 2869 tests.
+2020.2.16
+    Pass 2899 tests.
+    Add function to decode individual strips or tiles.
+    Read strips and tiles in order of their offsets.
+    Enable multi-threading when decompressing multiple strips.
+    Replace TiffPage.tags dictionary with TiffTags (breaking).
+    Replace TIFF.TAGS dictionary with TiffTagRegistry.
+    Remove TIFF.TAG_NAMES (breaking).
+    Improve handling of TiffSequence parameters in imread.
+    Match last uncommon parts of file paths to FileSequence pattern (breaking).
+    Allow letters in FileSequence pattern for indexing well plate rows.
+    Allow to reorder axes in FileSequence.
+    Allow to write > 4 GB arrays to plain TIFF when using compression.
+    Allow to write zero size numpy arrays to nonconformant TIFF (tentative).
+    Fix xml2dict.
+    Require imagecodecs >= 2020.1.31.
+    Remove support for imagecodecs-lite (breaking).
+    Remove verify parameter to asarray function (breaking).
+    Remove deprecated lzw_decode functions (breaking).
+    Remove support for Python 2.7 and 3.5 (breaking).
+2019.7.26
     Fix infinite loop reading more than two tags of same code in IFD.
     Delay import of logging module.
 2019.7.20
@@ -116,7 +131,7 @@ Revisions
     Add Timer class.
 2019.5.22
     Add optional chroma subsampling for JPEG compression.
-    Enable writing PNG, JPEG, JPEGXR, and JPEG2000 compression (WIP).
+    Enable writing PNG, JPEG, JPEGXR, and JPEG2K compression (WIP).
     Fix writing tiled images with WebP compression.
     Improve handling GeoTIFF sparse files.
 2019.3.18
@@ -139,7 +154,7 @@ Revisions
     Support slices and iterators in TiffPageSeries sequence interface.
     Auto-detect uniform series.
     Use page hash to determine generic series.
-    Turn off page cache (tentative).
+    Turn off TiffPages cache (tentative).
     Pass through more parameters in imread.
     Discontinue movie parameter in imread and TiffFile (breaking).
     Discontinue bigsize parameter in imwrite (breaking).
@@ -185,133 +200,6 @@ Revisions
     Readd Python implementations of packints, delta, and bitorder codecs.
     Fix TiffFrame.compression AttributeError.
 2018.10.18
-    Rename tiffile package to tifffile.
-2018.10.10
-    Read ZIF, the Zoomable Image Format (WIP).
-    Decode YCbCr JPEG as RGB (tentative).
-    Improve restoration of incomplete tiles.
-    Allow to write grayscale with extrasamples without specifying planarconfig.
-    Enable decoding of PNG and JXR via imagecodecs.
-    Deprecate 32-bit platforms (too many memory errors during tests).
-2018.9.27
-    Read Olympus SIS (WIP).
-    Allow to write non-BigTIFF files up to ~4 GB (fix).
-    Fix parsing date and time fields in SEM metadata.
-    Detect some circular IFD references.
-    Enable WebP codecs via imagecodecs.
-    Add option to read TiffSequence from ZIP containers.
-    Remove TiffFile.isnative.
-    Move TIFF struct format constants out of TiffFile namespace.
-2018.8.31
-    Fix wrong TiffTag.valueoffset.
-    Towards reading Hamamatsu NDPI (WIP).
-    Enable PackBits compression of byte and bool arrays.
-    Fix parsing NULL terminated CZ_SEM strings.
-2018.8.24
-    Move tifffile.py and related modules into tiffile package.
-    Move usage examples to module docstring.
-    Enable multi-threading for compressed tiles and pages by default.
-    Add option to concurrently decode image tiles using threads.
-    Do not skip empty tiles (fix).
-    Read JPEG and J2K compressed strips and tiles.
-    Allow floating-point predictor on write.
-    Add option to specify subfiletype on write.
-    Depend on imagecodecs package instead of _tifffile, lzma, etc modules.
-    Remove reverse_bitorder, unpack_ints, and decode functions.
-    Use pytest instead of unittest.
-2018.6.20
-    Save RGBA with unassociated extrasample by default (breaking).
-    Add option to specify ExtraSamples values.
-2018.6.17 (included with 0.15.1)
-    Towards reading JPEG and other compressions via imagecodecs package (WIP).
-    Read SampleFormat VOID as UINT.
-    Add function to validate TIFF using 'jhove -m TIFF-hul'.
-    Save bool arrays as bilevel TIFF.
-    Accept pathlib.Path as filenames.
-    Move 'software' argument from TiffWriter __init__ to save.
-    Raise DOS limit to 16 TB.
-    Lazy load LZMA and ZSTD compressors and decompressors.
-    Add option to save IJMetadata tags.
-    Return correct number of pages for truncated series (fix).
-    Move EXIF tags to TIFF.TAG as per TIFF/EP standard.
-2018.2.18
-    Always save RowsPerStrip and Resolution tags as required by TIFF standard.
-    Do not use badly typed ImageDescription.
-    Coherce bad ASCII string tags to bytes.
-    Tuning of __str__ functions.
-    Fix reading 'undefined' tag values.
-    Read and write ZSTD compressed data.
-    Use hexdump to print byte strings.
-    Determine TIFF byte order from data dtype in imsave.
-    Add option to specify RowsPerStrip for compressed strips.
-    Allow memory-map of arrays with non-native byte order.
-    Attempt to handle ScanImage <= 5.1 files.
-    Restore TiffPageSeries.pages sequence interface.
-    Use numpy.frombuffer instead of fromstring to read from binary data.
-    Parse GeoTIFF metadata.
-    Add option to apply horizontal differencing before compression.
-    Towards reading PerkinElmer QPI (QPTIFF, no test files).
-    Do not index out of bounds data in tifffile.c unpackbits and decodelzw.
-2017.9.29
-    Many backward incompatible changes improving speed and resource usage:
-    Add detail argument to __str__ function. Remove info functions.
-    Fix potential issue correcting offsets of large LSM files with positions.
-    Remove TiffFile sequence interface; use TiffFile.pages instead.
-    Do not make tag values available as TiffPage attributes.
-    Use str (not bytes) type for tag and metadata strings (WIP).
-    Use documented standard tag and value names (WIP).
-    Use enums for some documented TIFF tag values.
-    Remove 'memmap' and 'tmpfile' options; use out='memmap' instead.
-    Add option to specify output in asarray functions.
-    Add option to concurrently decode pages using threads.
-    Add TiffPage.asrgb function (WIP).
-    Do not apply colormap in asarray.
-    Remove 'colormapped', 'rgbonly', and 'scale_mdgel' options from asarray.
-    Consolidate metadata in TiffFile _metadata functions.
-    Remove non-tag metadata properties from TiffPage.
-    Add function to convert LSM to tiled BIN files.
-    Align image data in file.
-    Make TiffPage.dtype a numpy.dtype.
-    Add 'ndim' and 'size' properties to TiffPage and TiffPageSeries.
-    Allow imsave to write non-BigTIFF files up to ~4 GB.
-    Only read one page for shaped series if possible.
-    Add memmap function to create memory-mapped array stored in TIFF file.
-    Add option to save empty arrays to TIFF files.
-    Add option to save truncated TIFF files.
-    Allow single tile images to be saved contiguously.
-    Add optional movie mode for files with uniform pages.
-    Lazy load pages.
-    Use lightweight TiffFrame for IFDs sharing properties with key TiffPage.
-    Move module constants to 'TIFF' namespace (speed up module import).
-    Remove 'fastij' option from TiffFile.
-    Remove 'pages' parameter from TiffFile.
-    Remove TIFFfile alias.
-    Deprecate Python 2.
-    Require enum34 and futures packages on Python 2.7.
-    Remove Record class and return all metadata as dict instead.
-    Add functions to parse STK, MetaSeries, ScanImage, SVS, Pilatus metadata.
-    Read tags from EXIF and GPS IFDs.
-    Use pformat for tag and metadata values.
-    Fix reading some UIC tags.
-    Do not modify input array in imshow (fix).
-    Fix Python implementation of unpack_ints.
-2017.5.23
-    Write correct number of SampleFormat values (fix).
-    Use Adobe deflate code to write ZIP compressed files.
-    Add option to pass tag values as packed binary data for writing.
-    Defer tag validation to attribute access.
-    Use property instead of lazyattr decorator for simple expressions.
-2017.3.17
-    Write IFDs and tag values on word boundaries.
-    Read ScanImage metadata.
-    Remove is_rgb and is_indexed attributes from TiffFile.
-    Create files used by doctests.
-2017.1.12 (included with scikit-image 0.14.x)
-    Read Zeiss SEM metadata.
-    Read OME-TIFF with invalid references to external files.
-    Rewrite C LZW decoder (5x faster).
-    Read corrupted LSM files missing EOI code in LZW stream.
-2017.1.1
     ...
 
 Refer to the CHANGES file for older revisions.
@@ -322,13 +210,10 @@ The API is not stable yet and might change between revisions.
 
 Tested on little-endian platforms only.
 
-Python 2.7 and 32-bit versions are deprecated.
+Python 32-bit versions are deprecated.
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed images.
-The `imagecodecs-lite <https://pypi.org/project/imagecodecs-lite/>`_ package,
-which is easier to build, can be used for decoding LZW compressed images
-instead.
 
 Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
 some of which allow file or data sizes to exceed the 4 GB limit:
@@ -350,11 +235,11 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
   data. Tifffile can read large LSM files.
-* *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures
-  and might require correcting 32-bit offsets found in tags.
-  JPEG compressed tiles with dimensions > 65536 are not readable with libjpeg.
-  Tifffile can read NDPI files < 4 GB and decompress large JPEG tiles using
-  the imagecodecs library on Windows.
+* *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
+  Tag values/offsets can be corrected using high bits stored after IFD
+  structures. JPEG compressed tiles with dimensions > 65536 are not readable
+  with libjpeg. Tifffile can read NDPI files < 4 GB and decompress large JPEG
+  tiles using the imagecodecs library on Windows.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -391,29 +276,29 @@ Some libraries are using tifffile to write OME-TIFF files:
 
 References
 ----------
-1)  TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
+1.  TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
     https://www.adobe.io/open/standards/TIFF.html
-2)  TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
-3)  MetaMorph Stack (STK) Image File Format.
+2.  TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
+3.  MetaMorph Stack (STK) Image File Format.
     http://mdc.custhelp.com/app/answers/detail/a_id/18862
-4)  Image File Format Description LSM 5/7 Release 6.0 (ZEN 2010).
+4.  Image File Format Description LSM 5/7 Release 6.0 (ZEN 2010).
     Carl Zeiss MicroImaging GmbH. BioSciences. May 10, 2011
-5)  The OME-TIFF format.
+5.  The OME-TIFF format.
     https://docs.openmicroscopy.org/ome-model/5.6.4/ome-tiff/
-6)  UltraQuant(r) Version 6.0 for Windows Start-Up Guide.
+6.  UltraQuant(r) Version 6.0 for Windows Start-Up Guide.
     http://www.ultralum.com/images%20ultralum/pdf/UQStart%20Up%20Guide.pdf
-7)  Micro-Manager File Formats.
+7.  Micro-Manager File Formats.
     https://micro-manager.org/wiki/Micro-Manager_File_Formats
-8)  Tags for TIFF and Related Specifications. Digital Preservation.
+8.  Tags for TIFF and Related Specifications. Digital Preservation.
     https://www.loc.gov/preservation/digital/formats/content/tiff_tags.shtml
-9)  ScanImage BigTiff Specification - ScanImage 2016.
+9.  ScanImage BigTiff Specification - ScanImage 2016.
     http://scanimage.vidriotechnologies.com/display/SI2016/
     ScanImage+BigTiff+Specification
-10) CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
+10. CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
     Exif Version 2.31.
     http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
-11) ZIF, the Zoomable Image File format. http://zif.photo/
-12) GeoTIFF File Format https://www.gdal.org/frmt_gtiff.html
+11. ZIF, the Zoomable Image File format. http://zif.photo/
+12. GeoTIFF File Format https://gdal.org/drivers/raster/gtiff.html
 
 Examples
 --------
@@ -430,7 +315,7 @@ Read the whole image stack from the TIFF file as numpy array:
 >>> image_stack.dtype
 dtype('uint16')
 
-Read the image from first page in the TIFF file as numpy array:
+Read the image from the first page in the TIFF file as numpy array:
 
 >>> image = imread('temp.tif', key=0)
 >>> image.shape
@@ -452,14 +337,15 @@ Save a floating-point array and metadata, using zlib compression:
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
 >>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
 
-Save a volume with xyz voxel size 2.6755x2.6755x3.9474 µm^3 to an ImageJ file:
+Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3
+to an ImageJ formatted TIFF file:
 
 >>> volume = numpy.random.randn(57*256*256).astype('float32')
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
 >>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
 ...         metadata={'spacing': 3.947368, 'unit': 'um'})
 
-Get the shape and dtype of the images stored in the TIFF file:
+Get the shape and dtype of the volume stored in the TIFF file:
 
 >>> tif = TiffFile('temp.tif')
 >>> len(tif.pages)  # number of pages in the file
@@ -504,8 +390,6 @@ Read the "XResolution" tag from the first page in the TIFF file:
 1
 >>> tag.dtype
 '2I'
->>> tag.valueoffset
-360
 
 Read images from a selected range of pages:
 
@@ -518,8 +402,6 @@ Create an empty TIFF file and write to the memory-mapped numpy array:
 >>> memmap_image = memmap('temp.tif', shape=(256, 256), dtype='float32')
 >>> memmap_image[255, 255] = 1.0
 >>> memmap_image.flush()
->>> memmap_image.shape, memmap_image.dtype
-((256, 256), dtype('float32'))
 >>> del memmap_image
 
 Memory-map image data of the first page in the TIFF file:
@@ -541,7 +423,7 @@ Iterate over pages and tags in the TIFF file and successively read images:
 >>> with TiffFile('temp.tif') as tif:
 ...     image_stack = tif.asarray()
 ...     for page in tif.pages:
-...         for tag in page.tags.values():
+...         for tag in page.tags:
 ...             tag_name, tag_value = tag.name, tag.value
 ...         image = page.asarray()
 
@@ -574,10 +456,8 @@ Read an image stack from a series of TIFF files with a file name pattern:
 
 """
 
-from __future__ import division, print_function
+__version__ = '2020.2.16'
 
-__version__ = '2019.7.26.2'
-__docformat__ = 'restructuredtext en'
 __all__ = (
     'imwrite',
     'imread',
@@ -609,7 +489,6 @@ __all__ = (
     'product',
     'xml2dict',
     'pformat',
-    'str2bytes',
     'nullfunc',
     'update_kwargs',
     'parse_kwargs',
@@ -617,8 +496,6 @@ __all__ = (
     '_app_show',
     # deprecated
     'imsave',
-    'decode_lzw',
-    'decodelzw',
 )
 
 import sys
@@ -638,11 +515,7 @@ import datetime
 import threading
 import collections
 
-try:
-    from collections.abc import Iterable
-except ImportError:
-    from collections import Iterable
-
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy
@@ -650,12 +523,7 @@ import numpy
 try:
     import imagecodecs
 except ImportError:
-    import zlib
-
-    try:
-        import imagecodecs_lite as imagecodecs
-    except ImportError:
-        imagecodecs = None
+    imagecodecs = None
 
 # delay import of mmap, pprint, fractions, xml, lxml, matplotlib, tkinter,
 #   logging, subprocess, multiprocessing, tempfile, zipfile, fnmatch
@@ -674,9 +542,9 @@ def imread(files, **kwargs):
         file names.
     kwargs : dict
         Parameters 'name', 'offset', 'size', 'multifile', and 'is_ome'
-        are passed to the TiffFile constructor.
-        The 'pattern' and 'ioworkers' parameters are passed to the
-        TiffSequence constructor.
+        are passed to TiffFile().
+        The 'pattern', 'sort', 'container', and 'axesorder' parameters are
+        passed to TiffSequence().
         Other parameters are passed to the asarray functions.
         The first image series in the file is returned if no arguments are
         provided.
@@ -695,28 +563,33 @@ def imread(files, **kwargs):
         'fastij',
         'movie',
     )
-    kwargs_seq = parse_kwargs(kwargs, 'pattern', 'ioworkers')
+    kwargs_seq = parse_kwargs(kwargs, 'pattern', 'sort', 'container', 'imread',
+                              'axesorder')
 
     if kwargs.get('pages', None) is not None:
         if kwargs.get('key', None) is not None:
             raise TypeError(
-                "the 'pages' and 'key' arguments cannot be used together")
-        log_warning("imread: the 'pages' argument is deprecated")
+                "the 'pages' and 'key' arguments cannot be used together"
+            )
+        warnings.warn(
+            "imread: the 'pages' argument is deprecated", DeprecationWarning
+        )
         kwargs['key'] = kwargs.pop('pages')
 
-    if isinstance(files, basestring) and any(i in files for i in '?*'):
-        files = glob.glob(files)
-    if not files:
-        raise ValueError('no files found')
-    if not hasattr(files, 'seek') and len(files) == 1:
-        files = files[0]
+    if not kwargs_seq:
+        if isinstance(files, str) and any(i in files for i in '?*'):
+            files = glob.glob(files)
+        if not files:
+            raise ValueError('no files found')
+        if not hasattr(files, 'seek') and len(files) == 1:
+            files = files[0]
 
-    if isinstance(files, basestring) or hasattr(files, 'seek'):
-        with TiffFile(files, **kwargs_file) as tif:
-            return tif.asarray(**kwargs)
-    else:
-        with TiffSequence(files, **kwargs_seq) as imseq:
-            return imseq.asarray(**kwargs)
+        if isinstance(files, str) or hasattr(files, 'seek'):
+            with TiffFile(files, **kwargs_file) as tif:
+                return tif.asarray(**kwargs)
+
+    with TiffSequence(files, **kwargs_seq) as imseq:
+        return imseq.asarray(**kwargs)
 
 
 def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
@@ -745,8 +618,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
         If 'data' is None, datatype of an empty array to save to the file.
     kwargs : dict
         Parameters 'append', 'byteorder', 'bigtiff', and 'imagej', are passed
-        to the TiffWriter constructor. Other parameters are passed to the
-        TiffWriter.save function.
+        to TiffWriter(). Other parameters are passed to TiffWriter.save().
 
     Returns
     -------
@@ -771,9 +643,9 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     if (
         'bigtiff' not in tifargs
         and size > bigsize
-        and not (
-            tifargs.get('imagej', False) or tifargs.get('truncate', False)
-        )
+        and not tifargs.get('imagej', False)
+        and not tifargs.get('truncate', False)
+        and not kwargs.get('compress', False)
     ):
         tifargs['bigtiff'] = True
     if 'byteorder' not in tifargs:
@@ -851,7 +723,7 @@ def memmap(filename, shape=None, dtype=None, page=None, series=0, mode='r+',
     return numpy.memmap(filename, dtype, mode, offset, shape, 'C')
 
 
-class lazyattr(object):
+class lazyattr:
     """Attribute whose value is computed on first access."""
 
     # TODO: help() doesn't work
@@ -881,7 +753,7 @@ class TiffFileError(Exception):
     """Exception to indicate invalid TIFF structure."""
 
 
-class TiffWriter(object):
+class TiffWriter:
     """Write numpy arrays to TIFF file.
 
     TiffWriter instances must be closed using the 'close' method, which is
@@ -945,15 +817,15 @@ class TiffWriter(object):
                             self._ifdoffset = tif.pages.next_page_offset
                     finally:
                         fh.seek(pos)
-            except (IOError, FileNotFoundError):
+            except (OSError, FileNotFoundError):
                 append = False
 
         if byteorder in (None, '=', '|'):
             byteorder = '<' if sys.byteorder == 'little' else '>'
         elif byteorder not in ('<', '>'):
-            raise ValueError('invalid byteorder %s' % byteorder)
+            raise ValueError(f'invalid byteorder {byteorder}')
         if imagej and bigtiff:
-            warnings.warn('writing incompatible BigTIFF ImageJ')
+            warnings.warn('writing nonconformant BigTIFF ImageJ')
 
         self._byteorder = byteorder
         self._imagej = bool(imagej)
@@ -1003,7 +875,7 @@ class TiffWriter(object):
 
     def save(self, data=None, shape=None, dtype=None, returnoffset=False,
              photometric=None, planarconfig=None, extrasamples=None, tile=None,
-             contiguous=True, align=16, truncate=False, compress=0,
+             contiguous=True, align=16, truncate=False, compress=None,
              rowsperstrip=None, predictor=False, subsampling=None,
              colormap=None, description=None, datetime=None, resolution=None,
              subfiletype=0, software='tifffile.py', metadata={},
@@ -1015,11 +887,13 @@ class TiffWriter(object):
         If a colormap is provided, the data's dtype must be uint8 or uint16
         and the data values are indices into the last dimension of the
         colormap.
-        If 'shape' and 'dtype' are specified, an empty array is saved.
-        This option cannot be used with compression or multiple tiles.
+        If 'shape' and 'dtype' are specified instead of 'data', an empty array
+        is saved. This option cannot be used with compression or multiple
+        tiles.
         Image data are written uncompressed in one strip per plane by default.
         Dimensions larger than 2 to 4 (depending on photometric mode, planar
         configuration, and SGI mode) are flattened and saved as separate pages.
+        If the data size is zero, a single page with shape (0, 0) is saved.
         The SampleFormat and BitsPerSample tags are derived from the data type.
 
         Parameters
@@ -1034,7 +908,7 @@ class TiffWriter(object):
             If True and the image data in the file is memory-mappable, return
             the offset and number of bytes of the image data in the file.
         photometric : {'MINISBLACK', 'MINISWHITE', 'RGB', 'PALETTE', 'CFA'}
-            The color space of the image data.
+            The color space of the image data according to TIFF.PHOTOMETRIC.
             By default, this setting is inferred from the data shape and the
             value of colormap.
             For CFA images, DNG tags must be specified in 'extratags'.
@@ -1075,7 +949,7 @@ class TiffWriter(object):
             possible (uncompressed, contiguous, not tiled).
             Other TIFF readers will only be able to read part of the data.
         compress : int or str or (str, int)
-            If 0 (default), data are written uncompressed.
+            If 0 or None (default), data are written uncompressed.
             If 0-9, the level of ADOBE_DEFLATE compression.
             If a str, one of TIFF.COMPESSORS, e.g. 'LZMA' or 'ZSTD'.
             If a tuple, the first item is one of TIFF.COMPESSORS and the
@@ -1091,12 +965,12 @@ class TiffWriter(object):
             length. Bilevel images are always stored in one strip per plane.
         predictor : bool
             If True, apply horizontal differencing or floating-point predictor
-            before compression.
+            before compression. Predictors are disabled for 64-bit integers.
         subsampling : {(1, 1), (2, 1), (2, 2), (4, 1)}
             The horizontal and vertical subsampling factors used for the
             chrominance components of images. The default is (2, 2).
             Currently applies to JPEG compression of RGB images only.
-            Images will be stored in YCbCr colorspace.
+            Images will be stored in YCbCr color space.
             Segment widths must be a multiple of the horizontal factor.
             Segment lengths and rowsperstrip must be a multiple of the vertical
             factor.
@@ -1127,7 +1001,8 @@ class TiffWriter(object):
         metadata : dict
             Additional metadata to be saved along with shape information
             in JSON or ImageJ formats in an ImageDescription tag.
-            If None, do not write a second ImageDescription tag.
+            If None, do not write a ImageDescription tag with shape in JSON
+            format.
             Strings must be 7-bit ASCII. Saved with the first page only.
         ijmetadata : dict
             Additional metadata to be saved in application specific
@@ -1143,12 +1018,10 @@ class TiffWriter(object):
                 Data type of items in 'value' in Python struct format.
                 One of B, s, H, I, 2I, b, h, i, 2i, f, d, Q, or q.
             count : int
-                Number of data values. Not used for string or byte string
-                values.
+                Number of data values. Not used for string or bytes values.
             value : sequence
                 'Count' values compatible with 'dtype'.
-                Byte strings must contain count values of dtype packed as
-                binary data.
+                Bytes must contain count values of dtype packed as binary data.
             writeonce : bool
                 If True, the tag is written to the first page only.
 
@@ -1156,6 +1029,9 @@ class TiffWriter(object):
         # TODO: refactor this function
         fh = self._fh
         byteorder = self._byteorder
+
+        if compress in (0, None, 'NONE', 'none'):
+            compress = False
 
         if data is None:
             if compress:
@@ -1165,8 +1041,6 @@ class TiffWriter(object):
             datadtypechar = datadtype.char
         else:
             data = numpy.asarray(data, byteorder + data.dtype.char, 'C')
-            if data.size == 0:
-                raise ValueError('cannot save empty array')
             datashape = data.shape
             datadtype = data.dtype
             datadtypechar = data.dtype.char
@@ -1183,8 +1057,16 @@ class TiffWriter(object):
         else:
             datasize = product(datashape) * datadtype.itemsize
 
+        if datasize == 0:
+            data = None
+            compress = False
+            if metadata is not None:
+                truncate = True
+
+        input_shape = datashape
+
         # just append contiguous data if possible
-        self._truncate = bool(truncate)
+
         if self._datashape:
             if (
                 not contiguous
@@ -1197,7 +1079,6 @@ class TiffWriter(object):
                 # incompatible shape, dtype, compression mode, or colormap
                 self._write_remaining_pages()
                 self._write_image_description()
-                self._truncate = False
                 self._descriptionoffset = 0
                 self._descriptionlenoffset = 0
                 self._datashape = None
@@ -1219,7 +1100,17 @@ class TiffWriter(object):
                         return offset, datasize
                     return None
 
-        input_shape = datashape
+        self._truncate = bool(truncate)
+
+        if datasize == 0:
+            # write single placeholder TiffPage for arrays with size=0
+            datashape = (0, 0)
+            warnings.warn(
+                'saving zero size array to nonconformant TIFF', UserWarning
+            )
+            # TODO: reconsider this
+            # raise ValueError('cannot save zero size array')
+
         tagnoformat = self._tagnoformat
         valueformat = self._valueformat
         offsetformat = self._offsetformat
@@ -1257,7 +1148,7 @@ class TiffWriter(object):
             elif isinstance(compress, int):
                 compress, compresslevel = 'ADOBE_DEFLATE', int(compress)
                 if not 0 <= compresslevel <= 9:
-                    raise ValueError('invalid compression level %s' % compress)
+                    raise ValueError(f'invalid compression level {compress}')
             else:
                 compresslevel = None
             compress = compress.upper()
@@ -1267,13 +1158,16 @@ class TiffWriter(object):
             if compresstag == 7:
                 predictor = False  # disable predictor for lossy compression
             elif datadtype.kind in 'iu':
-                predictortag = 2
-                predictor = TIFF.PREDICTORS[2]
+                if datadtype.itemsize > 4:
+                    predictor = False  # disable predictor for 64 bit
+                else:
+                    predictortag = 2
+                    predictor = TIFF.PREDICTORS[2]
             elif datadtype.kind == 'f':
                 predictortag = 3
                 predictor = TIFF.PREDICTORS[3]
             else:
-                raise ValueError('cannot apply predictor to %s' % datadtype)
+                raise ValueError(f'cannot apply predictor to {datadtype}')
 
         # prepare ImageJ format
         if self._imagej:
@@ -1281,12 +1175,14 @@ class TiffWriter(object):
             #     warnings.warn(
             #         'ImageJ cannot handle predictors or compression')
             if description:
-                warnings.warn('not writing description to ImageJ file')
+                warnings.warn(
+                    'not writing description to ImageJ file', UserWarning
+                )
                 description = None
             volume = False
             if datadtypechar not in 'BHhf':
                 raise ValueError(
-                    'ImageJ does not support data type %s' % datadtypechar)
+                    f'ImageJ does not support data type {datadtypechar!r}')
             ijrgb = photometric == RGB if photometric else None
             if datadtypechar not in 'B':
                 ijrgb = False
@@ -1295,8 +1191,8 @@ class TiffWriter(object):
                 photometric = RGB
                 if datadtypechar not in 'B':
                     raise ValueError(
-                        'ImageJ does not support data type %s for RGB'
-                        % datadtypechar)
+                        'ImageJ does not support '
+                        f'data type {datadtypechar!r} for RGB')
             elif photometric is None:
                 photometric = MINISBLACK
                 planarconfig = None
@@ -1439,7 +1335,8 @@ class TiffWriter(object):
         if len(datashape) == 5:
             datashape = datashape[:2] + (1,) + datashape[2:]
         if datashape[0] == -1:
-            s0 = product(input_shape) // product(datashape[1:])
+            s0 = product(datashape[1:])
+            s0 = 1 if s0 == 0 else product(input_shape) // s0
             datashape = (s0,) + datashape[1:]
         shape = datashape
         if data is not None:
@@ -1463,8 +1360,7 @@ class TiffWriter(object):
             if tile:
                 raise ValueError('cannot save tiled bilevel image')
             if photometric not in (0, 1, 4):
-                raise ValueError('cannot save bilevel image as %s'
-                                 % str(photometric))
+                raise ValueError(f'cannot save bilevel image as {photometric}')
             datashape = list(datashape)
             if datashape[-2] % 8:
                 datashape[-2] = datashape[-2] // 8 + 1
@@ -1480,22 +1376,26 @@ class TiffWriter(object):
 
         tags = []  # list of (code, ifdentry, ifdvalue, writeonce)
 
-        strip_or_tile = 'Tile' if tile else 'Strip'
-        tagbytecounts = TIFF.TAG_NAMES[strip_or_tile + 'ByteCounts']
-        tagoffsets = TIFF.TAG_NAMES[strip_or_tile + 'Offsets']
+        if tile:
+            tagbytecounts = 325  # TileByteCounts
+            tagoffsets = 324  # TileOffsets
+        else:
+            tagbytecounts = 279  # StripByteCounts
+            tagoffsets = 273  # StripOffsets
         self._tagoffsets = tagoffsets
 
         def pack(fmt, *val):
             return struct.pack(byteorder + fmt, *val)
 
         def addtag(code, dtype, count, value, writeonce=False):
-            # Compute ifdentry & ifdvalue bytes from code, dtype, count, value
-            # Append (code, ifdentry, ifdvalue, writeonce) to tags list
-            code = int(TIFF.TAG_NAMES.get(code, code))
+            # compute ifdentry & ifdvalue bytes from code, dtype, count, value
+            # append (code, ifdentry, ifdvalue, writeonce) to tags list
+            if not isinstance(code, int):
+                code = TIFF.TAGS[code]
             try:
                 tifftype = TIFF.DATA_DTYPES[dtype]
-            except KeyError:
-                raise ValueError('unknown dtype %s' % dtype)
+            except KeyError as exc:
+                raise ValueError(f'unknown dtype {dtype}') from exc
             rawcount = count
 
             if dtype == 's':
@@ -1549,7 +1449,7 @@ class TiffWriter(object):
             tags.append((code, b''.join(ifdentry), ifdvalue, writeonce))
 
         def rational(arg, max_denominator=1000000):
-            """"Return nominator and denominator from float or two integers."""
+            # return nominator and denominator from float or two integers
             from fractions import Fraction  # delayed import
             try:
                 f = Fraction.from_float(arg)
@@ -1559,8 +1459,8 @@ class TiffWriter(object):
             return f.numerator, f.denominator
 
         if description:
-            # user provided description
-            addtag('ImageDescription', 's', 0, description, writeonce=True)
+            # ImageDescription: user provided description
+            addtag(270, 's', 0, description, writeonce=True)
 
         # write shape and metadata to ImageDescription
         self._metadata = {} if not metadata else metadata.copy()
@@ -1569,7 +1469,8 @@ class TiffWriter(object):
                 input_shape,
                 shape[-1] in (3, 4),
                 self._colormap is not None,
-                **self._metadata)
+                **self._metadata
+            )
         elif metadata or metadata == {}:
             if self._truncate:
                 self._metadata.update(truncated=True)
@@ -1581,13 +1482,13 @@ class TiffWriter(object):
         if description:
             # add 64 bytes buffer
             # the image description might be updated later with the final shape
-            description = str2bytes(description, 'ascii')
+            description = description.encode('ascii')
             description += b'\0' * 64
             self._descriptionlen = len(description)
-            addtag('ImageDescription', 's', 0, description, writeonce=True)
+            addtag(270, 's', 0, description, writeonce=True)
 
         if software:
-            addtag('Software', 's', 0, software, writeonce=True)
+            addtag(305, 's', 0, software, writeonce=True)
         if datetime:
             if isinstance(datetime, str):
                 if len(datetime) != 19 or datetime[16] != ':':
@@ -1597,45 +1498,46 @@ class TiffWriter(object):
                     datetime = datetime.strftime('%Y:%m:%d %H:%M:%S')
                 except AttributeError:
                     datetime = self._now().strftime('%Y:%m:%d %H:%M:%S')
-            addtag('DateTime', 's', 0, datetime, writeonce=True)
-        addtag('Compression', 'H', 1, compresstag)
+            addtag(306, 's', 0, datetime, writeonce=True)
+        addtag(259, 'H', 1, compresstag)  # Compression
         if predictor:
-            addtag('Predictor', 'H', 1, predictortag)
-        addtag('ImageWidth', 'I', 1, shape[-2])
-        addtag('ImageLength', 'I', 1, shape[-3])
+            addtag(317, 'H', 1, predictortag)
+        addtag(256, 'I', 1, shape[-2])  # ImageWidth
+        addtag(257, 'I', 1, shape[-3])  # ImageLength
         if tile:
-            addtag('TileWidth', 'I', 1, tile[-1])
-            addtag('TileLength', 'I', 1, tile[-2])
+            addtag(322, 'I', 1, tile[-1])  # TileWidth
+            addtag(323, 'I', 1, tile[-2])  # TileLength
             if volume:
-                addtag('ImageDepth', 'I', 1, shape[-4])
-                addtag('TileDepth', 'I', 1, tile[0])
-        addtag('NewSubfileType', 'I', 1, subfiletype)
+                addtag(32997, 'I', 1, shape[-4])  # ImageDepth
+                addtag(32998, 'I', 1, tile[0])  # TileDepth
+        if subfiletype:
+            addtag(254, 'I', 1, subfiletype)  # NewSubfileType
         if not bilevel and not datadtype.kind == 'u':
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
-            addtag('SampleFormat', 'H', samplesperpixel,
+            addtag(339, 'H', samplesperpixel,
                    (sampleformat,) * samplesperpixel)
         if colormap is not None:
-            addtag('ColorMap', 'H', colormap.size, colormap)
-        addtag('SamplesPerPixel', 'H', 1, samplesperpixel)
+            addtag(320, 'H', colormap.size, colormap)
+        addtag(277, 'H', 1, samplesperpixel)
         if bilevel:
             pass
         elif planarconfig and samplesperpixel > 1:
-            addtag('PlanarConfiguration', 'H', 1, planarconfig.value)
-            addtag('BitsPerSample', 'H', samplesperpixel,
-                   (bitspersample,) * samplesperpixel)
+            addtag(284, 'H', 1, planarconfig.value)  # PlanarConfiguration
+            addtag(258, 'H', samplesperpixel,
+                   (bitspersample,) * samplesperpixel)  # BitsPerSample
         else:
-            addtag('BitsPerSample', 'H', 1, bitspersample)
+            addtag(258, 'H', 1, bitspersample)
         if extrasamples:
             if extrasamples_ is not None:
                 if extrasamples != len(extrasamples_):
                     raise ValueError('wrong number of extrasamples specified')
-                addtag('ExtraSamples', 'H', extrasamples, extrasamples_)
+                addtag(338, 'H', extrasamples, extrasamples_)
             elif photometric == RGB and extrasamples == 1:
                 # Unassociated alpha channel
-                addtag('ExtraSamples', 'H', 1, 2)
+                addtag(338, 'H', 1, 2)
             else:
                 # Unspecified alpha channel
-                addtag('ExtraSamples', 'H', extrasamples, (0,) * extrasamples)
+                addtag(338, 'H', extrasamples, (0,) * extrasamples)
 
         if compresstag == 7 and photometric == RGB and planarconfig == 1:
             # JPEG compression with subsampling. Store as YCbCr
@@ -1646,24 +1548,24 @@ class TiffWriter(object):
                 raise ValueError('invalid subsampling factors')
             maxsampling = max(subsampling) * 8
             if tile and (tile[-1] % maxsampling or tile[-2] % maxsampling):
-                raise ValueError('tile shape not a multiple of %i'
-                                 % maxsampling)
+                raise ValueError(f'tile shape not a multiple of {maxsampling}')
             if extrasamples > 1:
                 raise ValueError('JPEG subsampling requires RGB(A) images')
-            addtag('YCbCrSubSampling', 'H', 2, subsampling)
-            addtag('PhotometricInterpretation', 'H', 1, 6)  # YCBCR
+            addtag(530, 'H', 2, subsampling)  # YCbCrSubSampling
+            addtag(262, 'H', 1, 6)  # PhotometricInterpretation YCBCR
         else:
             if subsampling not in (None, (1, 1)):
                 log_warning('cannot apply subsampling')
             subsampling = None
             maxsampling = 1
-            addtag('PhotometricInterpretation', 'H', 1, photometric.value)
+            # PhotometricInterpretation
+            addtag(262, 'H', 1, photometric.value)
             if compresstag == 7:
-                addtag('YCbCrSubSampling', 'H', 2, (1, 1))
+                addtag(530, 'H', 2, (1, 1))  # YCbCrSubSampling
 
         if resolution is not None:
-            addtag('XResolution', '2I', 1, rational(resolution[0]))
-            addtag('YResolution', '2I', 1, rational(resolution[1]))
+            addtag(282, '2I', 1, rational(resolution[0]))  # XResolution
+            addtag(283, '2I', 1, rational(resolution[1]))  # YResolution
             if len(resolution) > 2:
                 unit = resolution[2]
                 unit = 1 if unit is None else enumarg(TIFF.RESUNIT, unit)
@@ -1671,17 +1573,17 @@ class TiffWriter(object):
                 unit = 1
             else:
                 unit = 2
-            addtag('ResolutionUnit', 'H', 1, unit)
+            addtag(296, 'H', 1, unit)  # ResolutionUnit
         elif not self._imagej:
-            addtag('XResolution', '2I', 1, (1, 1))
-            addtag('YResolution', '2I', 1, (1, 1))
-            addtag('ResolutionUnit', 'H', 1, 1)
+            addtag(282, '2I', 1, (1, 1))  # XResolution
+            addtag(283, '2I', 1, (1, 1))  # YResolution
+            addtag(296, 'H', 1, 1)  # ResolutionUnit
         if ijmetadata:
             for t in imagej_metadata_tag(ijmetadata, byteorder):
                 addtag(*t)
 
         def bytecount_format(bytecounts, compress=compress, size=offsetsize):
-            """Return bytecount format."""
+            # return bytecount format
             if len(bytecounts) == 1:
                 return {4: 'I', 8: 'Q'}[size]
             bytecount = bytecounts[0]
@@ -1730,7 +1632,7 @@ class TiffWriter(object):
             bytecountformat = bytecount_format(databytecounts)
             addtag(tagbytecounts, bytecountformat, shape[1], databytecounts)
             addtag(tagoffsets, offsetformat, shape[1], [0] * shape[1])
-            addtag('RowsPerStrip', 'I', 1, shape[-3])
+            addtag(278, 'I', 1, shape[-3])  # RowsPerStrip
             bytecountformat = bytecountformat * shape[1]
         else:
             # use rowsperstrip
@@ -1745,7 +1647,7 @@ class TiffWriter(object):
             elif subsampling and rowsperstrip % maxsampling:
                 rowsperstrip = (math.ceil(rowsperstrip / maxsampling) *
                                 maxsampling)
-            addtag('RowsPerStrip', 'I', 1, rowsperstrip)
+            addtag(278, 'I', 1, rowsperstrip)  # RowsPerStrip
 
             numstrips1 = (shape[-3] + rowsperstrip - 1) // rowsperstrip
             numstrips = numstrips1 * shape[1]
@@ -1771,7 +1673,6 @@ class TiffWriter(object):
         if compress:
             compressor = TIFF.COMPESSORS[compresstag]
             if predictor:
-
                 def compress(data, compressor=compressor, level=compresslevel):
                     data = predictor(data, axis=-2)
                     return compressor(data, level)
@@ -1785,7 +1686,6 @@ class TiffWriter(object):
                                       colorspace=2, outcolorspace=3)
 
             else:
-
                 def compress(data, compressor=compressor, level=compresslevel):
                     return compressor(data, level)
 
@@ -1796,7 +1696,7 @@ class TiffWriter(object):
 
         fhpos = fh.tell()
         if (
-            not (self._bigtiff or self._imagej)
+            not (self._bigtiff or self._imagej or compress)
             and fhpos + datasize > 2**32 - 1
         ):
             raise ValueError('data too large for standard TIFF file')
@@ -1963,7 +1863,7 @@ class TiffWriter(object):
 
             fhpos = fh.tell()
             fh.seek(ifdpos)
-            fh.write(iogetbuffer(ifd))
+            fh.write(ifd.getbuffer())
             fh.flush()
             fh.seek(fhpos)
 
@@ -2038,7 +1938,7 @@ class TiffWriter(object):
                     ifd.write(pack(offsetformat, fhpos + pos))
                 except Exception:  # struct.error
                     if self._imagej:
-                        warnings.warn('truncating ImageJ file')
+                        warnings.warn('truncating ImageJ file', UserWarning)
                         self._truncate = True
                         return
                     raise ValueError('data too large for non-BigTIFF file')
@@ -2058,7 +1958,7 @@ class TiffWriter(object):
         # check if all IFDs fit in file
         if not self._bigtiff and fhpos + ifdsize * pageno > 2**32 - 32:
             if self._imagej:
-                warnings.warn('truncating ImageJ file')
+                warnings.warn('truncating ImageJ file', UserWarning)
                 self._truncate = True
                 return
             raise ValueError('data too large for non-BigTIFF file')
@@ -2085,14 +1985,14 @@ class TiffWriter(object):
             ifd.seek(ifdoffset)
             ifd.write(pack(offsetformat, ifdpos))
             # write IFD entry
-            ifds.write(iogetbuffer(ifd))
+            ifds.write(ifd.getbuffer())
 
         # terminate IFD chain
         ifdoffset += ifdsize * (pageno - 1)
         ifds.seek(ifdoffset)
         ifds.write(pack(offsetformat, 0))
         # write IFD chain to file
-        fh.write(iogetbuffer(ifds))
+        fh.write(ifds.getbuffer())
         # update file to point to new IFD chain
         pos = fh.tell()
         fh.seek(self._ifdoffset)
@@ -2125,14 +2025,14 @@ class TiffWriter(object):
             description = json_description(self._datashape, **self._metadata)
 
         # rewrite description and its length to file
-        description = description.encode('utf-8')
-        description = description[:self._descriptionlen - 1]
+        description = description.encode()
+        description = description[:self._descriptionlen]
         pos = self._fh.tell()
         self._fh.seek(self._descriptionoffset)
         self._fh.write(description)
         self._fh.seek(self._descriptionlenoffset)
         self._fh.write(struct.pack(self._byteorder + self._offsetformat,
-                                   len(description) + 1))
+                                   len(description)))
         self._fh.seek(pos)
 
         self._descriptionoffset = 0
@@ -2157,7 +2057,7 @@ class TiffWriter(object):
         self.close()
 
 
-class TiffFile(object):
+class TiffFile:
     """Read image and metadata from TIFF file.
 
     TiffFile instances must be closed using the 'close' method, which is
@@ -2183,8 +2083,8 @@ class TiffFile(object):
 
     """
 
-    def __init__(self, arg, name=None, offset=None, size=None,
-                 multifile=True, _useframes=None, **kwargs):
+    def __init__(self, arg, name=None, offset=None, size=None, multifile=True,
+                 _useframes=None, **kwargs):
         """Initialize instance from file.
 
         Parameters
@@ -2211,7 +2111,7 @@ class TiffFile(object):
             for key in ('movie', 'fastij', 'multifile_close'):
                 if key in kwargs:
                     del kwargs[key]
-                    log_warning("TiffFile: the '%s' argument is ignored", key)
+                    log_warning(f'TiffFile: the {key!r} argument is ignored')
             if 'pages' in kwargs:
                 raise TypeError(
                     "the TiffFile 'pages' argument is no longer supported.\n\n"
@@ -2223,17 +2123,18 @@ class TiffFile(object):
                     if value is not None and not value:
                         setattr(self, key, bool(value))
                 else:
-                    raise TypeError('unexpected keyword argument: %s' % key)
+                    raise TypeError(f'unexpected keyword argument: {key}')
 
         fh = FileHandle(arg, mode='rb', name=name, offset=offset, size=size)
         self._fh = fh
         self._multifile = bool(multifile)
         self._files = {fh.name: self}  # cache of TiffFiles
+        self._decoders = {}  # cache of TiffPage.decode functions
         try:
             fh.seek(0)
             header = fh.read(4)
             try:
-                byteorder = {b'II': '<', b'MM': '>'}[header[:2]]
+                byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}[header[:2]]
             except KeyError:
                 raise TiffFileError('not a TIFF file')
 
@@ -2312,8 +2213,7 @@ class TiffFile(object):
             tif.filehandle.close()
         self._files = {}
 
-    def asarray(self, key=None, series=None, out=None, validate=True,
-                maxworkers=None):
+    def asarray(self, key=None, series=None, out=None, maxworkers=None):
         """Return image data from selected TIFF page(s) as numpy array.
 
         By default, the data from the first series is returned.
@@ -2339,9 +2239,6 @@ class TiffFile(object):
             if possible; else create a memory-mapped array in a temporary file.
             If str or open file, the file name or file object used to
             create a memory-map to an array stored in a binary file on disk.
-        validate : bool
-            If True (default), validate various tags.
-            Passed to TiffPage.asarray().
         maxworkers : int or None
             Maximum number of threads to concurrently get data from multiple
             pages or compressed segments.
@@ -2358,8 +2255,8 @@ class TiffFile(object):
         -------
         numpy.ndarray
             Image data from the specified pages.
-            See the TiffPage.asarray function for operations that are
-            applied (or not) to the raw data stored in the file.
+            See TiffPage.asarray for operations that are applied (or not)
+            to the raw data stored in the file.
 
         """
         if not self.pages:
@@ -2379,7 +2276,7 @@ class TiffFile(object):
             pass
         elif series is None:
             pages = self.pages._getlist(key)
-        elif isinstance(key, inttypes):
+        elif isinstance(key, (int, numpy.integer)):
             pages = [pages[key]]
         elif isinstance(key, slice):
             pages = pages[key]
@@ -2409,8 +2306,7 @@ class TiffFile(object):
                 result = self.filehandle.read_array(
                     typecode, product(series.shape), out=out)
         elif len(pages) == 1:
-            result = pages[0].asarray(out=out, validate=validate,
-                                      maxworkers=maxworkers)
+            result = pages[0].asarray(out=out, maxworkers=maxworkers)
         else:
             result = stack_pages(pages, out=out, maxworkers=maxworkers)
 
@@ -2422,8 +2318,10 @@ class TiffFile(object):
                 result.shape = series.shape
             except ValueError:
                 try:
-                    log_warning('TiffFile.asarray: failed to reshape %s to %s',
-                                result.shape, series.shape)
+                    log_warning(
+                        'TiffFile.asarray: '
+                        f'failed to reshape {result.shape} to {series.shape}'
+                    )
                     # try series of expected shapes
                     result.shape = (-1,) + series.shape
                 except ValueError:
@@ -2468,7 +2366,7 @@ class TiffFile(object):
             series = self._series_generic()
 
         # remove empty series, e.g. in MD Gel files
-        series = [s for s in series if product(s.shape) > 0]
+        # series = [s for s in series if product(s.shape) > 0]
 
         for i, s in enumerate(series):
             s.index = i
@@ -2490,7 +2388,7 @@ class TiffFile(object):
         keys = []
         series = {}
         for page in pages:
-            if not page.shape or product(page.shape) == 0:
+            if not page.shape:  # or product(page.shape) == 0:
                 continue
             key = page.hash
             if key in series:
@@ -2540,8 +2438,8 @@ class TiffFile(object):
         pages.useframes = True
         lenpages = len(pages)
 
-        def append_series(series, pages, axes, shape, reshape, name,
-                          truncated):
+        def append(series, pages, axes, shape, reshape, name, truncated):
+            # append TiffPageSeries to series
             page = pages[0]
             if not axes:
                 shape = page.shape
@@ -2560,8 +2458,9 @@ class TiffFile(object):
                 axes = reshape_axes(axes, shape, reshape)
                 shape = reshape
             except ValueError as exc:
-                log_warning('Shaped series: %s: %s',
-                            exc.__class__.__name__, exc)
+                log_warning(
+                    f'Shaped series: {exc.__class__.__name__}: {exc}'
+                )
             series.append(
                 TiffPageSeries(pages, shape, page.dtype, axes,
                                name=name, kind='Shaped', truncated=truncated)
@@ -2597,7 +2496,11 @@ class TiffFile(object):
             # skip pages if possible
             spages = [keyframe]
             size = product(reshape)
-            npages, mod = divmod(size, product(keyframe.shape))
+            if size > 0:
+                npages, mod = divmod(size, product(keyframe.shape))
+            else:
+                npages = 1
+                mod = 0
             if mod:
                 log_warning(
                     'Shaped series: series shape does not match page shape')
@@ -2618,8 +2521,7 @@ class TiffFile(object):
                         page = pages[j]
                         page.keyframe = keyframe
                         spages.append(page)
-            append_series(series, spages, axes, shape, reshape, name,
-                          truncated)
+            append(series, spages, axes, shape, reshape, name, truncated)
             index += npages
 
         self.is_uniform = len(series) == 1
@@ -2789,10 +2691,9 @@ class TiffFile(object):
             root = etree.fromstring(omexml)
         except etree.ParseError as exc:
             # TODO: test badly encoded OME-XML
-            log_warning('OME series: %s: %s', exc.__class__.__name__, exc)
+            log_warning(f'OME series: {exc.__class__.__name__}: {exc}')
             try:
-                # might work on Python 2
-                omexml = omexml.decode('utf-8', 'ignore').encode('utf-8')
+                omexml = omexml.decode(errors='ignore').encode()
                 root = etree.fromstring(omexml)
             except Exception:
                 return None
@@ -2903,9 +2804,9 @@ class TiffFile(object):
                                 tif.pages.useframes = True
                                 tif.pages.keyframe = 0
                                 tif.pages._load(keyframe=None)
-                            except (IOError, FileNotFoundError, ValueError):
+                            except (OSError, FileNotFoundError, ValueError):
                                 log_warning(
-                                    "OME series: failed to read '%s'", fname)
+                                    f'OME series: failed to read {fname!r}')
                                 break
                             self._files[uuid.text] = tif
                             tif.close()
@@ -2959,9 +2860,11 @@ class TiffFile(object):
                 # For now, verify that shapes of keyframe and series match
                 # If not, skip series.
                 if keyframe.shape != tuple(shape[-len(keyframe.shape):]):
-                    log_warning('OME series: incompatible page shape %s; '
-                                'expected %s', keyframe.shape,
-                                tuple(shape[-len(keyframe.shape):]))
+                    log_warning(
+                        'OME series: incompatible page shape %s; expected %s',
+                        keyframe.shape,
+                        tuple(shape[-len(keyframe.shape):])
+                    )
                     del ifds
                     continue
 
@@ -2970,8 +2873,8 @@ class TiffFile(object):
                     if i is not None:
                         try:
                             i.keyframe = keyframe
-                        except RuntimeError as exception:
-                            log_warning('OME series: %s', str(exception))
+                        except RuntimeError as exc:
+                            log_warning(f'OME series: {exc}')
 
                 series.append(
                     TiffPageSeries(ifds, shape, keyframe.dtype, axes,
@@ -3149,8 +3052,8 @@ class TiffFile(object):
             value = bool(getattr(self.pages[0], name))
             setattr(self, name, value)
             return value
-        raise AttributeError("'%s' object has no attribute '%s'"
-                             % (self.__class__.__name__, name))
+        raise AttributeError(
+            f'{self.__class__.__name__!r} object has no attribute {name!r}')
 
     def __enter__(self):
         return self
@@ -3159,7 +3062,7 @@ class TiffFile(object):
         self.close()
 
     def __str__(self, detail=0, width=79):
-        """Return string containing information about file.
+        """Return string containing information about TiffFile.
 
         The detail parameter specifies the level of detail returned:
 
@@ -3170,44 +3073,41 @@ class TiffFile(object):
 
         """
         info = [
-            "TiffFile '%s'",
+            "TiffFile '{}'",
             format_size(self._fh.size),
             ''
-            if byteorder_isnative(self.tiff.byteorder)
+            if byteorder_isnative(self.byteorder)
             else {'<': 'little-endian',
-                  '>': 'big-endian'}[self.tiff.byteorder]
+                  '>': 'big-endian'}[self.byteorder]
         ]
         if self.is_bigtiff:
             info.append('BigTiff')
         info.append(' '.join(f.lower() for f in self.flags))
         if len(self.pages) > 1:
-            info.append('%i Pages' % len(self.pages))
+            info.append(f'{len(self.pages)} Pages')
         if len(self.series) > 1:
-            info.append('%i Series' % len(self.series))
+            info.append(f'{len(self.series)} Series')
         if len(self._files) > 1:
-            info.append('%i Files' % (len(self._files)))
+            info.append(f'{len(self._files)} Files')
         info = '  '.join(info)
         info = info.replace('    ', '  ').replace('   ', '  ')
-        info = info % snipstr(self._fh.name, max(12, width + 2 - len(info)))
+        info = info.format(
+            snipstr(self._fh.name, max(12, width + 2 - len(info))))
         if detail <= 0:
             return info
         info = [info]
         info.append('\n'.join(str(s) for s in self.series))
         if detail >= 3:
             info.extend(
-                (
                     TiffPage.__str__(p, detail=detail, width=width)
                     for p in self.pages
                     if p is not None
-                )
             )
         elif self.series:
             info.extend(
-                (
                     TiffPage.__str__(s.pages[0], detail=detail, width=width)
                     for s in self.series
                     if s.pages[0] is not None
-                )
             )
         elif self.pages and self.pages[0]:
             info.append(
@@ -3219,20 +3119,21 @@ class TiffFile(object):
                     m = getattr(self, name + '_metadata')
                     if m:
                         info.append(
-                            '%s_METADATA\n%s'
-                            % (name.upper(),
-                               pformat(m, width=width, height=detail * 12))
+                            '{}_METADATA\n{}'.format(
+                                name.upper(),
+                                pformat(m, width=width, height=detail * 12)
+                            )
                         )
         return '\n\n'.join(info).replace('\n\n\n', '\n\n')
 
     @lazyattr
     def flags(self):
         """Return set of file flags."""
-        return set(
+        return {
             name.lower()
             for name in sorted(TIFF.FILE_FLAGS)
             if getattr(self, 'is_' + name)
-        )
+        }
 
     @lazyattr
     def is_mdgel(self):
@@ -3303,7 +3204,7 @@ class TiffFile(object):
         """Return LSM metadata from CZ_LSMINFO tag as dict."""
         if not self.is_lsm:
             return None
-        return self.pages[0].tags['CZ_LSMINFO'].value
+        return self.pages[0].tags[34412].value  # CZ_LSMINFO
 
     @lazyattr
     def stk_metadata(self):
@@ -3311,20 +3212,22 @@ class TiffFile(object):
         if not self.is_stk:
             return None
         page = self.pages[0]
-        tags = page.tags
         result = {}
-        result['NumberPlanes'] = tags['UIC2tag'].count
+        result['NumberPlanes'] = page.tags[33629].count  # UIC2tag
         if page.description:
             result['PlaneDescriptions'] = page.description.split('\0')
             # result['plane_descriptions'] = stk_description_metadata(
             #    page.image_description)
-        if 'UIC1tag' in tags:
-            result.update(tags['UIC1tag'].value)
-        if 'UIC3tag' in tags:
-            result.update(tags['UIC3tag'].value)  # wavelengths
-        if 'UIC4tag' in tags:
-            result.update(tags['UIC4tag'].value)  # override uic1 tags
-        uic2tag = tags['UIC2tag'].value
+        tag = page.tags.get(33628)  # UIC1tag
+        if tag is not None:
+            result.update(tag.value)
+        tag = page.tags.get(33630)  # UIC3tag
+        if tag is not None:
+            result.update(tag.value)  # wavelengths
+        tag = page.tags.get(33631)  # UIC4tag
+        if tag is not None:
+            result.update(tag.value)  # override UIC1 tags
+        uic2tag = page.tags[33629].value
         result['ZDistance'] = uic2tag['ZDistance']
         result['TimeCreated'] = uic2tag['TimeCreated']
         result['TimeModified'] = uic2tag['TimeModified']
@@ -3338,7 +3241,7 @@ class TiffFile(object):
                  zip(uic2tag['DateModified'], uic2tag['TimeModified'])],
                 dtype='datetime64[ns]')
         except ValueError as exc:
-            log_warning('STK metadata: %s: %s', exc.__class__.__name__, exc)
+            log_warning(f'STK metadata: {exc.__class__.__name__}: {exc}')
         return result
 
     @lazyattr
@@ -3348,9 +3251,10 @@ class TiffFile(object):
             return None
         page = self.pages[0]
         result = imagej_description_metadata(page.is_imagej)
-        if 'IJMetadata' in page.tags:
+        tag = page.tags.get(50839)  # IJMetadata
+        if tag is not None:
             try:
-                result.update(page.tags['IJMetadata'].value)
+                result.update(tag.value)
             except Exception:
                 pass
         return result
@@ -3362,9 +3266,9 @@ class TiffFile(object):
             return None
         result = {}
         page = self.pages[0]
-        result.update(page.tags['MM_Header'].value)
+        result.update(page.tags[34361].value)  # MM_Header
         # TODO: read stamps from all pages
-        result['Stamp'] = page.tags['MM_Stamp'].value
+        result['Stamp'] = page.tags[34362].value  # MM_Stamp
         # skip parsing image description; not reliable
         # try:
         #     t = fluoview_description_metadata(page.image_description)
@@ -3372,7 +3276,7 @@ class TiffFile(object):
         #         result['ImageDescription'] = t
         # except Exception as exc:
         #     log_warning('FluoView metadata: '
-        #                 'failed to parse image description (%s)', str(exc))
+        #                 f'failed to parse image description ({exc})'))
         return result
 
     @lazyattr
@@ -3380,7 +3284,7 @@ class TiffFile(object):
         """Return NIH Image metadata from NIHImageHeader tag as dict."""
         if not self.is_nih:
             return None
-        return self.pages[0].tags['NIHImageHeader'].value
+        return self.pages[0].tags[43314].value  # NIHImageHeader
 
     @lazyattr
     def fei_metadata(self):
@@ -3388,10 +3292,12 @@ class TiffFile(object):
         if not self.is_fei:
             return None
         tags = self.pages[0].tags
-        if 'FEI_SFEG' in tags:
-            return tags['FEI_SFEG'].value
-        if 'FEI_HELIOS' in tags:
-            return tags['FEI_HELIOS'].value
+        tag = tags.get(34680)  # FEI_SFEG
+        if tag is not None:
+            return tag.value
+        tag = tags.get(34682)  # FEI_HELIOS
+        if tag is not None:
+            return tag.value
         return None
 
     @property
@@ -3399,7 +3305,7 @@ class TiffFile(object):
         """Return SEM metadata from CZ_SEM tag as dict."""
         if not self.is_sem:
             return None
-        return self.pages[0].tags['CZ_SEM'].value
+        return self.pages[0].tags[34118].value
 
     @lazyattr
     def sis_metadata(self):
@@ -3409,11 +3315,11 @@ class TiffFile(object):
         tags = self.pages[0].tags
         result = {}
         try:
-            result.update(tags['OlympusINI'].value)
+            result.update(tags[33471].value)  # OlympusINI
         except Exception:
             pass
         try:
-            result.update(tags['OlympusSIS'].value)
+            result.update(tags[33560].value)  # OlympusSIS
         except Exception:
             pass
         return result
@@ -3422,17 +3328,17 @@ class TiffFile(object):
     def mdgel_metadata(self):
         """Return consolidated metadata from MD GEL tags as dict."""
         for page in self.pages[:2]:
-            if 'MDFileTag' in page.tags:
+            if 33445 in page.tags:  # MDFileTag
                 tags = page.tags
                 break
         else:
             return None
         result = {}
         for code in range(33445, 33453):
-            name = TIFF.TAGS[code]
-            if name not in tags:
+            if code not in tags:
                 continue
-            result[name[2:]] = tags[name].value
+            name = TIFF.TAGS[code]
+            result[name[2:]] = tags[code].value
         return result
 
     @property
@@ -3450,7 +3356,7 @@ class TiffFile(object):
         """Return TVIPS tag as dict."""
         if not self.is_tvips:
             return None
-        return self.pages[0].tags['TVIPS'].value
+        return self.pages[0].tags[37706].value
 
     @lazyattr
     def metaseries_metadata(self):
@@ -3473,8 +3379,8 @@ class TiffFile(object):
             return None
         # from file header
         result = read_micromanager_metadata(self._fh)
-        # from tag
-        result.update(self.pages[0].tags['MicroManagerMetadata'].value)
+        # from MicroManagerMetadata tag
+        result.update(self.pages[0].tags[51123].value)
         return result
 
     @lazyattr
@@ -3494,8 +3400,7 @@ class TiffFile(object):
             result['Description'] = scanimage_description_metadata(
                 self.pages[0].description)
         except Exception as exc:
-            log_warning('ScanImage metadata: %s: %s',
-                        exc.__class__.__name__, exc)
+            log_warning(f'ScanImage metadata: {exc.__class__.__name__}: {exc}')
         return result
 
     @property
@@ -3506,7 +3411,7 @@ class TiffFile(object):
         return self.pages[0].geotiff_tags
 
 
-class TiffPages(object):
+class TiffPages:
     """Sequence of TIFF image file directories (IFD chain).
 
     Instances of TiffPages have a state (cache, keyframe, etc.) and are not
@@ -3527,7 +3432,7 @@ class TiffPages(object):
         self._indexed = False  # True if offsets to all pages were read
         self._cached = False  # True if all pages were read into cache
         self._tiffpage = TiffPage  # class used for reading pages
-        self._keyframe = None  # current page that is used as keyframe
+        self._keyframe = None  # page that is currently used as keyframe
         self._cache = False  # do not cache frames or pages (if not keyframe)
         self._nextpageoffset = None
 
@@ -3538,22 +3443,22 @@ class TiffPages(object):
             self._nextpageoffset = fh.tell()
             offset = struct.unpack(parent.tiff.ifdoffsetformat,
                                    fh.read(parent.tiff.ifdoffsetsize))[0]
-        elif 'SubIFDs' not in parent.tags:
-            self._indexed = True
-            return
-        else:
+        elif 330 in parent.tags:
             # use offsets from SubIFDs tag
             self.parent = parent.parent
             fh = self.parent.filehandle
-            offsets = parent.tags['SubIFDs'].value
+            offsets = parent.tags[330].value
             offset = offsets[0]
+        else:
+            self._indexed = True
+            return
 
         if offset == 0:
             log_warning('TiffPages: file contains no pages')
             self._indexed = True
             return
         if offset >= fh.size:
-            log_warning('TiffPages: invalid page offset (%i)', offset)
+            log_warning(f'TiffPages: invalid page offset {offset!r}')
             self._indexed = True
             return
 
@@ -3647,7 +3552,7 @@ class TiffPages(object):
         if keyframe is not None:
             keyframe = self._keyframe
         for i, page in enumerate(pages):
-            if isinstance(page, inttypes):
+            if isinstance(page, (int, numpy.integer)):
                 fh.seek(page)
                 page = self._tiffpage(self.parent, index=i, keyframe=keyframe)
                 pages[i] = page
@@ -3657,8 +3562,6 @@ class TiffPages(object):
         """Calculate virtual TiffFrames."""
         pages = self.pages
         try:
-            if sys.version_info[0] == 2:
-                raise ValueError('not supported on Python 2')
             if len(pages) > 1:
                 raise ValueError('pages already loaded')
             page = pages[0]
@@ -3686,15 +3589,15 @@ class TiffPages(object):
                         offset=None,
                         offsets=offsets,
                         bytecounts=bytecounts,
-                        keyframe=page)
+                        keyframe=page
+                    )
                 )
             self.pages = pages
             self._cache = True
             self._cached = True
             self._indexed = True
         except Exception as exc:
-            log_warning(
-                'TiffPages: failed to load virtual frames: %s', str(exc))
+            log_warning(f'TiffPages: failed to load virtual frames: {exc}')
 
     def _clear(self, fully=True):
         """Delete all but first page from cache. Set keyframe to first page."""
@@ -3705,7 +3608,7 @@ class TiffPages(object):
         if fully:
             # delete all but first TiffPage/TiffFrame
             for i, page in enumerate(pages[1:]):
-                if not isinstance(page, inttypes) and page.offset is not None:
+                if not isinstance(page, int) and page.offset is not None:
                     pages[i + 1] = page.offset
         elif TiffFrame is not TiffPage:
             # delete only TiffFrames
@@ -3727,7 +3630,7 @@ class TiffPages(object):
 
         if self._indexed or 0 <= index < lenpages:
             page = pages[index]
-            offset = page if isinstance(page, inttypes) else page.offset
+            offset = page if isinstance(page, int) else page.offset
             fh.seek(offset)
             return
 
@@ -3740,7 +3643,7 @@ class TiffPages(object):
         unpack = struct.unpack
 
         page = pages[-1]
-        offset = page if isinstance(page, inttypes) else page.offset
+        offset = page if isinstance(page, int) else page.offset
 
         if maxpages is None:
             maxpages = 2**22
@@ -3751,11 +3654,12 @@ class TiffPages(object):
             try:
                 tagno = unpack(tagnoformat, fh.read(tagnosize))[0]
                 if tagno > 4096:
-                    raise TiffFileError(
-                        'suspicious number of tags: %i' % tagno)
+                    raise TiffFileError(f'suspicious number of tags {tagno!r}')
             except Exception:
-                log_warning('TiffPages: corrupted tag list of page %i @ %i',
-                            lenpages, offset)
+                log_warning(
+                    'TiffPages: corrupted tag list of page '
+                    f'{lenpages} @ {offset}',
+                )
                 del pages[-1]
                 lenpages -= 1
                 self._indexed = True
@@ -3769,7 +3673,7 @@ class TiffPages(object):
                 self._indexed = True
                 break
             if offset >= fh.size:
-                log_warning('TiffPages: invalid page offset (%i)', offset)
+                log_warning(f'TiffPages: invalid page offset {offset!r}')
                 self._indexed = True
                 break
 
@@ -3781,14 +3685,14 @@ class TiffPages(object):
             # detect some circular references
             if lenpages == 100:
                 for p in pages[:-1]:
-                    if offset == (p if isinstance(p, inttypes) else p.offset):
+                    if offset == (p if isinstance(p, int) else p.offset):
                         raise TiffFileError('invalid circular IFD reference')
 
         if index >= lenpages:
             raise IndexError('index out of range')
 
         page = pages[index]
-        fh.seek(page if isinstance(page, inttypes) else page.offset)
+        fh.seek(page if isinstance(page, int) else page.offset)
 
     def _getlist(self, key=None, useframes=True, validate=True):
         """Return specified pages as list of TiffPages or TiffFrames.
@@ -3809,7 +3713,7 @@ class TiffPages(object):
             if not self._indexed and max(stop, start) > len(self.pages):
                 self._seek(-1)
             key = iter(range(*key.indices(len(self.pages))))
-        elif isinstance(key, inttypes):
+        elif isinstance(key, (int, numpy.integer)):
             # return single TiffPage
             self.useframes = False
             if key == 0:
@@ -3847,13 +3751,12 @@ class TiffPages(object):
         if key < 0:
             key %= len(self)
         elif self._indexed and key >= len(pages):
-            raise IndexError(
-                'index %i out of range(%i)' % (key, len(pages)))
+            raise IndexError(f'index {key} out of range({len(pages)})')
 
         if key < len(pages):
             page = pages[key]
             if self._cache:
-                if not isinstance(page, inttypes):
+                if not isinstance(page, (int, numpy.integer)):
                     if validate and validate != page.hash:
                         raise RuntimeError('page hash mismatch')
                     return page
@@ -3875,7 +3778,7 @@ class TiffPages(object):
         pages = self.pages
         getitem = self._getitem
 
-        if isinstance(key, inttypes):
+        if isinstance(key, (int, numpy.integer)):
             if key == 0:
                 return pages[key]
             return getitem(key)
@@ -3914,43 +3817,51 @@ class TiffPages(object):
         return len(self.pages)
 
 
-class TiffPage(object):
+class TiffPage:
     """TIFF image file directory (IFD).
 
     Attributes
     ----------
     index : int
-        Index of page in file.
+        Index of the page in file.
     dtype : numpy.dtype or None
         Data type (native byte order) of the image in IFD.
-    shape : tuple
-        Dimensions of the image in IFD.
+    shape : tuple of int
+        Dimensions of the image in IFD, as returned by asarray.
     axes : str
-        Axes label codes:
-        'X' width, 'Y' height, 'S' sample, 'I' image series|page|plane,
-        'Z' depth, 'C' color|em-wavelength|channel, 'E' ex-wavelength|lambda,
-        'T' time, 'R' region|tile, 'A' angle, 'P' phase, 'H' lifetime,
-        'L' exposure, 'V' event, 'Q' unknown, '_' missing
-    tags : dict
-        Dictionary of tags in IFD. {tag.name: TiffTag}
+        Axes label codes for each dimension in shape:
+        'X' width,
+        'Y' height,
+        'S' sample,
+        'I' image series|page|plane,
+        'Z' depth,
+        'C' color|em-wavelength|channel,
+        'E' ex-wavelength|lambda,
+        'T' time,
+        'R' region|tile,
+        'A' angle,
+        'P' phase,
+        'H' lifetime,
+        'L' exposure,
+        'V' event,
+        'Q' unknown,
+        '_' missing
+    tags : TiffTags
+        Multidict like interface to tags in IFD.
     colormap : numpy.ndarray
         Color look up table, if exists.
+    shaped : tuple of int
+        Normalized 6 dimensional shape of the image in IFD:
+        0 : number planes (stk), images (ij), or 1.
+        1 : separate samplesperpixel or 1.
+        2 : imagedepth Z (sgi) or 1.
+        3 : imagelength Y.
+        4 : imagewidth X.
+        5 : contig samplesperpixel or 1.
 
     All attributes are read-only.
 
-    Notes
-    -----
-    The internal, normalized '_shape' attribute is 6 dimensional:
-
-    0 : number planes/images  (stk, ij).
-    1 : planar samplesperpixel.
-    2 : imagedepth Z  (sgi).
-    3 : imagelength Y.
-    4 : imagewidth X.
-    5 : contig samplesperpixel.
-
     """
-
     # default properties; will be updated from tags
     subfiletype = 0
     imagewidth = 0
@@ -3984,11 +3895,11 @@ class TiffPage(object):
         self.parent = parent
         self.index = index
         self.shape = ()
-        self._shape = ()
+        self.shaped = ()
         self.dtype = None
         self._dtype = None
         self.axes = ''
-        self.tags = tags = {}
+        self.tags = tags = TiffTags()
         self.dataoffsets = ()
         self.databytecounts = ()
 
@@ -4001,12 +3912,14 @@ class TiffPage(object):
             tagno = struct.unpack(
                 tiff.tagnoformat, fh.read(tiff.tagnosize))[0]
             if tagno > 4096:
-                raise TiffFileError('TiffPage %i: suspicious number of tags'
-                                    % self.index)
+                raise TiffFileError(
+                    f'TiffPage {self.index}: suspicious number of tags'
+                )
         except Exception:
             raise TiffFileError(
-                'TiffPage %i: corrupted tag list at offset %i'
-                % (self.index, self.offset))
+                f'TiffPage {self.index}: '
+                f'corrupted tag list at offset {self.offset}'
+            )
 
         tagoffset = self.offset + tiff.tagnosize  # fh.tell()
         tagsize = tiff.tagsize
@@ -4020,88 +3933,85 @@ class TiffPage(object):
                 tag = TiffTag(parent, data[tagindex: tagindex + tagsize],
                               tagoffset + tagindex)
             except TiffFileError as exc:
-                log_warning('TiffPage %i: %s: %s', self.index,
-                            exc.__class__.__name__, exc)
+                log_warning(
+                    f'TiffPage {self.index}: {exc.__class__.__name__}: {exc}'
+                )
                 continue
-            tagname = tag.name
-            if tagname not in tags:
-                name = tagname
-                tags[name] = tag
-            else:
-                # some files contain multiple tags with same code
-                # e.g. MicroManager files contain two ImageDescription tags
-                i = 1
-                while i < 32:
-                    name = '%s%i' % (tagname, i)
-                    if name not in tags:
-                        tags[name] = tag
-                        break
-                    i += 1
-                else:
-                    log_warning("TiffPage %i: suspicious number of '%s' tags",
-                                self.index, tagname)
-            name = TIFF.TAG_ATTRIBUTES.get(name, '')
-            if name:
-                if name[:3] in 'sof des' and not isinstance(tag.value, str):
-                    pass  # wrong string type for software, description
-                else:
-                    setattr(self, name, tag.value)
+            tags.add(tag)
 
         if not tags:
             return  # found in FIBICS
 
-        if 'SubfileType' in tags and self.subfiletype == 0:
-            sft = tags['SubfileType'].value
-            if sft == 2:
+        for code, name in TIFF.TAG_ATTRIBUTES.items():
+            tag = tags.get(code)
+            if tag is not None:
+                if code in (270, 305) and not isinstance(tag.value, str):
+                    # wrong string type for software or description
+                    continue
+                setattr(self, name, tag.value)
+
+        tag = tags.get(270, index=1)
+        if tag:
+            self.description1 = tag.value
+
+        tag = tags.get(255)  # SubfileType
+        if tag and self.subfiletype == 0:
+            if tag.value == 2:
                 self.subfiletype = 0b1  # reduced image
-            elif sft == 3:
+            elif tag.value == 3:
                 self.subfiletype = 0b10  # multi-page
 
         # consolidate private tags; remove them from self.tags
-        if self.is_andor:
-            self.andor_tags
-        elif self.is_epics:
-            self.epics_tags
+        # if self.is_andor:
+        #     self.andor_tags
+        # elif self.is_epics:
+        #     self.epics_tags
         # elif self.is_ndpi:
         #     self.ndpi_tags
-
-        if self.is_sis and 'GPSTag' in tags:
-            # TODO: can't change tag.name
-            tags['OlympusSIS2'] = tags['GPSTag']
-            del tags['GPSTag']
+        # if self.is_sis and 34853 in tags:
+        #     # TODO: can't change tag.name
+        #     tags[34853].name = 'OlympusSIS2'
 
         if self.is_lsm or (self.index and self.parent.is_lsm):
             # correct non standard LSM bitspersample tags
-            tags['BitsPerSample']._fix_lsm_bitspersample(self)
+            tags[258]._fix_lsm_bitspersample(self)
             if self.compression == 1 and self.predictor != 1:
                 # work around bug in LSM510 software
                 self.predictor = 1
 
-        if self.is_vista or (self.index and self.parent.is_vista):
+        elif self.is_vista or (self.index and self.parent.is_vista):
             # ISS Vista writes wrong ImageDepth tag
             self.imagedepth = 1
 
-        if self.is_stk and 'UIC1tag' in tags and not tags['UIC1tag'].value:
-            # read UIC1tag now that plane count is known
-            uic1tag = tags['UIC1tag']
-            fh.seek(uic1tag.valueoffset)
-            tags['UIC1tag'].value = read_uic1tag(
-                fh, tiff.byteorder, uic1tag.dtype,
-                uic1tag.count, None, tags['UIC2tag'].count)
+        elif self.is_stk:
+            tag = tags.get(33628)  # UIC1tag
+            if tag is not None and not tag.value:
+                # read UIC1tag now that plane count is known
+                fh.seek(tag.valueoffset)
+                tag.value = read_uic1tag(
+                    fh,
+                    tiff.byteorder,
+                    tag.dtype,
+                    tag.count,
+                    None,
+                    tags[33629].count  # UIC2tag
+                )
 
-        if 'IJMetadata' in tags:
+        if 50839 in tags:
             # decode IJMetadata tag
             try:
-                tags['IJMetadata'].value = imagej_metadata(
-                    tags['IJMetadata'].value,
-                    tags['IJMetadataByteCounts'].value,
+                tags[50839].value = imagej_metadata(
+                    tags[50839].value,
+                    tags[50838].value,  # IJMetadataByteCounts
                     tiff.byteorder)
             except Exception as exc:
-                log_warning('TiffPage %i: %s: %s', self.index,
-                            exc.__class__.__name__, exc)
+                log_warning(
+                    f'TiffPage {self.index}: {exc.__class__.__name__}: {exc}'
+                )
 
-        if 'BitsPerSample' in tags:
-            tag = tags['BitsPerSample']
+        # BitsPerSample
+        tag = tags.get(258)
+        if tag is not None:
             if tag.count == 1:
                 self.bitspersample = tag.value
             else:
@@ -4112,8 +4022,9 @@ class TiffPage(object):
                 else:
                     self.bitspersample = value[0]
 
-        if 'SampleFormat' in tags:
-            tag = tags['SampleFormat']
+        # SampleFormat
+        tag = tags.get(339)
+        if tag is not None:
             if tag.count == 1:
                 self.sampleformat = tag.value
             else:
@@ -4123,10 +4034,10 @@ class TiffPage(object):
                 else:
                     self.sampleformat = value[0]
 
-        if 'TileWidth' in tags:
+        if 322 in tags:  # TileWidth
             self.rowsperstrip = None
-        elif 'ImageLength' in tags:
-            if 'RowsPerStrip' not in tags or tags['RowsPerStrip'].count > 1:
+        elif 257 in tags:  # ImageLength
+            if 278 not in tags or tags[278].count > 1:  # RowsPerStrip
                 self.rowsperstrip = self.imagelength
             self.rowsperstrip = min(self.rowsperstrip, self.imagelength)
             # self.stripsperimage = int(math.floor(
@@ -4149,10 +4060,11 @@ class TiffPage(object):
         if self.is_stk:
             if imagedepth != 1:
                 raise ValueError('STK imagedepth must be 1')
-            uictag = tags['UIC2tag'].value
-            planes = tags['UIC2tag'].count
+            tag = tags[33629]  # UIC2tag
+            uictag = tag.value
+            planes = tag.count
             if self.planarconfig == 1:
-                self._shape = (
+                self.shaped = (
                     planes,
                     1,
                     1,
@@ -4172,7 +4084,7 @@ class TiffPage(object):
                     )
                     self.axes = 'YXS'
             else:
-                self._shape = (
+                self.shaped = (
                     planes,
                     samplesperpixel,
                     1,
@@ -4202,7 +4114,7 @@ class TiffPage(object):
                 self.axes = 'I' + self.axes
         elif self.photometric == 2 or samplesperpixel > 1:  # PHOTOMETRIC.RGB
             if self.planarconfig == 1:
-                self._shape = (
+                self.shaped = (
                     1,
                     1,
                     imagedepth,
@@ -4222,7 +4134,7 @@ class TiffPage(object):
                     )
                     self.axes = 'ZYXS'
             else:
-                self._shape = (
+                self.shaped = (
                     1,
                     samplesperpixel,
                     imagedepth,
@@ -4242,7 +4154,7 @@ class TiffPage(object):
                     )
                     self.axes = 'SZYX'
         else:
-            self._shape = (1, 1, imagedepth, imagelength, imagewidth, 1)
+            self.shaped = (1, 1, imagedepth, imagelength, imagewidth, 1)
             if imagedepth == 1:
                 self.shape = (imagelength, imagewidth)
                 self.axes = 'YX'
@@ -4251,36 +4163,338 @@ class TiffPage(object):
                 self.axes = 'ZYX'
 
         # dataoffsets and databytecounts
-        if 'TileOffsets' in tags:
-            self.dataoffsets = tags['TileOffsets'].value
-        elif 'StripOffsets' in tags:
-            self.dataoffsets = tags['StripOffsets'].value
-        if 'TileByteCounts' in tags:
-            self.databytecounts = tags['TileByteCounts'].value
-        elif 'StripByteCounts' in tags:
-            self.databytecounts = tags['StripByteCounts'].value
+        if 324 in tags:  # TileOffsets
+            self.dataoffsets = tags[324].value
+        elif 273 in tags:  # StripOffsets
+            self.dataoffsets = tags[273].value
+        if 325 in tags:  # TileByteCounts
+            self.databytecounts = tags[325].value
+        elif 279 in tags:  # StripByteCounts
+            self.databytecounts = tags[279].value
         else:
             self.databytecounts = (
                 product(self.shape) * (self.bitspersample // 8),)
             if self.compression != 1:
-                log_warning('TiffPage %i: ByteCounts tag is missing',
-                            self.index)
+                log_warning(
+                    f'TiffPage {self.index}: ByteCounts tag is missing'
+                )
 
-        if 'GDAL_NODATA' in tags:
+        tag = tags.get(42113)  # GDAL_NODATA
+        if tag is not None:
             try:
                 pytype = type(dtype.type(0).item())
-                self.nodata = pytype(tags['GDAL_NODATA'].value)
+                self.nodata = pytype(tag.value)
             except Exception:
                 pass
 
     @lazyattr
     def decode(self):
-        """Decode single tile or strip."""
-        raise NotImplementedError()
-        # TODO: retun function to decode single strips or tiles
+        """Return decoded segment, its shape, and indices in image.
+
+        The decode function is implemeted as a closure.
+
+        Parameters
+        ----------
+        data : bytes
+            Encoded bytes of a segment (aka strile, strip or tile)
+            or None for empty segments.
+        index : int
+            The linear index of the segment in the Offsets and Bytecount
+            tag values.
+
+        Returns
+        -------
+        segment : numpy.ndarray
+            Decoded segment or None for empty segments.
+        indices : tuple of int
+            The position of the segment in the image array of normalized shape:
+            (0, separate sample, depth, length, width, contig sample).
+        shape : tuple of int
+            The shape of the segment: (depth, height, width, contig samples).
+            The shape of strips depends on their linear index.
+
+        Raises ValueError or NotImplementedError if decoding is not supported.
+
+        """
+        if self.hash in self.parent._decoders:
+            return self.parent._decoders[self.hash]
+
+        if self.dtype is None:
+            def decode(*args, **kwargs):
+                raise ValueError(
+                    f'TiffPage {self.index}: data type not supported: '
+                    f'{self.sampleformat}{self.bitspersample}'
+                )
+            return decode
+
+        if self.compression not in TIFF.DECOMPESSORS:
+            if imagecodecs is None:
+                def decode(*args, **kwargs):
+                    raise ValueError(
+                        f'TiffPage {self.index}: '
+                        f'cannot decompress {self.compression.name}. '
+                        "The 'imagecodecs' package is not installed"
+                    )
+            else:
+                def decode(*args, **kwargs):
+                    raise ValueError(
+                        f'TiffPage {self.index}: '
+                        f'cannot decompress {self.compression.name}'
+                    )
+            return decode
+
+        if self.tags.get(339) is not None:
+            tag = self.tags[339]  # SampleFormat
+            if tag.count != 1 and any(i - tag.value[0] for i in tag.value):
+                def decode(*args, **kwargs):
+                    raise ValueError(
+                        f'TiffPage {self.index}: '
+                        f'sample formats do not match {tag.value}'
+                    )
+                return decode
+
+        if (
+            self.is_subsampled and
+            (self.compression not in (6, 7) or self.planarconfig == 2)
+        ):
+            def decode(*args, **kwargs):
+                raise NotImplementedError(
+                    f'TiffPage {self.index}: chroma subsampling not supported'
+                )
+            return decode
+
+        if self.predictor == 1:
+            unpredict = None
+        else:
+            unpredict = TIFF.UNPREDICTORS[self.predictor]
+
+        if self.compression == 1:
+            decompress = None
+        else:
+            decompress = TIFF.DECOMPESSORS[self.compression]
+
+        # normalize segments shape to [depth, length, height, contig]
+        if self.is_tiled:
+            stshape = [self.tiledepth, self.tilelength, self.tilewidth, 1]
+        else:
+            stshape = [self.imagedepth, self.rowsperstrip, self.imagewidth, 1]
+        if self.planarconfig == 1:
+            stshape[-1] = self.samplesperpixel
+        stshape = tuple(stshape)
+
+        stdepth, stlength, stwidth, samples = stshape
+        imdepth, imlength, imwidth, samples = self.shaped[2:]
+
+        if self.is_tiled:
+
+            width = (imwidth + stwidth - 1) // stwidth
+            length = (imlength + stlength - 1) // stlength
+            depth = (imdepth + stdepth - 1) // stdepth
+
+            def indices(tileindex):
+                # return indices and shape of tile in image array
+                return (
+                    0,
+                    tileindex // (width * length * depth),
+                    (tileindex // (width * length)) % depth * stdepth,
+                    (tileindex // width) % length * stlength,
+                    tileindex % width * stwidth,
+                    0
+                ), stshape
+
+            def reshape(data, indices, shape):
+                # return reshaped tile
+                if data is None:
+                    return data
+                size = shape[0] * shape[1] * shape[2] * shape[3]
+                if data.size > size:
+                    # decompression / unpacking might return too many bytes
+                    data.shape = -1
+                    data = data[:size]
+                if data.size == size:
+                    # complete tile
+                    data.shape = shape
+                else:
+                    # data fills remaining space
+                    # found in some JPEG/PNG compressed tiles
+                    try:
+                        data.shape = (
+                            min(imdepth - indices[2], shape[0]),
+                            min(imlength - indices[3], shape[1]),
+                            min(imwidth - indices[4], shape[2]),
+                            samples,
+                        )
+                    except ValueError:
+                        # incomplete tile; see gdal issue #1179
+                        log_warning(
+                            f'reshape: incomplete tile {data.shape} {shape}'
+                        )
+                        t = numpy.zeros(size, data.dtype)
+                        size = min(data.size, size)
+                        t[:size] = data[:size]
+                        data = t.reshape(shape)
+                return data
+
+        else:
+            # strips
+            length = (imlength + stlength - 1) // stlength
+
+            def indices(stripindex):
+                # return indices and shape of strip in image array
+                indices = (
+                    0,
+                    stripindex // length,
+                    0,
+                    stripindex % length * stlength,
+                    0,
+                    0
+                )
+                shape = (
+                    stdepth,
+                    min(stlength, imlength - indices[3]),
+                    stwidth,
+                    samples,
+                )
+                return indices, shape
+
+            def reshape(data, indices, shape):
+                # return reshaped strip
+                if data is None:
+                    return data
+                size = shape[0] * shape[1] * shape[2] * shape[3]
+                if data.size > size:
+                    # decompression / unpacking might return too many bytes
+                    data.shape = -1
+                    data = data[:size]
+                if data.size == size:
+                    # expected size
+                    data.shape = shape
+                else:
+                    # should not happen, but try different height
+                    data.shape = shape[0], -1, shape[2], shape[3]
+                    # raise RuntimeError(
+                    #     f'invalid strip shape {data.shape} or size {size}')
+                return data
+
+        if self.compression in (6, 7):
+            # COMPRESSION.JPEG needs special handling
+
+            if self.bitspersample not in (8, 12):
+                def decode(*args, **kwargs):
+                    raise ValueError(
+                        f'TiffPage {self.index}: cannot decode JPEG '
+                        f'with {self.bitspersample} bits per sample'
+                    )
+                return decode
+
+            if self.fillorder == 2:
+                log_warning(
+                    f'TiffPage {self.index}: disabling LSB2MSB for JPEG'
+                )
+            if unpredict:
+                log_warning(
+                    f'TiffPage {self.index}: disabling predictor for JPEG'
+                )
+
+            colorspace = None
+            outcolorspace = None
+            if 338 in self.tags:
+                # ExtraSamples
+                pass
+            elif self.photometric == 6:
+                # YCBCR -> RGB
+                outcolorspace = 2  # RGB
+            elif self.photometric == 2:
+                if self.planarconfig == 1:
+                    colorspace = outcolorspace = 2  # RGB
+            else:
+                outcolorspace = TIFF.PHOTOMETRIC(self.photometric).value
+
+            if self.bitspersample == 8:
+                decompress = imagecodecs.jpeg8_decode
+                # TODO: SOF3?
+            else:
+                decompress = imagecodecs.jpeg12_decode
+
+            def decode(data, segmentindex, tables=None):
+                # return decoded segment, its shape, and indices in image
+                index, shape = indices(segmentindex)
+                if data is None:
+                    return data, index, shape
+                data = decompress(
+                    data,
+                    tables=tables,
+                    colorspace=colorspace,
+                    outcolorspace=outcolorspace,
+                    shape=shape[1:3]
+                )
+                data = reshape(data, index, shape)
+                return data, index, shape
+
+            self.parent._decoders[self.hash] = decode
+            return decode
+
+        dtype = numpy.dtype(self.parent.byteorder + self._dtype.char)
+
+        if self.bitspersample in (8, 16, 32, 64, 128):
+            # regular data types
+
+            if (self.bitspersample * stwidth * samples) % 8:
+                raise ValueError(
+                    f'TiffPage {self.index}: data and sample size mismatch'
+                )
+            if self.predictor == 3:  # PREDICTOR.FLOATINGPOINT
+                # floating-point horizontal differencing decoder needs
+                # raw byte order
+                dtype = numpy.dtype(self._dtype.char)
+
+            def unpack(data):
+                # return numpy array from buffer
+                try:
+                    # read only numpy array
+                    return numpy.frombuffer(data, dtype)
+                except ValueError:
+                    # e.g. LZW strips may be missing EOI
+                    bps = self.bitspersample // 8
+                    size = (len(data) // bps) * bps
+                    return numpy.frombuffer(data[:size], dtype)
+
+        elif isinstance(self.bitspersample, tuple):
+            # e.g. RGB 565
+            def unpack(data):
+                # return numpy array from packed integers
+                return unpack_rgb(data, dtype, self.bitspersample)
+
+        else:
+            # packed integers
+            def unpack(data):
+                # Return numpy array from packed integers.
+                return packints_decode(
+                    data, dtype, self.bitspersample, stwidth * samples
+                )
+
+        def decode(data, segmentindex):
+            # return decoded segment, its shape, and indices in image
+            index, shape = indices(segmentindex)
+            if data is None:
+                return data, index, shape
+            if self.fillorder == 2:
+                data = bitorder_decode(data, out=data)
+            if decompress is not None:
+                # TODO: calculate correct size for packed integers
+                size = shape[0] * shape[1] * shape[2] * shape[3]
+                data = decompress(data, out=size * dtype.itemsize)
+            data = unpack(data)
+            data = reshape(data, index, shape)
+            if unpredict:
+                data = unpredict(data, axis=-2, out=data)
+            return data, index, shape
+
+        self.parent._decoders[self.hash] = decode
+        return decode
 
     def asarray(self, out=None, squeeze=True, lock=None, reopen=True,
-                maxsize=None, maxworkers=None, validate=True):
+                maxsize=None, maxworkers=None):
         """Read image data from file and return as numpy array.
 
         Raise ValueError if format is unsupported.
@@ -4310,12 +4524,9 @@ class TiffPage(object):
             Maximum size of data before a ValueError is raised.
             Can be used to catch DOS. Default: 16 TB.
         maxworkers : int or None
-            Maximum number of threads to concurrently decode compressed
-            segments. If None (default), up to half the CPU cores are used.
+            Maximum number of threads to concurrently decode strips ot tiles.
+            If None (default), up to half the CPU cores are used.
             See remarks in TiffFile.asarray.
-        validate : bool
-            If True (default), validate various parameters.
-            If None, only validate parameters and return None.
 
         Returns
         -------
@@ -4330,242 +4541,122 @@ class TiffPage(object):
             compressed images, which will be converted to RGB.
 
         """
-        # properties from TiffPage or TiffFrame
-        fh = self.parent.filehandle
-        byteorder = self.parent.tiff.byteorder
-        offsets, bytecounts = self._offsetscounts
-        self_ = self
-        self = self.keyframe  # self or keyframe
+        keyframe = self.keyframe  # self or keyframe
 
-        if not self._shape or product(self._shape) == 0:
+        if not keyframe.shaped or product(keyframe.shaped) == 0:
             return None
 
-        tags = self.tags
-
-        if validate or validate is None:
-            if maxsize is None:
-                maxsize = 2**44
-            if maxsize and product(self._shape) > maxsize:
-                raise ValueError('TiffPage %i: data are too large %s'
-                                 % (self.index, str(self._shape)))
-            if self.dtype is None:
-                raise ValueError(
-                    'TiffPage %i: data type not supported: %s%i'
-                    % (self.index, self.sampleformat, self.bitspersample))
-            if self.compression not in TIFF.DECOMPESSORS:
-                raise ValueError('TiffPage %i: cannot decompress %s'
-                                 % (self.index, self.compression.name))
-            if 'SampleFormat' in tags:
-                tag = tags['SampleFormat']
-                if (
-                    tag.count != 1
-                    and any(i - tag.value[0] for i in tag.value)
-                ):
-                    raise ValueError(
-                        'TiffPage %i: sample formats do not match %s'
-                        % (self.index, tag.value))
-            if self.is_subsampled and (self.compression not in (6, 7)
-                                       or self.planarconfig == 2):
-                raise NotImplementedError(
-                    'TiffPage %i: chroma subsampling not supported'
-                    % self.index)
-            if validate is None:
-                return None
-
-        lock = fh.lock if lock is None else lock
+        fh = self.parent.filehandle
+        if lock is None:
+            lock = fh.lock
         with lock:
             closed = fh.closed
             if closed:
                 if reopen:
                     fh.open()
                 else:
-                    raise IOError('TiffPage %i: file handle is closed'
-                                  % self.index)
+                    raise OSError(
+                        f'TiffPage {self.index}: file handle is closed')
 
-        dtype = self._dtype
-        shape = self._shape
-        imagewidth = self.imagewidth
-        imagelength = self.imagelength
-        imagedepth = self.imagedepth
-        bitspersample = self.bitspersample
-        typecode = byteorder + dtype.char
-        lsb2msb = self.fillorder == 2
-        istiled = self.is_tiled
-
-        if istiled:
-            tilewidth = self.tilewidth
-            tilelength = self.tilelength
-            tiledepth = self.tiledepth
-            tw = (imagewidth + tilewidth - 1) // tilewidth
-            tl = (imagelength + tilelength - 1) // tilelength
-            td = (imagedepth + tiledepth - 1) // tiledepth
-            tiledshape = (td, tl, tw)
-            tileshape = (tiledepth, tilelength, tilewidth, shape[-1])
-            runlen = tilewidth
-        else:
-            runlen = imagewidth
-
-        if self.planarconfig == 1:
-            runlen *= self.samplesperpixel
-
-        if isinstance(out, str) and out == 'memmap' and self.is_memmappable:
+        if (
+            isinstance(out, str) and
+            out == 'memmap' and
+            keyframe.is_memmappable
+        ):
             # direct memory map array in file
             with lock:
-                result = fh.memmap_array(typecode, shape, offset=offsets[0])
-        elif self.is_contiguous:
+                result = fh.memmap_array(
+                    keyframe.parent.byteorder + keyframe._dtype.char,
+                    keyframe.shaped,
+                    offset=self._offsetscounts[0][0]
+                )
+
+        elif keyframe.is_contiguous:
             # read contiguous bytes to array
+            if keyframe.is_subsampled:
+                raise NotImplementedError(
+                    f'TiffPage {self.index}: chroma subsampling not supported'
+                )
             if out is not None:
-                out = create_output(out, shape, dtype)
+                out = create_output(out, keyframe.shaped, keyframe._dtype)
             with lock:
-                fh.seek(offsets[0])
-                result = fh.read_array(typecode, product(shape), out=out)
-            if lsb2msb:
+                fh.seek(self._offsetscounts[0][0])
+                result = fh.read_array(
+                    keyframe.parent.byteorder + keyframe._dtype.char,
+                    product(keyframe.shaped),
+                    out=out
+                )
+            if keyframe.fillorder == 2:
                 bitorder_decode(result, out=result)
+            if keyframe.predictor != 1:
+                # predictors without compression
+                unpredict = TIFF.UNPREDICTORS[keyframe.predictor]
+                if keyframe.predictor == 1:
+                    unpredict(result, axis=-2, out=result)
+                else:
+                    # floatpred cannot decode in-place
+                    out = unpredict(result, axis=-2, out=result)
+                    result[:] = out
+
         else:
-            # decompress, unpack,... individual strips or tiles
-            result = create_output(out, shape, dtype)
+            # decode individual strips or tiles
+            decodeargs = {}
+            decodefunc = keyframe.decode
+            result = create_output(out, keyframe.shaped, keyframe._dtype)
+            out = result[0]
 
-            decompress = TIFF.DECOMPESSORS[self.compression]
-
-            if self.compression in (6, 7):  # COMPRESSION.JPEG
-                colorspace = None
-                outcolorspace = None
-                jpegtables = None
-                if lsb2msb:
-                    log_warning('TiffPage %i: disabling LSB2MSB for JPEG',
-                                self.index)
-                    lsb2msb = False
-                if 'JPEGTables' in tags:
-                    # load JPEGTables from TiffFrame
-                    jpegtables = self_._gettags({347}, lock=lock)[0][1].value
+            if keyframe.compression in (6, 7):  # COMPRESSION.JPEG
+                if 347 in keyframe.tags:
+                    # lazy load JPEGTables for TiffFrame
+                    decodeargs['tables'] = self._gettags(
+                        {347}, lock=lock)[0][1].value
                 # TODO: obtain table from OJPEG tags
                 # elif ('JPEGInterchangeFormat' in tags and
                 #       'JPEGInterchangeFormatLength' in tags and
                 #       tags['JPEGInterchangeFormat'].value != offsets[0]):
                 #     fh.seek(tags['JPEGInterchangeFormat'].value)
                 #     fh.read(tags['JPEGInterchangeFormatLength'].value)
-                if 'ExtraSamples' in tags:
-                    pass
-                elif self.photometric == 6:
-                    # YCBCR -> RGB
-                    outcolorspace = 'RGB'
-                elif self.photometric == 2:
-                    if self.planarconfig == 1:
-                        colorspace = outcolorspace = 'RGB'
+
+            def decode(args):
+                # decode strip or tile and store in result array
+                # TODO: use flat indexing for strips?
+                segment, (_, s, d, l, w, _), shape = decodefunc(
+                    *args, **decodeargs
+                )
+                if segment is None:
+                    segment = keyframe.nodata
                 else:
-                    outcolorspace = TIFF.PHOTOMETRIC(self.photometric).name
-                if istiled:
-                    heightwidth = tilelength, tilewidth
-                else:
-                    heightwidth = imagelength, imagewidth
+                    segment = segment[:keyframe.imagedepth - d,
+                                      :keyframe.imagelength - l,
+                                      :keyframe.imagewidth - w]
+                out[s,
+                    d: d + shape[0],
+                    l: l + shape[1],
+                    w: w + shape[2]] = segment
 
-                def decompress(data, bitspersample=bitspersample,
-                               jpegtables=jpegtables, colorspace=colorspace,
-                               outcolorspace=outcolorspace, shape=heightwidth,
-                               out=None, _decompress=decompress):
-                    return _decompress(data, bitspersample, jpegtables,
-                                       colorspace, outcolorspace, shape, out)
+            offsets, bytecounts = self._offsetscounts
+            segmentiter = fh.read_segments(offsets, bytecounts, lock=lock)
 
-                def unpack(data):
-                    return data.reshape(-1)
-
-            elif bitspersample in (8, 16, 32, 64, 128):
-                if (bitspersample * runlen) % 8:
-                    raise ValueError(
-                        'TiffPage %i: data and sample size mismatch'
-                        % self.index)
-                if self.predictor == 3:  # PREDICTOR.FLOATINGPOINT
-                    # the floating-point horizontal differencing decoder
-                    # needs the raw byte order
-                    typecode = dtype.char
-
-                def unpack(data, typecode=typecode, out=None):
-                    try:
-                        # read only numpy array
-                        return numpy.frombuffer(data, typecode)
-                    except ValueError:
-                        # strips may be missing EOI
-                        # log_warning('TiffPage.asarray: ...')
-                        bps = bitspersample // 8
-                        xlen = (len(data) // bps) * bps
-                        return numpy.frombuffer(data[:xlen], typecode)
-
-            elif isinstance(bitspersample, tuple):
-
-                def unpack(data, out=None):
-                    return unpack_rgb(data, typecode, bitspersample)
-
+            if maxworkers is None or maxworkers < 1:
+                maxworkers = keyframe.maxworkers
+            if maxworkers < 2:
+                for segment in segmentiter:
+                    decode(segment)
             else:
+                # decode first segment un-threaded to catch exceptions
+                decode(next(segmentiter))
+                with ThreadPoolExecutor(maxworkers) as executor:
+                    executor.map(decode, segmentiter)
 
-                def unpack(data, out=None):
-                    return packints_decode(data, typecode, bitspersample,
-                                           runlen)
-
-            # TODO: store decode function for future use
-            # TODO: unify tile and strip decoding
-            if istiled:
-                unpredict = TIFF.UNPREDICTORS[self.predictor]
-
-                def decode(tile, tileindex, tileshape=tileshape,
-                           tiledshape=tiledshape, lsb2msb=lsb2msb,
-                           decompress=decompress, unpack=unpack,
-                           unpredict=unpredict, nodata=self.nodata,
-                           out=result[0]):
-                    return tile_decode(tile, tileindex, tileshape, tiledshape,
-                                       lsb2msb, decompress, unpack, unpredict,
-                                       nodata, out)
-
-                tileiter = fh.read_segments(offsets, bytecounts, lock)
-
-                if self.compression == 1 or len(offsets) < 3:
-                    maxworkers = 1
-                elif maxworkers is None or maxworkers < 1:
-                    import multiprocessing
-                    maxworkers = max(multiprocessing.cpu_count() // 2, 1)
-
-                if maxworkers < 2:
-                    for i, tile in enumerate(tileiter):
-                        decode(tile, i)
-                else:
-                    # decode first tile un-threaded to catch exceptions
-                    decode(next(tileiter), 0)
-                    with ThreadPoolExecutor(maxworkers) as executor:
-                        executor.map(decode, tileiter, range(1, len(offsets)))
-
-            else:
-                stripsize = self.rowsperstrip * self.imagewidth
-                if self.planarconfig == 1:
-                    stripsize *= self.samplesperpixel
-                outsize = stripsize * self.dtype.itemsize
-                result = result.reshape(-1)
-                index = 0
-                for strip in fh.read_segments(offsets, bytecounts, lock):
-                    if strip is None:
-                        result[index:index + stripsize] = self.nodata
-                        index += stripsize
-                        continue
-                    if lsb2msb:
-                        strip = bitorder_decode(strip, out=strip)
-                    strip = decompress(strip, out=outsize)
-                    strip = unpack(strip)
-                    size = min(result.size, strip.size, stripsize,
-                               result.size - index)
-                    result[index:index + size] = strip[:size]
-                    del strip
-                    index += size
-
-        result.shape = self._shape
-
-        if self.predictor != 1 and not (istiled and not self.is_contiguous):
-            unpredict = TIFF.UNPREDICTORS[self.predictor]
-            result = unpredict(result, axis=-2, out=result)
-
+        result.shape = keyframe.shaped
         if squeeze:
             try:
-                result.shape = self.shape
+                result.shape = keyframe.shape
             except ValueError:
-                log_warning('TiffPage %i: failed to reshape %s to %s',
-                            self.index, result.shape, self.shape)
+                log_warning(
+                    f'TiffPage {self.index}: '
+                    f'failed to reshape {result.shape} to {keyframe.shape}'
+                )
 
         if closed:
             # TODO: file should remain open if an exception occurred above
@@ -4580,52 +4671,52 @@ class TiffPage(object):
 
         """
         data = self.asarray(**kwargs)
-        self = self.keyframe  # self or keyframe
-        photometric = self.photometric
-        PHOTOMETRIC = TIFF.PHOTOMETRIC
+        keyframe = self.keyframe  # self or keyframe
 
-        if photometric == PHOTOMETRIC.PALETTE:
-            colormap = self.colormap
+        if keyframe.photometric == TIFF.PHOTOMETRIC.PALETTE:
+            colormap = keyframe.colormap
             if (
-                colormap.shape[1] < 2**self.bitspersample
-                or self.dtype.char not in 'BH'
+                colormap.shape[1] < 2**keyframe.bitspersample or
+                keyframe.dtype.char not in 'BH'
             ):
-                raise ValueError('TiffPage %i: cannot apply colormap'
-                                 % self.index)
+                raise ValueError(
+                    f'TiffPage {self.index}: cannot apply colormap'
+                )
             if uint8:
                 if colormap.max() > 255:
                     colormap >>= 8
                 colormap = colormap.astype('uint8')
-            if 'S' in self.axes:
-                data = data[..., 0] if self.planarconfig == 1 else data[0]
+            if 'S' in keyframe.axes:
+                data = data[..., 0] if keyframe.planarconfig == 1 else data[0]
             data = apply_colormap(data, colormap)
 
-        elif photometric == PHOTOMETRIC.RGB:
-            if 'ExtraSamples' in self.tags:
+        elif keyframe.photometric == TIFF.PHOTOMETRIC.RGB:
+            tag = keyframe.tags.get(338)  # ExtraSamples
+            if tag is not None:
                 if alpha is None:
                     alpha = TIFF.EXTRASAMPLE
-                extrasamples = self.extrasamples
-                if self.tags['ExtraSamples'].count == 1:
+                extrasamples = keyframe.extrasamples
+                if tag.count == 1:
                     extrasamples = (extrasamples,)
                 for i, exs in enumerate(extrasamples):
                     if exs in alpha:
-                        if self.planarconfig == 1:
+                        if keyframe.planarconfig == 1:
                             data = data[..., [0, 1, 2, 3 + i]]
                         else:
                             data = data[:, [0, 1, 2, 3 + i]]
                         break
             else:
-                if self.planarconfig == 1:
+                if keyframe.planarconfig == 1:
                     data = data[..., :3]
                 else:
                     data = data[:, :3]
             # TODO: convert to uint8?
 
-        elif photometric == PHOTOMETRIC.MINISBLACK:
+        elif keyframe.photometric == TIFF.PHOTOMETRIC.MINISBLACK:
             raise NotImplementedError()
-        elif photometric == PHOTOMETRIC.MINISWHITE:
+        elif keyframe.photometric == TIFF.PHOTOMETRIC.MINISWHITE:
             raise NotImplementedError()
-        elif photometric == PHOTOMETRIC.SEPARATED:
+        elif keyframe.photometric == TIFF.PHOTOMETRIC.SEPARATED:
             raise NotImplementedError()
         else:
             raise NotImplementedError()
@@ -4633,12 +4724,8 @@ class TiffPage(object):
 
     def _gettags(self, codes=None, lock=None):
         """Return list of (code, TiffTag)."""
-        tags = []
-        for tag in self.tags.values():
-            code = tag.code
-            if not codes or code in codes:
-                tags.append((code, tag))
-        return tags
+        return [(tag.code, tag) for tag in self.tags
+                if codes is None or tag.code in codes]
 
     def aspage(self):
         """Return self."""
@@ -4657,28 +4744,43 @@ class TiffPage(object):
     @lazyattr
     def pages(self):
         """Return sequence of sub-pages (SubIFDs)."""
-        if 'SubIFDs' not in self.tags:
-            return tuple()
+        if 330 not in self.tags:
+            return ()
         return TiffPages(self)
 
-    @property
+    @lazyattr
     def hash(self):
-        """Return checksum to identify pages in same series."""
+        """Return checksum to identify pages in same series.
+
+        Pages with the same hash can use the same decode function.
+
+        """
         return hash(
-            self._shape
-            + (
+            self.shaped + (
+                self.parent.byteorder,
                 self.tilewidth,
                 self.tilelength,
                 self.tiledepth,
+                self.sampleformat,
                 self.bitspersample,
+                self.rowsperstrip,
                 self.fillorder,
                 self.predictor,
                 self.extrasamples,
                 self.photometric,
-                self.compression,
                 self.planarconfig,
-            )
-        )
+                self.compression,
+            ))
+
+    @lazyattr
+    def maxworkers(self):
+        """Return maximum number of threads for decoding strips ot tiles."""
+        if len(self._offsetscounts[0]) < 4:
+            return 1
+        if self.compression != 1 or self.fillorder != 1 or self.predictor != 1:
+            if imagecodecs is not None:
+                return min(TIFF.MAXWORKERS, len(self._offsetscounts[0]))
+        return 2  # optimum for large number of uncompressed tiles
 
     @lazyattr
     def _offsetscounts(self):
@@ -4697,7 +4799,7 @@ class TiffPage(object):
         """
         if self.compression != 1 or self.bitspersample not in (8, 16, 32, 64):
             return None
-        if 'TileWidth' in self.tags:
+        if 322 in self.tags:  # TileWidth
             if (
                 self.imagewidth != self.tilewidth
                 or self.imagelength % self.tilelength
@@ -4706,10 +4808,12 @@ class TiffPage(object):
             ):
                 return None
             if (
-                'ImageDepth' in self.tags
-                and 'TileDepth' in self.tags
-                and (self.imagelength != self.tilelength
-                     or self.imagedepth % self.tiledepth)
+                32997 in self.tags and  # ImageDepth
+                32998 in self.tags and  # TileDepth
+                (
+                    self.imagelength != self.tilelength or
+                    self.imagedepth % self.tiledepth
+                )
             ):
                 return None
         offsets = self.dataoffsets
@@ -4751,7 +4855,7 @@ class TiffPage(object):
         )
 
     def __str__(self, detail=0, width=79):
-        """Return string containing information about page."""
+        """Return string containing information about TiffPage."""
         if self.keyframe != self:
             return TiffFrame.__str__(self, detail, width)
         attr = ''
@@ -4775,8 +4879,7 @@ class TiffPage(object):
             s.lower()
             for s in (
                 'x'.join(str(i) for i in self.shape),
-                '%s%s'
-                % (
+                '{}{}'.format(
                     TIFF.SAMPLEFORMAT(self.sampleformat).name,
                     self.bitspersample,
                 ),
@@ -4799,37 +4902,21 @@ class TiffPage(object):
             )
             if s
         )
-        info = 'TiffPage %i @%i  %s' % (self.index, self.offset, info)
+        info = f'TiffPage {self.index} @{self.offset}  {info}'
         if detail <= 0:
             return info
-        info = [info]
-        tags = self.tags
-        tlines = []
-        vlines = []
-        for tag in sorted(tags.values(), key=lambda x: x.code):
-            value = tag.__str__(width=width + 1)
-            tlines.append(value[:width].strip())
-            if detail > 1 and len(value) > width:
-                name = tag.name.upper()
-                if detail <= 2 and ('COUNTS' in name or 'OFFSETS' in name):
-                    value = pformat(tag.value, width=width, height=detail * 4)
-                else:
-                    value = pformat(tag.value, width=width, height=detail * 12)
-                vlines.append('%s\n%s' % (tag.name, value))
-        info.append('\n'.join(tlines))
+        info = [info, self.tags.__str__(detail+1, width=width)]
         if detail > 1:
-            info.append('\n\n'.join(vlines))
             for name in ('ndpi',):
                 name = name + '_tags'
                 attr = getattr(self, name, False)
                 if attr:
-                    info.append('%s\n%s' % (name.upper(), pformat(attr)))
+                    info.append(f'{name.upper()}\n{pformat(attr)}')
         if detail > 3:
             try:
-                info.append(
-                    'DATA\n%s'
-                    % pformat(self.asarray(), width=width, height=detail * 8)
-                )
+                info.append('DATA\n{}'.format(
+                    pformat(self.asarray(), width=width, height=detail * 8)
+                ))
             except Exception:
                 pass
         return '\n\n'.join(info)
@@ -4837,11 +4924,11 @@ class TiffPage(object):
     @lazyattr
     def flags(self):
         """Return set of flags."""
-        return set(
+        return {
             name.lower()
             for name in sorted(TIFF.FILE_FLAGS)
             if getattr(self, 'is_' + name)
-        )
+        }
 
     @property
     def ndim(self):
@@ -4855,37 +4942,29 @@ class TiffPage(object):
 
     @lazyattr
     def andor_tags(self):
-        """Return consolidated metadata from Andor tags as dict.
-
-        Remove Andor tags from self.tags.
-
-        """
+        """Return consolidated metadata from Andor tags as dict."""
         if not self.is_andor:
             return None
-        tags = self.tags
-        result = {'Id': tags['AndorId'].value}
-        for tag in list(self.tags.values()):
+        result = {'Id': self.tags[4864].value}  # AndorId
+        for tag in self.tags:  # list(self.tags.values()):
             code = tag.code
             if not 4864 < code < 5031:
                 continue
-            value = tag.value
-            name = tag.name[5:] if len(tag.name) > 5 else tag.name
-            result[name] = value
-            del tags[tag.name]
+            name = tag.name
+            name = name[5:] if len(name) > 5 else name
+            result[name] = tag.value
+            # del self.tags[code]
         return result
 
     @lazyattr
     def epics_tags(self):
         """Return consolidated metadata from EPICS areaDetector tags as dict.
 
-        Remove areaDetector tags from self.tags.
-
         """
         if not self.is_epics:
             return None
         result = {}
-        tags = self.tags
-        for tag in list(self.tags.values()):
+        for tag in self.tags:  # list(self.tags.values()):
             code = tag.code
             if not 65000 <= code < 65500:
                 continue
@@ -4902,7 +4981,7 @@ class TiffPage(object):
             else:
                 key, value = value.split(':', 1)
                 result[key] = astype(value)
-            del tags[tag.name]
+            # del self.tags[code]
         return result
 
     @lazyattr
@@ -4915,7 +4994,6 @@ class TiffPage(object):
         for name in ('Make', 'Model', 'Software'):
             result[name] = tags[name].value
         for code, name in TIFF.NDPI_TAGS.items():
-            code = str(code)
             if code in tags:
                 result[name] = tags[code].value
                 # del tags[code]
@@ -4928,7 +5006,7 @@ class TiffPage(object):
             return None
         tags = self.tags
 
-        gkd = tags['GeoKeyDirectoryTag'].value
+        gkd = tags[34735].value  # GeoKeyDirectoryTag
         if gkd[0] != 1:
             log_warning('GeoTIFF tags: invalid GeoKeyDirectoryTag')
             return {}
@@ -4945,19 +5023,17 @@ class TiffPage(object):
         for index in range(gkd[3]):
             try:
                 keyid, tagid, count, offset = gkd[4 + index * 4: index * 4 + 8]
-            except Exception as exception:
-                log_warning('GeoTIFF tags: %s', str(exception))
+            except Exception as exc:
+                log_warning(f'GeoTIFF tags: {exc}')
                 continue
             keyid = geokeys.get(keyid, keyid)
             if tagid == 0:
                 value = offset
             else:
-                tagname = TIFF.TAGS[tagid]
-                # deltags.append(tagname)
                 try:
-                    value = tags[tagname].value[offset: offset + count]
+                    value = tags[tagid].value[offset: offset + count]
                 except KeyError:
-                    log_warning('GeoTIFF tags: %s not found', tagname)
+                    log_warning(f'GeoTIFF tags: {tagid} not found')
                     continue
                 if tagid == 34737 and count > 1 and value[-1] == '|':
                     value = value[:-1]
@@ -4969,26 +5045,30 @@ class TiffPage(object):
                     pass
             result[keyid] = value
 
-        if 'IntergraphMatrixTag' in tags:
-            value = tags['IntergraphMatrixTag'].value
-            value = numpy.array(value)
+        tag = tags.get(33920)  # IntergraphMatrixTag
+        if tag is not None:
+            value = numpy.array(tag.value)
             if len(value) == 16:
                 value = value.reshape((4, 4)).tolist()
             result['IntergraphMatrix'] = value
-        if 'ModelPixelScaleTag' in tags:
-            value = numpy.array(tags['ModelPixelScaleTag'].value).tolist()
-            result['ModelPixelScale'] = value
-        if 'ModelTiepointTag' in tags:
-            value = tags['ModelTiepointTag'].value
-            value = numpy.array(value).reshape((-1, 6)).squeeze().tolist()
+
+        tag = tags.get(33550)  # ModelPixelScaleTag
+        if tag is not None:
+            result['ModelPixelScale'] = numpy.array(tag.value).tolist()
+
+        tag = tags.get(33922)  # ModelTiepointTag
+        if tag is not None:
+            value = numpy.array(tag.value).reshape((-1, 6)).squeeze().tolist()
             result['ModelTiepoint'] = value
-        if 'ModelTransformationTag' in tags:
-            value = tags['ModelTransformationTag'].value
-            value = numpy.array(value).reshape((4, 4)).tolist()
+
+        tag = tags.get(34264)  # ModelTransformationTag
+        if tag is not None:
+            value = numpy.array(tag.value).reshape((4, 4)).tolist()
             result['ModelTransformation'] = value
-        # if 'ModelPixelScaleTag' in tags and 'ModelTiepointTag' in tags:
-        #     sx, sy, sz = tags['ModelPixelScaleTag'].value
-        #     tiepoints = tags['ModelTiepointTag'].value
+
+        # if 33550 in tags and 33922 in tags:
+        #     sx, sy, sz = tags[33550].value  # ModelPixelScaleTag
+        #     tiepoints = tags[33922].value  # ModelTiepointTag
         #     transforms = []
         #     for tp in range(0, len(tiepoints), 6):
         #         i, j, k, x, y, z = tiepoints[tp:tp+6]
@@ -5001,8 +5081,9 @@ class TiffPage(object):
         #         transforms = transforms[0]
         #     result['ModelTransformation'] = transforms
 
-        if 'RPCCoefficientTag' in tags:
-            rpcc = tags['RPCCoefficientTag'].value
+        tag = tags.get(50844)  # RPCCoefficientTag
+        if tag is not None:
+            rpcc = tag.value
             result['RPCCoefficient'] = {
                 'ERR_BIAS': rpcc[0],
                 'ERR_RAND': rpcc[1],
@@ -5021,7 +5102,6 @@ class TiffPage(object):
                 'SAMP_NUM_COEFF': rpcc[53:73],
                 'SAMP_DEN_COEFF': rpcc[73:],
             }
-
         return result
 
     @property
@@ -5047,13 +5127,14 @@ class TiffPage(object):
     @property
     def is_tiled(self):
         """Page contains tiled image."""
-        return 'TileWidth' in self.tags
+        return 322 in self.tags  # TileWidth
 
     @property
     def is_subsampled(self):
         """Page contains chroma subsampled image."""
-        if 'YCbCrSubSampling' in self.tags:
-            return self.tags['YCbCrSubSampling'].value != (1, 1)
+        tag = self.tags.get(530)  # YCbCrSubSampling
+        if tag is not None:
+            return tag.value != (1, 1)
         return (
             self.compression == 7
             and self.planarconfig == 1
@@ -5085,39 +5166,38 @@ class TiffPage(object):
     @property
     def is_mdgel(self):
         """Page contains MDFileTag tag."""
-        return 'MDFileTag' in self.tags
+        return 33445 in self.tags  # MDFileTag
 
     @property
     def is_mediacy(self):
         """Page contains Media Cybernetics Id tag."""
-        return (
-            'MC_Id' in self.tags and self.tags['MC_Id'].value[:7] == b'MC TIFF'
-        )
+        tag = self.tags.get(50288)  # MC_Id
+        return tag is not None and tag.value[:7] == b'MC TIFF'
 
     @property
     def is_stk(self):
         """Page contains UIC2Tag tag."""
-        return 'UIC2tag' in self.tags
+        return 33629 in self.tags
 
     @property
     def is_lsm(self):
         """Page contains CZ_LSMINFO tag."""
-        return 'CZ_LSMINFO' in self.tags
+        return 34412 in self.tags
 
     @property
     def is_fluoview(self):
         """Page contains FluoView MM_STAMP tag."""
-        return 'MM_Stamp' in self.tags
+        return 34362 in self.tags
 
     @property
     def is_nih(self):
-        """Page contains NIH image header."""
-        return 'NIHImageHeader' in self.tags
+        """Page contains NIHImageHeader tag."""
+        return 43314 in self.tags
 
     @property
     def is_sgi(self):
-        """Page contains SGI image and tile depth tags."""
-        return 'ImageDepth' in self.tags and 'TileDepth' in self.tags
+        """Page contains SGI ImageDepth and TileDepth tags."""
+        return 32998 in self.tags and 32997 in self.tags
 
     @property
     def is_vista(self):
@@ -5150,13 +5230,13 @@ class TiffPage(object):
 
     @property
     def is_micromanager(self):
-        """Page contains Micro-Manager metadata."""
-        return 'MicroManagerMetadata' in self.tags
+        """Page contains MicroManagerMetadata tag."""
+        return 51123 in self.tags
 
     @property
     def is_andor(self):
-        """Page contains Andor Technology tags."""
-        return 'AndorId' in self.tags
+        """Page contains Andor Technology tags 4864-5030."""
+        return 4864 in self.tags
 
     @property
     def is_pilatus(self):
@@ -5174,17 +5254,17 @@ class TiffPage(object):
     @property
     def is_tvips(self):
         """Page contains TVIPS metadata."""
-        return 'TVIPS' in self.tags
+        return 37706 in self.tags
 
     @property
     def is_fei(self):
-        """Page contains SFEG or HELIOS metadata."""
-        return 'FEI_SFEG' in self.tags or 'FEI_HELIOS' in self.tags
+        """Page contains FEI_SFEG or FEI_HELIOS tags."""
+        return 34680 in self.tags or 34682 in self.tags
 
     @property
     def is_sem(self):
-        """Page contains Zeiss SEM metadata."""
-        return 'CZ_SEM' in self.tags
+        """Page contains CZ_SEM tag."""
+        return 34118 in self.tags
 
     @property
     def is_svs(self):
@@ -5210,20 +5290,20 @@ class TiffPage(object):
     @property
     def is_geotiff(self):
         """Page contains GeoTIFF metadata."""
-        return 'GeoKeyDirectoryTag' in self.tags
+        return 34735 in self.tags  # GeoKeyDirectoryTag
 
     @property
     def is_sis(self):
         """Page contains Olympus SIS metadata."""
-        return 'OlympusSIS' in self.tags or 'OlympusINI' in self.tags
+        return 33560 in self.tags or 33471 in self.tags
 
     @lazyattr  # must not be property; tag 65420 is later removed
     def is_ndpi(self):
         """Page contains NDPI metadata."""
-        return '65420' in self.tags and 'Make' in self.tags
+        return 65420 in self.tags and 271 in self.tags
 
 
-class TiffFrame(object):
+class TiffFrame:
     """Lightweight TIFF image file directory (IFD).
 
     Only a limited number of tag values are read from file, e.g. StripOffsets,
@@ -5233,15 +5313,13 @@ class TiffFrame(object):
     TiffFrame is intended to reduce resource usage and speed up reading image
     data from file, not for introspection of metadata.
 
-    Not compatible with Python 2.
-
     """
 
-    __slots__ = 'index', 'parent', 'offset', '_offsetscounts', '_keyframe'
+    __slots__ = ('index', 'parent', 'offset', '_offsetscounts', '_keyframe')
 
     is_mdgel = False
     pages = None
-    tags = {}
+    # tags = {}
 
     def __init__(self, parent, index, offset=None, keyframe=None,
                  offsets=None, bytecounts=None):
@@ -5282,18 +5360,10 @@ class TiffFrame(object):
                 databytecounts = tag.value
             elif code == 256 and keyframe.imagewidth != tag.value:
                 raise RuntimeError(
-                    'TiffFrame %i: incompatible keyframe' % index)
-            # elif code == 270:
-            #     tagname = tag.name
-            #     if tagname not in tags:
-            #         tags[tagname] = bytes2str(tag.value)
-            #     elif 'ImageDescription1' not in tags:
-            #         tags['ImageDescription1'] = bytes2str(tag.value)
-            # else:
-            #     tags[tag.name] = tag.value
+                    f'TiffFrame {self.index} incompatible keyframe')
 
         if not dataoffsets:
-            log_warning('TiffFrame %i: missing required tags', index)
+            log_warning(f'TiffFrame {self.index}: missing required tags')
 
         self._offsetscounts = dataoffsets, databytecounts
 
@@ -5314,11 +5384,13 @@ class TiffFrame(object):
                 tagno = unpack(tiff.tagnoformat, fh.read(tiff.tagnosize))[0]
                 if tagno > 4096:
                     raise TiffFileError(
-                        'TiffFrame %i: suspicious number of tags' % self.index)
+                        f'TiffFrame {self.index}: suspicious number of tags'
+                    )
             except Exception:
                 raise TiffFileError(
-                    'TiffFrame %i: corrupted page list at offset %i'
-                    % (self.index, self.offset))
+                    f'TiffFrame {self.index}: '
+                    f'corrupted page list at offset {self.offset}'
+                )
 
             tagoffset = self.offset + tiff.tagnosize  # fh.tell()
             tagsize = tiff.tagsize
@@ -5336,8 +5408,10 @@ class TiffFrame(object):
                                   tagbytes[tagindex: tagindex + tagsize],
                                   tagoffset + tagindex)
                 except TiffFileError as exc:
-                    log_warning('TiffFrame %i: %s: %s',
-                                self.index, exc.__class__.__name__, exc)
+                    log_warning(
+                        f'TiffFrame {self.index}: '
+                        f'{exc.__class__.__name__}: {exc}'
+                    )
                     continue
                 tags.append((code, tag))
 
@@ -5347,26 +5421,21 @@ class TiffFrame(object):
         """Return TiffPage from file."""
         if self.offset is None:
             raise ValueError(
-                'TiffFrame %i: cannot return virtual frame as page'
-                % self.index)
+                f'TiffFrame {self.index}: cannot return virtual frame as page'
+            )
         self.parent.filehandle.seek(self.offset)
         return TiffPage(self.parent, index=self.index)
 
     def asarray(self, *args, **kwargs):
         """Read image data from file and return as numpy array."""
-        # TODO: fix TypeError on Python 2
-        #   "TypeError: unbound method asarray() must be called with TiffPage
-        #   instance as first argument (got TiffFrame instance instead)"
         if self._keyframe is None:
-            raise RuntimeError('TiffFrame %i: keyframe not set' % self.index)
-        kwargs['validate'] = False
+            raise RuntimeError(f'TiffFrame {self.index}: keyframe not set')
         return TiffPage.asarray(self, *args, **kwargs)
 
     def asrgb(self, *args, **kwargs):
         """Read image data from file and return RGB image as numpy array."""
         if self._keyframe is None:
-            raise RuntimeError('TiffFrame %i: keyframe not set' % self.index)
-        kwargs['validate'] = False
+            raise RuntimeError(f'TiffFrame {self.index}: keyframe not set')
         return TiffPage.asrgb(self, *args, **kwargs)
 
     @property
@@ -5381,10 +5450,10 @@ class TiffFrame(object):
             return
         if self._keyframe is not None:
             raise RuntimeError(
-                'TiffFrame %i: cannot reset keyframe' % self.index)
+                f'TiffFrame {self.index}: cannot reset keyframe')
         if len(self._offsetscounts[0]) != len(keyframe.dataoffsets):
             raise RuntimeError(
-                'TiffFrame %i: incompatible keyframe' % self.index)
+                f'TiffFrame {self.index}: incompatible keyframe')
         if keyframe.is_tiled:
             pass
         if keyframe.is_contiguous:
@@ -5398,7 +5467,7 @@ class TiffFrame(object):
     def is_contiguous(self):
         """Return offset and size of contiguous data, else None."""
         if self._keyframe is None:
-            raise RuntimeError('TiffFrame %i: keyframe not set' % self.index)
+            raise RuntimeError(f'TiffFrame {self.index}: keyframe not set')
         if self._keyframe.is_contiguous:
             return self._offsetscounts[0][0], self._keyframe.is_contiguous[1]
         return None
@@ -5407,14 +5476,14 @@ class TiffFrame(object):
     def is_memmappable(self):
         """Return if page's image data in file can be memory-mapped."""
         if self._keyframe is None:
-            raise RuntimeError('TiffFrame %i: keyframe not set' % self.index)
+            raise RuntimeError(f'TiffFrame {self.index}: keyframe not set')
         return self._keyframe.is_memmappable
 
     @property
     def hash(self):
         """Return checksum to identify pages in same series."""
         if self._keyframe is None:
-            raise RuntimeError('TiffFrame %i: keyframe not set' % self.index)
+            raise RuntimeError(f'TiffFrame {self.index}: keyframe not set')
         return self._keyframe.hash
 
     def __getattr__(self, name):
@@ -5423,11 +5492,12 @@ class TiffFrame(object):
             return getattr(self._keyframe, name)
         # this error could be raised because an AttributeError was
         # raised inside a @property function
-        raise AttributeError("'%s' object has no attribute '%s'"
-                             % (self.__class__.__name__, name))
+        raise AttributeError(
+            f'{self.__class__.__name__!r} object has no attribute {name!r}'
+        )
 
     def __str__(self, detail=0, width=79):
-        """Return string containing information about frame."""
+        """Return string containing information about TiffFrame."""
         if self._keyframe is None:
             info = ''
             kf = None
@@ -5439,17 +5509,17 @@ class TiffFrame(object):
             of, bc = self._offsetscounts
             of = pformat(of, width=width - 9, height=detail - 3)
             bc = pformat(bc, width=width - 13, height=detail - 3)
-            info = '\n Keyframe %s\n Offsets %s\n Bytecounts %s' % (kf, of, bc)
-        return 'TiffFrame %i @%s  %s' % (self.index, self.offset, info)
+            info = f'\n Keyframe {kf}\n Offsets {of}\n Bytecounts {bc}'
+        return f'TiffFrame {self.index} @{self.offset}  {info}'
 
 
-class TiffTag(object):
+class TiffTag:
     """TIFF tag structure.
 
     Attributes
     ----------
     name : string
-        Name of tag.
+        Name of tag, TIFF.TAGS[code].
     code : int
         Decimal code of tag.
     dtype : str
@@ -5458,14 +5528,16 @@ class TiffTag(object):
         Number of values.
     value : various types
         Tag data as Python object.
-    ImageSourceData : int
+    offset : int
+        Location of tag structure in file.
+    valueoffset : int
         Location of value in file.
 
     All attributes are read-only.
 
     """
 
-    __slots__ = ('code', 'count', 'dtype', 'value', 'valueoffset')
+    __slots__ = ('code', 'count', 'dtype', 'value', 'offset', 'valueoffset')
 
     def __init__(self, parent, tagheader, tagoffset):
         """Initialize instance from tag header."""
@@ -5475,6 +5547,7 @@ class TiffTag(object):
         offsetsize = tiff.offsetsize
         unpack = struct.unpack
 
+        self.offset = tagoffset
         self.valueoffset = tagoffset + offsetsize + 4
         code, type_ = unpack(tiff.tagformat1, tagheader[:4])
         count, value = unpack(tiff.tagformat2, tagheader[4:])
@@ -5482,9 +5555,9 @@ class TiffTag(object):
         try:
             dtype = TIFF.DATA_FORMATS[type_]
         except KeyError:
-            raise TiffFileError('unknown tag data type %i' % type_)
+            raise TiffFileError(f'unknown tag data type {type_!r}')
 
-        fmt = '%s%i%s' % (byteorder, count * int(dtype[0]), dtype[1])
+        fmt = '{}{}{}'.format(byteorder, count * int(dtype[0]), dtype[1])
         size = struct.calcsize(fmt)
         if size > offsetsize or code in TIFF.TAG_READERS:
             self.valueoffset = offset = unpack(tiff.offsetformat, value)[0]
@@ -5498,10 +5571,11 @@ class TiffTag(object):
                 value = readfunc(fh, byteorder, dtype, count, offsetsize)
             elif type_ == 7 or (count > 1 and dtype[-1] == 'B'):
                 value = read_bytes(fh, byteorder, dtype, count, offsetsize)
-            elif code in TIFF.TAGS or dtype[-1] == 's':
-                value = unpack(fmt, fh.read(size))
+            # elif code in TIFF.TAGS or dtype[-1] == 's':
             else:
-                value = read_numpy(fh, byteorder, dtype, count, offsetsize)
+                value = unpack(fmt, fh.read(size))
+            # else:
+            #     value = read_numpy(fh, byteorder, dtype, count, offsetsize)
         elif dtype[-1] == 'B' or type_ == 7:
             value = value[:size]
         else:
@@ -5519,9 +5593,9 @@ class TiffTag(object):
             try:
                 value = bytes2str(stripascii(value).strip())
             except UnicodeDecodeError:
-                # TODO: this doesn't work on Python 2
                 log_warning(
-                    'TiffTag %i: coercing invalid ASCII to bytes', code)
+                    f'TiffTag {code}: coercing invalid ASCII to bytes'
+                )
                 dtype = '1B'
         else:
             if code in TIFF.TAG_ENUM:
@@ -5529,7 +5603,7 @@ class TiffTag(object):
                 try:
                     value = tuple(t(v) for v in value)
                 except ValueError as exc:
-                    log_warning('TiffTag  %i: %s', code, str(exc))
+                    log_warning(f'TiffTag {code}: {exc}')
             if process:
                 if len(value) == 1:
                     value = value[0]
@@ -5542,10 +5616,7 @@ class TiffTag(object):
     @property
     def name(self):
         """Return name of tag from TIFF.TAGS registry."""
-        try:
-            return TIFF.TAGS[self.code]
-        except KeyError:
-            return str(self.code)
+        return TIFF.TAGS.get(self.code, str(self.code))
 
     def _fix_lsm_bitspersample(self, parent):
         """Correct LSM bitspersample tag.
@@ -5557,27 +5628,28 @@ class TiffTag(object):
         if self.code != 258 or self.count != 2:
             return
         # TODO: test this case; need example file
-        log_warning('TiffTag %i: correcting LSM bitspersample tag', self.code)
+        log_warning(f'TiffTag {self.code}: correcting LSM bitspersample tag')
         value = struct.pack('<HH', *self.value)
         self.valueoffset = struct.unpack('<I', value)[0]
         parent.filehandle.seek(self.valueoffset)
         self.value = struct.unpack('<HH', parent.filehandle.read(4))
 
     def __str__(self, detail=0, width=79):
-        """Return string containing information about tag."""
+        """Return string containing information about TiffTag."""
         height = 1 if detail <= 0 else 8 * detail
-        tcode = '%i%s' % (self.count * int(self.dtype[0]), self.dtype[1])
-        if self.name == str(self.code):
-            codename = self.name
+        tcode = '{}{}'.format(self.count * int(self.dtype[0]), self.dtype[1])
+        name = '|'.join(TIFF.TAGS.getall(self.code, ()))
+        if name:
+            name = f'{self.code} {name} @{self.offset}'
         else:
-            codename = '%i %s' % (self.code, self.name)
-        line = 'TiffTag %s %s @%i  ' % (codename, tcode, self.valueoffset)
+            name = f'{self.code} @{self.offset}'
+        line = f'TiffTag {name} {tcode} @{self.valueoffset}  '
         line = line[:width]
         try:
             if self.count == 1:
-                value = TIFF.TAG_ENUM[self.code](self.value).name
+                value = enumstr(self.value)
             else:
-                value = pformat(tuple(v.name for v in self.value))
+                value = pformat(tuple(enumstr(v) for v in self.value))
         except Exception:
             value = pformat(self.value, width=width, height=height)
         if detail <= 0:
@@ -5588,7 +5660,180 @@ class TiffTag(object):
         return line
 
 
-class TiffPageSeries(object):
+class TiffTags:
+    """Multidict like interface to TiffTag instances in TiffPage.
+
+    Differences to a regular dict:
+
+    * values are instances of TiffTag.
+    * keys are TiffTag.code (int).
+    * multiple values can be stored per key.
+    * can be indexed with TiffTag.name (str), although slower than by key.
+    * iter() returns values instead of keys.
+    * values() and items() contain all values sorted by offset stored in file.
+    * len() returns the number of all values.
+    * get() takes an optional index argument.
+    * some functions are not implemented, e.g. update, setdefault, pop.
+
+    """
+
+    __slots__ = ('_dict', '_list')
+
+    def __init__(self):
+        """Initialize empty instance."""
+        self._dict = {}
+        self._list = [self._dict]
+
+    def add(self, tag):
+        """Add a tag."""
+        code = tag.code
+        for d in self._list:
+            if code not in d:
+                d[code] = tag
+                break
+        else:
+            self._list.append({code: tag})
+
+    def keys(self):
+        """Return new view of all codes."""
+        return self._dict.keys()
+
+    def values(self):
+        """Return all tags in order they are stored in file."""
+        tags = (t for d in self._list for t in d.values())
+        return sorted(tags, key=lambda t: t.offset)
+
+    def items(self):
+        """Return all (code, tag) pairs in order tags are stored in file."""
+        items = (i for d in self._list for i in d.items())
+        return sorted(items, key=lambda i: i[1].offset)
+
+    def get(self, key, default=None, index=None):
+        """Return tag of code or name if exists, else default."""
+        if index is None:
+            if key in self._dict:
+                return self._dict[key]
+            if not isinstance(key, str):
+                return default
+            index = 0
+        try:
+            tags = self._list[index]
+        except IndexError:
+            return default
+        if key in tags:
+            return tags[key]
+        if not isinstance(key, str):
+            return default
+        for tag in tags.values():
+            if tag.name == key:
+                return tag
+        return default
+
+    def getall(self, key, default=None):
+        """Return list of all tags of code or name if exists, else default."""
+        result = []
+        for tags in self._list:
+            if key in tags:
+                result.append(tags[key])
+            else:
+                break
+        if result:
+            return result
+        if not isinstance(key, str):
+            return default
+        for tags in self._list:
+            for tag in tags.values():
+                if tag.name == key:
+                    result.append(tag)
+                    break
+            if not result:
+                break
+        return result if result else default
+
+    def __getitem__(self, key):
+        """Return first tag of code or name. Raise KeyError if not found."""
+        if key in self._dict:
+            return self._dict[key]
+        if not isinstance(key, str):
+            raise KeyError(key)
+        for tag in self._dict.values():
+            if tag.name == key:
+                return tag
+        raise KeyError(key)
+
+    def __setitem__(self, code, tag):
+        """Add a tag."""
+        self.add(tag)
+
+    def __delitem__(self, key):
+        """Delete all tags of code or name."""
+        found = False
+        for tags in self._list:
+            if key in tags:
+                found = True
+                del tags[key]
+            else:
+                break
+        if found:
+            return None
+        if not isinstance(key, str):
+            raise KeyError(key)
+        for tags in self._list:
+            for tag in tags.values():
+                if tag.name == key:
+                    del tags[tag.code]
+                    found = True
+                    break
+            else:
+                break
+        if not found:
+            raise KeyError(key)
+        return None
+
+    def __contains__(self, item):
+        """Return if tag is in map."""
+        if item in self._dict:
+            return True
+        if not isinstance(item, str):
+            return False
+        for tag in self._dict.values():
+            if tag.name == item:
+                return True
+        return False
+
+    def __iter__(self):
+        """Return iterator over all tags."""
+        return iter(self.values())
+
+    def __len__(self):
+        """Return number of tags."""
+        size = 0
+        for d in self._list:
+            size += len(d)
+        return size
+
+    def __str__(self, detail=0, width=79):
+        """Return string with information about TiffTags."""
+        info = []
+        tlines = []
+        vlines = []
+        for tag in self:
+            value = tag.__str__(width=width+1)
+            tlines.append(value[:width].strip())
+            if detail > 0 and len(value) > width:
+                if detail < 2 and tag.code in (273, 279, 324, 325):
+                    value = pformat(tag.value, width=width, height=detail * 4)
+                else:
+                    value = pformat(tag.value, width=width, height=detail * 12)
+                vlines.append(f'{tag.name}\n{value}')
+        info.append('\n'.join(tlines))
+        if detail > 0 and vlines:
+            info.append('\n')
+            info.append('\n\n'.join(vlines))
+        return '\n'.join(info)
+
+
+class TiffPageSeries:
     """Series of TIFF pages with compatible shape and data type.
 
     Attributes
@@ -5624,14 +5869,18 @@ class TiffPageSeries(object):
         else:
             self.parent = None
         if not truncated and len(pages) == 1:
-            self._len = int(product(self.shape) // product(pages[0].shape))
+            s = product(pages[0].shape)
+            if s > 0:
+                self._len = int(product(self.shape) // s)
+            else:
+                self._len = len(pages)
         else:
             self._len = len(pages)
 
-    def asarray(self, out=None):
+    def asarray(self, **kwargs):
         """Return image data from series of TIFF pages as numpy array."""
         if self.parent:
-            result = self.parent.asarray(series=self, out=out)
+            result = self.parent.asarray(series=self, **kwargs)
             if self.transform is not None:
                 result = self.transform(result)
             return result
@@ -5694,7 +5943,7 @@ class TiffPageSeries(object):
     def __getitem__(self, key):
         """Return specified page(s)."""
         getitem = self._getitem
-        if isinstance(key, inttypes):
+        if isinstance(key, (int, numpy.integer)):
             return getitem(key)
         if isinstance(key, slice):
             return [getitem(i) for i in range(*key.indices(self._len))]
@@ -5705,8 +5954,7 @@ class TiffPageSeries(object):
     def __iter__(self):
         """Return iterator over pages in series."""
         if len(self._pages) == self._len:
-            for page in self._pages:
-                yield page
+            yield from self._pages
         else:
             pages = self.parent.pages
             index = self._pages[0].index
@@ -5718,23 +5966,23 @@ class TiffPageSeries(object):
         return self._len
 
     def __str__(self):
-        """Return string with information about series."""
+        """Return string with information about TiffPageSeries."""
         s = '  '.join(
             s
             for s in (
-                snipstr("'%s'" % self.name, 20) if self.name else '',
+                snipstr(f'{self.name!r}', 20) if self.name else '',
                 'x'.join(str(i) for i in self.shape),
                 str(self.dtype),
                 self.axes,
                 self.kind,
-                '%i Pages' % len(self.pages),
-                ('Offset=%i' % self.offset) if self.offset else '')
+                f'{len(self.pages)} Pages',
+                (f'Offset={self.offset}') if self.offset else '')
             if s
         )
-        return 'TiffPageSeries %i  %s' % (self.index, s)
+        return f'TiffPageSeries {self.index}  {s}'
 
 
-class FileSequence(object):
+class FileSequence:
     """Series of files containing array data of compatible shape and data type.
 
     Attributes
@@ -5762,7 +6010,7 @@ class FileSequence(object):
     }
 
     def __init__(self, fromfile, files, container=None, sort=None,
-                 pattern=None):
+                 pattern=None, axesorder=None):
         """Initialize instance from multiple files.
 
         Parameters
@@ -5784,8 +6032,10 @@ class FileSequence(object):
             in file names. By default (None), no pattern matching is performed.
             Axes can be specified by matching groups preceding the index groups
             in the file name, be provided as group names for the index groups,
-            or be omitted. The predefined 'axes' pattern matches  Olympus OIF
+            or be omitted. The predefined 'axes' pattern matches Olympus OIF
             and Leica TIFF series.
+        axesorder : sequence of int
+            Indices of axes in pattern.
 
         """
         if files is None:
@@ -5795,19 +6045,19 @@ class FileSequence(object):
         self._container = container
         if container:
             import fnmatch
-            if isinstance(container, basestring):
+            if isinstance(container, str):
                 import zipfile
                 self._container = zipfile.ZipFile(container)
             elif not hasattr(self._container, 'open'):
                 raise ValueError('invalid container')
-            if isinstance(files, basestring):
+            if isinstance(files, str):
                 files = fnmatch.filter(self._container.namelist(), files)
                 if sort:
                     files = sort(files)
         else:
             if isinstance(files, pathlib.Path):
                 files = str(files)
-            if isinstance(files, basestring):
+            if isinstance(files, str):
                 files = glob.glob(files)
                 if sort:
                     files = sort(files)
@@ -5819,7 +6069,7 @@ class FileSequence(object):
             raise ValueError('no files found')
         if isinstance(files[0], pathlib.Path):
             files = [str(pathlib.Path(f)) for f in files]
-        elif not isinstance(files[0], basestring):
+        elif not isinstance(files[0], str):
             raise ValueError('not a file name')
 
         if hasattr(fromfile, 'asarray'):
@@ -5852,11 +6102,11 @@ class FileSequence(object):
         pattern = self._patterns.get(pattern, pattern)
         if pattern:
             try:
-                axes, shape, indices, startindex = parse_filenames(files,
-                                                                   pattern)
-            except ValueError as exception:
+                axes, shape, indices, startindex = parse_filenames(
+                    files, pattern, axesorder)
+            except ValueError as exc:
                 log_warning(
-                    'FileSequence: failed to parse file names (%s)', exception)
+                    f'FileSequence: failed to parse file names ({exc})')
 
         if product(shape) != len(files):
             log_warning(
@@ -5871,12 +6121,15 @@ class FileSequence(object):
         self._startindex = startindex
 
     def __str__(self):
-        """Return string with information about file series."""
-        return '\n'.join((
-            str(self._container) if self._container else self.files[0],
-            ' size: %i' % len(self.files),
-            ' shape: %s' % str(self.shape),
-            ' axes: %s' % self.axes,
+        """Return string with information about file FileSequence."""
+        file = str(self._container) if self._container else self.files[0]
+        file = os.path.split(file)[-1]
+        return '\n '.join((
+            self.__class__.__name__,
+            file,
+            f'files: {len(self.files)}',
+            'shape: {}'.format(', '.join(str(i) for i in self.shape)),
+            f'axes: {self.axes}',
         ))
 
     def __len__(self):
@@ -5960,12 +6213,12 @@ class TiffSequence(FileSequence):
     def __init__(self, files=None, container=None, sort=None, pattern=None,
                  imread=imread):
         """Initialize instance from multiple TIFF files."""
-        super(TiffSequence, self).__init__(
+        super().__init__(
             imread, '*.tif' if files is None else files,
             container=container, sort=sort, pattern=pattern)
 
 
-class FileHandle(object):
+class FileHandle:
     """Binary file handle.
 
     A limited, special purpose file handle that can:
@@ -5995,8 +6248,10 @@ class FileHandle(object):
 
     """
 
-    __slots__ = ('_fh', '_file', '_mode', '_name', '_dir', '_lock',
-                 '_offset', '_size', '_close', 'is_file')
+    __slots__ = (
+        '_fh', '_file', '_mode', '_name', '_dir', '_lock', '_offset',
+        '_size', '_close', 'is_file'
+    )
 
     def __init__(self, file, mode='rb', name=None, offset=None, size=None):
         """Initialize file handle from file name or another file handle.
@@ -6037,7 +6292,7 @@ class FileHandle(object):
 
         if isinstance(self._file, pathlib.Path):
             self._file = str(self._file)
-        if isinstance(self._file, basestring):
+        if isinstance(self._file, str):
             # file name
             self._file = os.path.realpath(self._file)
             self._dir, self._name = os.path.split(self._file)
@@ -6055,7 +6310,7 @@ class FileHandle(object):
             if not self._name:
                 if self._offset:
                     name, ext = os.path.splitext(self._file._name)
-                    self._name = '%s@%i%s' % (name, self._offset, ext)
+                    self._name = f'{name}@{self._offset}{ext}'
                 else:
                     self._name = self._file._name
             if self._mode and self._mode != self._file._mode:
@@ -6111,7 +6366,7 @@ class FileHandle(object):
         return self._fh.readinto(b)
 
     def write(self, bytestring):
-        """Write bytestring to file."""
+        """Write bytes to file."""
         return self._fh.write(bytestring)
 
     def flush(self):
@@ -6144,7 +6399,7 @@ class FileHandle(object):
 
         n = fh.readinto(result)
         if n != size:
-            raise ValueError('failed to read %i bytes' % size)
+            raise ValueError(f'failed to read {size} bytes')
 
         if not result.dtype.isnative:
             if not dtype.isnative:
@@ -6159,8 +6414,9 @@ class FileHandle(object):
 
         return result
 
-    def read_segments(self, offsets, bytecounts, lock=None, buffersize=None):
-        """Return iterator over segments read from file.
+    def read_segments(self, offsets, bytecounts, indices=None, sort=True,
+                      lock=None, buffersize=None):
+        """Return iterator over segments read from file and their indices.
 
         A reentrant lock can be used to synchronize seeks and reads up to
         buffersize bytes.
@@ -6170,14 +6426,15 @@ class FileHandle(object):
         if length < 1:
             return
         if length == 1:
+            iindex = 0 if indices is None else indices[0]
             if bytecounts[0] > 0 and offsets[0] > 0:
                 if lock is None:
                     lock = self._lock
                 with lock:
                     self.seek(offsets[0])
-                    yield self._fh.read(bytecounts[0])
+                    yield self._fh.read(bytecounts[0]), iindex
             else:
-                yield None
+                yield None, iindex
             return
 
         if lock is None:
@@ -6185,28 +6442,35 @@ class FileHandle(object):
         if buffersize is None:
             buffersize = 2**26  # 64 MB
 
+        if indices is None:
+            segments = [(i, offsets[i], bytecounts[i])
+                        for i in range(length)]
+        else:
+            segments = [(indices[i], offsets[i], bytecounts[i])
+                        for i in range(length)]
+        if sort:
+            segments = sorted(segments, key=lambda x: x[1])
+
         seek = self.seek
         read = self._fh.read
-        index = 0
-        while index < length:
-            segments = []
+        i = 0
+        while i < length:
+            result = []
             with lock:
                 size = 0
-                while size < buffersize and index < length:
-                    offset = offsets[index]
-                    bytecount = bytecounts[index]
+                while size < buffersize and i < length:
+                    index, offset, bytecount = segments[i]
                     if offset > 0 and bytecount > 0:
                         seek(offset)
-                        segments.append(read(bytecount))
+                        result.append((read(bytecount), index))
                         # buffer = bytearray(bytecount)
                         # n = fh.readinto(buffer)
                         # data.append(buffer[:n])
                         size += bytecount
                     else:
-                        segments.append(None)
-                    index += 1
-            for segment in segments:
-                yield segment
+                        result.append((None, index))
+                    i += 1
+            yield from result
 
     def read_record(self, dtype, shape=1, byteorder=None):
         """Return numpy record from file."""
@@ -6268,7 +6532,9 @@ class FileHandle(object):
         """Return attribute from underlying file object."""
         if self._offset:
             warnings.warn(
-                "FileHandle: '%s' not implemented for embedded files" % name)
+                f'FileHandle: {name!r} not implemented for embedded files',
+                UserWarning
+            )
         return getattr(self._fh, name)
 
     @property
@@ -6300,13 +6566,15 @@ class FileHandle(object):
         self._lock = threading.RLock() if value else NullContext()
 
 
-class NullContext(object):
+class NullContext:
     """Null context manager.
 
     >>> with NullContext():
     ...     pass
 
     """
+
+    __slots = ()
 
     def __enter__(self):
         return self
@@ -6315,7 +6583,7 @@ class NullContext(object):
         pass
 
 
-class OpenFileCache(object):
+class OpenFileCache:
     """Keep files open."""
 
     __slots__ = ('files', 'past', 'lock', 'size')
@@ -6365,45 +6633,42 @@ class OpenFileCache(object):
                     del self.past[self.past.index(filehandle)]
 
 
-class Timer(object):
+class Timer:
     """Stopwatch for timing execution speed."""
 
     __slots__ = ('started', 'stopped', 'duration')
 
-    try:
-        clock = time.perf_counter
-    except AttributeError:
-        clock = time.clock
+    clock = time.perf_counter
 
-    def __init__(self, message='', end=' '):
+    def __init__(self, message=None, end=' '):
         """Initialize timer and print message."""
-        if message:
-            print_(message, end=end, flush=True)
+        if message is not None:
+            print(message, end=end, flush=True)
         self.duration = 0
         self.started = self.stopped = Timer.clock()
 
-    def start(self, message='', end=' '):
+    def start(self, message=None, end=' '):
         """Start timer and return current time."""
-        if message:
-            print_(message, end=end, flush=True)
+        if message is not None:
+            print(message, end=end, flush=True)
         self.duration = 0
         self.started = self.stopped = Timer.clock()
         return self.started
 
-    def stop(self, message='', end=' '):
+    def stop(self, message=None, end=' '):
         """Return duration of timer till start."""
         self.stopped = Timer.clock()
-        if message:
-            print_(message, end=end, flush=True)
+        if message is not None:
+            print(message, end=end, flush=True)
         self.duration = self.stopped - self.started
         return self.duration
 
-    def print(self, message='', end=None):
+    def print(self, message=None, end=None):
         """Print duration from timer start till last stop or now."""
         msg = str(self)
-        if message:
-            print_(message, end=' ')
-        print_(msg, end=end, flush=True)
+        if message is not None:
+            print(message, end=' ')
+        print(msg, end=end, flush=True)
 
     def __str__(self):
         """Return duration from timer start till last stop or now as string."""
@@ -6416,7 +6681,7 @@ class Timer(object):
         i = 0
         while i < len(s) and s[i:i + 2] in '0:0010203040506070809':
             i += 1
-        return '%s s' % s[i:]
+        return f'{s[i:]} s'
 
     def __enter__(self):
         return self
@@ -6425,7 +6690,7 @@ class Timer(object):
         self.print()
 
 
-class LazyConst(object):
+class LazyConst:
     """Class whose attributes are computed on first access from its methods."""
 
     def __init__(self, cls):
@@ -6436,22 +6701,18 @@ class LazyConst(object):
         func = getattr(self._cls, name)
         if not callable(func):
             return func
-        try:
-            value = func()
-        except TypeError:
-            # Python 2 unbound method
-            value = func.__func__()
+        value = func()
         setattr(self, name, value)
         return value
 
 
 @LazyConst
-class TIFF(object):
+class TIFF:
     """Namespace for module constants."""
 
     def CLASSIC_LE():
-        class ClassicTiffLe(object):
-            __slots__ = []
+        class ClassicTiffLe:
+            __slots__ = ()
             version = 42
             byteorder = '<'
             offsetsize = 4
@@ -6467,8 +6728,8 @@ class TIFF(object):
         return ClassicTiffLe
 
     def CLASSIC_BE():
-        class ClassicTiffBe(object):
-            __slots__ = []
+        class ClassicTiffBe:
+            __slots__ = ()
             version = 42
             byteorder = '>'
             offsetsize = 4
@@ -6484,8 +6745,8 @@ class TIFF(object):
         return ClassicTiffBe
 
     def BIG_LE():
-        class BigTiffLe(object):
-            __slots__ = []
+        class BigTiffLe:
+            __slots__ = ()
             version = 43
             byteorder = '<'
             offsetsize = 8
@@ -6501,8 +6762,8 @@ class TIFF(object):
         return BigTiffLe
 
     def BIG_BE():
-        class BigTiffBe(object):
-            __slots__ = []
+        class BigTiffBe:
+            __slots__ = ()
             version = 43
             byteorder = '>'
             offsetsize = 8
@@ -6518,8 +6779,8 @@ class TIFF(object):
         return BigTiffBe
 
     def NDPI_LE():
-        class NdpiTiffLe(object):
-            __slots__ = []
+        class NdpiTiffLe:
+            __slots__ = ()
             version = 42
             byteorder = '<'
             offsetsize = 4
@@ -6536,650 +6797,748 @@ class TIFF(object):
 
     def TAGS():
         # TIFF tag codes and names from TIFF6, TIFF/EP, EXIF, and other specs
-        return {
-            11: 'ProcessingSoftware',
-            254: 'NewSubfileType',
-            255: 'SubfileType',
-            256: 'ImageWidth',
-            257: 'ImageLength',
-            258: 'BitsPerSample',
-            259: 'Compression',
-            262: 'PhotometricInterpretation',
-            263: 'Thresholding',
-            264: 'CellWidth',
-            265: 'CellLength',
-            266: 'FillOrder',
-            269: 'DocumentName',
-            270: 'ImageDescription',
-            271: 'Make',
-            272: 'Model',
-            273: 'StripOffsets',
-            274: 'Orientation',
-            277: 'SamplesPerPixel',
-            278: 'RowsPerStrip',
-            279: 'StripByteCounts',
-            280: 'MinSampleValue',
-            281: 'MaxSampleValue',
-            282: 'XResolution',
-            283: 'YResolution',
-            284: 'PlanarConfiguration',
-            285: 'PageName',
-            286: 'XPosition',
-            287: 'YPosition',
-            288: 'FreeOffsets',
-            289: 'FreeByteCounts',
-            290: 'GrayResponseUnit',
-            291: 'GrayResponseCurve',
-            292: 'T4Options',
-            293: 'T6Options',
-            296: 'ResolutionUnit',
-            297: 'PageNumber',
-            300: 'ColorResponseUnit',
-            301: 'TransferFunction',
-            305: 'Software',
-            306: 'DateTime',
-            315: 'Artist',
-            316: 'HostComputer',
-            317: 'Predictor',
-            318: 'WhitePoint',
-            319: 'PrimaryChromaticities',
-            320: 'ColorMap',
-            321: 'HalftoneHints',
-            322: 'TileWidth',
-            323: 'TileLength',
-            324: 'TileOffsets',
-            325: 'TileByteCounts',
-            326: 'BadFaxLines',
-            327: 'CleanFaxData',
-            328: 'ConsecutiveBadFaxLines',
-            330: 'SubIFDs',
-            332: 'InkSet',
-            333: 'InkNames',
-            334: 'NumberOfInks',
-            336: 'DotRange',
-            337: 'TargetPrinter',
-            338: 'ExtraSamples',
-            339: 'SampleFormat',
-            340: 'SMinSampleValue',
-            341: 'SMaxSampleValue',
-            342: 'TransferRange',
-            343: 'ClipPath',
-            344: 'XClipPathUnits',
-            345: 'YClipPathUnits',
-            346: 'Indexed',
-            347: 'JPEGTables',
-            351: 'OPIProxy',
-            400: 'GlobalParametersIFD',
-            401: 'ProfileType',
-            402: 'FaxProfile',
-            403: 'CodingMethods',
-            404: 'VersionYear',
-            405: 'ModeNumber',
-            433: 'Decode',
-            434: 'DefaultImageColor',
-            435: 'T82Options',
-            437: 'JPEGTables_',  # 347
-            512: 'JPEGProc',
-            513: 'JPEGInterchangeFormat',
-            514: 'JPEGInterchangeFormatLength',
-            515: 'JPEGRestartInterval',
-            517: 'JPEGLosslessPredictors',
-            518: 'JPEGPointTransforms',
-            519: 'JPEGQTables',
-            520: 'JPEGDCTables',
-            521: 'JPEGACTables',
-            529: 'YCbCrCoefficients',
-            530: 'YCbCrSubSampling',
-            531: 'YCbCrPositioning',
-            532: 'ReferenceBlackWhite',
-            559: 'StripRowCounts',
-            700: 'XMP',  # XMLPacket
-            769: 'GDIGamma',  # GDI+
-            770: 'ICCProfileDescriptor',  # GDI+
-            771: 'SRGBRenderingIntent',  # GDI+
-            800: 'ImageTitle',  # GDI+
-            999: 'USPTO_Miscellaneous',
-            4864: 'AndorId',  # TODO: Andor Technology 4864 - 5030
-            4869: 'AndorTemperature',
-            4876: 'AndorExposureTime',
-            4878: 'AndorKineticCycleTime',
-            4879: 'AndorAccumulations',
-            4881: 'AndorAcquisitionCycleTime',
-            4882: 'AndorReadoutTime',
-            4884: 'AndorPhotonCounting',
-            4885: 'AndorEmDacLevel',
-            4890: 'AndorFrames',
-            4896: 'AndorHorizontalFlip',
-            4897: 'AndorVerticalFlip',
-            4898: 'AndorClockwise',
-            4899: 'AndorCounterClockwise',
-            4904: 'AndorVerticalClockVoltage',
-            4905: 'AndorVerticalShiftSpeed',
-            4907: 'AndorPreAmpSetting',
-            4908: 'AndorCameraSerial',
-            4911: 'AndorActualTemperature',
-            4912: 'AndorBaselineClamp',
-            4913: 'AndorPrescans',
-            4914: 'AndorModel',
-            4915: 'AndorChipSizeX',
-            4916: 'AndorChipSizeY',
-            4944: 'AndorBaselineOffset',
-            4966: 'AndorSoftwareVersion',
-            18246: 'Rating',
-            18247: 'XP_DIP_XML',
-            18248: 'StitchInfo',
-            18249: 'RatingPercent',
-            20481: 'ResolutionXUnit',  # GDI+
-            20482: 'ResolutionYUnit',  # GDI+
-            20483: 'ResolutionXLengthUnit',  # GDI+
-            20484: 'ResolutionYLengthUnit',  # GDI+
-            20485: 'PrintFlags',  # GDI+
-            20486: 'PrintFlagsVersion',  # GDI+
-            20487: 'PrintFlagsCrop',  # GDI+
-            20488: 'PrintFlagsBleedWidth',  # GDI+
-            20489: 'PrintFlagsBleedWidthScale',  # GDI+
-            20490: 'HalftoneLPI',  # GDI+
-            20491: 'HalftoneLPIUnit',  # GDI+
-            20492: 'HalftoneDegree',  # GDI+
-            20493: 'HalftoneShape',  # GDI+
-            20494: 'HalftoneMisc',  # GDI+
-            20495: 'HalftoneScreen',  # GDI+
-            20496: 'JPEGQuality',  # GDI+
-            20497: 'GridSize',  # GDI+
-            20498: 'ThumbnailFormat',  # GDI+
-            20499: 'ThumbnailWidth',  # GDI+
-            20500: 'ThumbnailHeight',  # GDI+
-            20501: 'ThumbnailColorDepth',  # GDI+
-            20502: 'ThumbnailPlanes',  # GDI+
-            20503: 'ThumbnailRawBytes',  # GDI+
-            20504: 'ThumbnailSize',  # GDI+
-            20505: 'ThumbnailCompressedSize',  # GDI+
-            20506: 'ColorTransferFunction',  # GDI+
-            20507: 'ThumbnailData',
-            20512: 'ThumbnailImageWidth',  # GDI+
-            20513: 'ThumbnailImageHeight',  # GDI+
-            20514: 'ThumbnailBitsPerSample',  # GDI+
-            20515: 'ThumbnailCompression',
-            20516: 'ThumbnailPhotometricInterp',  # GDI+
-            20517: 'ThumbnailImageDescription',  # GDI+
-            20518: 'ThumbnailEquipMake',  # GDI+
-            20519: 'ThumbnailEquipModel',  # GDI+
-            20520: 'ThumbnailStripOffsets',  # GDI+
-            20521: 'ThumbnailOrientation',  # GDI+
-            20522: 'ThumbnailSamplesPerPixel',  # GDI+
-            20523: 'ThumbnailRowsPerStrip',  # GDI+
-            20524: 'ThumbnailStripBytesCount',  # GDI+
-            20525: 'ThumbnailResolutionX',
-            20526: 'ThumbnailResolutionY',
-            20527: 'ThumbnailPlanarConfig',  # GDI+
-            20528: 'ThumbnailResolutionUnit',
-            20529: 'ThumbnailTransferFunction',
-            20530: 'ThumbnailSoftwareUsed',  # GDI+
-            20531: 'ThumbnailDateTime',  # GDI+
-            20532: 'ThumbnailArtist',  # GDI+
-            20533: 'ThumbnailWhitePoint',  # GDI+
-            20534: 'ThumbnailPrimaryChromaticities',  # GDI+
-            20535: 'ThumbnailYCbCrCoefficients',  # GDI+
-            20536: 'ThumbnailYCbCrSubsampling',  # GDI+
-            20537: 'ThumbnailYCbCrPositioning',
-            20538: 'ThumbnailRefBlackWhite',  # GDI+
-            20539: 'ThumbnailCopyRight',  # GDI+
-            20545: 'InteroperabilityIndex',
-            20546: 'InteroperabilityVersion',
-            20624: 'LuminanceTable',
-            20625: 'ChrominanceTable',
-            20736: 'FrameDelay',  # GDI+
-            20737: 'LoopCount',  # GDI+
-            20738: 'GlobalPalette',  # GDI+
-            20739: 'IndexBackground',  # GDI+
-            20740: 'IndexTransparent',  # GDI+
-            20752: 'PixelUnit',  # GDI+
-            20753: 'PixelPerUnitX',  # GDI+
-            20754: 'PixelPerUnitY',  # GDI+
-            20755: 'PaletteHistogram',  # GDI+
-            28672: 'SonyRawFileType',  # Sony ARW
-            28722: 'VignettingCorrParams',  # Sony ARW
-            28725: 'ChromaticAberrationCorrParams',  # Sony ARW
-            28727: 'DistortionCorrParams',  # Sony ARW
-            # Private tags >= 32768
-            32781: 'ImageID',
-            32931: 'WangTag1',
-            32932: 'WangAnnotation',
-            32933: 'WangTag3',
-            32934: 'WangTag4',
-            32953: 'ImageReferencePoints',
-            32954: 'RegionXformTackPoint',
-            32955: 'WarpQuadrilateral',
-            32956: 'AffineTransformMat',
-            32995: 'Matteing',
-            32996: 'DataType',  # use SampleFormat
-            32997: 'ImageDepth',
-            32998: 'TileDepth',
-            33300: 'ImageFullWidth',
-            33301: 'ImageFullLength',
-            33302: 'TextureFormat',
-            33303: 'TextureWrapModes',
-            33304: 'FieldOfViewCotangent',
-            33305: 'MatrixWorldToScreen',
-            33306: 'MatrixWorldToCamera',
-            33405: 'Model2',
-            33421: 'CFARepeatPatternDim',
-            33422: 'CFAPattern',
-            33423: 'BatteryLevel',
-            33424: 'KodakIFD',
-            33434: 'ExposureTime',
-            33437: 'FNumber',
-            33432: 'Copyright',
-            33445: 'MDFileTag',
-            33446: 'MDScalePixel',
-            33447: 'MDColorTable',
-            33448: 'MDLabName',
-            33449: 'MDSampleInfo',
-            33450: 'MDPrepDate',
-            33451: 'MDPrepTime',
-            33452: 'MDFileUnits',
-            33471: 'OlympusINI',
-            33550: 'ModelPixelScaleTag',
-            33560: 'OlympusSIS',  # see also 33471 and 34853
-            33589: 'AdventScale',
-            33590: 'AdventRevision',
-            33628: 'UIC1tag',  # Metamorph  Universal Imaging Corp STK
-            33629: 'UIC2tag',
-            33630: 'UIC3tag',
-            33631: 'UIC4tag',
-            33723: 'IPTCNAA',
-            33858: 'ExtendedTagsOffset',  # DEFF points IFD with private tags
-            33918: 'IntergraphPacketData',  # INGRPacketDataTag
-            33919: 'IntergraphFlagRegisters',  # INGRFlagRegisters
-            33920: 'IntergraphMatrixTag',  # IrasBTransformationMatrix
-            33921: 'INGRReserved',
-            33922: 'ModelTiepointTag',
-            33923: 'LeicaMagic',
-            34016: 'Site',  # 34016..34032 ANSI IT8 TIFF/IT
-            34017: 'ColorSequence',
-            34018: 'IT8Header',
-            34019: 'RasterPadding',
-            34020: 'BitsPerRunLength',
-            34021: 'BitsPerExtendedRunLength',
-            34022: 'ColorTable',
-            34023: 'ImageColorIndicator',
-            34024: 'BackgroundColorIndicator',
-            34025: 'ImageColorValue',
-            34026: 'BackgroundColorValue',
-            34027: 'PixelIntensityRange',
-            34028: 'TransparencyIndicator',
-            34029: 'ColorCharacterization',
-            34030: 'HCUsage',
-            34031: 'TrapIndicator',
-            34032: 'CMYKEquivalent',
-            34118: 'CZ_SEM',  # Zeiss SEM
-            34152: 'AFCP_IPTC',
-            34232: 'PixelMagicJBIGOptions',  # EXIF, also TI FrameCount
-            34263: 'JPLCartoIFD',
-            34122: 'IPLAB',  # number of images
-            34264: 'ModelTransformationTag',
-            34306: 'WB_GRGBLevels',  # Leaf MOS
-            34310: 'LeafData',
-            34361: 'MM_Header',
-            34362: 'MM_Stamp',
-            34363: 'MM_Unknown',
-            34377: 'ImageResources',  # Photoshop
-            34386: 'MM_UserBlock',
-            34412: 'CZ_LSMINFO',
-            34665: 'ExifTag',
-            34675: 'InterColorProfile',  # ICCProfile
-            34680: 'FEI_SFEG',  #
-            34682: 'FEI_HELIOS',  #
-            34683: 'FEI_TITAN',  #
-            34687: 'FXExtensions',
-            34688: 'MultiProfiles',
-            34689: 'SharedData',
-            34690: 'T88Options',
-            34710: 'MarCCD',  # offset to MarCCD header
-            34732: 'ImageLayer',
-            34735: 'GeoKeyDirectoryTag',
-            34736: 'GeoDoubleParamsTag',
-            34737: 'GeoAsciiParamsTag',
-            34750: 'JBIGOptions',
-            34821: 'PIXTIFF',  # ? Pixel Translations Inc
-            34850: 'ExposureProgram',
-            34852: 'SpectralSensitivity',
-            34853: 'GPSTag',  # GPSIFD  also OlympusSIS2
-            34855: 'ISOSpeedRatings',
-            34856: 'OECF',
-            34857: 'Interlace',
-            34858: 'TimeZoneOffset',
-            34859: 'SelfTimerMode',
-            34864: 'SensitivityType',
-            34865: 'StandardOutputSensitivity',
-            34866: 'RecommendedExposureIndex',
-            34867: 'ISOSpeed',
-            34868: 'ISOSpeedLatitudeyyy',
-            34869: 'ISOSpeedLatitudezzz',
-            34908: 'HylaFAXFaxRecvParams',
-            34909: 'HylaFAXFaxSubAddress',
-            34910: 'HylaFAXFaxRecvTime',
-            34911: 'FaxDcs',
-            34929: 'FedexEDR',
-            34954: 'LeafSubIFD',
-            34959: 'Aphelion1',
-            34960: 'Aphelion2',
-            34961: 'AphelionInternal',  # ADCIS
-            36864: 'ExifVersion',
-            36867: 'DateTimeOriginal',
-            36868: 'DateTimeDigitized',
-            36873: 'GooglePlusUploadCode',
-            36880: 'OffsetTime',
-            36881: 'OffsetTimeOriginal',
-            36882: 'OffsetTimeDigitized',
-            # TODO: Pilatus/CHESS/TV6 36864..37120 conflicting with Exif tags
-            # 36864: 'TVX ?',
-            # 36865: 'TVX_NumExposure',
-            # 36866: 'TVX_NumBackground',
-            # 36867: 'TVX_ExposureTime',
-            # 36868: 'TVX_BackgroundTime',
-            # 36870: 'TVX ?',
-            # 36873: 'TVX_SubBpp',
-            # 36874: 'TVX_SubWide',
-            # 36875: 'TVX_SubHigh',
-            # 36876: 'TVX_BlackLevel',
-            # 36877: 'TVX_DarkCurrent',
-            # 36878: 'TVX_ReadNoise',
-            # 36879: 'TVX_DarkCurrentNoise',
-            # 36880: 'TVX_BeamMonitor',
-            # 37120: 'TVX_UserVariables',  # A/D values
-            37121: 'ComponentsConfiguration',
-            37122: 'CompressedBitsPerPixel',
-            37377: 'ShutterSpeedValue',
-            37378: 'ApertureValue',
-            37379: 'BrightnessValue',
-            37380: 'ExposureBiasValue',
-            37381: 'MaxApertureValue',
-            37382: 'SubjectDistance',
-            37383: 'MeteringMode',
-            37384: 'LightSource',
-            37385: 'Flash',
-            37386: 'FocalLength',
-            37387: 'FlashEnergy_',  # 37387
-            37388: 'SpatialFrequencyResponse_',  # 37388
-            37389: 'Noise',
-            37390: 'FocalPlaneXResolution',
-            37391: 'FocalPlaneYResolution',
-            37392: 'FocalPlaneResolutionUnit',
-            37393: 'ImageNumber',
-            37394: 'SecurityClassification',
-            37395: 'ImageHistory',
-            37396: 'SubjectLocation',
-            37397: 'ExposureIndex',
-            37398: 'TIFFEPStandardID',
-            37399: 'SensingMethod',
-            37434: 'CIP3DataFile',
-            37435: 'CIP3Sheet',
-            37436: 'CIP3Side',
-            37439: 'StoNits',
-            37500: 'MakerNote',
-            37510: 'UserComment',
-            37520: 'SubsecTime',
-            37521: 'SubsecTimeOriginal',
-            37522: 'SubsecTimeDigitized',
-            37679: 'MODIText',  # Microsoft Office Document Imaging
-            37680: 'MODIOLEPropertySetStorage',
-            37681: 'MODIPositioning',
-            37706: 'TVIPS',  # offset to TemData structure
-            37707: 'TVIPS1',
-            37708: 'TVIPS2',  # same TemData structure as undefined
-            37724: 'ImageSourceData',  # Photoshop
-            37888: 'Temperature',
-            37889: 'Humidity',
-            37890: 'Pressure',
-            37891: 'WaterDepth',
-            37892: 'Acceleration',
-            37893: 'CameraElevationAngle',
-            40001: 'MC_IpWinScal',  # Media Cybernetics
-            # 40001: 'RecipName',  # MS FAX
-            40002: 'RecipNumber',
-            40003: 'SenderName',
-            40004: 'Routing',
-            40005: 'CallerId',
-            40006: 'TSID',
-            40007: 'CSID',
-            40008: 'FaxTime',
-            40100: 'MC_IdOld',
-            40106: 'MC_Unknown',
-            40965: 'InteroperabilityTag',  # InteropOffset
-            40091: 'XPTitle',
-            40092: 'XPComment',
-            40093: 'XPAuthor',
-            40094: 'XPKeywords',
-            40095: 'XPSubject',
-            40960: 'FlashpixVersion',
-            40961: 'ColorSpace',
-            40962: 'PixelXDimension',
-            40963: 'PixelYDimension',
-            40964: 'RelatedSoundFile',
-            40976: 'SamsungRawPointersOffset',
-            40977: 'SamsungRawPointersLength',
-            41217: 'SamsungRawByteOrder',
-            41218: 'SamsungRawUnknown',
-            41483: 'FlashEnergy',
-            41484: 'SpatialFrequencyResponse',
-            41485: 'Noise_',  # 37389
-            41486: 'FocalPlaneXResolution_',  # 37390
-            41487: 'FocalPlaneYResolution_',  # 37391
-            41488: 'FocalPlaneResolutionUnit_',  # 37392
-            41489: 'ImageNumber_',  # 37393
-            41490: 'SecurityClassification_',  # 37394
-            41491: 'ImageHistory_',  # 37395
-            41492: 'SubjectLocation_',  # 37395
-            41493: 'ExposureIndex_ ',  # 37397
-            41494: 'TIFF-EPStandardID',
-            41495: 'SensingMethod_',  # 37399
-            41728: 'FileSource',
-            41729: 'SceneType',
-            41730: 'CFAPattern_',  # 33422
-            41985: 'CustomRendered',
-            41986: 'ExposureMode',
-            41987: 'WhiteBalance',
-            41988: 'DigitalZoomRatio',
-            41989: 'FocalLengthIn35mmFilm',
-            41990: 'SceneCaptureType',
-            41991: 'GainControl',
-            41992: 'Contrast',
-            41993: 'Saturation',
-            41994: 'Sharpness',
-            41995: 'DeviceSettingDescription',
-            41996: 'SubjectDistanceRange',
-            42016: 'ImageUniqueID',
-            42032: 'CameraOwnerName',
-            42033: 'BodySerialNumber',
-            42034: 'LensSpecification',
-            42035: 'LensMake',
-            42036: 'LensModel',
-            42037: 'LensSerialNumber',
-            42112: 'GDAL_METADATA',
-            42113: 'GDAL_NODATA',
-            42240: 'Gamma',
-            43314: 'NIHImageHeader',
-            44992: 'ExpandSoftware',
-            44993: 'ExpandLens',
-            44994: 'ExpandFilm',
-            44995: 'ExpandFilterLens',
-            44996: 'ExpandScanner',
-            44997: 'ExpandFlashLamp',
-            48129: 'PixelFormat',  # HDP and WDP
-            48130: 'Transformation',
-            48131: 'Uncompressed',
-            48132: 'ImageType',
-            48256: 'ImageWidth_',  # 256
-            48257: 'ImageHeight_',
-            48258: 'WidthResolution',
-            48259: 'HeightResolution',
-            48320: 'ImageOffset',
-            48321: 'ImageByteCount',
-            48322: 'AlphaOffset',
-            48323: 'AlphaByteCount',
-            48324: 'ImageDataDiscard',
-            48325: 'AlphaDataDiscard',
-            50003: 'KodakAPP3',
-            50215: 'OceScanjobDescription',
-            50216: 'OceApplicationSelector',
-            50217: 'OceIdentificationNumber',
-            50218: 'OceImageLogicCharacteristics',
-            50255: 'Annotations',
-            50288: 'MC_Id',  # Media Cybernetics
-            50289: 'MC_XYPosition',
-            50290: 'MC_ZPosition',
-            50291: 'MC_XYCalibration',
-            50292: 'MC_LensCharacteristics',
-            50293: 'MC_ChannelName',
-            50294: 'MC_ExcitationWavelength',
-            50295: 'MC_TimeStamp',
-            50296: 'MC_FrameProperties',
-            50341: 'PrintImageMatching',
-            50495: 'PCO_RAW',  # TODO: PCO CamWare
-            50547: 'OriginalFileName',
-            50560: 'USPTO_OriginalContentType',  # US Patent Office
-            50561: 'USPTO_RotationCode',
-            50648: 'CR2Unknown1',
-            50649: 'CR2Unknown2',
-            50656: 'CR2CFAPattern',
-            50674: 'LercParameters',  # ESGI 50674 .. 50677
-            50706: 'DNGVersion',  # DNG 50706 .. 51112
-            50707: 'DNGBackwardVersion',
-            50708: 'UniqueCameraModel',
-            50709: 'LocalizedCameraModel',
-            50710: 'CFAPlaneColor',
-            50711: 'CFALayout',
-            50712: 'LinearizationTable',
-            50713: 'BlackLevelRepeatDim',
-            50714: 'BlackLevel',
-            50715: 'BlackLevelDeltaH',
-            50716: 'BlackLevelDeltaV',
-            50717: 'WhiteLevel',
-            50718: 'DefaultScale',
-            50719: 'DefaultCropOrigin',
-            50720: 'DefaultCropSize',
-            50721: 'ColorMatrix1',
-            50722: 'ColorMatrix2',
-            50723: 'CameraCalibration1',
-            50724: 'CameraCalibration2',
-            50725: 'ReductionMatrix1',
-            50726: 'ReductionMatrix2',
-            50727: 'AnalogBalance',
-            50728: 'AsShotNeutral',
-            50729: 'AsShotWhiteXY',
-            50730: 'BaselineExposure',
-            50731: 'BaselineNoise',
-            50732: 'BaselineSharpness',
-            50733: 'BayerGreenSplit',
-            50734: 'LinearResponseLimit',
-            50735: 'CameraSerialNumber',
-            50736: 'LensInfo',
-            50737: 'ChromaBlurRadius',
-            50738: 'AntiAliasStrength',
-            50739: 'ShadowScale',
-            50740: 'DNGPrivateData',
-            50741: 'MakerNoteSafety',
-            50752: 'RawImageSegmentation',
-            50778: 'CalibrationIlluminant1',
-            50779: 'CalibrationIlluminant2',
-            50780: 'BestQualityScale',
-            50781: 'RawDataUniqueID',
-            50784: 'AliasLayerMetadata',
-            50827: 'OriginalRawFileName',
-            50828: 'OriginalRawFileData',
-            50829: 'ActiveArea',
-            50830: 'MaskedAreas',
-            50831: 'AsShotICCProfile',
-            50832: 'AsShotPreProfileMatrix',
-            50833: 'CurrentICCProfile',
-            50834: 'CurrentPreProfileMatrix',
-            50838: 'IJMetadataByteCounts',
-            50839: 'IJMetadata',
-            50844: 'RPCCoefficientTag',
-            50879: 'ColorimetricReference',
-            50885: 'SRawType',
-            50898: 'PanasonicTitle',
-            50899: 'PanasonicTitle2',
-            50908: 'RSID',  # DGIWG
-            50909: 'GEO_METADATA',  # DGIWG XML
-            50931: 'CameraCalibrationSignature',
-            50932: 'ProfileCalibrationSignature',
-            50933: 'ProfileIFD',
-            50934: 'AsShotProfileName',
-            50935: 'NoiseReductionApplied',
-            50936: 'ProfileName',
-            50937: 'ProfileHueSatMapDims',
-            50938: 'ProfileHueSatMapData1',
-            50939: 'ProfileHueSatMapData2',
-            50940: 'ProfileToneCurve',
-            50941: 'ProfileEmbedPolicy',
-            50942: 'ProfileCopyright',
-            50964: 'ForwardMatrix1',
-            50965: 'ForwardMatrix2',
-            50966: 'PreviewApplicationName',
-            50967: 'PreviewApplicationVersion',
-            50968: 'PreviewSettingsName',
-            50969: 'PreviewSettingsDigest',
-            50970: 'PreviewColorSpace',
-            50971: 'PreviewDateTime',
-            50972: 'RawImageDigest',
-            50973: 'OriginalRawFileDigest',
-            50974: 'SubTileBlockSize',
-            50975: 'RowInterleaveFactor',
-            50981: 'ProfileLookTableDims',
-            50982: 'ProfileLookTableData',
-            51008: 'OpcodeList1',
-            51009: 'OpcodeList2',
-            51022: 'OpcodeList3',
-            51023: 'FibicsXML',  #
-            51041: 'NoiseProfile',
-            51043: 'TimeCodes',
-            51044: 'FrameRate',
-            51058: 'TStop',
-            51081: 'ReelName',
-            51089: 'OriginalDefaultFinalSize',
-            51090: 'OriginalBestQualitySize',
-            51091: 'OriginalDefaultCropSize',
-            51105: 'CameraLabel',
-            51107: 'ProfileHueSatMapEncoding',
-            51108: 'ProfileLookTableEncoding',
-            51109: 'BaselineExposureOffset',
-            51110: 'DefaultBlackRender',
-            51111: 'NewRawImageDigest',
-            51112: 'RawToPreviewGain',
-            51125: 'DefaultUserCrop',
-            51123: 'MicroManagerMetadata',
-            51159: 'ZIFmetadata',  # Objective Pathology Services
-            51160: 'ZIFannotations',  # Objective Pathology Services
-            59932: 'Padding',
-            59933: 'OffsetSchema',
-            # Reusable Tags 65000-65535
-            # 65000:  Dimap_Document XML
-            # 65000-65112:  Photoshop Camera RAW EXIF tags
-            # 65000: 'OwnerName',
-            # 65001: 'SerialNumber',
-            # 65002: 'Lens',
-            # 65024: 'KDC_IFD',
-            # 65100: 'RawFile',
-            # 65101: 'Converter',
-            # 65102: 'WhiteBalance',
-            # 65105: 'Exposure',
-            # 65106: 'Shadows',
-            # 65107: 'Brightness',
-            # 65108: 'Contrast',
-            # 65109: 'Saturation',
-            # 65110: 'Sharpness',
-            # 65111: 'Smoothness',
-            # 65112: 'MoireFilter',
-            65200: 'FlexXML',
-        }
+        class TiffTagRegistry:
+            """Registry of TIFF tag codes and names.
 
-    def TAG_NAMES():
-        return {v: c for c, v in TIFF.TAGS.items()}
+            The registry allows to look up tag codes and names by indexing
+            with names and codes respectively.
+            One tag code may be registered with several names,
+            e.g. 34853 is used for GPSTag or OlympusSIS2.
+            Different tag codes may be registered with the same name,
+            e.g. 37387 and 41483 are both named FlashEnergy.
+
+            """
+
+            def __init__(self, arg):
+                self._dict = {}
+                self._list = [self._dict]
+                self.update(arg)
+
+            def update(self, arg):
+                """Add codes and names from sequence or dict to registry."""
+                if isinstance(arg, dict):
+                    arg = arg.items()
+                for code, name in arg:
+                    self.add(code, name)
+
+            def add(self, code, name):
+                """Add code and name to registry."""
+                for d in self._list:
+                    if code in d and d[code] == name:
+                        break
+                    if code not in d and name not in d:
+                        d[code] = name
+                        d[name] = code
+                        break
+                else:
+                    self._list.append({code: name, name: code})
+
+            def items(self):
+                """Return all registry items as (code, name)."""
+                items = (i for d in self._list for i in d.items()
+                         if isinstance(i[0], int))
+                return sorted(items, key=lambda i: i[0])
+
+            def get(self, key, default=None):
+                """Return first code/name if exists, else default."""
+                for d in self._list:
+                    if key in d:
+                        return d[key]
+                return default
+
+            def getall(self, key, default=None):
+                """Return list of all codes/names if exists, else default."""
+                result = [d[key] for d in self._list if key in d]
+                return result if result else default
+
+            def __getitem__(self, key):
+                """Return first code/name. Raise KeyError if not found."""
+                for d in self._list:
+                    if key in d:
+                        return d[key]
+                raise KeyError(key)
+
+            def __delitem__(self, key):
+                """Delete all tags of code or name."""
+                found = False
+                for d in self._list:
+                    if key in d:
+                        found = True
+                        value = d[key]
+                        del d[key]
+                        del d[value]
+                if not found:
+                    raise KeyError(key)
+
+            def __contains__(self, item):
+                """Return if code or name is in registry."""
+                for d in self._list:
+                    if item in d:
+                        return True
+                return False
+
+            def __iter__(self):
+                """Return iterator over all items in registry."""
+                return iter(self.items())
+
+            def __len__(self):
+                """Return number of registered tags."""
+                size = 0
+                for d in self._list:
+                    size += len(d)
+                return size // 2
+
+            def __str__(self):
+                """Return string with information about TiffTags."""
+                return 'TiffTagRegistry(((\n  {}\n))'.format(
+                    ',\n  '.join(f'({code}, {name!r})'
+                                 for code, name in self.items()))
+
+        return TiffTagRegistry((
+            (11, 'ProcessingSoftware'),
+            (254, 'NewSubfileType'),
+            (255, 'SubfileType'),
+            (256, 'ImageWidth'),
+            (257, 'ImageLength'),
+            (258, 'BitsPerSample'),
+            (259, 'Compression'),
+            (262, 'PhotometricInterpretation'),
+            (263, 'Thresholding'),
+            (264, 'CellWidth'),
+            (265, 'CellLength'),
+            (266, 'FillOrder'),
+            (269, 'DocumentName'),
+            (270, 'ImageDescription'),
+            (271, 'Make'),
+            (272, 'Model'),
+            (273, 'StripOffsets'),
+            (274, 'Orientation'),
+            (277, 'SamplesPerPixel'),
+            (278, 'RowsPerStrip'),
+            (279, 'StripByteCounts'),
+            (280, 'MinSampleValue'),
+            (281, 'MaxSampleValue'),
+            (282, 'XResolution'),
+            (283, 'YResolution'),
+            (284, 'PlanarConfiguration'),
+            (285, 'PageName'),
+            (286, 'XPosition'),
+            (287, 'YPosition'),
+            (288, 'FreeOffsets'),
+            (289, 'FreeByteCounts'),
+            (290, 'GrayResponseUnit'),
+            (291, 'GrayResponseCurve'),
+            (292, 'T4Options'),
+            (293, 'T6Options'),
+            (296, 'ResolutionUnit'),
+            (297, 'PageNumber'),
+            (300, 'ColorResponseUnit'),
+            (301, 'TransferFunction'),
+            (305, 'Software'),
+            (306, 'DateTime'),
+            (315, 'Artist'),
+            (316, 'HostComputer'),
+            (317, 'Predictor'),
+            (318, 'WhitePoint'),
+            (319, 'PrimaryChromaticities'),
+            (320, 'ColorMap'),
+            (321, 'HalftoneHints'),
+            (322, 'TileWidth'),
+            (323, 'TileLength'),
+            (324, 'TileOffsets'),
+            (325, 'TileByteCounts'),
+            (326, 'BadFaxLines'),
+            (327, 'CleanFaxData'),
+            (328, 'ConsecutiveBadFaxLines'),
+            (330, 'SubIFDs'),
+            (332, 'InkSet'),
+            (333, 'InkNames'),
+            (334, 'NumberOfInks'),
+            (336, 'DotRange'),
+            (337, 'TargetPrinter'),
+            (338, 'ExtraSamples'),
+            (339, 'SampleFormat'),
+            (340, 'SMinSampleValue'),
+            (341, 'SMaxSampleValue'),
+            (342, 'TransferRange'),
+            (343, 'ClipPath'),
+            (344, 'XClipPathUnits'),
+            (345, 'YClipPathUnits'),
+            (346, 'Indexed'),
+            (347, 'JPEGTables'),
+            (351, 'OPIProxy'),
+            (400, 'GlobalParametersIFD'),
+            (401, 'ProfileType'),
+            (402, 'FaxProfile'),
+            (403, 'CodingMethods'),
+            (404, 'VersionYear'),
+            (405, 'ModeNumber'),
+            (433, 'Decode'),
+            (434, 'DefaultImageColor'),
+            (435, 'T82Options'),
+            (437, 'JPEGTables'),  # 347
+            (512, 'JPEGProc'),
+            (513, 'JPEGInterchangeFormat'),
+            (514, 'JPEGInterchangeFormatLength'),
+            (515, 'JPEGRestartInterval'),
+            (517, 'JPEGLosslessPredictors'),
+            (518, 'JPEGPointTransforms'),
+            (519, 'JPEGQTables'),
+            (520, 'JPEGDCTables'),
+            (521, 'JPEGACTables'),
+            (529, 'YCbCrCoefficients'),
+            (530, 'YCbCrSubSampling'),
+            (531, 'YCbCrPositioning'),
+            (532, 'ReferenceBlackWhite'),
+            (559, 'StripRowCounts'),
+            (700, 'XMP'),  # XMLPacket
+            (769, 'GDIGamma'),  # GDI+
+            (770, 'ICCProfileDescriptor'),  # GDI+
+            (771, 'SRGBRenderingIntent'),  # GDI+
+            (800, 'ImageTitle'),  # GDI+
+            (999, 'USPTO_Miscellaneous'),
+            (4864, 'AndorId'),  # TODO, Andor Technology 4864 - 5030
+            (4869, 'AndorTemperature'),
+            (4876, 'AndorExposureTime'),
+            (4878, 'AndorKineticCycleTime'),
+            (4879, 'AndorAccumulations'),
+            (4881, 'AndorAcquisitionCycleTime'),
+            (4882, 'AndorReadoutTime'),
+            (4884, 'AndorPhotonCounting'),
+            (4885, 'AndorEmDacLevel'),
+            (4890, 'AndorFrames'),
+            (4896, 'AndorHorizontalFlip'),
+            (4897, 'AndorVerticalFlip'),
+            (4898, 'AndorClockwise'),
+            (4899, 'AndorCounterClockwise'),
+            (4904, 'AndorVerticalClockVoltage'),
+            (4905, 'AndorVerticalShiftSpeed'),
+            (4907, 'AndorPreAmpSetting'),
+            (4908, 'AndorCameraSerial'),
+            (4911, 'AndorActualTemperature'),
+            (4912, 'AndorBaselineClamp'),
+            (4913, 'AndorPrescans'),
+            (4914, 'AndorModel'),
+            (4915, 'AndorChipSizeX'),
+            (4916, 'AndorChipSizeY'),
+            (4944, 'AndorBaselineOffset'),
+            (4966, 'AndorSoftwareVersion'),
+            (18246, 'Rating'),
+            (18247, 'XP_DIP_XML'),
+            (18248, 'StitchInfo'),
+            (18249, 'RatingPercent'),
+            (20481, 'ResolutionXUnit'),  # GDI+
+            (20482, 'ResolutionYUnit'),  # GDI+
+            (20483, 'ResolutionXLengthUnit'),  # GDI+
+            (20484, 'ResolutionYLengthUnit'),  # GDI+
+            (20485, 'PrintFlags'),  # GDI+
+            (20486, 'PrintFlagsVersion'),  # GDI+
+            (20487, 'PrintFlagsCrop'),  # GDI+
+            (20488, 'PrintFlagsBleedWidth'),  # GDI+
+            (20489, 'PrintFlagsBleedWidthScale'),  # GDI+
+            (20490, 'HalftoneLPI'),  # GDI+
+            (20491, 'HalftoneLPIUnit'),  # GDI+
+            (20492, 'HalftoneDegree'),  # GDI+
+            (20493, 'HalftoneShape'),  # GDI+
+            (20494, 'HalftoneMisc'),  # GDI+
+            (20495, 'HalftoneScreen'),  # GDI+
+            (20496, 'JPEGQuality'),  # GDI+
+            (20497, 'GridSize'),  # GDI+
+            (20498, 'ThumbnailFormat'),  # GDI+
+            (20499, 'ThumbnailWidth'),  # GDI+
+            (20500, 'ThumbnailHeight'),  # GDI+
+            (20501, 'ThumbnailColorDepth'),  # GDI+
+            (20502, 'ThumbnailPlanes'),  # GDI+
+            (20503, 'ThumbnailRawBytes'),  # GDI+
+            (20504, 'ThumbnailSize'),  # GDI+
+            (20505, 'ThumbnailCompressedSize'),  # GDI+
+            (20506, 'ColorTransferFunction'),  # GDI+
+            (20507, 'ThumbnailData'),
+            (20512, 'ThumbnailImageWidth'),  # GDI+
+            (20513, 'ThumbnailImageHeight'),  # GDI+
+            (20514, 'ThumbnailBitsPerSample'),  # GDI+
+            (20515, 'ThumbnailCompression'),
+            (20516, 'ThumbnailPhotometricInterp'),  # GDI+
+            (20517, 'ThumbnailImageDescription'),  # GDI+
+            (20518, 'ThumbnailEquipMake'),  # GDI+
+            (20519, 'ThumbnailEquipModel'),  # GDI+
+            (20520, 'ThumbnailStripOffsets'),  # GDI+
+            (20521, 'ThumbnailOrientation'),  # GDI+
+            (20522, 'ThumbnailSamplesPerPixel'),  # GDI+
+            (20523, 'ThumbnailRowsPerStrip'),  # GDI+
+            (20524, 'ThumbnailStripBytesCount'),  # GDI+
+            (20525, 'ThumbnailResolutionX'),
+            (20526, 'ThumbnailResolutionY'),
+            (20527, 'ThumbnailPlanarConfig'),  # GDI+
+            (20528, 'ThumbnailResolutionUnit'),
+            (20529, 'ThumbnailTransferFunction'),
+            (20530, 'ThumbnailSoftwareUsed'),  # GDI+
+            (20531, 'ThumbnailDateTime'),  # GDI+
+            (20532, 'ThumbnailArtist'),  # GDI+
+            (20533, 'ThumbnailWhitePoint'),  # GDI+
+            (20534, 'ThumbnailPrimaryChromaticities'),  # GDI+
+            (20535, 'ThumbnailYCbCrCoefficients'),  # GDI+
+            (20536, 'ThumbnailYCbCrSubsampling'),  # GDI+
+            (20537, 'ThumbnailYCbCrPositioning'),
+            (20538, 'ThumbnailRefBlackWhite'),  # GDI+
+            (20539, 'ThumbnailCopyRight'),  # GDI+
+            (20545, 'InteroperabilityIndex'),
+            (20546, 'InteroperabilityVersion'),
+            (20624, 'LuminanceTable'),
+            (20625, 'ChrominanceTable'),
+            (20736, 'FrameDelay'),  # GDI+
+            (20737, 'LoopCount'),  # GDI+
+            (20738, 'GlobalPalette'),  # GDI+
+            (20739, 'IndexBackground'),  # GDI+
+            (20740, 'IndexTransparent'),  # GDI+
+            (20752, 'PixelUnit'),  # GDI+
+            (20753, 'PixelPerUnitX'),  # GDI+
+            (20754, 'PixelPerUnitY'),  # GDI+
+            (20755, 'PaletteHistogram'),  # GDI+
+            (28672, 'SonyRawFileType'),  # Sony ARW
+            (28722, 'VignettingCorrParams'),  # Sony ARW
+            (28725, 'ChromaticAberrationCorrParams'),  # Sony ARW
+            (28727, 'DistortionCorrParams'),  # Sony ARW
+            # Private tags >= 32768
+            (32781, 'ImageID'),
+            (32931, 'WangTag1'),
+            (32932, 'WangAnnotation'),
+            (32933, 'WangTag3'),
+            (32934, 'WangTag4'),
+            (32953, 'ImageReferencePoints'),
+            (32954, 'RegionXformTackPoint'),
+            (32955, 'WarpQuadrilateral'),
+            (32956, 'AffineTransformMat'),
+            (32995, 'Matteing'),
+            (32996, 'DataType'),  # use SampleFormat
+            (32997, 'ImageDepth'),
+            (32998, 'TileDepth'),
+            (33300, 'ImageFullWidth'),
+            (33301, 'ImageFullLength'),
+            (33302, 'TextureFormat'),
+            (33303, 'TextureWrapModes'),
+            (33304, 'FieldOfViewCotangent'),
+            (33305, 'MatrixWorldToScreen'),
+            (33306, 'MatrixWorldToCamera'),
+            (33405, 'Model2'),
+            (33421, 'CFARepeatPatternDim'),
+            (33422, 'CFAPattern'),
+            (33423, 'BatteryLevel'),
+            (33424, 'KodakIFD'),
+            (33434, 'ExposureTime'),
+            (33437, 'FNumber'),
+            (33432, 'Copyright'),
+            (33445, 'MDFileTag'),
+            (33446, 'MDScalePixel'),
+            (33447, 'MDColorTable'),
+            (33448, 'MDLabName'),
+            (33449, 'MDSampleInfo'),
+            (33450, 'MDPrepDate'),
+            (33451, 'MDPrepTime'),
+            (33452, 'MDFileUnits'),
+            (33471, 'OlympusINI'),
+            (33550, 'ModelPixelScaleTag'),
+            (33560, 'OlympusSIS'),  # see also 33471 and 34853
+            (33589, 'AdventScale'),
+            (33590, 'AdventRevision'),
+            (33628, 'UIC1tag'),  # Metamorph  Universal Imaging Corp STK
+            (33629, 'UIC2tag'),
+            (33630, 'UIC3tag'),
+            (33631, 'UIC4tag'),
+            (33723, 'IPTCNAA'),
+            (33858, 'ExtendedTagsOffset'),  # DEFF points IFD with private tags
+            (33918, 'IntergraphPacketData'),  # INGRPacketDataTag
+            (33919, 'IntergraphFlagRegisters'),  # INGRFlagRegisters
+            (33920, 'IntergraphMatrixTag'),  # IrasBTransformationMatrix
+            (33921, 'INGRReserved'),
+            (33922, 'ModelTiepointTag'),
+            (33923, 'LeicaMagic'),
+            (34016, 'Site'),  # 34016..34032 ANSI IT8 TIFF/IT
+            (34017, 'ColorSequence'),
+            (34018, 'IT8Header'),
+            (34019, 'RasterPadding'),
+            (34020, 'BitsPerRunLength'),
+            (34021, 'BitsPerExtendedRunLength'),
+            (34022, 'ColorTable'),
+            (34023, 'ImageColorIndicator'),
+            (34024, 'BackgroundColorIndicator'),
+            (34025, 'ImageColorValue'),
+            (34026, 'BackgroundColorValue'),
+            (34027, 'PixelIntensityRange'),
+            (34028, 'TransparencyIndicator'),
+            (34029, 'ColorCharacterization'),
+            (34030, 'HCUsage'),
+            (34031, 'TrapIndicator'),
+            (34032, 'CMYKEquivalent'),
+            (34118, 'CZ_SEM'),  # Zeiss SEM
+            (34152, 'AFCP_IPTC'),
+            (34232, 'PixelMagicJBIGOptions'),  # EXIF, also TI FrameCount
+            (34263, 'JPLCartoIFD'),
+            (34122, 'IPLAB'),  # number of images
+            (34264, 'ModelTransformationTag'),
+            (34306, 'WB_GRGBLevels'),  # Leaf MOS
+            (34310, 'LeafData'),
+            (34361, 'MM_Header'),
+            (34362, 'MM_Stamp'),
+            (34363, 'MM_Unknown'),
+            (34377, 'ImageResources'),  # Photoshop
+            (34386, 'MM_UserBlock'),
+            (34412, 'CZ_LSMINFO'),
+            (34665, 'ExifTag'),
+            (34675, 'InterColorProfile'),  # ICCProfile
+            (34680, 'FEI_SFEG'),  #
+            (34682, 'FEI_HELIOS'),  #
+            (34683, 'FEI_TITAN'),  #
+            (34687, 'FXExtensions'),
+            (34688, 'MultiProfiles'),
+            (34689, 'SharedData'),
+            (34690, 'T88Options'),
+            (34710, 'MarCCD'),  # offset to MarCCD header
+            (34732, 'ImageLayer'),
+            (34735, 'GeoKeyDirectoryTag'),
+            (34736, 'GeoDoubleParamsTag'),
+            (34737, 'GeoAsciiParamsTag'),
+            (34750, 'JBIGOptions'),
+            (34821, 'PIXTIFF'),  # ? Pixel Translations Inc
+            (34850, 'ExposureProgram'),
+            (34852, 'SpectralSensitivity'),
+            (34853, 'GPSTag'),  # GPSIFD  also OlympusSIS2
+            (34853, 'OlympusSIS2'),
+            (34855, 'ISOSpeedRatings'),
+            (34856, 'OECF'),
+            (34857, 'Interlace'),
+            (34858, 'TimeZoneOffset'),
+            (34859, 'SelfTimerMode'),
+            (34864, 'SensitivityType'),
+            (34865, 'StandardOutputSensitivity'),
+            (34866, 'RecommendedExposureIndex'),
+            (34867, 'ISOSpeed'),
+            (34868, 'ISOSpeedLatitudeyyy'),
+            (34869, 'ISOSpeedLatitudezzz'),
+            (34908, 'HylaFAXFaxRecvParams'),
+            (34909, 'HylaFAXFaxSubAddress'),
+            (34910, 'HylaFAXFaxRecvTime'),
+            (34911, 'FaxDcs'),
+            (34929, 'FedexEDR'),
+            (34954, 'LeafSubIFD'),
+            (34959, 'Aphelion1'),
+            (34960, 'Aphelion2'),
+            (34961, 'AphelionInternal'),  # ADCIS
+            (36864, 'ExifVersion'),
+            (36867, 'DateTimeOriginal'),
+            (36868, 'DateTimeDigitized'),
+            (36873, 'GooglePlusUploadCode'),
+            (36880, 'OffsetTime'),
+            (36881, 'OffsetTimeOriginal'),
+            (36882, 'OffsetTimeDigitized'),
+            # TODO, Pilatus/CHESS/TV6 36864..37120 conflicting with Exif tags
+            (36864, 'TVX_Unknown'),
+            (36865, 'TVX_NumExposure'),
+            (36866, 'TVX_NumBackground'),
+            (36867, 'TVX_ExposureTime'),
+            (36868, 'TVX_BackgroundTime'),
+            (36870, 'TVX_Unknown'),
+            (36873, 'TVX_SubBpp'),
+            (36874, 'TVX_SubWide'),
+            (36875, 'TVX_SubHigh'),
+            (36876, 'TVX_BlackLevel'),
+            (36877, 'TVX_DarkCurrent'),
+            (36878, 'TVX_ReadNoise'),
+            (36879, 'TVX_DarkCurrentNoise'),
+            (36880, 'TVX_BeamMonitor'),
+            (37120, 'TVX_UserVariables'),  # A/D values
+            (37121, 'ComponentsConfiguration'),
+            (37122, 'CompressedBitsPerPixel'),
+            (37377, 'ShutterSpeedValue'),
+            (37378, 'ApertureValue'),
+            (37379, 'BrightnessValue'),
+            (37380, 'ExposureBiasValue'),
+            (37381, 'MaxApertureValue'),
+            (37382, 'SubjectDistance'),
+            (37383, 'MeteringMode'),
+            (37384, 'LightSource'),
+            (37385, 'Flash'),
+            (37386, 'FocalLength'),
+            (37387, 'FlashEnergy'),  # 37387
+            (37388, 'SpatialFrequencyResponse'),  # 37388
+            (37389, 'Noise'),
+            (37390, 'FocalPlaneXResolution'),
+            (37391, 'FocalPlaneYResolution'),
+            (37392, 'FocalPlaneResolutionUnit'),
+            (37393, 'ImageNumber'),
+            (37394, 'SecurityClassification'),
+            (37395, 'ImageHistory'),
+            (37396, 'SubjectLocation'),
+            (37397, 'ExposureIndex'),
+            (37398, 'TIFFEPStandardID'),
+            (37399, 'SensingMethod'),
+            (37434, 'CIP3DataFile'),
+            (37435, 'CIP3Sheet'),
+            (37436, 'CIP3Side'),
+            (37439, 'StoNits'),
+            (37500, 'MakerNote'),
+            (37510, 'UserComment'),
+            (37520, 'SubsecTime'),
+            (37521, 'SubsecTimeOriginal'),
+            (37522, 'SubsecTimeDigitized'),
+            (37679, 'MODIText'),  # Microsoft Office Document Imaging
+            (37680, 'MODIOLEPropertySetStorage'),
+            (37681, 'MODIPositioning'),
+            (37706, 'TVIPS'),  # offset to TemData structure
+            (37707, 'TVIPS1'),
+            (37708, 'TVIPS2'),  # same TemData structure as undefined
+            (37724, 'ImageSourceData'),  # Photoshop
+            (37888, 'Temperature'),
+            (37889, 'Humidity'),
+            (37890, 'Pressure'),
+            (37891, 'WaterDepth'),
+            (37892, 'Acceleration'),
+            (37893, 'CameraElevationAngle'),
+            (40000, 'XPos'),   # Janelia
+            (40001, 'YPos'),
+            (40002, 'ZPos'),
+            (40001, 'MC_IpWinScal'),  # Media Cybernetics
+            (40001, 'RecipName'),  # MS FAX
+            (40002, 'RecipNumber'),
+            (40003, 'SenderName'),
+            (40004, 'Routing'),
+            (40005, 'CallerId'),
+            (40006, 'TSID'),
+            (40007, 'CSID'),
+            (40008, 'FaxTime'),
+            (40100, 'MC_IdOld'),
+            (40106, 'MC_Unknown'),
+            (40965, 'InteroperabilityTag'),  # InteropOffset
+            (40091, 'XPTitle'),
+            (40092, 'XPComment'),
+            (40093, 'XPAuthor'),
+            (40094, 'XPKeywords'),
+            (40095, 'XPSubject'),
+            (40960, 'FlashpixVersion'),
+            (40961, 'ColorSpace'),
+            (40962, 'PixelXDimension'),
+            (40963, 'PixelYDimension'),
+            (40964, 'RelatedSoundFile'),
+            (40976, 'SamsungRawPointersOffset'),
+            (40977, 'SamsungRawPointersLength'),
+            (41217, 'SamsungRawByteOrder'),
+            (41218, 'SamsungRawUnknown'),
+            (41483, 'FlashEnergy'),
+            (41484, 'SpatialFrequencyResponse'),
+            (41485, 'Noise'),  # 37389
+            (41486, 'FocalPlaneXResolution'),  # 37390
+            (41487, 'FocalPlaneYResolution'),  # 37391
+            (41488, 'FocalPlaneResolutionUnit'),  # 37392
+            (41489, 'ImageNumber'),  # 37393
+            (41490, 'SecurityClassification'),  # 37394
+            (41491, 'ImageHistory'),  # 37395
+            (41492, 'SubjectLocation'),  # 37395
+            (41493, 'ExposureIndex '),  # 37397
+            (41494, 'TIFF-EPStandardID'),
+            (41495, 'SensingMethod'),  # 37399
+            (41728, 'FileSource'),
+            (41729, 'SceneType'),
+            (41730, 'CFAPattern'),  # 33422
+            (41985, 'CustomRendered'),
+            (41986, 'ExposureMode'),
+            (41987, 'WhiteBalance'),
+            (41988, 'DigitalZoomRatio'),
+            (41989, 'FocalLengthIn35mmFilm'),
+            (41990, 'SceneCaptureType'),
+            (41991, 'GainControl'),
+            (41992, 'Contrast'),
+            (41993, 'Saturation'),
+            (41994, 'Sharpness'),
+            (41995, 'DeviceSettingDescription'),
+            (41996, 'SubjectDistanceRange'),
+            (42016, 'ImageUniqueID'),
+            (42032, 'CameraOwnerName'),
+            (42033, 'BodySerialNumber'),
+            (42034, 'LensSpecification'),
+            (42035, 'LensMake'),
+            (42036, 'LensModel'),
+            (42037, 'LensSerialNumber'),
+            (42112, 'GDAL_METADATA'),
+            (42113, 'GDAL_NODATA'),
+            (42240, 'Gamma'),
+            (43314, 'NIHImageHeader'),
+            (44992, 'ExpandSoftware'),
+            (44993, 'ExpandLens'),
+            (44994, 'ExpandFilm'),
+            (44995, 'ExpandFilterLens'),
+            (44996, 'ExpandScanner'),
+            (44997, 'ExpandFlashLamp'),
+            (48129, 'PixelFormat'),  # HDP and WDP
+            (48130, 'Transformation'),
+            (48131, 'Uncompressed'),
+            (48132, 'ImageType'),
+            (48256, 'ImageWidth'),  # 256
+            (48257, 'ImageHeight'),
+            (48258, 'WidthResolution'),
+            (48259, 'HeightResolution'),
+            (48320, 'ImageOffset'),
+            (48321, 'ImageByteCount'),
+            (48322, 'AlphaOffset'),
+            (48323, 'AlphaByteCount'),
+            (48324, 'ImageDataDiscard'),
+            (48325, 'AlphaDataDiscard'),
+            (50003, 'KodakAPP3'),
+            (50215, 'OceScanjobDescription'),
+            (50216, 'OceApplicationSelector'),
+            (50217, 'OceIdentificationNumber'),
+            (50218, 'OceImageLogicCharacteristics'),
+            (50255, 'Annotations'),
+            (50288, 'MC_Id'),  # Media Cybernetics
+            (50289, 'MC_XYPosition'),
+            (50290, 'MC_ZPosition'),
+            (50291, 'MC_XYCalibration'),
+            (50292, 'MC_LensCharacteristics'),
+            (50293, 'MC_ChannelName'),
+            (50294, 'MC_ExcitationWavelength'),
+            (50295, 'MC_TimeStamp'),
+            (50296, 'MC_FrameProperties'),
+            (50341, 'PrintImageMatching'),
+            (50495, 'PCO_RAW'),  # TODO, PCO CamWare
+            (50547, 'OriginalFileName'),
+            (50560, 'USPTO_OriginalContentType'),  # US Patent Office
+            (50561, 'USPTO_RotationCode'),
+            (50648, 'CR2Unknown1'),
+            (50649, 'CR2Unknown2'),
+            (50656, 'CR2CFAPattern'),
+            (50674, 'LercParameters'),  # ESGI 50674 .. 50677
+            (50706, 'DNGVersion'),  # DNG 50706 .. 51112
+            (50707, 'DNGBackwardVersion'),
+            (50708, 'UniqueCameraModel'),
+            (50709, 'LocalizedCameraModel'),
+            (50710, 'CFAPlaneColor'),
+            (50711, 'CFALayout'),
+            (50712, 'LinearizationTable'),
+            (50713, 'BlackLevelRepeatDim'),
+            (50714, 'BlackLevel'),
+            (50715, 'BlackLevelDeltaH'),
+            (50716, 'BlackLevelDeltaV'),
+            (50717, 'WhiteLevel'),
+            (50718, 'DefaultScale'),
+            (50719, 'DefaultCropOrigin'),
+            (50720, 'DefaultCropSize'),
+            (50721, 'ColorMatrix1'),
+            (50722, 'ColorMatrix2'),
+            (50723, 'CameraCalibration1'),
+            (50724, 'CameraCalibration2'),
+            (50725, 'ReductionMatrix1'),
+            (50726, 'ReductionMatrix2'),
+            (50727, 'AnalogBalance'),
+            (50728, 'AsShotNeutral'),
+            (50729, 'AsShotWhiteXY'),
+            (50730, 'BaselineExposure'),
+            (50731, 'BaselineNoise'),
+            (50732, 'BaselineSharpness'),
+            (50733, 'BayerGreenSplit'),
+            (50734, 'LinearResponseLimit'),
+            (50735, 'CameraSerialNumber'),
+            (50736, 'LensInfo'),
+            (50737, 'ChromaBlurRadius'),
+            (50738, 'AntiAliasStrength'),
+            (50739, 'ShadowScale'),
+            (50740, 'DNGPrivateData'),
+            (50741, 'MakerNoteSafety'),
+            (50752, 'RawImageSegmentation'),
+            (50778, 'CalibrationIlluminant1'),
+            (50779, 'CalibrationIlluminant2'),
+            (50780, 'BestQualityScale'),
+            (50781, 'RawDataUniqueID'),
+            (50784, 'AliasLayerMetadata'),
+            (50827, 'OriginalRawFileName'),
+            (50828, 'OriginalRawFileData'),
+            (50829, 'ActiveArea'),
+            (50830, 'MaskedAreas'),
+            (50831, 'AsShotICCProfile'),
+            (50832, 'AsShotPreProfileMatrix'),
+            (50833, 'CurrentICCProfile'),
+            (50834, 'CurrentPreProfileMatrix'),
+            (50838, 'IJMetadataByteCounts'),
+            (50839, 'IJMetadata'),
+            (50844, 'RPCCoefficientTag'),
+            (50879, 'ColorimetricReference'),
+            (50885, 'SRawType'),
+            (50898, 'PanasonicTitle'),
+            (50899, 'PanasonicTitle2'),
+            (50908, 'RSID'),  # DGIWG
+            (50909, 'GEO_METADATA'),  # DGIWG XML
+            (50931, 'CameraCalibrationSignature'),
+            (50932, 'ProfileCalibrationSignature'),
+            (50933, 'ProfileIFD'),
+            (50934, 'AsShotProfileName'),
+            (50935, 'NoiseReductionApplied'),
+            (50936, 'ProfileName'),
+            (50937, 'ProfileHueSatMapDims'),
+            (50938, 'ProfileHueSatMapData1'),
+            (50939, 'ProfileHueSatMapData2'),
+            (50940, 'ProfileToneCurve'),
+            (50941, 'ProfileEmbedPolicy'),
+            (50942, 'ProfileCopyright'),
+            (50964, 'ForwardMatrix1'),
+            (50965, 'ForwardMatrix2'),
+            (50966, 'PreviewApplicationName'),
+            (50967, 'PreviewApplicationVersion'),
+            (50968, 'PreviewSettingsName'),
+            (50969, 'PreviewSettingsDigest'),
+            (50970, 'PreviewColorSpace'),
+            (50971, 'PreviewDateTime'),
+            (50972, 'RawImageDigest'),
+            (50973, 'OriginalRawFileDigest'),
+            (50974, 'SubTileBlockSize'),
+            (50975, 'RowInterleaveFactor'),
+            (50981, 'ProfileLookTableDims'),
+            (50982, 'ProfileLookTableData'),
+            (51008, 'OpcodeList1'),
+            (51009, 'OpcodeList2'),
+            (51022, 'OpcodeList3'),
+            (51023, 'FibicsXML'),  #
+            (51041, 'NoiseProfile'),
+            (51043, 'TimeCodes'),
+            (51044, 'FrameRate'),
+            (51058, 'TStop'),
+            (51081, 'ReelName'),
+            (51089, 'OriginalDefaultFinalSize'),
+            (51090, 'OriginalBestQualitySize'),
+            (51091, 'OriginalDefaultCropSize'),
+            (51105, 'CameraLabel'),
+            (51107, 'ProfileHueSatMapEncoding'),
+            (51108, 'ProfileLookTableEncoding'),
+            (51109, 'BaselineExposureOffset'),
+            (51110, 'DefaultBlackRender'),
+            (51111, 'NewRawImageDigest'),
+            (51112, 'RawToPreviewGain'),
+            (51125, 'DefaultUserCrop'),
+            (51123, 'MicroManagerMetadata'),
+            (51159, 'ZIFmetadata'),  # Objective Pathology Services
+            (51160, 'ZIFannotations'),  # Objective Pathology Services
+            (59932, 'Padding'),
+            (59933, 'OffsetSchema'),
+            # Reusable Tags 65000-65535
+            # (65000,  Dimap_Document XML
+            # (65000-65112,  Photoshop Camera RAW EXIF tags
+            # (65000, 'OwnerName'),
+            # (65001, 'SerialNumber'),
+            # (65002, 'Lens'),
+            # (65024, 'KDC_IFD'),
+            # (65100, 'RawFile'),
+            # (65101, 'Converter'),
+            # (65102, 'WhiteBalance'),
+            # (65105, 'Exposure'),
+            # (65106, 'Shadows'),
+            # (65107, 'Brightness'),
+            # (65108, 'Contrast'),
+            # (65109, 'Saturation'),
+            # (65110, 'Sharpness'),
+            # (65111, 'Smoothness'),
+            # (65112, 'MoireFilter'),
+            (65200, 'FlexXML'),
+        ))
 
     def TAG_READERS():
-        # Map TIFF tag codes to import functions
+        # map tag codes to import functions
         return {
             320: read_colormap,
             # 700: read_bytes,  # read_utf8,
@@ -7216,38 +7575,38 @@ class TIFF(object):
         }
 
     def TAG_TUPLE():
-        # Tags whose values must be stored as tuples
+        # tags whose values must be stored as tuples
         return frozenset((273, 279, 324, 325, 330, 530, 531, 34736))
 
     def TAG_ATTRIBUTES():
-        #  Map tag codes to TiffPage attribute names
+        # map tag codes to TiffPage attribute names
         return {
-            'ImageWidth': 'imagewidth',
-            'ImageLength': 'imagelength',
-            'BitsPerSample': 'bitspersample',
-            'Compression': 'compression',
-            'PlanarConfiguration': 'planarconfig',
-            'FillOrder': 'fillorder',
-            'PhotometricInterpretation': 'photometric',
-            'ColorMap': 'colormap',
-            'ImageDescription': 'description',
-            'ImageDescription1': 'description1',
-            'SamplesPerPixel': 'samplesperpixel',
-            'RowsPerStrip': 'rowsperstrip',
-            'Software': 'software',
-            'Predictor': 'predictor',
-            'TileWidth': 'tilewidth',
-            'TileLength': 'tilelength',
-            'ExtraSamples': 'extrasamples',
-            'SampleFormat': 'sampleformat',
-            'ImageDepth': 'imagedepth',
-            'TileDepth': 'tiledepth',
-            'NewSubfileType': 'subfiletype',
+            254: 'subfiletype',
+            256: 'imagewidth',
+            257: 'imagelength',
+            258: 'bitspersample',
+            259: 'compression',
+            262: 'photometric',
+            266: 'fillorder',
+            270: 'description',
+            277: 'samplesperpixel',
+            278: 'rowsperstrip',
+            284: 'planarconfig',
+            305: 'software',
+            320: 'colormap',
+            317: 'predictor',
+            322: 'tilewidth',
+            323: 'tilelength',
+            338: 'extrasamples',
+            339: 'sampleformat',
+            32997: 'imagedepth',
+            32998: 'tiledepth',
         }
 
     def TAG_ENUM():
+        # map tag codes to Enums
         return {
-            # 254: TIFF.FILETYPE,
+            254: TIFF.FILETYPE,
             255: TIFF.OFILETYPE,
             259: TIFF.COMPRESSION,
             262: TIFF.PHOTOMETRIC,
@@ -7269,11 +7628,11 @@ class TIFF(object):
 
     def FILETYPE():
         class FILETYPE(enum.IntFlag):
-            # Python 3.6 only
             UNDEFINED = 0
             REDUCEDIMAGE = 1
             PAGE = 2
             MASK = 4
+            UNKNOWN = 8  # found in AperioSVS
 
         return FILETYPE
 
@@ -7339,7 +7698,9 @@ class TIFF(object):
             PIXTIFF = 50013
             KODAK_DCR = 65000
             PENTAX_PEF = 65535
-            # def __bool__(self): return self != 1  # Python 3.6+ only
+
+            def __bool__(self):
+                return self != 1
 
         return COMPRESSION
 
@@ -7418,7 +7779,9 @@ class TIFF(object):
             NONE = 1
             INCH = 2
             CENTIMETER = 3
-            # def __bool__(self): return self != 1  # Python 3.6 only
+
+            def __bool__(self):
+                return self != 1
 
         return RESUNIT
 
@@ -7437,7 +7800,9 @@ class TIFF(object):
             NONE = 1
             HORIZONTAL = 2
             FLOATINGPOINT = 3
-            # def __bool__(self): return self != 1  # Python 3.6 only
+
+            def __bool__(self):
+                return self != 1
 
         return PREDICTOR
 
@@ -7485,7 +7850,7 @@ class TIFF(object):
         return DATATYPES
 
     def DATA_FORMATS():
-        # Map TIFF DATATYPES to Python struct formats
+        # map TIFF DATATYPES to Python struct formats
         return {
             1: '1B',   # BYTE 8-bit unsigned integer.
             2: '1s',   # ASCII 8-bit byte that contains a 7-bit ASCII code;
@@ -7514,7 +7879,7 @@ class TIFF(object):
         }
 
     def DATA_DTYPES():
-        # Map numpy dtypes to TIFF DATATYPES
+        # map numpy dtypes to TIFF DATATYPES
         return {
             'B': 1,
             's': 2,
@@ -7532,7 +7897,7 @@ class TIFF(object):
         }
 
     def SAMPLE_DTYPES():
-        # Map TIFF SampleFormats and BitsPerSample to numpy dtype
+        # map SampleFormat and BitsPerSample to numpy dtype
         return {
             # UINT
             (1, 1): '?',  # bitmap
@@ -7621,7 +7986,7 @@ class TIFF(object):
         }
 
     def PREDICTORS():
-        # Map PREDICTOR to predictor encode functions
+        # map PREDICTOR to predictor encode functions
         if imagecodecs is None:
             return {
                 None: identityfunc,
@@ -7636,7 +8001,7 @@ class TIFF(object):
         }
 
     def UNPREDICTORS():
-        # Map PREDICTOR to predictor decode functions
+        # map PREDICTOR to predictor decode functions
         if imagecodecs is None:
             return {
                 None: identityfunc,
@@ -7651,93 +8016,64 @@ class TIFF(object):
         }
 
     def COMPESSORS():
-        # Map COMPRESSION to compress functions
-        if hasattr(imagecodecs, 'zlib_encode'):
-            return {
-                None: imagecodecs.none_encode,
-                1: imagecodecs.none_encode,
-                7: imagecodecs.jpeg_encode,
-                8: imagecodecs.zlib_encode,
-                32946: imagecodecs.zlib_encode,
-                32773: imagecodecs.packbits_encode,
-                34712: imagecodecs.j2k_encode,
-                34925: imagecodecs.lzma_encode,
-                34933: imagecodecs.png_encode,
-                34934: imagecodecs.jxr_encode,
-                50000: imagecodecs.zstd_encode,
-                50001: imagecodecs.webp_encode,
-            }
-
-        def zlib_encode(data, level=6, out=None):
-            """Compress Zlib DEFLATE."""
-            return zlib.compress(data, level)
-
+        # map COMPRESSION to compress functions
         if imagecodecs is None:
             return {
                 None: identityfunc,
                 1: identityfunc,
                 8: zlib_encode,
                 32946: zlib_encode,
-                # 34925: lzma.compress
+                34925: lzma_encode,
             }
-
         return {
             None: imagecodecs.none_encode,
             1: imagecodecs.none_encode,
-            8: zlib_encode,
-            32946: zlib_encode,
+            7: imagecodecs.jpeg_encode,
+            8: imagecodecs.zlib_encode,
+            32946: imagecodecs.zlib_encode,
             32773: imagecodecs.packbits_encode,
+            34712: imagecodecs.jpeg2k_encode,
+            34925: imagecodecs.lzma_encode,
+            34933: imagecodecs.png_encode,
+            34934: imagecodecs.jpegxr_encode,
+            50000: imagecodecs.zstd_encode,
+            50001: imagecodecs.webp_encode,
         }
 
     def DECOMPESSORS():
-        # Map COMPRESSION to decompress functions
-        if hasattr(imagecodecs, 'zlib_decode'):
-            return {
-                None: imagecodecs.none_decode,
-                1: imagecodecs.none_decode,
-                5: imagecodecs.lzw_decode,
-                6: imagecodecs.jpeg_decode,
-                7: imagecodecs.jpeg_decode,
-                8: imagecodecs.zlib_decode,
-                32946: imagecodecs.zlib_decode,
-                32773: imagecodecs.packbits_decode,
-                # 34892: imagecodecs.jpeg_decode,  # DNG lossy
-                34925: imagecodecs.lzma_decode,
-                34926: imagecodecs.zstd_decode,  # deprecated
-                34927: imagecodecs.webp_decode,  # deprecated
-                33003: imagecodecs.j2k_decode,
-                33005: imagecodecs.j2k_decode,
-                34712: imagecodecs.j2k_decode,
-                34933: imagecodecs.png_decode,
-                34934: imagecodecs.jxr_decode,
-                50000: imagecodecs.zstd_decode,
-                50001: imagecodecs.webp_decode,
-            }
-
-        def zlib_decode(data, out=None):
-            """Decompress Zlib DEFLATE."""
-            return zlib.decompress(data)
-
+        # map COMPRESSION to decompress functions
         if imagecodecs is None:
             return {
                 None: identityfunc,
                 1: identityfunc,
                 8: zlib_decode,
                 32946: zlib_decode,
-                # 34925: lzma.decompress
+                34925: lzma_decode,
             }
-
         return {
             None: imagecodecs.none_decode,
             1: imagecodecs.none_decode,
             5: imagecodecs.lzw_decode,
-            8: zlib_decode,
-            32946: zlib_decode,
+            6: imagecodecs.jpeg_decode,
+            7: imagecodecs.jpeg_decode,
+            8: imagecodecs.zlib_decode,
+            32946: imagecodecs.zlib_decode,
             32773: imagecodecs.packbits_decode,
+            # 34892: imagecodecs.jpeg_decode,  # DNG lossy
+            34925: imagecodecs.lzma_decode,
+            34926: imagecodecs.zstd_decode,  # deprecated
+            34927: imagecodecs.webp_decode,  # deprecated
+            33003: imagecodecs.jpeg2k_decode,
+            33005: imagecodecs.jpeg2k_decode,
+            34712: imagecodecs.jpeg2k_decode,
+            34933: imagecodecs.png_decode,
+            34934: imagecodecs.jpegxr_decode,
+            50000: imagecodecs.zstd_decode,
+            50001: imagecodecs.webp_decode,
         }
 
     def FRAME_ATTRS():
-        # Attributes that a TiffFrame shares with its keyframe
+        # attributes that a TiffFrame shares with its keyframe
         return {
             'shape',
             'ndim',
@@ -7745,6 +8081,7 @@ class TIFF(object):
             'dtype',
             'axes',
             'is_final',
+            'decode',
         }
 
     def FILE_FLAGS():
@@ -7758,23 +8095,23 @@ class TIFF(object):
             'tiled',
             'subsampled',
         }
-        return set(
+        return {
             a[3:]
             for a in dir(TiffPage)
             if a[:3] == 'is_' and a[3:] not in exclude
-        )
+        }
 
     def FILE_EXTENSIONS():
         # TIFF file extensions
         return (
-            'tif', 'tiff', 'ome.tif', 'lsm', 'stk', 'qpi', 'pcoraw',
+            'tif', 'tiff', 'ome.tif', 'lsm', 'stk', 'qpi', 'pcoraw', 'qptiff',
             'gel', 'seq', 'svs', 'zif', 'ndpi', 'bif', 'tf8', 'tf2', 'btf',
         )
 
     def FILEOPEN_FILTER():
-        # String for use in Windows File Open box
+        # string for use in Windows File Open box
         return [
-            ('%s files' % ext.upper(), '*.%s' % ext)
+            (f'{ext.upper()} files', f'*.{ext}')
             for ext in TIFF.FILE_EXTENSIONS
         ] + [('allfiles', '*')]
 
@@ -7798,30 +8135,32 @@ class TIFF(object):
             'Q': 'other',
             'M': 'mosaic',  # LSM 6
         }
-        axes.update(dict((v, k) for k, v in axes.items()))
+        axes.update({v: k for k, v in axes.items()})
         return axes
 
     def NDPI_TAGS():
         # 65420 - 65458  Private Hamamatsu NDPI tags
-        tags = dict((code, str(code)) for code in range(65420, 65459))
+        tags = {code: str(code) for code in range(65420, 65459)}
         tags.update({
             65420: 'FileFormat',
             65421: 'Magnification',  # SourceLens
             65422: 'XOffsetFromSlideCentre',
             65423: 'YOffsetFromSlideCentre',
-            65424: 'ZOffsetFromSlideCentre',
-            65427: 'UserLabel',
+            65424: 'ZOffsetFromSlideCentre',  # FocalPlane
+            65426: 'McuStartsLowBytes',
+            65427: 'UserLabel',  # Reference
             65428: 'AuthCode',  # ?
+            65432: 'McuStartsHighBytes',
             65442: 'ScannerSerialNumber',
-            65449: 'Comments',
+            65449: 'Comments',  # PropertyMap
             65447: 'BlankLanes',
             65434: 'Fluorescence',
         })
         return tags
 
     def EXIF_TAGS():
+        # 65000 - 65112  Photoshop Camera RAW EXIF tags
         tags = {
-            # 65000 - 65112  Photoshop Camera RAW EXIF tags
             65000: 'OwnerName',
             65001: 'SerialNumber',
             65002: 'Lens',
@@ -7837,7 +8176,7 @@ class TIFF(object):
             65111: 'Smoothness',
             65112: 'MoireFilter',
         }
-        tags.update(TIFF.TAGS)
+        tags.update(reversed(TIFF.TAGS.items()))  # TODO: rework this
         return tags
 
     def GPS_TAGS():
@@ -7940,10 +8279,10 @@ class TIFF(object):
     def GEO_CODES():
         try:
             from .tifffile_geodb import GEO_CODES  # delayed import
-        except (ImportError, ValueError):
+        except ImportError:
             try:
                 from tifffile_geodb import GEO_CODES  # delayed import
-            except (ImportError, ValueError):
+            except ImportError:
                 GEO_CODES = {}
         return GEO_CODES
 
@@ -8013,7 +8352,7 @@ class TIFF(object):
         ]
 
     def CZ_LSMINFO_READERS():
-        # Import functions for CZ_LSMINFO sub-records
+        # import functions for CZ_LSMINFO sub-records
         # TODO: read more CZ_LSMINFO sub-records
         return {
             'ScanInformation': read_lsm_scaninfo,
@@ -8043,7 +8382,7 @@ class TIFF(object):
         }
 
     def CZ_LSMINFO_SCANTYPE():
-        # Map CZ_LSMINFO.ScanType to dimension order
+        # map CZ_LSMINFO.ScanType to dimension order
         return {
             0: 'XYZCT',  # 'Stack' normal x-y-z-scan
             1: 'XYZCT',  # 'Z-Scan' x-z-plane Y=1
@@ -8059,7 +8398,7 @@ class TIFF(object):
         }
 
     def CZ_LSMINFO_DIMENSIONS():
-        # Map dimension codes to CZ_LSMINFO attribute
+        # map dimension codes to CZ_LSMINFO attribute
         return {
             'X': 'DimensionX',
             'Y': 'DimensionY',
@@ -8071,7 +8410,7 @@ class TIFF(object):
         }
 
     def CZ_LSMINFO_DATATYPES():
-        # Description of CZ_LSMINFO.DataType
+        # description of CZ_LSMINFO.DataType
         return {
             0: 'varying data types',
             1: '8 bit unsigned integer',
@@ -8080,7 +8419,7 @@ class TIFF(object):
         }
 
     def CZ_LSMINFO_TYPEOFDATA():
-        # Description of CZ_LSMINFO.TypeOfData
+        # description of CZ_LSMINFO.TypeOfData
         return {
             0: 'Original scan data',
             1: 'Calculated data',
@@ -8561,7 +8900,7 @@ class TIFF(object):
         ]
 
     def MM_DIMENSIONS():
-        # Map FluoView MM_Header.Dimensions to axes characters
+        # map FluoView MM_Header.Dimensions to axes characters
         return {
             'X': 'X',
             'Y': 'Y',
@@ -8576,7 +8915,7 @@ class TIFF(object):
         }
 
     def UIC_TAGS():
-        # Map Universal Imaging Corporation MetaMorph internal tag ids to
+        # map Universal Imaging Corporation MetaMorph internal tag ids to
         # name and type
         from fractions import Fraction  # delayed import
         return [
@@ -8651,7 +8990,7 @@ class TIFF(object):
 
     def PILATUS_HEADER():
         # PILATUS CBF Header Specification, Version 1.4
-        # Map key to [value_indices], type
+        # map key to [value_indices], type
         return {
             'Detector': ([slice(1, None)], str),
             'Pixel_size': ([1, 4], float),
@@ -8699,6 +9038,11 @@ class TIFF(object):
         import mmap  # delayed import
         return mmap.ALLOCATIONGRANULARITY
 
+    def MAXWORKERS():
+        # half of CPU cores
+        import multiprocessing  # delayed import
+        return max(multiprocessing.cpu_count() // 2, 1)
+
 
 def read_tags(fh, byteorder, offsetsize, tagnames, customtags=None,
               maxifds=None):
@@ -8739,7 +9083,7 @@ def read_tags(fh, byteorder, offsetsize, tagnames, customtags=None,
             if tagno > 4096:
                 raise TiffFileError('suspicious number of tags')
         except Exception:
-            log_warning('read_tags: corrupted tag list at offset %i', offset)
+            log_warning(f'read_tags: corrupted tag list at offset {offset}')
             break
 
         tags = {}
@@ -8754,14 +9098,14 @@ def read_tags(fh, byteorder, offsetsize, tagnames, customtags=None,
             try:
                 dtype = TIFF.DATA_FORMATS[type_]
             except KeyError:
-                raise TiffFileError('unknown tag data type %i' % type_)
+                raise TiffFileError(f'unknown tag data type {type_}')
 
-            fmt = '%s%i%s' % (byteorder, count * int(dtype[0]), dtype[1])
+            fmt = '{}{}{}'.format(byteorder, count * int(dtype[0]), dtype[1])
             size = struct.calcsize(fmt)
             if size > offsetsize or code in customtags:
                 offset = unpack(offsetformat, value)[0]
                 if offset < 8 or offset > fh.size - size:
-                    raise TiffFileError('invalid tag value offset %i' % offset)
+                    raise TiffFileError(f'invalid tag value offset {offset}')
                 fh.seek(offset)
                 if code in customtags:
                     readfunc = customtags[code][1]
@@ -8787,9 +9131,9 @@ def read_tags(fh, byteorder, offsetsize, tagnames, customtags=None,
                     value = bytes2str(stripascii(value).strip())
                 except UnicodeDecodeError:
                     log_warning(
-                        'read_tags: coercing invalid ASCII to bytes (tag %i)',
-                        code)
-
+                        'read_tags: coercing invalid ASCII to bytes '
+                        f'(tag {code})'
+                    )
             tags[name] = value
 
         result.append(tags)
@@ -8799,7 +9143,7 @@ def read_tags(fh, byteorder, offsetsize, tagnames, customtags=None,
         if offset == 0:
             break
         if offset >= fh.size:
-            log_warning('read_tags: invalid page offset (%i)', offset)
+            log_warning(f'read_tags: invalid page offset ({offset})')
             break
         fh.seek(offset)
 
@@ -8840,19 +9184,20 @@ def read_interoperability_ifd(fh, byteorder, dtype, count, offsetsize):
 
 
 def read_bytes(fh, byteorder, dtype, count, offsetsize):
-    """Read tag data from file and return as byte string."""
+    """Read tag data from file and return as bytes."""
     dtype = 'B' if dtype[-1] == 's' else byteorder + dtype[-1]
     count *= numpy.dtype(dtype).itemsize
     data = fh.read(count)
     if len(data) != count:
-        log_warning('read_bytes: failed to read all bytes (%i < %i)',
-                    len(data), count)
+        log_warning(
+            f'read_bytes: failed to read all bytes ({len(data)} < {count})'
+        )
     return data
 
 
 def read_utf8(fh, byteorder, dtype, count, offsetsize):
     """Read tag data from file and return as unicode string."""
-    return fh.read(count).decode('utf-8')
+    return fh.read(count).decode()
 
 
 def read_numpy(fh, byteorder, dtype, count, offsetsize):
@@ -8872,7 +9217,7 @@ def read_json(fh, byteorder, dtype, count, offsetsize):
     """Read JSON tag data from file and return as object."""
     data = fh.read(count)
     try:
-        return json.loads(unicode(stripnull(data), 'utf-8'))
+        return json.loads(stripnull(data).decode())
     except ValueError:
         log_warning('read_json: invalid JSON')
 
@@ -8964,14 +9309,14 @@ def read_uic_tag(fh, tagid, planecount, offset):
     """
 
     def read_int(count=1):
-        value = struct.unpack('<%iI' % count, fh.read(4 * count))
+        value = struct.unpack(f'<{count}I', fh.read(4 * count))
         return value[0] if count == 1 else value
 
     try:
         name, dtype = TIFF.UIC_TAGS[tagid]
     except IndexError:
         # unknown tag
-        return '_TagId%i' % tagid, read_int()
+        return f'_TagId{tagid}', read_int()
 
     Fraction = TIFF.UIC_TAGS[4][1]
 
@@ -8982,8 +9327,9 @@ def read_uic_tag(fh, tagid, planecount, offset):
             if off < 8:
                 if dtype is str:
                     return name, ''
-                log_warning("read_uic_tag: invalid offset for tag '%s' (%i)",
-                            name, off)
+                log_warning(
+                    f'read_uic_tag: invalid offset for tag {name!r} @{off}'
+                )
                 return name, off
             fh.seek(off)
 
@@ -9008,27 +9354,26 @@ def read_uic_tag(fh, tagid, planecount, offset):
         # pascal string
         size = read_int()
         if 0 <= size < 2**10:
-            value = struct.unpack('%is' % size, fh.read(size))[0][:-1]
+            value = struct.unpack(f'{size}s', fh.read(size))[0][:-1]
             value = bytes2str(stripnull(value))
         elif offset:
             value = ''
-            log_warning("read_uic_tag: corrupt string in tag '%s'", name)
+            log_warning(f'read_uic_tag: corrupt string in tag {name!r}')
         else:
-            raise ValueError('read_uic_tag: invalid string size %i' % size)
+            raise ValueError(f'read_uic_tag: invalid string size {size}')
     elif dtype == '%ip':
         # sequence of pascal strings
         value = []
         for _ in range(planecount):
             size = read_int()
             if 0 <= size < 2**10:
-                string = struct.unpack('%is' % size, fh.read(size))[0][:-1]
+                string = struct.unpack(f'{size}s', fh.read(size))[0][:-1]
                 string = bytes2str(stripnull(string))
                 value.append(string)
             elif offset:
-                log_warning("read_uic_tag: corrupt string in tag '%s'", name)
+                log_warning(f'read_uic_tag: corrupt string in tag {name!r}')
             else:
-                raise ValueError('read_uic_tag: invalid string size: %i' %
-                                 size)
+                raise ValueError(f'read_uic_tag: invalid string size: {size}')
     else:
         # struct or numpy type
         dtype = '<' + dtype
@@ -9056,14 +9401,14 @@ def read_uic_image_property(fh):
     """Read UIC ImagePropertyEx tag from file and return as dict."""
     # TODO: test this
     size = struct.unpack('B', fh.read(1))[0]
-    name = struct.unpack('%is' % size, fh.read(size))[0][:-1]
+    name = struct.unpack(f'{size}s', fh.read(size))[0][:-1]
     flags, prop = struct.unpack('<IB', fh.read(5))
     if prop == 1:
         value = struct.unpack('II', fh.read(8))
         value = value[0] / value[1]
     else:
         size = struct.unpack('B', fh.read(1))[0]
-        value = struct.unpack('%is' % size, fh.read(size))[0]
+        value = struct.unpack(f'{size}s', fh.read(size))[0]
     return dict(name=name, flags=flags, value=value)
 
 
@@ -9124,7 +9469,7 @@ def read_lsm_timestamps(fh):
     if size != (8 + 8 * count):
         log_warning('read_lsm_timestamps: invalid LSM TimeStamps block')
         return []
-    # return struct.unpack('<%dd' % count, fh.read(8*count))
+    # return struct.unpack(f'<{count}d', fh.read(8 * count))
     return fh.read_array('<f8', count=count)
 
 
@@ -9209,7 +9554,7 @@ def read_lsm_scaninfo(fh):
             block = blocks.pop()
         else:
             # unknown entry
-            block['Entry0x%x' % entry] = value
+            block[f'Entry0x{entry:x}'] = value
         if not blocks:
             break
     return block
@@ -9271,7 +9616,7 @@ def read_sis_ini(fh, byteorder, dtype, count, offsetsize):
     try:
         return olympusini_metadata(inistr)
     except Exception as exc:
-        log_warning('olympusini_metadata: %s: %s', exc.__class__.__name__, exc)
+        log_warning(f'olympusini_metadata: {exc.__class__.__name__}: {exc}')
         return {}
 
 
@@ -9289,7 +9634,7 @@ def read_tvips_header(fh, byteorder, dtype, count, offsetsize):
         # decode utf16 strings
         for name, typestr in TIFF.TVIPS_HEADER_V2:
             if typestr.startswith('V'):
-                s = header[name].tostring().decode('utf16', errors='ignore')
+                s = header[name].tostring().decode('utf-16', errors='ignore')
                 result[name] = stripnull(s, null='\0')
             else:
                 result[name] = header[name].tolist()
@@ -9484,7 +9829,7 @@ def read_metaseries_catalog(fh):
 def imagej_metadata_tag(metadata, byteorder):
     """Return IJMetadata and IJMetadataByteCounts tags from metadata dict.
 
-    The tags can be passed to the TiffWriter.save function as extratags.
+    The tags can be passed to TiffWriter.save() as extratags.
 
     The metadata dict may contain the following keys and values:
 
@@ -9521,16 +9866,16 @@ def imagej_metadata_tag(metadata, byteorder):
         return data
 
     metadata_types = (
-        ('Info', b'info', 1, _string),
-        ('Labels', b'labl', None, _string),
-        ('Ranges', b'rang', 1, _doubles),
-        ('LUTs', b'luts', None, _ndarray),
-        ('Plot', b'plot', 1, _bytes),
-        ('ROI', b'roi ', 1, _bytes),
-        ('Overlays', b'over', None, _bytes),
+        ('Info', b'info', _string),
+        ('Labels', b'labl', _string),
+        ('Ranges', b'rang', _doubles),
+        ('LUTs', b'luts', _ndarray),
+        ('Plot', b'plot', _bytes),
+        ('ROI', b'roi ', _bytes),
+        ('Overlays', b'over', _bytes),
     )
 
-    for key, mtype, count, func in metadata_types:
+    for key, mtype, func in metadata_types:
         if key.lower() in metadata:
             key = key.lower()
         elif key not in metadata:
@@ -9538,10 +9883,11 @@ def imagej_metadata_tag(metadata, byteorder):
         if byteorder == '<':
             mtype = mtype[::-1]
         values = metadata[key]
-        if count is None:
+        if isinstance(values, list):
             count = len(values)
         else:
             values = [values]
+            count = 1
         header.append(mtype + struct.pack(byteorder + 'I', count))
         for value in values:
             data = func(value, byteorder)
@@ -9567,6 +9913,8 @@ def imagej_metadata(data, bytecounts, byteorder):
     The 'Info' string can have multiple formats, e.g. OIF or ScanImage,
     that might be parsed into dicts using the matlabstr2py or
     oiffile.SettingsFile functions.
+    'ROI' and 'Overlays' are returned as bytes, which can be parsed with the
+    ImagejRoi.frombytes() function of the roifile package.
 
     """
 
@@ -9588,7 +9936,7 @@ def imagej_metadata(data, bytecounts, byteorder):
         b'labl': ('Labels', _string),
         b'rang': ('Ranges', _doubles),
         b'luts': ('LUTs', _lut),
-        b'plot': ('Plots', _bytes),
+        b'plot': ('Plot', _bytes),
         b'roi ': ('ROI', _bytes),
         b'over': ('Overlays', _bytes),
     }
@@ -9681,30 +10029,30 @@ def imagej_description(shape, rgb=None, colormaped=False, version=None,
     shape = imagej_shape(shape, rgb=rgb)
     rgb = shape[-1] in (3, 4)
 
-    result = ['ImageJ=%s' % version]
+    result = [f'ImageJ={version}']
     append = []
-    result.append('images=%i' % product(shape[:-3]))
+    result.append(f'images={product(shape[:-3])}')
     if hyperstack is None:
         hyperstack = True
         append.append('hyperstack=true')
     else:
-        append.append('hyperstack=%s' % bool(hyperstack))
+        append.append(f'hyperstack={bool(hyperstack)}')
     if shape[2] > 1:
-        result.append('channels=%i' % shape[2])
+        result.append(f'channels={shape[2]}')
     if mode is None and not rgb:
         mode = 'grayscale'
     if hyperstack and mode:
-        append.append('mode=%s' % mode)
+        append.append(f'mode={mode}')
     if shape[1] > 1:
-        result.append('slices=%i' % shape[1])
+        result.append(f'slices={shape[1]}')
     if shape[0] > 1:
-        result.append('frames=%i' % shape[0])
+        result.append(f'frames={shape[0]}')
         if loop is None:
             append.append('loop=false')
     if loop is not None:
-        append.append('loop=%s' % bool(loop))
+        append.append(f'loop={bool(loop)}'.lower())
     for key, value in kwargs.items():
-        append.append('%s=%s' % (key.lower(), value))
+        append.append(f'{key.lower()}={value}')
 
     return '\n'.join(result + append + [''])
 
@@ -9743,7 +10091,7 @@ def json_description(shape, **metadata):
 
     """
     metadata.update(shape=shape)
-    return json.dumps(metadata)  # .encode('utf-8')
+    return json.dumps(metadata)  # .encode()
 
 
 def json_description_metadata(description):
@@ -9915,8 +10263,9 @@ def stk_description_metadata(description):
     try:
         description = bytes2str(description)
     except UnicodeDecodeError as exc:
-        log_warning('stk_description_metadata: %s: %s',
-                    exc.__class__.__name__, exc)
+        log_warning(
+            f'stk_description_metadata: {exc.__class__.__name__}: {exc}'
+        )
         return []
     result = []
     for plane in description.split('\x00'):
@@ -9984,8 +10333,9 @@ def scanimage_artist_metadata(artist):
     try:
         return json.loads(artist)
     except ValueError as exc:
-        log_warning('scanimage_artist_metadata: %s: %s',
-                    exc.__class__.__name__, exc)
+        log_warning(
+            f'scanimage_artist_metadata: {exc.__class__.__name__}: {exc}'
+        )
 
 
 def olympusini_metadata(inistr):
@@ -10091,63 +10441,8 @@ def olympusini_metadata(inistr):
     return result
 
 
-def tile_decode(tile, tileindex, tileshape, tiledshape,
-                lsb2msb, decompress, unpack, unpredict, nodata, out):
-    """Decode tile segment bytes into 5D output array."""
-    _, imagedepth, imagelength, imagewidth, _ = out.shape
-    tileddepth, tiledlength, tiledwidth = tiledshape
-    tiledepth, tilelength, tilewidth, samples = tileshape
-    tilesize = tiledepth * tilelength * tilewidth * samples
-    pl = tileindex // (tiledwidth * tiledlength * tileddepth)
-    td = (tileindex // (tiledwidth * tiledlength)) % tileddepth * tiledepth
-    tl = (tileindex // tiledwidth) % tiledlength * tilelength
-    tw = tileindex % tiledwidth * tilewidth
-
-    if tile is None:
-        out[pl,
-            td: td + tiledepth,
-            tl: tl + tilelength,
-            tw: tw + tilewidth] = nodata
-        return
-
-    if lsb2msb:
-        tile = bitorder_decode(tile, out=tile)
-    tile = decompress(tile)
-    tile = unpack(tile)
-    # decompression / unpacking might return too many bytes
-    tile = tile[:tilesize]
-    try:
-        # complete tile according to TIFF specification
-        tile.shape = tileshape
-    except ValueError:
-        # tile fills remaining space; found in some JPEG compressed slides
-        s = (
-            min(imagedepth - td, tiledepth),
-            min(imagelength - tl, tilelength),
-            min(imagewidth - tw, tilewidth),
-            samples,
-        )
-        try:
-            tile.shape = s
-        except ValueError:
-            # incomplete tile; see gdal issue #1179
-            log_warning('tile_decode: incomplete tile %s %s',
-                        tile.shape, tileshape)
-            t = numpy.zeros(tilesize, tile.dtype)
-            s = min(tile.size, tilesize)
-            t[:s] = tile[:s]
-            tile = t.reshape(tileshape)
-    tile = unpredict(tile, axis=-2, out=tile)
-    out[pl,
-        td: td + tiledepth,
-        tl: tl + tilelength,
-        tw: tw + tilewidth] = tile[:imagedepth - td,
-                                   :imagelength - tl,
-                                   :imagewidth - tw]
-
-
 def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
-    """Return array from byte string containing packed samples.
+    """Return array from bytes containing packed samples.
 
     Use to unpack RGB565 or RGB555 to RGB888 format.
 
@@ -10188,7 +10483,7 @@ def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
     if not (
         bits <= 32 and all(i <= dtype.itemsize * 8 for i in bitspersample)
     ):
-        raise ValueError('sample size not supported: %s' % str(bitspersample))
+        raise ValueError(f'sample size not supported: {bitspersample}')
     dt = next(i for i in 'BHI' if numpy.dtype(i).itemsize * 8 >= bits)
     data = numpy.frombuffer(data, dtype.byteorder + dt)
     result = numpy.empty((data.size, len(bitspersample)), dtype.char)
@@ -10205,129 +10500,146 @@ def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
     return result.reshape(-1)
 
 
-def delta_encode(data, axis=-1, out=None):
-    """Encode Delta."""
-    if isinstance(data, (bytes, bytearray)):
-        data = numpy.frombuffer(data, dtype='u1')
-        diff = numpy.diff(data, axis=0)
-        return numpy.insert(diff, 0, data[0]).tobytes()
+if imagecodecs is None:
+    import zlib
+    import lzma
 
-    dtype = data.dtype
-    if dtype.kind == 'f':
-        data = data.view('u%i' % dtype.itemsize)
+    def zlib_encode(data, level=6, out=None):
+        """Compress Zlib DEFLATE."""
+        return zlib.compress(data, level)
 
-    diff = numpy.diff(data, axis=axis)
-    key = [slice(None)] * data.ndim
-    key[axis] = 0
-    diff = numpy.insert(diff, 0, data[tuple(key)], axis=axis)
+    def zlib_decode(data, out=None):
+        """Decompress Zlib DEFLATE."""
+        return zlib.decompress(data)
 
-    if dtype.kind == 'f':
-        return diff.view(dtype)
-    return diff
+    def lzma_encode(data, level=None, out=None):
+        """Compress LZMA."""
+        return lzma.compress(data)
 
+    def lzma_decode(data, out=None):
+        """Decompress LZMA"""
+        return lzma.decompress(data)
 
-def delta_decode(data, axis=-1, out=None):
-    """Decode Delta."""
-    if out is not None and not out.flags.writeable:
-        out = None
-    if isinstance(data, (bytes, bytearray)):
-        data = numpy.frombuffer(data, dtype='u1')
-        return numpy.cumsum(data, axis=0, dtype='u1', out=out).tobytes()
-    if data.dtype.kind == 'f':
-        view = data.view('u%i' % data.dtype.itemsize)
-        view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
-        return view.view(data.dtype)
-    return numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
+    def delta_encode(data, axis=-1, out=None):
+        """Encode Delta."""
+        if isinstance(data, (bytes, bytearray)):
+            data = numpy.frombuffer(data, dtype='u1')
+            diff = numpy.diff(data, axis=0)
+            return numpy.insert(diff, 0, data[0]).tobytes()
 
+        dtype = data.dtype
+        if dtype.kind == 'f':
+            data = data.view(f'u{dtype.itemsize}')
 
-def bitorder_decode(data, out=None, _bitorder=[]):
-    """Reverse bits in each byte of byte string or numpy array.
+        diff = numpy.diff(data, axis=axis)
+        key = [slice(None)] * data.ndim
+        key[axis] = 0
+        diff = numpy.insert(diff, 0, data[tuple(key)], axis=axis)
 
-    Decode data where pixels with lower column values are stored in the
-    lower-order bits of the bytes (TIFF FillOrder is LSB2MSB).
+        if dtype.kind == 'f':
+            return diff.view(dtype)
+        return diff
 
-    Parameters
-    ----------
-    data : byte string or ndarray
-        The data to be bit reversed. If byte string, a new bit-reversed byte
-        string is returned. Numpy arrays are bit-reversed in-place.
+    def delta_decode(data, axis=-1, out=None):
+        """Decode Delta."""
+        if out is not None and not out.flags.writeable:
+            out = None
+        if isinstance(data, (bytes, bytearray)):
+            data = numpy.frombuffer(data, dtype='u1')
+            return numpy.cumsum(data, axis=0, dtype='u1', out=out).tobytes()
+        if data.dtype.kind == 'f':
+            view = data.view(f'u{data.dtype.itemsize}')
+            view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
+            return view.view(data.dtype)
+        return numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
 
-    Examples
-    --------
-    >>> bitorder_decode(b'\\x01\\x64')
-    b'\\x80&'
-    >>> data = numpy.array([1, 666], dtype='uint16')
-    >>> bitorder_decode(data)
-    >>> data
-    array([  128, 16473], dtype=uint16)
+    def bitorder_decode(data, out=None, _bitorder=[]):
+        """Reverse bits in each byte of bytes or numpy array.
 
-    """
-    if not _bitorder:
-        _bitorder.append(
-            b'\x00\x80@\xc0 \xa0`\xe0\x10\x90P\xd00\xb0p\xf0\x08\x88H\xc8('
-            b'\xa8h\xe8\x18\x98X\xd88\xb8x\xf8\x04\x84D\xc4$\xa4d\xe4\x14'
-            b'\x94T\xd44\xb4t\xf4\x0c\x8cL\xcc,\xacl\xec\x1c\x9c\\\xdc<\xbc|'
-            b'\xfc\x02\x82B\xc2"\xa2b\xe2\x12\x92R\xd22\xb2r\xf2\n\x8aJ\xca*'
-            b'\xaaj\xea\x1a\x9aZ\xda:\xbaz\xfa\x06\x86F\xc6&\xa6f\xe6\x16'
-            b'\x96V\xd66\xb6v\xf6\x0e\x8eN\xce.\xaen\xee\x1e\x9e^\xde>\xbe~'
-            b'\xfe\x01\x81A\xc1!\xa1a\xe1\x11\x91Q\xd11\xb1q\xf1\t\x89I\xc9)'
-            b'\xa9i\xe9\x19\x99Y\xd99\xb9y\xf9\x05\x85E\xc5%\xa5e\xe5\x15'
-            b'\x95U\xd55\xb5u\xf5\r\x8dM\xcd-\xadm\xed\x1d\x9d]\xdd=\xbd}'
-            b'\xfd\x03\x83C\xc3#\xa3c\xe3\x13\x93S\xd33\xb3s\xf3\x0b\x8bK'
-            b'\xcb+\xabk\xeb\x1b\x9b[\xdb;\xbb{\xfb\x07\x87G\xc7\'\xa7g\xe7'
-            b'\x17\x97W\xd77\xb7w\xf7\x0f\x8fO\xcf/\xafo\xef\x1f\x9f_'
-            b'\xdf?\xbf\x7f\xff'
+        Decode data where pixels with lower column values are stored in the
+        lower-order bits of the bytes (TIFF FillOrder is LSB2MSB).
+
+        Parameters
+        ----------
+        data : bytes or ndarray
+            The data to be bit reversed. If bytes, a new bit-reversed
+            bytes is returned. Numpy arrays are bit-reversed in-place.
+
+        Examples
+        --------
+        >>> bitorder_decode(b'\\x01\\x64')
+        b'\\x80&'
+        >>> data = numpy.array([1, 666], dtype='uint16')
+        >>> bitorder_decode(data)
+        >>> data
+        array([  128, 16473], dtype=uint16)
+
+        """
+        if not _bitorder:
+            _bitorder.append(
+                b'\x00\x80@\xc0 \xa0`\xe0\x10\x90P\xd00\xb0p\xf0\x08\x88H'
+                b'\xc8(\xa8h\xe8\x18\x98X\xd88\xb8x\xf8\x04\x84D\xc4$\xa4d'
+                b'\xe4\x14\x94T\xd44\xb4t\xf4\x0c\x8cL\xcc,\xacl\xec\x1c\x9c'
+                b'\\\xdc<\xbc|\xfc\x02\x82B\xc2"\xa2b\xe2\x12\x92R\xd22'
+                b'\xb2r\xf2\n\x8aJ\xca*\xaaj\xea\x1a\x9aZ\xda:\xbaz\xfa'
+                b'\x06\x86F\xc6&\xa6f\xe6\x16\x96V\xd66\xb6v\xf6\x0e\x8eN'
+                b'\xce.\xaen\xee\x1e\x9e^\xde>\xbe~\xfe\x01\x81A\xc1!\xa1a'
+                b'\xe1\x11\x91Q\xd11\xb1q\xf1\t\x89I\xc9)\xa9i\xe9\x19'
+                b'\x99Y\xd99\xb9y\xf9\x05\x85E\xc5%\xa5e\xe5\x15\x95U\xd55'
+                b'\xb5u\xf5\r\x8dM\xcd-\xadm\xed\x1d\x9d]\xdd=\xbd}\xfd'
+                b'\x03\x83C\xc3#\xa3c\xe3\x13\x93S\xd33\xb3s\xf3\x0b\x8bK'
+                b'\xcb+\xabk\xeb\x1b\x9b[\xdb;\xbb{\xfb\x07\x87G\xc7\'\xa7g'
+                b'\xe7\x17\x97W\xd77\xb7w\xf7\x0f\x8fO\xcf/\xafo\xef\x1f\x9f_'
+                b'\xdf?\xbf\x7f\xff')
+            _bitorder.append(numpy.frombuffer(_bitorder[0], dtype='uint8'))
+        try:
+            view = data.view('uint8')
+            numpy.take(_bitorder[1], view, out=view)
+            return data
+        except AttributeError:
+            return data.translate(_bitorder[0])
+        except ValueError:
+            raise NotImplementedError('slices of arrays not supported')
+        return None
+
+    def packints_decode(data, dtype, numbits, runlen=0, out=None):
+        """Decompress bytes to array of integers.
+
+        This implementation only handles itemsizes 1, 8, 16, 32, and 64 bits.
+        Install the imagecodecs package for decoding other integer sizes.
+
+        Parameters
+        ----------
+        data : byte str
+            Data to decompress.
+        dtype : numpy.dtype or str
+            A numpy boolean or integer type.
+        numbits : int
+            Number of bits per integer.
+        runlen : int
+            Number of consecutive integers, after which to start at next byte.
+
+        Examples
+        --------
+        >>> packints_decode(b'a', 'B', 1)
+        array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
+
+        """
+        if numbits == 1:  # bitarray
+            data = numpy.frombuffer(data, '|B')
+            data = numpy.unpackbits(data)
+            if runlen % 8:
+                data = data.reshape(-1, runlen + (8 - runlen % 8))
+                data = data[:, :runlen].reshape(-1)
+            return data.astype(dtype)
+        if numbits in (8, 16, 32, 64):
+            return numpy.frombuffer(data, dtype)
+        raise NotImplementedError(
+            f'unpacking {numbits}-bit integers '
+            f'to {numpy.dtype(dtype)} not supported'
         )
-        _bitorder.append(numpy.frombuffer(_bitorder[0], dtype='uint8'))
-    try:
-        view = data.view('uint8')
-        numpy.take(_bitorder[1], view, out=view)
-        return data
-    except AttributeError:
-        return data.translate(_bitorder[0])
-    except ValueError:
-        raise NotImplementedError('slices of arrays not supported')
-    return None
 
-
-def packints_decode(data, dtype, numbits, runlen=0, out=None):
-    """Decompress byte string to array of integers.
-
-    This implementation only handles itemsizes 1, 8, 16, 32, and 64 bits.
-    Install the imagecodecs package for decoding other integer sizes.
-
-    Parameters
-    ----------
-    data : byte str
-        Data to decompress.
-    dtype : numpy.dtype or str
-        A numpy boolean or integer type.
-    numbits : int
-        Number of bits per integer.
-    runlen : int
-        Number of consecutive integers, after which to start at next byte.
-
-    Examples
-    --------
-    >>> packints_decode(b'a', 'B', 1)
-    array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
-
-    """
-    if numbits == 1:  # bitarray
-        data = numpy.frombuffer(data, '|B')
-        data = numpy.unpackbits(data)
-        if runlen % 8:
-            data = data.reshape(-1, runlen + (8 - runlen % 8))
-            data = data[:, :runlen].reshape(-1)
-        return data.astype(dtype)
-    if numbits in (8, 16, 32, 64):
-        return numpy.frombuffer(data, dtype)
-    raise NotImplementedError(
-        'unpacking %s-bit integers to %s not supported'
-        % (numbits, numpy.dtype(dtype)))
-
-
-if imagecodecs is not None:
+else:
     bitorder_decode = imagecodecs.bitorder_decode  # noqa
     packints_decode = imagecodecs.packints_decode  # noqa
 
@@ -10362,7 +10674,7 @@ def apply_colormap(image, colormap, contig=True):
     return image
 
 
-def parse_filenames(files, pattern):
+def parse_filenames(files, pattern, axesorder=None):
     """Return shape and axes from sequence of file names matching pattern.
 
     >>> parse_filenames(['c1001.ext', 'c2002.ext'],
@@ -10375,8 +10687,8 @@ def parse_filenames(files, pattern):
     pattern = re.compile(pattern, re.IGNORECASE | re.VERBOSE)
 
     def parse(fname, pattern=pattern):
-        """Return axes and indices from file name."""
-        fname = os.path.split(fname)[-1]
+        # return axes and indices from file name
+        # fname = os.path.split(fname)[-1]
         axes = []
         indices = []
         groupindex = {v: k for k, v in pattern.groupindex.items()}
@@ -10387,29 +10699,55 @@ def parse_filenames(files, pattern):
         for i, m in enumerate(match.groups()):
             if m is None:
                 continue
-            if m[0].isalpha():
-                if ax is not None:
-                    raise ValueError('invalid pattern')
-                ax = m
-            elif m[0].isdigit():
-                if i + 1 in groupindex:
-                    ax = groupindex[i + 1]
-                else:
-                    ax = 'Q' if ax is None else ax
-                axes.append(ax[0])
-                indices.append(int(m))
-                ax = None
+            if i + 1 in groupindex:
+                ax = groupindex[i + 1]  # names axis
+                if not m[0].isdigit():
+                    m = ord(m)  # index letter to number
+                    if m < 65 or m > 122:
+                        raise ValueError(f'invalid index {m!r}')
+            elif m[0].isalpha():
+                ax = m  # axis letter for next index
+                continue
+            if ax is None:
+                ax = 'Q'  # no preceding axis letter
+            try:
+                m = int(m)
+            except Exception:
+                raise ValueError(f'invalid index {m!r}')
+            indices.append(m)
+            axes.append(ax)
+            ax = None
         return ''.join(axes), tuple(indices)
+
+    files = [os.path.normpath(f) for f in files]
+    if len(files) == 1:
+        prefix = os.path.dirname(files[0])
+    else:
+        prefix = os.path.commonpath(files)
+    prefix = len(prefix)
 
     axes = None
     indices = []
     for fname in files:
-        ax, idx = parse(fname)
+        ax, idx = parse(fname[prefix:])
         if axes is None:
             axes = ax
+            if (
+                axesorder is not None
+                and (
+                    len(axesorder) != len(axes)
+                    or any(i not in axesorder for i in range(len(axes))))
+            ):
+                raise ValueError('invalid axisorder')
         elif axes != ax:
             raise ValueError('axes do not match within image sequence')
+        if axesorder is not None:
+            idx = tuple(idx[i] for i in axesorder)
         indices.append(idx)
+
+    if axesorder is not None:
+        axes = ''.join(axes[i] for i in axesorder)
+
     shape = tuple(numpy.max(indices, axis=0))
     startindex = tuple(numpy.min(indices, axis=0))
     shape = tuple(i - j + 1 for i, j in zip(shape, startindex))
@@ -10540,7 +10878,7 @@ def transpose_axes(image, axes, asaxes=None):
     """
     for ax in axes:
         if ax not in asaxes:
-            raise ValueError('unknown axis %s' % ax)
+            raise ValueError(f'unknown axis {ax}')
     # add missing axes to image
     if asaxes is None:
         asaxes = 'CTZYX'
@@ -10574,7 +10912,7 @@ def reshape_axes(axes, shape, newshape, unknown=None):
     size = product(shape)
     newsize = product(newshape)
     if size != newsize:
-        raise ValueError('cannot reshape %s to %s' % (shape, newshape))
+        raise ValueError(f'cannot reshape {shape} to {newshape}')
     if not axes or not newshape:
         return ''
 
@@ -10622,33 +10960,50 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
     dtype = page0.dtype
     out = create_output(out, shape, dtype)
 
+    page_maxworkers = 1
     if maxworkers is None or maxworkers < 1:
-        import multiprocessing
-        maxworkers = max(multiprocessing.cpu_count() // 2, 1)
-
-    if maxworkers == 1:
+        # auto-detect
+        maxworkers = TIFF.MAXWORKERS
+        if maxworkers == 1:
+            kwargs['maxworkers'] = 1
+        elif npages < 4:
+            maxworkers = 1
+        else:
+            # TODO: optimize this
+            page_maxworkers = page0.maxworkers
+            kwargs['maxworkers'] = page_maxworkers
+            if (
+                page_maxworkers <= 2 and
+                page0.compression == 1 and
+                page0.fillorder == 1 and
+                page0.predictor == 1
+            ):
+                # multi-threading not worth
+                maxworkers = 1
+            elif page_maxworkers > 2:
+                maxworkers = max(maxworkers - page_maxworkers, 1)
+    elif maxworkers == 1:
+        # disable
         kwargs['maxworkers'] = 1
-    elif npages < 3:
-        kwargs['maxworkers'] = maxworkers
-        maxworkers = 1
-    elif page0.compression > 1 and len(page0.dataoffsets) > 2:
-        kwargs['maxworkers'] = min(maxworkers, len(page0.dataoffsets))
-        maxworkers = max(maxworkers - kwargs['maxworkers'], 1)
     else:
-        kwargs['maxworkers'] = 1
+        # prefer parallel decoding of tiles or stripes
+        # use remaining threads for parallel decoding of pages
+        page_maxworkers = page0.maxworkers
+        kwargs['maxworkers'] = page_maxworkers
+        if page_maxworkers > 1:
+            maxworkers = max(maxworkers - page_maxworkers, 1)
 
-    page0.parent.filehandle.lock = maxworkers > 1
+    page0.parent.filehandle.lock = maxworkers > 1 or page_maxworkers > 1
 
     filecache = OpenFileCache(size=max(4, maxworkers),
                               lock=page0.parent.filehandle.lock)
 
-    def func(page, index, out=out, filecache=filecache, validate=0,
-             kwargs=kwargs):
-        """Read, decode, and copy page data."""
+    def func(page, index, out=out, filecache=filecache, kwargs=kwargs):
+        # read, decode, and copy page data
         if page is not None:
             filecache.open(page.parent.filehandle)
-            out[index] = page.asarray(lock=filecache.lock, reopen=False,
-                                      validate=False, **kwargs)
+            page.asarray(lock=filecache.lock, reopen=False, out=out[index],
+                         **kwargs)
             filecache.close(page.parent.filehandle)
 
     if maxworkers < 2:
@@ -10657,7 +11012,7 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
     else:
         # TODO: add exception handling
         # read first page un-threaded to catch exceptions
-        func(page0, 0, validate=True)
+        func(page0, 0)
         with ThreadPoolExecutor(maxworkers) as executor:
             executor.map(func, pages[1:], range(1, npages))
 
@@ -10891,14 +11246,14 @@ def stripascii(string):
     i = len(string)
     while i:
         i -= 1
-        if 8 < byte2int(string[i]) < 127:
+        if 8 < string[i] < 127:
             break
     else:
         i = -1
     return string[: i + 1]
 
 
-def asbool(value, true=(b'true', u'true'), false=(b'false', u'false')):
+def asbool(value, true=(b'true', 'true'), false=(b'false', 'false')):
     """Return string as bool if possible, else raise TypeError.
 
     >>> asbool(b' False ')
@@ -10946,11 +11301,11 @@ def format_size(size, threshold=1536):
 
     """
     if size < threshold:
-        return "%i B" % size
+        return f'{size} B'
     for unit in ('KiB', 'MiB', 'GiB', 'TiB', 'PiB'):
         size /= 1024.0
         if size < threshold:
-            return "%.2f %s" % (size, unit)
+            return f'{size:.2f} {unit}'
     return 'ginormous'
 
 
@@ -11114,7 +11469,7 @@ def xml2dict(xml, sanitize=True, prefix=None):
 
     def astype(value):
         # return string value as int, float, bool, or unchanged
-        if not isinstance(value, basestring):
+        if not isinstance(value, (str, bytes)):
             return value
         for t in (int, float, asbool):
             try:
@@ -11152,7 +11507,7 @@ def xml2dict(xml, sanitize=True, prefix=None):
 
 
 def hexdump(bytestr, width=75, height=24, snipat=-2, modulo=2, ellipsis=None):
-    """Return hexdump representation of byte string.
+    """Return hexdump representation of bytes.
 
     >>> hexdump(binascii.unhexlify('49492a00080000000e00fe0004000100'))
     '49 49 2a 00 08 00 00 00 0e 00 fe 00 04 00 01 00 II*.............'
@@ -11206,7 +11561,7 @@ def hexdump(bytestr, width=75, height=24, snipat=-2, modulo=2, ellipsis=None):
             (size - end2, bytestr[size - end2:]),
         ]
 
-    ellipsis = b'...' if ellipsis is None else str2bytes(ellipsis)
+    ellipsis = b'...' if ellipsis is None else ellipsis.encode('cp1252')
     result = []
     for start, bytestr in blocks:
         if bytestr is None:
@@ -11222,8 +11577,7 @@ def hexdump(bytestr, width=75, height=24, snipat=-2, modulo=2, ellipsis=None):
             r += strstr[i: i + bytesperline]
             result.append(r)
     result = b'\n'.join(result)
-    if sys.version_info[0] > 2:
-        result = result.decode('ascii')
+    result = result.decode('ascii')
     return result
 
 
@@ -11239,21 +11593,14 @@ def isprintable(string):
     string = string.strip()
     if not string:
         return True
-    if sys.version_info[0] > 2:
-        try:
-            return string.isprintable()
-        except Exception:
-            pass
-        try:
-            return string.decode('utf-8').isprintable()
-        except Exception:
-            pass
-    else:
-        if string.isalnum():
-            return True
-        printable = ('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST'
-                     'UVWXYZ!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c')
-        return all(c in printable for c in string)
+    try:
+        return string.isprintable()
+    except Exception:
+        pass
+    try:
+        return string.decode().isprintable()
+    except Exception:
+        pass
 
 
 def clean_whitespace(string, compact=False):
@@ -11284,7 +11631,7 @@ def pformat_xml(xml):
         from lxml import etree  # delayed import
 
         if not isinstance(xml, bytes):
-            xml = xml.encode('utf-8')
+            xml = xml.encode()
         xml = etree.parse(io.BytesIO(xml))
         xml = etree.tostring(xml, pretty_print=True, xml_declaration=True,
                              encoding=xml.docinfo.encoding)
@@ -11310,7 +11657,7 @@ def pformat(arg, width=79, height=24, compact=True):
     npopt = numpy.get_printoptions()
     numpy.set_printoptions(threshold=100, linewidth=width)
 
-    if isinstance(arg, basestring):
+    if isinstance(arg, (str, bytes)):
         if arg[:5].lower() in ('<?xml', b'<?xml'):
             if isinstance(arg, bytes):
                 arg = bytes2str(arg)
@@ -11330,8 +11677,8 @@ def pformat(arg, width=79, height=24, compact=True):
         arg = arg.pprint()
     else:
         import pprint  # delayed import
-        compact = {} if sys.version_info[0] == 2 else dict(compact=compact)
-        arg = pprint.pformat(arg, width=width, **compact)
+
+        arg = pprint.pformat(arg, width=width, compact=compact)
 
     numpy.set_printoptions(**npopt)
 
@@ -11345,7 +11692,7 @@ def pformat(arg, width=79, height=24, compact=True):
     return arg
 
 
-def snipstr(string, width=79, snipat=None, ellipsis='...'):
+def snipstr(string, width=79, snipat=None, ellipsis=None):
     """Return string cut to specified length.
 
     >>> snipstr('abcdefghijklmnop', 8)
@@ -11358,7 +11705,7 @@ def snipstr(string, width=79, snipat=None, ellipsis='...'):
         if isinstance(string, bytes):
             ellipsis = b'...'
         else:
-            ellipsis = u'\u2026'  # does not print on win-py3.5
+            ellipsis = '\u2026'
     esize = len(ellipsis)
 
     splitlines = string.splitlines()
@@ -11404,6 +11751,14 @@ def snipstr(string, width=79, snipat=None, ellipsis='...'):
     return '\n'.join(result)
 
 
+def enumstr(enum):
+    """Return short string representation of Enum instance."""
+    name = enum.name
+    if name is None:
+        name = str(enum)
+    return name
+
+
 def enumarg(enum, arg):
     """Return enum member from its name or value.
 
@@ -11419,7 +11774,7 @@ def enumarg(enum, arg):
         try:
             return enum[arg.upper()]
         except Exception:
-            raise ValueError('invalid argument %s' % arg)
+            raise ValueError(f'invalid argument {arg}')
 
 
 def parse_kwargs(kwargs, *keys, **keyvalues):
@@ -11490,7 +11845,7 @@ def validate_jhove(filename, jhove=None, ignore=None):
         for line in out.splitlines():
             line = line.strip()
             if line.startswith(b'ErrorMessage: '):
-                error = line[14:].decode('utf-8')
+                error = line[14:].decode()
                 for i in ignore:
                     if i in error:
                         break
@@ -11507,7 +11862,7 @@ def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
     of the filenames.
 
     """
-    verbose = print_ if verbose else nullfunc
+    verbose = print if verbose else nullfunc
 
     if tile is None:
         tile = (256, 256)
@@ -11534,8 +11889,12 @@ def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
 
         verbose(timer)
         # verbose(lsm, flush=True)
-        verbose('Image\n  axes:  %s\n  shape: %s\n  dtype: %s\n  size:  %s'
-                % (axes, shape, dtype, format_size(size)), flush=True)
+        verbose(
+            'Image\n  axes:  {}\n  shape: {}\n  dtype: {}\n  size:  {}'.format(
+                axes, shape, dtype, format_size(size)
+            ),
+            flush=True
+        )
         if not series.axes.endswith('TZCYX'):
             raise ValueError('not a *TZCYX LSM file')
 
@@ -11570,7 +11929,7 @@ def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
 
 
 def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
-           interpolation=None, cmap=None, vmin=None, vmax=None,
+           nodata=0, interpolation=None, cmap=None, vmin=None, vmax=None,
            figure=None, title=None, dpi=96, subplot=None, maxdim=None,
            **kwargs):
     """Plot n-dimensional images using matplotlib.pyplot.
@@ -11687,7 +12046,7 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
                 bitspersample = int(math.ceil(math.log(data.max(), 2)))
             except Exception:
                 bitspersample = data.dtype.itemsize * 8
-        elif not isinstance(bitspersample, inttypes):
+        elif not isinstance(bitspersample, (int, numpy.integer)):
             # bitspersample can be tuple, e.g. (5, 6, 5)
             bitspersample = data.dtype.itemsize * 8
         datamax = 2**bitspersample
@@ -11698,6 +12057,9 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
                 data = data >> (bitspersample - 8)  # precision loss
             data = data.astype('B')
     elif data.dtype.kind == 'f':
+        if nodata:
+            data = data.copy()
+            data[data > 1e30] = 0.0
         datamax = data.max()
         if isrgb and datamax > 1.0:
             if data.dtype.char == 'd':
@@ -11755,7 +12117,7 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
 
     if title:
         try:
-            title = unicode(title, 'Windows-1252')
+            title = str(title, 'Windows-1252')
         except TypeError:
             pass
         pyplot.title(title, size=11)
@@ -11783,9 +12145,8 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
         y = int(y + 0.5)
         try:
             if dims:
-                return '%s @ %s [%4i, %4i]' % (
-                    curaxdat[1][y, x], current, y, x)
-            return '%s @ [%4i, %4i]' % (data[y, x], y, x)
+                return f'{curaxdat[1][y, x]} @ {current} [{y:4}, {x:4}]'
+            return f'{data[y, x]} @ [{y:4}, {x:4}]'
         except IndexError:
             return ''
 
@@ -11799,10 +12160,15 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
     if dims:
         current = list((0,) * dims)
         curaxdat = [0, data[tuple(current)].squeeze()]
-        sliders = [pyplot.Slider(
-            pyplot.axes([0.125, 0.03 * (axis + 1), 0.725, 0.025]),
-            'Dimension %i' % axis, 0, data.shape[axis] - 1, 0, facecolor='0.5',
-            valfmt='%%.0f [%i]' % data.shape[axis]) for axis in range(dims)]
+        sliders = [
+            pyplot.Slider(
+                pyplot.axes([0.125, 0.03 * (axis + 1), 0.725, 0.025]),
+                f'Dimension {axis}', 0, data.shape[axis] - 1,
+                0,
+                facecolor='0.5',
+                valfmt=f'%.0f [{data.shape[axis]}]'
+            ) for axis in range(dims)
+        ]
         for slider in sliders:
             slider.drawon = False
 
@@ -11863,11 +12229,8 @@ def _app_show():
 
 def askopenfilename(**kwargs):
     """Return file name(s) from Tkinter's file open dialog."""
-    try:
-        from Tkinter import Tk
-        import tkFileDialog as filedialog
-    except ImportError:
-        from tkinter import Tk, filedialog
+    from tkinter import Tk, filedialog
+
     root = Tk()
     root.withdraw()
     root.update()
@@ -11886,7 +12249,7 @@ def main():
     parser = optparse.OptionParser(
         usage='usage: %prog [options] path',
         description='Display image data in TIFF files.',
-        version='%%prog %s' % __version__, prog='tifffile')
+        version=f'%prog {__version__}', prog='tifffile')
     opt = parser.add_option
     opt('-p', '--page', dest='page', type='int', default=-1,
         help='display single page')
@@ -11916,10 +12279,11 @@ def main():
 
     if settings.doctest:
         import doctest
-        if sys.version_info < (3, 6):
-            print('Doctests work with Python >=3.6 only')
-            return 0
-        doctest.testmod(optionflags=doctest.ELLIPSIS)
+        try:
+            import tifffile.tifffile as m
+        except ImportError:
+            m = None
+        doctest.testmod(m, optionflags=doctest.ELLIPSIS)
         return 0
     if not path:
         path = askopenfilename(title='Select a TIFF file',
@@ -11936,14 +12300,14 @@ def main():
         path = path[0]
 
     if not settings.quiet:
-        print_('\nReading TIFF header:', end=' ', flush=True)
+        print('\nReading TIFF header:', end=' ', flush=True)
     timer = Timer()
     try:
         tif = TiffFile(path, multifile=not settings.nomultifile)
     except Exception as exc:
         if settings.debug:
             raise
-        print('\n\n%s: %s' % (exc.__class__.__name__, exc))
+        print(f'\n\n{exc.__class__.__name__}: {exc}')
         sys.exit(0)
 
     if not settings.quiet:
@@ -11955,7 +12319,7 @@ def main():
     images = []
     if settings.noplots > 0:
         if not settings.quiet:
-            print_('Reading image data: ', end=' ', flush=True)
+            print('Reading image data: ', end=' ', flush=True)
 
         def notnone(x):
             return next(i for i in x if i is not None)
@@ -11979,18 +12343,21 @@ def main():
                         images.append((None, notnone(s.pages), None))
                         if settings.debug:
                             raise
-                        print('\nSeries %i failed with %s: %s... '
-                              % (i, exc.__class__.__name__, exc), end='')
+                        print(
+                            '\nSeries {} failed with {}: {}... '.format(
+                                i, exc.__class__.__name__, exc),
+                            end=''
+                        )
         except Exception as exc:
             if settings.debug:
                 raise
-            print('%s: %s' % (exc.__class__.__name__, exc))
+            print(f'{exc.__class__.__name__}: {exc}')
 
         if not settings.quiet:
             print(timer)
 
     if not settings.quiet:
-        print_('Generating report:', end='   ', flush=True)
+        print('Generating report:', end='   ', flush=True)
         timer.start()
         info = TiffFile.__str__(tif, detail=int(settings.detail))
         print(timer)
@@ -12004,9 +12371,8 @@ def main():
             import matplotlib
             matplotlib.use('TkAgg')
             from matplotlib import pyplot
-
         except ImportError as exc:
-            log_warning('tifffile.main: %s: %s', exc.__class__.__name__, exc)
+            log_warning(f'tifffile.main: {exc.__class__.__name__}: {exc}')
         else:
             for img, page, series in images:
                 if img is None:
@@ -12027,14 +12393,14 @@ def main():
                         if vmax <= vmin:
                             vmin, vmax = settings.vmin, settings.vmax
                 if series:
-                    title = '%s\n%s\n%s' % (str(tif), str(page), str(series))
+                    title = f'{tif}\n{page}\n{series}'
                 else:
-                    title = '%s\n %s' % (str(tif), str(page))
+                    title = f'{tif}\n {page}'
                 photometric = 'MINISBLACK'
                 if page.photometric not in (3,):
                     photometric = TIFF.PHOTOMETRIC(page.photometric).name
                 imshow(img, title=title, vmin=vmin, vmax=vmax,
-                       bitspersample=page.bitspersample,
+                       bitspersample=page.bitspersample, nodata=page.nodata,
                        photometric=photometric,
                        interpolation=settings.interpol,
                        dpi=settings.dpi)
@@ -12042,83 +12408,22 @@ def main():
     return 0
 
 
-if sys.version_info[0] == 2:
-    inttypes = int, long, numpy.integer  # noqa
+def bytes2str(b, encoding=None, errors='strict'):
+    """Return unicode string from encoded bytes."""
+    if encoding is not None:
+        return b.decode(encoding, errors)
+    try:
+        return b.decode('utf-8', errors)
+    except UnicodeDecodeError:
+        return b.decode('cp1252', errors)
 
-    def print_(*args, **kwargs):
-        """Print function with flush support."""
-        flush = kwargs.pop('flush', False)
-        print(*args, **kwargs)
-        if flush:
-            sys.stdout.flush()
 
-    def bytes2str(b, encoding=None, errors=None):
-        """Return string from bytes."""
-        return b
-
-    def str2bytes(s, encoding=None):
-        """Return bytes from string."""
-        return s
-
-    def bytestr(s, encoding='cp1252'):
-        """Return byte string from unicode string, else pass through."""
-        return s.encode(encoding) if isinstance(s, unicode) else s
-
-    def byte2int(b):
-        """Return value of byte as int."""
-        return ord(b)
-
-    def iogetbuffer(bio):
-        """Return contents of BytesIO buffer."""
-        return bio.getvalue()
-
-    class FileNotFoundError(IOError):
-        """FileNotFoundError exception for Python 2."""
-
-    TiffFrame = TiffPage  # noqa
-else:
-    inttypes = int, numpy.integer
-    basestring = str, bytes
-    unicode = str
-    print_ = print
-
-    def bytes2str(b, encoding=None, errors='strict'):
-        """Return unicode string from encoded bytes."""
-        if encoding is not None:
-            return b.decode(encoding, errors)
-        try:
-            return b.decode('utf-8', errors)
-        except UnicodeDecodeError:
-            return b.decode('cp1252', errors)
-
-    def str2bytes(s, encoding='cp1252'):
-        """Return bytes from unicode string."""
-        return s.encode(encoding)
-
-    def bytestr(s, encoding='cp1252'):
-        """Return byte string from unicode string, else pass through."""
-        return s.encode(encoding) if isinstance(s, str) else s
-
-    def byte2int(b):
-        """Return value of byte as int."""
-        return b
-
-    def iogetbuffer(bio):
-        """Return view over BytesIO buffer."""
-        return bio.getbuffer()
+def bytestr(s, encoding='cp1252'):
+    """Return bytes from unicode string, else pass through."""
+    return s.encode(encoding) if isinstance(s, str) else s
 
 
 # deprecated
-
-def decodelzw(encoded):
-    """Decompress LZW encoded byte string."""
-    warnings.warn(
-        'The decodelzw function was removed from the tifffile package.\n'
-        'Use the lzw_decode function from the imagecodecs package instead.')
-    return imagecodecs.lzw_decode(encoded)
-
-
-decode_lzw = decodelzw
 imsave = imwrite
 
 if __name__ == '__main__':
