@@ -63,7 +63,7 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         'numpy>=1.15.1',
-        'imagecodecs>=2020.1.31',
+        'imagecodecs>=2020.2.18',
     ],
     extras_require={
         'all': ['matplotlib>=3.1'],
@@ -75,7 +75,9 @@ setup(
         'console_scripts': [
             'tifffile = tifffile:main',
             'lsm2bin = tifffile.lsm2bin:main',
-        ]},
+        ],
+        # 'napari.plugin': ['tifffile = tifffile.napari_tifffile'],
+        },
     platforms=['any'],
     classifiers=[
         'Development Status :: 4 - Beta',
