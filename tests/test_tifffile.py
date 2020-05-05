@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.2.16
+:Version: 2020.5.5
 
 """
 
@@ -179,6 +179,7 @@ LZW = TIFF.COMPRESSION.LZW
 LZMA = TIFF.COMPRESSION.LZMA
 ZSTD = TIFF.COMPRESSION.ZSTD
 WEBP = TIFF.COMPRESSION.WEBP
+LERC = TIFF.COMPRESSION.LERC
 PACKBITS = TIFF.COMPRESSION.PACKBITS
 JPEG = TIFF.COMPRESSION.JPEG
 APERIO_JP2000_RGB = TIFF.COMPRESSION.APERIO_JP2000_RGB
@@ -509,6 +510,25 @@ def test_issue_incorrect_rowsperstrip_count():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_extra_strips(caplog):
+    """Test read extra strips."""
+    # https://github.com/opencv/opencv/issues/17054
+    with TiffFile(private_file('issues/extra_strips.tif')) as tif:
+        assert not tif.is_bigtiff
+        assert len(tif.pages) == 1
+        page = tif.pages[0]
+        assert page.tags['StripOffsets'].value == (8, 0, 0)
+        assert page.tags['StripByteCounts'].value == (55064448, 0, 0)
+        assert page._offsetscounts == ((8,), (55064448,))
+        assert page.is_contiguous
+        # assert data
+        image = tif.asarray()
+        assert image.shape == (2712, 3384, 3)
+    assert 'incorrect StripOffsets count' in caplog.text
+    assert 'incorrect StripByteCounts count' in caplog.text
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_no_bytecounts(caplog):
     """Test read no bytecounts."""
     with TiffFile(private_file('bad/img2_corrupt.tif')) as tif:
@@ -637,6 +657,16 @@ def test_issue_pathlib():
                 assert isinstance(im, numpy.core.memmap)
                 assert_array_equal(im, data)
                 assert os.path.samefile(im.filename, str(outfname))
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_issue_lzw_corrupt():
+    """Test decoding corrupted LZW segment raises RuntimeError."""
+    # reported by S Richter on 2020.2.17
+    fname = private_file('issues/lzw_corrupt.tiff')
+    with pytest.raises(RuntimeError):
+        with TiffFile(fname) as tif:
+            tif.asarray()
 
 
 ###############################################################################
@@ -3123,6 +3153,32 @@ def test_read_webp():
         assert image[25, 25, 0] == 92
         assert image[25, 25, 1] == 122
         assert image[25, 25, 2] == 37
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+def test_read_lerc():
+    """Test read LERC compression."""
+    if not hasattr(imagecodecs, 'LERC'):
+        pytest.skip('LERC codec missing')
+
+    fname = public_file('imagecodecs/rgb.u2.lerc.tif')
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 1
+        page = tif.pages[0]
+        assert page.compression == LERC
+        assert page.photometric == RGB
+        assert page.planarconfig == CONTIG
+        assert page.imagewidth == 31
+        assert page.imagelength == 32
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 3
+        # assert data
+        image = tif.asarray()
+        assert image.flags['C_CONTIGUOUS']
+        assert image.shape == (32, 31, 3)
+        assert image.dtype == 'uint16'
+        assert tuple(image[25, 25]) == (3265, 1558, 2811)
         assert__str__(tif)
 
 
@@ -6194,8 +6250,8 @@ def test_read_mdgel_rat():
         assert page.bitspersample == 16
         assert page.samplesperpixel == 1
         assert page.tags['Software'].value == (
-            "ImageQuant Software Release Version 2.0")
-        assert page.tags['PageName'].value == r"C:\DATA\RAT.GEL"
+            'ImageQuant Software Release Version 2.0')
+        assert page.tags['PageName'].value == r'C:\DATA\RAT.GEL'
 
         # assert 2nd page properties
         page = tif.pages[1]
@@ -6208,10 +6264,10 @@ def test_read_mdgel_rat():
         assert page.tags['MDScalePixel'].value == (1, 21025)
         assert len(page.tags['MDColorTable'].value) == 17
         md = tif.mdgel_metadata
-        assert md['SampleInfo'] == "Rat slices from Dr. Schweitzer"
-        assert md['PrepDate'] == "12 July 90"
-        assert md['PrepTime'] == "40hr"
-        assert md['FileUnits'] == "Counts"
+        assert md['SampleInfo'] == 'Rat slices from Dr. Schweitzer'
+        assert md['PrepDate'] == '12 July 90'
+        assert md['PrepTime'] == '40hr'
+        assert md['FileUnits'] == 'Counts'
 
         # assert series properties
         series = tif.series[0]
@@ -7468,6 +7524,29 @@ def test_write_compress_webp():
 
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
+def test_write_compress_lerc():
+    """Test write LERC compression."""
+    if not hasattr(imagecodecs, 'LERC'):
+        pytest.skip('LERC codec missing')
+    data = WRITE_DATA.astype('uint16').reshape((219, 301, 3))
+    with TempFileName('compress_lerc') as fname:
+        imwrite(fname, data, compress='LERC')
+        assert_valid(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert not page.is_contiguous
+            assert page.compression == LERC
+            assert page.photometric == RGB
+            assert page.imagewidth == 301
+            assert page.imagelength == 219
+            assert page.samplesperpixel == 3
+            image = tif.asarray()
+            assert_array_equal(data, image)
+            assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
 @pytest.mark.parametrize('dtype', ['i1', 'u1', 'bool'])
 def test_write_compress_packbits(dtype):
     """Test write PackBits compression."""
@@ -8457,6 +8536,68 @@ def test_write_tiled_pages():
             assert__str__(tif)
 
 
+def test_write_tileiter():
+    """Test write tiles from iterator."""
+    data = numpy.arange(3*4*16*16, dtype='uint16').reshape((3*4, 16, 16))
+
+    def tiles():
+        for i in range(data.shape[0]):
+            yield data[i]
+
+    with TempFileName('write_tileiter') as fname:
+
+        with pytest.raises(StopIteration):
+            # missing tiles
+            imwrite(fname, tiles(), shape=(43, 81), tile=(16, 16),
+                    dtype='uint16')
+
+        with pytest.raises(AttributeError):
+            # missing parameters
+            imwrite(fname, tiles())
+
+        with pytest.raises(AttributeError):
+            # missing parameters
+            imwrite(fname, tiles(), shape=(43, 81))
+
+        imwrite(fname, tiles(), shape=(43, 61), tile=(16, 16), dtype='uint16')
+
+        with TiffFile(fname) as tif:
+            page = tif.pages[0]
+            assert page.shape == (43, 61)
+            assert page.tilelength == 16
+            assert page.tilewidth == 16
+            image = page.asarray()
+            assert_array_equal(image[:16, :16], data[0])
+            for i, segment in enumerate(page.segments()):
+                assert_array_equal(numpy.squeeze(segment[0]), data[i])
+
+
+def test_write_tileiter_separate():
+    """Test write separate tiles from iterator."""
+    data = numpy.arange(2*3*4*16*16, dtype='uint16').reshape((2*3*4, 16, 16))
+
+    def tiles():
+        for i in range(data.shape[0]):
+            yield data[i]
+
+    with TempFileName('write_tile_iter_separate') as fname:
+
+        imwrite(fname, tiles(), shape=(2, 43, 61), tile=(16, 16),
+                dtype='uint16', planarconfig='separate', compress=6)
+
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert page.shape == (2, 43, 61)
+            assert page.tilelength == 16
+            assert page.tilewidth == 16
+            assert page.planarconfig == 2
+            image = page.asarray()
+            assert_array_equal(image[0, :16, :16], data[0])
+            for i, segment in enumerate(page.segments()):
+                assert_array_equal(numpy.squeeze(segment[0]), data[i])
+
+
 def test_write_volume():
     """Test write tiled volume."""
     data = random_data('uint8', (253, 64, 96))
@@ -8913,18 +9054,74 @@ def test_write_imagej_ijmetadata_tag():
     assert_valid(fname)
 
     with TempFileName('imagej_ijmetadata') as fname:
+        # with pytest.warns(DeprecationWarning):
         imwrite(fname, data, byteorder='>', imagej=True,
                 metadata={'mode': 'composite'}, ijmetadata=ijmetadata)
+
+        imwrite(fname, data, byteorder='>', imagej=True,
+                metadata={**ijmetadata, 'mode': 'composite'})
         with TiffFile(fname) as tif:
             assert tif.is_imagej
             assert tif.byteorder == '>'
             assert len(tif.pages) == 3
             assert len(tif.series) == 1
+            imagej_metadata = tif.imagej_metadata
             data2 = tif.asarray()
             ijmetadata2 = tif.pages[0].tags['IJMetadata'].value
+
             assert__str__(tif)
 
     assert_array_equal(data, data2)
+    assert imagej_metadata['mode'] == 'composite'
+    assert imagej_metadata['Info'] == ijmetadata['Info']
+    assert ijmetadata2['Info'] == ijmetadata['Info']
+    assert ijmetadata2['ROI'] == ijmetadata['ROI']
+    assert ijmetadata2['Overlays'] == ijmetadata['Overlays']
+    assert ijmetadata2['Ranges'] == ijmetadata['Ranges']
+    assert ijmetadata2['Labels'] == ijmetadata['Labels']
+    assert_array_equal(ijmetadata2['LUTs'][2], ijmetadata['LUTs'][2])
+    assert_valid(fname)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_write_imagej_roundtrip():
+    """Test ImageJ metadata survive read/write roundtrip."""
+    fname = private_file('imagej/IJMetadata.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_imagej
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 3
+        assert len(tif.series) == 1
+        data = tif.asarray()
+        ijmetadata = tif.imagej_metadata
+
+    assert ijmetadata['Info'][:21] == 'FluorescentCells.tif\n'
+    assert ijmetadata['ROI'][:5] == b'Iout\x00'
+    assert ijmetadata['Overlays'][1][:5] == b'Iout\x00'
+    assert ijmetadata['Ranges'] == (0.0, 255.0, 0.0, 255.0, 0.0, 255.0)
+    assert ijmetadata['Labels'] == ['Red', 'Green', 'Blue']
+    assert ijmetadata['LUTs'][2][2, 255] == 255
+    assert ijmetadata['mode'] == 'composite'
+    assert not ijmetadata['loop']
+    assert ijmetadata['ImageJ'] == '1.52b'
+    assert_valid(fname)
+
+    with TempFileName('imagej_ijmetadata_roundtrip') as fname:
+
+        imwrite(fname, data, byteorder='>', imagej=True, metadata=ijmetadata)
+
+        with TiffFile(fname) as tif:
+            assert tif.is_imagej
+            assert tif.byteorder == '>'
+            assert len(tif.pages) == 3
+            assert len(tif.series) == 1
+            ijmetadata2 = tif.imagej_metadata
+            data2 = tif.asarray()
+            assert__str__(tif)
+
+    assert_array_equal(data, data2)
+    assert ijmetadata2['ImageJ'] == ijmetadata['ImageJ']
+    assert ijmetadata2['mode'] == ijmetadata['mode']
     assert ijmetadata2['Info'] == ijmetadata['Info']
     assert ijmetadata2['ROI'] == ijmetadata['ROI']
     assert ijmetadata2['Overlays'] == ijmetadata['Overlays']
@@ -9421,7 +9618,7 @@ def test_sequence_wells_axesorder():
 # Test packages depending on tifffile
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
-def test_depend_imagejroi():
+def test_depend_roifile():
     """Test roifile.ImagejRoi class."""
     from roifile import ImagejRoi  # noqa
 
