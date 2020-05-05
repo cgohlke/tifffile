@@ -1,7 +1,18 @@
 Revisions
 ---------
+2020.5.5
+    Pass 2906 tests.
+    Allow to write tiled TIFF from iterator of tiles (WIP).
+    Add function to iterate over decoded segments of TiffPage (WIP).
+    Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
+    Fix reading invalid files with too many strips.
+    Fix writing over-aligned image data.
+    Detect OME-XML without declaration.
+    Support LERC compression (WIP).
+    Delay load imagecodecs functions.
+    Remove maxsize parameter from asarray (breaking).
+    Deprecate ijmetadata parameter from TiffWriter.save (use metadata).
 2020.2.16
-    Pass 2899 tests.
     Add function to decode individual strips or tiles.
     Read strips and tiles in order of their offsets.
     Enable multi-threading when decompressing multiple strips.
