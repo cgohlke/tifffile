@@ -43,7 +43,7 @@ ZIF, QPTIFF, NDPI, and GeoTIFF files.
 Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
 files in multi-page, memory-mappable, tiled, predicted, or compressed form.
 
-Only a subset of the TIFF specification is supported, mainly uncompressed and
+A subset of the TIFF specification is supported, mainly uncompressed and
 losslessly compressed 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
 grayscale and multi-sample images.
 Specifically, reading slices of image data, CCITT and OJPEG compression,
@@ -68,23 +68,34 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.2.16
+:Version: 2020.5.5
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.6.8, 3.7.6, 3.8.1 64-bit <https://www.python.org>`_
+* `CPython 3.6.8, 3.7.7, 3.8.2 64-bit <https://www.python.org>`_
 * `Numpy 1.16.6 <https://www.numpy.org>`_
-* `Imagecodecs 2020.1.31 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for encoding and decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
 
 Revisions
 ---------
+2020.5.5
+    Pass 2906 tests.
+    Allow to write tiled TIFF from iterator of tiles (WIP).
+    Add function to iterate over decoded segments of TiffPage (WIP).
+    Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
+    Fix reading invalid files with too many strips.
+    Fix writing over-aligned image data.
+    Detect OME-XML without declaration.
+    Support LERC compression (WIP).
+    Delay load imagecodecs functions.
+    Remove maxsize parameter from asarray (breaking).
+    Deprecate ijmetadata parameter from TiffWriter.save (use metadata).
 2020.2.16
-    Pass 2899 tests.
     Add function to decode individual strips or tiles.
     Read strips and tiles in order of their offsets.
     Enable multi-threading when decompressing multiple strips.
@@ -212,6 +223,10 @@ Tested on little-endian platforms only.
 
 Python 32-bit versions are deprecated.
 
+Update pip and setuptools to the latest version before installing tifffile:
+
+    ``python -m pip install --upgrade pip setuptools``
+
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed images.
 
@@ -230,7 +245,7 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   files. The 8-bit UTF-8 encoded OME-XML metadata found in the ImageDescription
   tag of the first IFD defines the position of TIFF IFDs in the high
   dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
-  metadata is stored in a separate file.
+  metadata are stored in a separate file.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
@@ -243,7 +258,7 @@ some of which allow file or data sizes to exceed the 4 GB limit:
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
-  Tifffile can read such files on Python 3 if the image data is stored
+  Tifffile can read such files on Python 3 if the image data are stored
   contiguously in each page.
 * *GeoTIFF* sparse files allow strip or tile offsets and byte counts to be 0.
   Such segments are implicitly set to 0 or the NODATA value on reading.
@@ -337,8 +352,8 @@ Save a floating-point array and metadata, using zlib compression:
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
 >>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
 
-Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3
-to an ImageJ formatted TIFF file:
+Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an ImageJ
+formatted TIFF file:
 
 >>> volume = numpy.random.randn(57*256*256).astype('float32')
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
@@ -418,10 +433,14 @@ Successively append images to a BigTIFF file, which can exceed 4 GB:
 ...     for i in range(data.shape[0]):
 ...         tif.save(data[i], compress=6, photometric='minisblack')
 
+Append an image to the existing TIFF file:
+
+>>> data = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
+>>> imwrite('temp.tif', data, append=True)
+
 Iterate over pages and tags in the TIFF file and successively read images:
 
 >>> with TiffFile('temp.tif') as tif:
-...     image_stack = tif.asarray()
 ...     for page in tif.pages:
 ...         for tag in page.tags:
 ...             tag_name, tag_value = tag.name, tag.value
@@ -454,9 +473,16 @@ Read an image stack from a series of TIFF files with a file name pattern:
 >>> data.shape
 (1, 2, 64, 64)
 
+Create a TIFF file from an iterator of tiles:
+
+>>> def tiles():
+...     data = numpy.arange(3*4*16*16, dtype='uint16').reshape((3*4, 16, 16))
+...     for i in range(data.shape[0]): yield data[i]
+>>> imwrite('temp.tif', tiles(), dtype='uint16', shape=(48, 64), tile=(16, 16))
+
 """
 
-__version__ = '2020.2.16'
+__version__ = '2020.5.5'
 
 __all__ = (
     'imwrite',
@@ -522,7 +548,7 @@ import numpy
 
 try:
     import imagecodecs
-except ImportError:
+except Exception:
     imagecodecs = None
 
 # delay import of mmap, pprint, fractions, xml, lxml, matplotlib, tkinter,
@@ -825,7 +851,7 @@ class TiffWriter:
         elif byteorder not in ('<', '>'):
             raise ValueError(f'invalid byteorder {byteorder}')
         if imagej and bigtiff:
-            warnings.warn('writing nonconformant BigTIFF ImageJ')
+            warnings.warn('writing nonconformant BigTIFF ImageJ', UserWarning)
 
         self._byteorder = byteorder
         self._imagej = bool(imagej)
@@ -890,6 +916,8 @@ class TiffWriter:
         If 'shape' and 'dtype' are specified instead of 'data', an empty array
         is saved. This option cannot be used with compression or multiple
         tiles.
+        If 'shape', 'dtype', and 'tile' are specified, 'data' must be a
+        sequence or iterator over all individual tiles in image.
         Image data are written uncompressed in one strip per plane by default.
         Dimensions larger than 2 to 4 (depending on photometric mode, planar
         configuration, and SGI mode) are flattened and saved as separate pages.
@@ -898,12 +926,14 @@ class TiffWriter:
 
         Parameters
         ----------
-        data : numpy.ndarray or None
-            Input image array.
+        data : numpy.ndarray, sequence of numpy.ndarray, or None
+            Input image or tiles.
         shape : tuple or None
-            Shape of the empty array to save. Used only if 'data' is None.
+            Shape of the empty or tiled array to save.
+            Used only if 'data' is None or a sequence of tiles.
         dtype : numpy.dtype or None
-            Datatype of the empty array to save. Used only if 'data' is None.
+            Datatype of the empty or tiled array to save.
+            Used only if 'data' is None or a sequence of tiles.
         returnoffset : bool
             If True and the image data in the file is memory-mappable, return
             the offset and number of bytes of the image data in the file.
@@ -928,7 +958,7 @@ class TiffWriter:
             The shape ([depth,] length, width) of image tiles to write.
             If None (default), image data are written in strips.
             The tile length and width must be a multiple of 16.
-            If the tile depth is provided, the SGI ImageDepth and TileDepth
+            If a tile depth is provided, the SGI ImageDepth and TileDepth
             tags are used to save volume data.
             Unless a single tile is used, tiles cannot be used to write
             contiguous files.
@@ -948,7 +978,7 @@ class TiffWriter:
             If True, only write the first page including shape metadata if
             possible (uncompressed, contiguous, not tiled).
             Other TIFF readers will only be able to read part of the data.
-        compress : int or str or (str, int)
+        compress : int, str, or (str, int)
             If 0 or None (default), data are written uncompressed.
             If 0-9, the level of ADOBE_DEFLATE compression.
             If a str, one of TIFF.COMPESSORS, e.g. 'LZMA' or 'ZSTD'.
@@ -1000,15 +1030,14 @@ class TiffWriter:
             Saved with the first page only.
         metadata : dict
             Additional metadata to be saved along with shape information
-            in JSON or ImageJ formats in an ImageDescription tag.
+            in JSON or ImageJ formats in ImageDescription or IJMetadata tags.
             If None, do not write a ImageDescription tag with shape in JSON
             format.
+            If ImageJ format, values for keys 'Info', 'Labels', 'Ranges',
+            'LUTs', 'Plot', 'ROI', and 'Overlays' are saved in IJMetadata and
+            IJMetadataByteCounts tags. Refer to the imagej_metadata_tag
+            function for valid values.
             Strings must be 7-bit ASCII. Saved with the first page only.
-        ijmetadata : dict
-            Additional metadata to be saved in application specific
-            IJMetadata and IJMetadataByteCounts tags. Refer to the
-            imagej_metadata_tag function for valid keys and values.
-            Saved with the first page only.
         extratags : sequence of tuples
             Additional tags as [(code, dtype, count, value, writeonce)].
 
@@ -1034,13 +1063,25 @@ class TiffWriter:
             compress = False
 
         if data is None:
+            # empty
             if compress:
                 raise ValueError('cannot save compressed empty file')
+            tileiter = None
+            datashape = shape
+            datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
+            datadtypechar = datadtype.char
+        elif shape is not None and dtype is not None and tile is not None:
+            # iterable tiles
+            if not hasattr(data, '__iter__'):
+                raise ValueError('data is not iterable')
+            tileiter = data
             datashape = shape
             datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
             datadtypechar = datadtype.char
         else:
+            # whole image data
             data = numpy.asarray(data, byteorder + data.dtype.char, 'C')
+            tileiter = None
             datashape = data.shape
             datadtype = data.dtype
             datadtypechar = data.dtype.char
@@ -1066,7 +1107,6 @@ class TiffWriter:
         input_shape = datashape
 
         # just append contiguous data if possible
-
         if self._datashape:
             if (
                 not contiguous
@@ -1339,8 +1379,10 @@ class TiffWriter:
             s0 = 1 if s0 == 0 else product(input_shape) // s0
             datashape = (s0,) + datashape[1:]
         shape = datashape
-        if data is not None:
+        try:
             data = data.reshape(shape)
+        except AttributeError:
+            pass  # data is None or iterator
 
         if photometric == PALETTE:
             if (
@@ -1465,6 +1507,22 @@ class TiffWriter:
         # write shape and metadata to ImageDescription
         self._metadata = {} if not metadata else metadata.copy()
         if self._imagej:
+            if ijmetadata is None:
+                ijmetadata = parse_kwargs(
+                    self._metadata,
+                    'Info', 'Labels', 'Ranges', 'LUTs', 'Plot', 'ROI',
+                    'Overlays',
+                    'info', 'labels', 'ranges', 'luts', 'plot', 'roi',
+                    'overlays'
+                )
+            # TODO: activate DeprecationWarning and update tests
+            # else:
+            #     warnings.warn(
+            #         "TiffWriter: the 'ijmetadata' argument is deprecated",
+            #         DeprecationWarning
+            #     )
+            for t in imagej_metadata_tag(ijmetadata, byteorder):
+                addtag(*t)
             description = imagej_description(
                 input_shape,
                 shape[-1] in (3, 4),
@@ -1500,6 +1558,9 @@ class TiffWriter:
                     datetime = self._now().strftime('%Y:%m:%d %H:%M:%S')
             addtag(306, 's', 0, datetime, writeonce=True)
         addtag(259, 'H', 1, compresstag)  # Compression
+        if compresstag == 34887:
+            # LERC without additional compression
+            addtag(50674, 'I', 2, (4, 0))
         if predictor:
             addtag(317, 'H', 1, predictortag)
         addtag(256, 'I', 1, shape[-2])  # ImageWidth
@@ -1555,7 +1616,7 @@ class TiffWriter:
             addtag(262, 'H', 1, 6)  # PhotometricInterpretation YCBCR
         else:
             if subsampling not in (None, (1, 1)):
-                log_warning('cannot apply subsampling')
+                log_warning('TiffWriter: cannot apply subsampling')
             subsampling = None
             maxsampling = 1
             # PhotometricInterpretation
@@ -1578,9 +1639,6 @@ class TiffWriter:
             addtag(282, '2I', 1, (1, 1))  # XResolution
             addtag(283, '2I', 1, (1, 1))  # YResolution
             addtag(296, 'H', 1, 1)  # ResolutionUnit
-        if ijmetadata:
-            for t in imagej_metadata_tag(ijmetadata, byteorder):
-                addtag(*t)
 
         def bytecount_format(bytecounts, compress=compress, size=offsetsize):
             # return bytecount format
@@ -1600,16 +1658,16 @@ class TiffWriter:
         contiguous = not compress
         if tile:
             # one chunk per tile per plane
-            if len(tile) == 3:
+            if len(tile) == 2:
+                tiles = (
+                    (shape[3] + tile[0] - 1) // tile[0],
+                    (shape[4] + tile[1] - 1) // tile[1],
+                )
+            else:
                 tiles = (
                     (shape[2] + tile[0] - 1) // tile[0],
                     (shape[3] + tile[1] - 1) // tile[1],
                     (shape[4] + tile[2] - 1) // tile[2],
-                )
-            else:
-                tiles = (
-                    (shape[3] + tile[0] - 1) // tile[0],
-                    (shape[4] + tile[1] - 1) // tile[1],
                 )
             numtiles = product(tiles) * shape[1]
             databytecounts = [
@@ -1618,10 +1676,12 @@ class TiffWriter:
             addtag(tagbytecounts, bytecountformat, numtiles, databytecounts)
             addtag(tagoffsets, offsetformat, numtiles, [0] * numtiles)
             contiguous = contiguous and product(tiles) == 1
-            if not contiguous:
-                # allocate tile buffer
-                chunk = numpy.empty(tile + (shape[-1],), dtype=datadtype)
             bytecountformat = bytecountformat * numtiles
+            if contiguous or tileiter is not None:
+                pass
+            else:
+                tileiter = iter_tiles(data, tile, tiles)
+
         elif contiguous and (bilevel or rowsperstrip is None):
             # one strip per plane
             if bilevel:
@@ -1762,7 +1822,7 @@ class TiffWriter:
 
             # write image data
             dataoffset = fh.tell()
-            skip = align - dataoffset % align
+            skip = (align - (dataoffset % align)) % align
             fh.seek(skip, 1)
             dataoffset += skip
             if contiguous:
@@ -1771,54 +1831,28 @@ class TiffWriter:
                 else:
                     fh.write_array(data)
             elif tile:
-                # TODO: refactor this
-                # TODO: use multithreading and chunk buffer?
                 if data is None:
                     fh.write_empty(numtiles * databytecounts[0])
-                elif len(tile) == 3:
-                    stripindex = 0
-                    for plane in data[pageindex]:
-                        for tz in range(tiles[0]):
-                            for ty in range(tiles[1]):
-                                for tx in range(tiles[2]):
-                                    c0 = min(tile[0], shape[2] - tz * tile[0])
-                                    c1 = min(tile[1], shape[3] - ty * tile[1])
-                                    c2 = min(tile[2], shape[4] - tx * tile[2])
-                                    chunk[c0:, c1:, c2:] = 0
-                                    chunk[:c0, :c1, :c2] = plane[
-                                        tz * tile[0]: tz * tile[0] + c0,
-                                        ty * tile[1]: ty * tile[1] + c1,
-                                        tx * tile[2]: tx * tile[2] + c2,
-                                    ]
-                                    if compress:
-                                        t = compress(chunk)
-                                        fh.write(t)
-                                        databytecounts[stripindex] = len(t)
-                                        stripindex += 1
-                                    else:
-                                        fh.write_array(chunk)
-                                        # fh.flush()
                 else:
-                    stripindex = 0
-                    for plane in data[pageindex]:
-                        for ty in range(tiles[0]):
-                            for tx in range(tiles[1]):
-                                c1 = min(tile[0], shape[3] - ty * tile[0])
-                                c2 = min(tile[1], shape[4] - tx * tile[1])
-                                chunk[c1:, c2:] = 0
-                                chunk[:c1, :c2] = plane[
-                                    0,
-                                    ty * tile[0]: ty * tile[0] + c1,
-                                    tx * tile[1]: tx * tile[1] + c2,
-                                ]
-                                if compress:
-                                    t = compress(chunk)
-                                    fh.write(t)
-                                    databytecounts[stripindex] = len(t)
-                                    stripindex += 1
-                                else:
-                                    fh.write_array(chunk)
-                                    # fh.flush()
+                    tilesize = product(tile) * shape[-1]
+                    for tileindex in range(datashape[1] * product(tiles)):
+                        chunk = next(tileiter)
+                        if chunk is None:
+                            if compress:
+                                databytecounts[tileindex] = 0
+                            else:
+                                fh.write_empty(databytecounts[0])
+                            continue
+                        if chunk.size != tilesize:
+                            raise ValueError(
+                                f'invalid tile {chunk.shape!r} != {tile!r}')
+                        if compress:
+                            t = compress(chunk)
+                            fh.write(t)
+                            databytecounts[tileindex] = len(t)
+                        else:
+                            fh.write_array(chunk)
+                            # fh.flush()
             elif compress:
                 # write one strip per rowsperstrip
                 if data.shape[2] != 1:
@@ -2120,7 +2154,7 @@ class TiffFile:
 
             for key, value in kwargs.items():
                 if key[:3] == 'is_' and key[3:] in TIFF.FILE_FLAGS:
-                    if value is not None and not value:
+                    if value is not None:
                         setattr(self, key, bool(value))
                 else:
                     raise TypeError(f'unexpected keyword argument: {key}')
@@ -2354,8 +2388,8 @@ class TiffFile:
             'shaped',
             'fluoview',
             'sis',
+            'mdgel',  # adds second page to cache
             'uniform',
-            'mdgel',
         ):
             if getattr(self, 'is_' + name, False):
                 series = getattr(self, '_series_' + name)()
@@ -2821,8 +2855,9 @@ class TiffFile:
                     else:
                         pages = self.pages
                         try:
-                            for i in range(num if num else
-                                           min(len(pages), len(ifds))):
+                            for i in range(
+                                num if num else min(len(pages), len(ifds))
+                            ):
                                 ifds[idx + i] = pages[ifd + i]
                         except IndexError:
                             log_warning('OME series: index out of range')
@@ -3138,9 +3173,12 @@ class TiffFile:
     @lazyattr
     def is_mdgel(self):
         """File has MD Gel format."""
-        # TODO: this likely reads the second page from file
+        # side effect: add second page, if exists, to cache
         try:
-            ismdgel = self.pages[0].is_mdgel or self.pages[1].is_mdgel
+            ismdgel = (
+                self.pages[0].is_mdgel or
+                self.pages.get(1, cache=True).is_mdgel
+                )
             if ismdgel:
                 self.is_uniform = False
             return ismdgel
@@ -3537,6 +3575,17 @@ class TiffPages:
             self._seek(-1)
         return self._nextpageoffset
 
+    def get(self, key, default=None, validate=False, cache=None, aspage=True):
+        """Return specified page from cache or file."""
+        try:
+            return self._getitem(
+                key, validate=validate, cache=cache, aspage=aspage
+            )
+        except IndexError:
+            if default is None:
+                raise
+        return default
+
     def _load(self, keyframe=True):
         """Read all remaining pages from file."""
         if self._cached:
@@ -3743,7 +3792,7 @@ class TiffPages:
 
         return pages
 
-    def _getitem(self, key, validate=False):
+    def _getitem(self, key, validate=False, cache=None, aspage=None):
         """Return specified page from cache or file."""
         key = int(key)
         pages = self.pages
@@ -3753,23 +3802,25 @@ class TiffPages:
         elif self._indexed and key >= len(pages):
             raise IndexError(f'index {key} out of range({len(pages)})')
 
+        tiffpage = TiffPage if aspage else self._tiffpage
+
         if key < len(pages):
             page = pages[key]
-            if self._cache:
+            if self._cache and not aspage:
                 if not isinstance(page, (int, numpy.integer)):
                     if validate and validate != page.hash:
                         raise RuntimeError('page hash mismatch')
                     return page
-            elif isinstance(page, (TiffPage, self._tiffpage)):
+            elif isinstance(page, (TiffPage, tiffpage)):
                 if validate and validate != page.hash:
                     raise RuntimeError('page hash mismatch')
                 return page
 
         self._seek(key)
-        page = self._tiffpage(self.parent, index=key, keyframe=self._keyframe)
+        page = tiffpage(self.parent, index=key, keyframe=self._keyframe)
         if validate and validate != page.hash:
             raise RuntimeError('page hash mismatch')
-        if self._cache:
+        if self._cache or cache:
             pages[key] = page
         return page
 
@@ -4179,6 +4230,23 @@ class TiffPage:
                     f'TiffPage {self.index}: ByteCounts tag is missing'
                 )
 
+        if imagelength and self.rowsperstrip and not self.is_lsm:
+            # fix incorrect number of strip bytecounts and offsets
+            maxstrips = int(math.floor(
+                imagelength + self.rowsperstrip - 1) / self.rowsperstrip)
+            if self.planarconfig == 2:
+                maxstrips *= self.samplesperpixel
+            if maxstrips != len(self.databytecounts):
+                log_warning(
+                    f'TiffPage {self.index}: incorrect StripByteCounts count'
+                )
+                self.databytecounts = self.databytecounts[:maxstrips]
+            if maxstrips != len(self.dataoffsets):
+                log_warning(
+                    f'TiffPage {self.index}: incorrect StripOffsets count'
+                )
+                self.dataoffsets = self.dataoffsets[:maxstrips]
+
         tag = tags.get(42113)  # GDAL_NODATA
         if tag is not None:
             try:
@@ -4199,8 +4267,10 @@ class TiffPage:
             Encoded bytes of a segment (aka strile, strip or tile)
             or None for empty segments.
         index : int
-            The linear index of the segment in the Offsets and Bytecount
-            tag values.
+            The index of the segment in the Offsets and Bytecount tag values.
+        tables : bytes or None
+            For JPEG compressed segments only, the value of the JPEGTables tag
+            if any.
 
         Returns
         -------
@@ -4486,15 +4556,70 @@ class TiffPage:
                 data = decompress(data, out=size * dtype.itemsize)
             data = unpack(data)
             data = reshape(data, index, shape)
-            if unpredict:
+            if unpredict is not None:
                 data = unpredict(data, axis=-2, out=data)
             return data, index, shape
 
         self.parent._decoders[self.hash] = decode
         return decode
 
+    def segments(self, lock=None, maxworkers=None, func=None, sort=False):
+        """Return iterator over decoded segments in TiffPage.
+
+        See the decode function for return values.
+
+        """
+        keyframe = self.keyframe  # self or keyframe
+
+        if not keyframe.is_contiguous:
+            offsets, bytecounts = self._offsetscounts
+        elif keyframe is self:
+            offsets = self.dataoffsets
+            bytecounts = self.databytecounts
+        else:
+            bytecounts = keyframe.databytecounts
+            offset = self.is_contiguous[0]
+            offsets = [offset]
+            for bytecount in bytecounts[:-1]:
+                offset += bytecount
+                offsets.append(offset)
+
+        fh = self.parent.filehandle
+        if lock is None:
+            lock = fh.lock
+
+        decodeargs = {}
+        if keyframe.compression in (6, 7):  # COMPRESSION.JPEG
+            if 347 in keyframe.tags:
+                # lazy load JPEGTables for TiffFrame
+                decodeargs['tables'] = self._gettags(
+                    {347}, lock=lock)[0][1].value
+
+        def decode(args, decodeargs=decodeargs, keyframe=keyframe, func=func):
+            result = keyframe.decode(*args, **decodeargs)
+            if func is not None:
+                return func(result)
+            return result
+
+        if maxworkers is None or maxworkers < 1:
+            maxworkers = keyframe.maxworkers
+        if maxworkers < 2:
+            for segment in fh.read_segments(
+                *self._offsetscounts, lock=lock, sort=sort, flat=True
+            ):
+                yield decode(segment)
+        else:
+            # reduce memory overhead by processing chunks of up to
+            # ~64 MB of segments because ThreadPoolExecutor.map is not
+            # collecting iterables lazily
+            with ThreadPoolExecutor(maxworkers) as executor:
+                for segments in fh.read_segments(
+                    *self._offsetscounts, lock=lock, sort=sort, flat=False
+                ):
+                    yield from executor.map(decode, segments)
+
     def asarray(self, out=None, squeeze=True, lock=None, reopen=True,
-                maxsize=None, maxworkers=None):
+                maxworkers=None):
         """Read image data from file and return as numpy array.
 
         Raise ValueError if format is unsupported.
@@ -4520,9 +4645,6 @@ class TiffPage:
         reopen : bool
             If True (default) and the parent file handle is closed, the file
             is temporarily re-opened and closed if no exception occurs.
-        maxsize: int
-            Maximum size of data before a ValueError is raised.
-            Can be used to catch DOS. Default: 16 TB.
         maxworkers : int or None
             Maximum number of threads to concurrently decode strips ot tiles.
             If None (default), up to half the CPU cores are used.
@@ -4538,7 +4660,7 @@ class TiffPage:
             colorimetry corrections are not applied. Specifically, CMYK images
             are not converted to RGB, MinIsWhite images are not inverted,
             and color palettes are not applied. An exception are YCbCr JPEG
-            compressed images, which will be converted to RGB.
+            compressed images, which are converted to RGB.
 
         """
         keyframe = self.keyframe  # self or keyframe
@@ -4600,29 +4722,12 @@ class TiffPage:
 
         else:
             # decode individual strips or tiles
-            decodeargs = {}
-            decodefunc = keyframe.decode
             result = create_output(out, keyframe.shaped, keyframe._dtype)
             out = result[0]
 
-            if keyframe.compression in (6, 7):  # COMPRESSION.JPEG
-                if 347 in keyframe.tags:
-                    # lazy load JPEGTables for TiffFrame
-                    decodeargs['tables'] = self._gettags(
-                        {347}, lock=lock)[0][1].value
-                # TODO: obtain table from OJPEG tags
-                # elif ('JPEGInterchangeFormat' in tags and
-                #       'JPEGInterchangeFormatLength' in tags and
-                #       tags['JPEGInterchangeFormat'].value != offsets[0]):
-                #     fh.seek(tags['JPEGInterchangeFormat'].value)
-                #     fh.read(tags['JPEGInterchangeFormatLength'].value)
-
-            def decode(args):
-                # decode strip or tile and store in result array
-                # TODO: use flat indexing for strips?
-                segment, (_, s, d, l, w, _), shape = decodefunc(
-                    *args, **decodeargs
-                )
+            def func(decoderesult, keyframe=keyframe, out=out):
+                # copy decoded segments to output array
+                segment, (_, s, d, l, w, _), shape = decoderesult
                 if segment is None:
                     segment = keyframe.nodata
                 else:
@@ -4633,20 +4738,13 @@ class TiffPage:
                     d: d + shape[0],
                     l: l + shape[1],
                     w: w + shape[2]] = segment
+                # except IndexError:
+                #     pass  # corrupted files e.g. with too many strips
 
-            offsets, bytecounts = self._offsetscounts
-            segmentiter = fh.read_segments(offsets, bytecounts, lock=lock)
-
-            if maxworkers is None or maxworkers < 1:
-                maxworkers = keyframe.maxworkers
-            if maxworkers < 2:
-                for segment in segmentiter:
-                    decode(segment)
-            else:
-                # decode first segment un-threaded to catch exceptions
-                decode(next(segmentiter))
-                with ThreadPoolExecutor(maxworkers) as executor:
-                    executor.map(decode, segmentiter)
+            for _ in self.segments(
+                func=func, lock=lock, maxworkers=maxworkers, sort=True
+            ):
+                pass
 
         result.shape = keyframe.shaped
         if squeeze:
@@ -4774,7 +4872,7 @@ class TiffPage:
 
     @lazyattr
     def maxworkers(self):
-        """Return maximum number of threads for decoding strips ot tiles."""
+        """Return maximum number of threads for decoding strips or tiles."""
         if len(self._offsetscounts[0]) < 4:
             return 1
         if self.compression != 1 or self.fillorder != 1 or self.predictor != 1:
@@ -5217,8 +5315,7 @@ class TiffPage:
         """Page contains OME-XML in ImageDescription tag."""
         if self.index > 1 or not self.description:
             return False
-        d = self.description
-        return d[:13] == '<?xml version' and d[-4:] == 'OME>'
+        return self.description[-4:] == 'OME>'  # and [:13] == '<?xml version'
 
     @property
     def is_scn(self):
@@ -5360,7 +5457,8 @@ class TiffFrame:
                 databytecounts = tag.value
             elif code == 256 and keyframe.imagewidth != tag.value:
                 raise RuntimeError(
-                    f'TiffFrame {self.index} incompatible keyframe')
+                    f'TiffFrame {self.index} incompatible keyframe'
+                )
 
         if not dataoffsets:
             log_warning(f'TiffFrame {self.index}: missing required tags')
@@ -5438,6 +5536,12 @@ class TiffFrame:
             raise RuntimeError(f'TiffFrame {self.index}: keyframe not set')
         return TiffPage.asrgb(self, *args, **kwargs)
 
+    def segments(self, *args, **kwargs):
+        """Return iterator over decoded segments in TiffFrame."""
+        if self._keyframe is None:
+            raise RuntimeError(f'TiffFrame {self.index}: keyframe not set')
+        return TiffPage.segments(self, *args, **kwargs)
+
     @property
     def keyframe(self):
         """Return keyframe."""
@@ -5450,10 +5554,12 @@ class TiffFrame:
             return
         if self._keyframe is not None:
             raise RuntimeError(
-                f'TiffFrame {self.index}: cannot reset keyframe')
+                f'TiffFrame {self.index}: cannot reset keyframe'
+            )
         if len(self._offsetscounts[0]) != len(keyframe.dataoffsets):
             raise RuntimeError(
-                f'TiffFrame {self.index}: incompatible keyframe')
+                f'TiffFrame {self.index}: incompatible keyframe'
+            )
         if keyframe.is_tiled:
             pass
         if keyframe.is_contiguous:
@@ -5976,7 +6082,7 @@ class TiffPageSeries:
                 self.axes,
                 self.kind,
                 f'{len(self.pages)} Pages',
-                (f'Offset={self.offset}') if self.offset else '')
+                (f'@{self.offset}') if self.offset else '')
             if s
         )
         return f'TiffPageSeries {self.index}  {s}'
@@ -6189,7 +6295,7 @@ class FileSequence:
             im = self.fromfile(fname, **kwargs)
             result[index] = im
 
-        if len(self.files) < 3:
+        if len(self.files) < 2:
             ioworkers = 1
         elif ioworkers is None or ioworkers < 1:
             import multiprocessing
@@ -6199,9 +6305,9 @@ class FileSequence:
             for index, fname in zip(self._indices, self.files):
                 func(index, fname)
         else:
-            func(self._indices[0], self.files[0])
             with ThreadPoolExecutor(ioworkers) as executor:
-                executor.map(func, self._indices[1:], self.files[1:])
+                for _ in executor.map(func, self._indices, self.files):
+                    pass
 
         result.shape = shape
         return result
@@ -6415,26 +6521,56 @@ class FileHandle:
         return result
 
     def read_segments(self, offsets, bytecounts, indices=None, sort=True,
-                      lock=None, buffersize=None):
+                      lock=None, buffersize=None, flat=True):
         """Return iterator over segments read from file and their indices.
 
-        A reentrant lock can be used to synchronize seeks and reads up to
-        buffersize bytes.
+        The purpose of this function is to
+
+        * reduce small or random reads
+        * reduce acquiring reentrant locks
+        * synchronize seeks and reads
+        * limit the size of segments read into memory at once
+          (ThreadPoolExecutor.map is not collecting iterables lazily).
+
+        Parameters
+        ----------
+        offsets, bytecounts : sequence of int
+            offsets and bytecounts of the segments to read from file.
+        indices : sequence of int
+            Indices of the segments in the image. Default: range(len(offsets)).
+        sort : bool
+            If True (default), segments are read from file in the order of
+            their offsets.
+        lock:
+            A reentrant lock used to synchronize seeks and reads.
+        buffersize : int
+            Approximate number of bytes to read from file in one pass.
+            Default: 64 MB.
+        flat : bool
+            If True (default), return an iterator over individual
+            (segment, index) tuples. Else return an iterator over a list
+            of (segment, index) tuples that were acquired in one pass.
+
+        Returns
+        -------
+        items : (bytes, int) or [(bytes, int)]
+            Iterator over individual or lists of (segment, index) tuples.
 
         """
         length = len(offsets)
         if length < 1:
             return
         if length == 1:
-            iindex = 0 if indices is None else indices[0]
-            if bytecounts[0] > 0 and offsets[0] > 0:
+            index = 0 if indices is None else indices[0]
+            if bytecounts[index] > 0 and offsets[index] > 0:
                 if lock is None:
                     lock = self._lock
                 with lock:
-                    self.seek(offsets[0])
-                    yield self._fh.read(bytecounts[0]), iindex
+                    self.seek(offsets[index])
+                    data = self._fh.read(bytecounts[index])
             else:
-                yield None, iindex
+                data = None
+            yield (data, index) if flat else [(data, index)]
             return
 
         if lock is None:
@@ -6443,8 +6579,7 @@ class FileHandle:
             buffersize = 2**26  # 64 MB
 
         if indices is None:
-            segments = [(i, offsets[i], bytecounts[i])
-                        for i in range(length)]
+            segments = [(i, offsets[i], bytecounts[i]) for i in range(length)]
         else:
             segments = [(indices[i], offsets[i], bytecounts[i])
                         for i in range(length)]
@@ -6456,9 +6591,10 @@ class FileHandle:
         i = 0
         while i < length:
             result = []
+            size = 0
             with lock:
-                size = 0
                 while size < buffersize and i < length:
+                    # TODO: consolidate reads?
                     index, offset, bytecount = segments[i]
                     if offset > 0 and bytecount > 0:
                         seek(offset)
@@ -6470,7 +6606,10 @@ class FileHandle:
                     else:
                         result.append((None, index))
                     i += 1
-            yield from result
+            if flat:
+                yield from result
+            else:
+                yield result
 
     def read_record(self, dtype, shape=1, byteorder=None):
         """Return numpy record from file."""
@@ -7987,90 +8126,152 @@ class TIFF:
 
     def PREDICTORS():
         # map PREDICTOR to predictor encode functions
-        if imagecodecs is None:
-            return {
-                None: identityfunc,
-                1: identityfunc,
-                2: delta_encode,
-            }
-        return {
-            None: imagecodecs.none_encode,
-            1: imagecodecs.none_encode,
-            2: imagecodecs.delta_encode,
-            3: imagecodecs.floatpred_encode,
-        }
+
+        class PREDICTORS:
+            def __init__(self):
+                self._codecs = {None: identityfunc, 1: identityfunc}
+                if imagecodecs is None:
+                    self._codecs[2] = delta_encode
+
+            def __getitem__(self, key):
+                if key in self._codecs:
+                    return self._codecs[key]
+                if imagecodecs is None:
+                    raise KeyError(key)
+                if key == 2:
+                    codec = imagecodecs.delta_encode
+                elif key == 3:
+                    codec = imagecodecs.floatpred_encode
+                else:
+                    raise KeyError(key)
+                self._codecs[key] = codec
+                return codec
+
+        return PREDICTORS()
 
     def UNPREDICTORS():
         # map PREDICTOR to predictor decode functions
-        if imagecodecs is None:
-            return {
-                None: identityfunc,
-                1: identityfunc,
-                2: delta_decode,
-            }
-        return {
-            None: imagecodecs.none_decode,
-            1: imagecodecs.none_decode,
-            2: imagecodecs.delta_decode,
-            3: imagecodecs.floatpred_decode,
-        }
+
+        class UNPREDICTORS:
+            def __init__(self):
+                self._codecs = {None: identityfunc, 1: identityfunc}
+                if imagecodecs is None:
+                    self._codecs[2] = delta_decode
+
+            def __getitem__(self, key):
+                if key in self._codecs:
+                    return self._codecs[key]
+                if imagecodecs is None:
+                    raise KeyError(key)
+                if key == 2:
+                    codec = imagecodecs.delta_decode
+                elif key == 3:
+                    codec = imagecodecs.floatpred_decode
+                else:
+                    raise KeyError(key)
+                self._codecs[key] = codec
+                return codec
+
+        return UNPREDICTORS()
 
     def COMPESSORS():
         # map COMPRESSION to compress functions
-        if imagecodecs is None:
-            return {
-                None: identityfunc,
-                1: identityfunc,
-                8: zlib_encode,
-                32946: zlib_encode,
-                34925: lzma_encode,
-            }
-        return {
-            None: imagecodecs.none_encode,
-            1: imagecodecs.none_encode,
-            7: imagecodecs.jpeg_encode,
-            8: imagecodecs.zlib_encode,
-            32946: imagecodecs.zlib_encode,
-            32773: imagecodecs.packbits_encode,
-            34712: imagecodecs.jpeg2k_encode,
-            34925: imagecodecs.lzma_encode,
-            34933: imagecodecs.png_encode,
-            34934: imagecodecs.jpegxr_encode,
-            50000: imagecodecs.zstd_encode,
-            50001: imagecodecs.webp_encode,
-        }
+
+        class COMPESSORS:
+            def __init__(self):
+                self._codecs = {None: identityfunc, 1: identityfunc}
+                if imagecodecs is None:
+                    self._codecs[8] = zlib_encode
+                    self._codecs[32946] = zlib_encode
+                    self._codecs[34925] = lzma_encode
+
+            def __getitem__(self, key):
+                if key in self._codecs:
+                    return self._codecs[key]
+                if imagecodecs is None:
+                    raise KeyError(key)
+                if key == 5:
+                    codec = imagecodecs.lzw_encode
+                elif key == 7:
+                    codec = imagecodecs.jpeg_encode
+                elif key == 8 or key == 32946:
+                    codec = imagecodecs.zlib_encode
+                elif key == 32773:
+                    codec = imagecodecs.packbits_encode
+                elif key == 34712:
+                    codec = imagecodecs.jpeg2k_encode
+                elif key == 34887:
+                    codec = imagecodecs.lerc_encode
+                elif key == 34925:
+                    codec = imagecodecs.lzma_encode
+                elif key == 34933:
+                    codec = imagecodecs.png_encode
+                elif key == 34934:
+                    codec = imagecodecs.jpegxr_encode
+                elif key == 50000:
+                    codec = imagecodecs.zstd_encode
+                elif key == 50001:
+                    codec = imagecodecs.webp_encode
+                else:
+                    raise KeyError(key)
+                self._codecs[key] = codec
+                return codec
+
+        return COMPESSORS()
 
     def DECOMPESSORS():
         # map COMPRESSION to decompress functions
-        if imagecodecs is None:
-            return {
-                None: identityfunc,
-                1: identityfunc,
-                8: zlib_decode,
-                32946: zlib_decode,
-                34925: lzma_decode,
-            }
-        return {
-            None: imagecodecs.none_decode,
-            1: imagecodecs.none_decode,
-            5: imagecodecs.lzw_decode,
-            6: imagecodecs.jpeg_decode,
-            7: imagecodecs.jpeg_decode,
-            8: imagecodecs.zlib_decode,
-            32946: imagecodecs.zlib_decode,
-            32773: imagecodecs.packbits_decode,
-            # 34892: imagecodecs.jpeg_decode,  # DNG lossy
-            34925: imagecodecs.lzma_decode,
-            34926: imagecodecs.zstd_decode,  # deprecated
-            34927: imagecodecs.webp_decode,  # deprecated
-            33003: imagecodecs.jpeg2k_decode,
-            33005: imagecodecs.jpeg2k_decode,
-            34712: imagecodecs.jpeg2k_decode,
-            34933: imagecodecs.png_decode,
-            34934: imagecodecs.jpegxr_decode,
-            50000: imagecodecs.zstd_decode,
-            50001: imagecodecs.webp_decode,
-        }
+
+        class DECOMPESSORS:
+            def __init__(self):
+                self._codecs = {None: identityfunc, 1: identityfunc}
+                if imagecodecs is None:
+                    self._codecs[8] = zlib_decode
+                    self._codecs[32946] = zlib_decode
+                    self._codecs[34925] = lzma_decode
+
+            def __getitem__(self, key):
+                if key in self._codecs:
+                    return self._codecs[key]
+                if imagecodecs is None:
+                    raise KeyError(key)
+                if key == 5:
+                    codec = imagecodecs.lzw_decode
+                elif key == 6 or key == 7:
+                    codec = imagecodecs.jpeg_decode
+                elif key == 8 or key == 32946:
+                    codec = imagecodecs.zlib_decode
+                elif key == 32773:
+                    codec = imagecodecs.packbits_decode
+                # elif key == 34892:
+                #     codec = imagecodecs.jpeg_decode  # DNG lossy
+                elif key == 33003 or key == 33005 or key == 34712:
+                    codec = imagecodecs.jpeg2k_decode
+                elif key == 34887:
+                    codec = imagecodecs.lerc_decode
+                elif key == 34925:
+                    codec = imagecodecs.lzma_decode
+                elif key == 34933:
+                    codec = imagecodecs.png_decode
+                elif key == 34934:
+                    codec = imagecodecs.jpegxr_decode
+                elif key == 50000 or key == 34926:  # 34926 deprecated
+                    codec = imagecodecs.zstd_decode
+                elif key == 50001 or key == 34927:  # 34927 deprecated
+                    codec = imagecodecs.webp_decode
+                else:
+                    raise KeyError(key)
+                self._codecs[key] = codec
+                return codec
+
+            def __contains__(self, key):
+                try:
+                    self[key]
+                except KeyError:
+                    return False
+                return True
+
+        return DECOMPESSORS()
 
     def FRAME_ATTRS():
         # attributes that a TiffFrame shares with its keyframe
@@ -9568,8 +9769,8 @@ def read_sis(fh, byteorder, dtype, count, offsetsize):
     """
     result = {}
 
-    (magic, _, minute, hour, day, month, year, _, name, tagcount
-     ) = struct.unpack('<4s6shhhhh6s32sh', fh.read(60))
+    (magic, minute, hour, day, month, year, name, tagcount) = struct.unpack(
+        '<4s6xhhhhh6x32sh', fh.read(60))
 
     if magic != b'SIS0':
         raise ValueError('invalid OlympusSIS structure')
@@ -9587,8 +9788,8 @@ def read_sis(fh, byteorder, dtype, count, offsetsize):
         fh.seek(offset)
         if tagtype == 1:
             # general data
-            (_, lenexp, xcal, ycal, _, mag, _, camname, pictype,
-             ) = struct.unpack('<10shdd8sd2s34s32s', fh.read(112))  # 220
+            (lenexp, xcal, ycal, mag, camname, pictype) = struct.unpack(
+                '<10xhdd8xd2x34s32s', fh.read(112))  # 220
             m = math.pow(10, lenexp)
             result['pixelsizex'] = xcal * m
             result['pixelsizey'] = ycal * m
@@ -9849,6 +10050,8 @@ def imagej_metadata_tag(metadata, byteorder):
             Undocumented ImageJ internal format.
 
     """
+    if not metadata:
+        return ()
     header = [{'>': b'IJIJ', '<': b'JIJI'}[byteorder]]
     bytecounts = [0]
     body = []
@@ -10025,12 +10228,12 @@ def imagej_description(shape, rgb=None, colormaped=False, version=None,
     if colormaped:
         raise NotImplementedError('ImageJ colormapping not supported')
     if version is None:
-        version = '1.11a'
+        version = kwargs.pop('ImageJ', '1.11a')
     shape = imagej_shape(shape, rgb=rgb)
     rgb = shape[-1] in (3, 4)
 
-    result = [f'ImageJ={version}']
     append = []
+    result = [f'ImageJ={version}']
     result.append(f'images={product(shape[:-3])}')
     if hyperstack is None:
         hyperstack = True
@@ -10051,8 +10254,10 @@ def imagej_description(shape, rgb=None, colormaped=False, version=None,
             append.append('loop=false')
     if loop is not None:
         append.append(f'loop={bool(loop)}'.lower())
+
     for key, value in kwargs.items():
-        append.append(f'{key.lower()}={value}')
+        if key not in ('images', 'channels', 'slices', 'frames'):
+            append.append(f'{key.lower()}={value}')
 
     return '\n'.join(result + append + [''])
 
@@ -10378,7 +10583,7 @@ def olympusini_metadata(inistr):
                     result[section_name]['TimePos'] = tpos = []
             elif section_name == 'Band':
                 nbands = result['Dimension']['Band']
-                bands = [{'LUT': []} for i in range(nbands)]
+                bands = [{'LUT': []} for _ in range(nbands)]
                 result[section_name] = bands
                 iband = 0
         else:
@@ -10517,7 +10722,7 @@ if imagecodecs is None:
         return lzma.compress(data)
 
     def lzma_decode(data, out=None):
-        """Decompress LZMA"""
+        """Decompress LZMA."""
         return lzma.decompress(data)
 
     def delta_encode(data, axis=-1, out=None):
@@ -10756,6 +10961,42 @@ def parse_filenames(files, pattern, axesorder=None):
     return axes, shape, indices, startindex
 
 
+def iter_tiles(data, tile, tiles):
+    """Return iterator over tiles in data array of normalized shape."""
+    shape = data.shape
+    chunk = numpy.empty(tile + (shape[-1],), dtype=data.dtype)
+    if len(tile) == 2:
+        for page in data:
+            for plane in page:
+                for ty in range(tiles[0]):
+                    for tx in range(tiles[1]):
+                        c1 = min(tile[0], shape[3] - ty * tile[0])
+                        c2 = min(tile[1], shape[4] - tx * tile[1])
+                        chunk[c1:, c2:] = 0
+                        chunk[:c1, :c2] = plane[
+                            0,
+                            ty * tile[0]: ty * tile[0] + c1,
+                            tx * tile[1]: tx * tile[1] + c2,
+                        ]
+                        yield chunk
+    elif len(tile) == 3:
+        for page in data:
+            for plane in page:
+                for tz in range(tiles[0]):
+                    for ty in range(tiles[1]):
+                        for tx in range(tiles[2]):
+                            c0 = min(tile[0], shape[2] - tz * tile[0])
+                            c1 = min(tile[1], shape[3] - ty * tile[1])
+                            c2 = min(tile[2], shape[4] - tx * tile[2])
+                            chunk[c0:, c1:, c2:] = 0
+                            chunk[:c0, :c1, :c2] = plane[
+                                tz * tile[0]: tz * tile[0] + c0,
+                                ty * tile[1]: ty * tile[1] + c1,
+                                tx * tile[2]: tx * tile[2] + c2,
+                            ]
+                            yield chunk
+
+
 def reorient(image, orientation):
     """Return reoriented view of image array.
 
@@ -10966,7 +11207,7 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
         maxworkers = TIFF.MAXWORKERS
         if maxworkers == 1:
             kwargs['maxworkers'] = 1
-        elif npages < 4:
+        elif npages < 3:
             maxworkers = 1
         else:
             # TODO: optimize this
@@ -11010,11 +11251,9 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
         for i, page in enumerate(pages):
             func(page, i)
     else:
-        # TODO: add exception handling
-        # read first page un-threaded to catch exceptions
-        func(page0, 0)
         with ThreadPoolExecutor(maxworkers) as executor:
-            executor.map(func, pages[1:], range(1, npages))
+            for _ in executor.map(func, pages, range(npages)):
+                pass
 
     filecache.clear()
     page0.parent.filehandle.lock = None
