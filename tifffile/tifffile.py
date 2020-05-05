@@ -1655,7 +1655,7 @@ class TiffWriter:
                 return 'I'
             return 'Q'
 
-        contiguous = not compress
+        contiguous = contiguous and not compress
         if tile:
             # one chunk per tile per plane
             if len(tile) == 2:
