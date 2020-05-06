@@ -13,7 +13,7 @@ ZIF, QPTIFF, NDPI, and GeoTIFF files.
 Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
 files in multi-page, memory-mappable, tiled, predicted, or compressed form.
 
-Only a subset of the TIFF specification is supported, mainly uncompressed and
+A subset of the TIFF specification is supported, mainly uncompressed and
 losslessly compressed 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
 grayscale and multi-sample images.
 Specifically, reading slices of image data, CCITT and OJPEG compression,
@@ -38,23 +38,34 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.2.16
+:Version: 2020.5.5
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.6.8, 3.7.6, 3.8.1 64-bit <https://www.python.org>`_
+* `CPython 3.6.8, 3.7.7, 3.8.2 64-bit <https://www.python.org>`_
 * `Numpy 1.16.6 <https://www.numpy.org>`_
-* `Imagecodecs 2020.1.31 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
   (optional; used for encoding and decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
 
 Revisions
 ---------
+2020.5.5
+    Pass 2906 tests.
+    Allow to write tiled TIFF from iterator of tiles (WIP).
+    Add function to iterate over decoded segments of TiffPage (WIP).
+    Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
+    Fix reading invalid files with too many strips.
+    Fix writing over-aligned image data.
+    Detect OME-XML without declaration.
+    Support LERC compression (WIP).
+    Delay load imagecodecs functions.
+    Remove maxsize parameter from asarray (breaking).
+    Deprecate ijmetadata parameter from TiffWriter.save (use metadata).
 2020.2.16
-    Pass 2899 tests.
     Add function to decode individual strips or tiles.
     Read strips and tiles in order of their offsets.
     Enable multi-threading when decompressing multiple strips.
@@ -182,6 +193,10 @@ Tested on little-endian platforms only.
 
 Python 32-bit versions are deprecated.
 
+Update pip and setuptools to the latest version before installing tifffile:
+
+    ``python -m pip install --upgrade pip setuptools``
+
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed images.
 
@@ -200,7 +215,7 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   files. The 8-bit UTF-8 encoded OME-XML metadata found in the ImageDescription
   tag of the first IFD defines the position of TIFF IFDs in the high
   dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
-  metadata is stored in a separate file.
+  metadata are stored in a separate file.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
@@ -213,7 +228,7 @@ some of which allow file or data sizes to exceed the 4 GB limit:
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
-  Tifffile can read such files on Python 3 if the image data is stored
+  Tifffile can read such files on Python 3 if the image data are stored
   contiguously in each page.
 * *GeoTIFF* sparse files allow strip or tile offsets and byte counts to be 0.
   Such segments are implicitly set to 0 or the NODATA value on reading.
@@ -307,8 +322,8 @@ Save a floating-point array and metadata, using zlib compression:
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
 >>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
 
-Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3
-to an ImageJ formatted TIFF file:
+Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an ImageJ
+formatted TIFF file:
 
 >>> volume = numpy.random.randn(57*256*256).astype('float32')
 >>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
@@ -388,10 +403,14 @@ Successively append images to a BigTIFF file, which can exceed 4 GB:
 ...     for i in range(data.shape[0]):
 ...         tif.save(data[i], compress=6, photometric='minisblack')
 
+Append an image to the existing TIFF file:
+
+>>> data = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
+>>> imwrite('temp.tif', data, append=True)
+
 Iterate over pages and tags in the TIFF file and successively read images:
 
 >>> with TiffFile('temp.tif') as tif:
-...     image_stack = tif.asarray()
 ...     for page in tif.pages:
 ...         for tag in page.tags:
 ...             tag_name, tag_value = tag.name, tag.value
@@ -423,3 +442,10 @@ Read an image stack from a series of TIFF files with a file name pattern:
 >>> data = image_sequence.asarray()
 >>> data.shape
 (1, 2, 64, 64)
+
+Create a TIFF file from an iterator of tiles:
+
+>>> def tiles():
+...     data = numpy.arange(3*4*16*16, dtype='uint16').reshape((3*4, 16, 16))
+...     for i in range(data.shape[0]): yield data[i]
+>>> imwrite('temp.tif', tiles(), dtype='uint16', shape=(48, 64), tile=(16, 16))
