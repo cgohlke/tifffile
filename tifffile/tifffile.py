@@ -68,7 +68,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.5
+:Version: 2020.5.7
 
 Requirements
 ------------
@@ -83,14 +83,18 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.5.7
+    Pass 2907 tests.
+    Add napari reader plugin (tentative).
+    Fix writing single tiles larger than image data (#3).
+    Always store ExtraSamples values in tuple (breaking).
 2020.5.5
-    Pass 2906 tests.
     Allow to write tiled TIFF from iterator of tiles (WIP).
     Add function to iterate over decoded segments of TiffPage (WIP).
     Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
     Fix reading invalid files with too many strips.
     Fix writing over-aligned image data.
-    Detect OME-XML without declaration.
+    Detect OME-XML without declaration (#2).
     Support LERC compression (WIP).
     Delay load imagecodecs functions.
     Remove maxsize parameter from asarray (breaking).
@@ -482,7 +486,7 @@ Create a TIFF file from an iterator of tiles:
 
 """
 
-__version__ = '2020.5.5'
+__version__ = '2020.5.7'
 
 __all__ = (
     'imwrite',
@@ -960,8 +964,8 @@ class TiffWriter:
             The tile length and width must be a multiple of 16.
             If a tile depth is provided, the SGI ImageDepth and TileDepth
             tags are used to save volume data.
-            Unless a single tile is used, tiles cannot be used to write
-            contiguous files.
+            Tiles cannot be used to write contiguous files, except if tile
+            matches the data shape.
             Few software can read the SGI format, e.g. MeVisLab.
         contiguous : bool
             If True (default) and the data and parameters are compatible with
@@ -1655,7 +1659,7 @@ class TiffWriter:
                 return 'I'
             return 'Q'
 
-        contiguous = not compress
+        contiguous = not compress  # can save data array contiguous
         if tile:
             # one chunk per tile per plane
             if len(tile) == 2:
@@ -1663,11 +1667,22 @@ class TiffWriter:
                     (shape[3] + tile[0] - 1) // tile[0],
                     (shape[4] + tile[1] - 1) // tile[1],
                 )
+                contiguous = (
+                    contiguous and
+                    shape[3] == tile[0] and
+                    shape[4] == tile[1]
+                )
             else:
                 tiles = (
                     (shape[2] + tile[0] - 1) // tile[0],
                     (shape[3] + tile[1] - 1) // tile[1],
                     (shape[4] + tile[2] - 1) // tile[2],
+                )
+                contiguous = (
+                    contiguous and
+                    shape[2] == tile[0] and
+                    shape[3] == tile[1] and
+                    shape[4] == tile[2]
                 )
             numtiles = product(tiles) * shape[1]
             databytecounts = [
@@ -1675,7 +1690,6 @@ class TiffWriter:
             bytecountformat = bytecount_format(databytecounts)
             addtag(tagbytecounts, bytecountformat, numtiles, databytecounts)
             addtag(tagoffsets, offsetformat, numtiles, [0] * numtiles)
-            contiguous = contiguous and product(tiles) == 1
             bytecountformat = bytecountformat * numtiles
             if contiguous or tileiter is not None:
                 pass
@@ -3930,7 +3944,7 @@ class TiffPage:
     fillorder = 1
     photometric = 0
     predictor = 1
-    extrasamples = 1
+    extrasamples = ()
     colormap = None
     software = ''
     description = ''
@@ -4789,14 +4803,10 @@ class TiffPage:
             data = apply_colormap(data, colormap)
 
         elif keyframe.photometric == TIFF.PHOTOMETRIC.RGB:
-            tag = keyframe.tags.get(338)  # ExtraSamples
-            if tag is not None:
+            if keyframe.extrasamples:
                 if alpha is None:
                     alpha = TIFF.EXTRASAMPLE
-                extrasamples = keyframe.extrasamples
-                if tag.count == 1:
-                    extrasamples = (extrasamples,)
-                for i, exs in enumerate(extrasamples):
+                for i, exs in enumerate(keyframe.extrasamples):
                     if exs in alpha:
                         if keyframe.planarconfig == 1:
                             data = data[..., [0, 1, 2, 3 + i]]
@@ -7715,7 +7725,7 @@ class TIFF:
 
     def TAG_TUPLE():
         # tags whose values must be stored as tuples
-        return frozenset((273, 279, 324, 325, 330, 530, 531, 34736))
+        return frozenset((273, 279, 324, 325, 330, 338, 530, 531, 34736))
 
     def TAG_ATTRIBUTES():
         # map tag codes to TiffPage attribute names
@@ -8306,7 +8316,8 @@ class TIFF:
         # TIFF file extensions
         return (
             'tif', 'tiff', 'ome.tif', 'lsm', 'stk', 'qpi', 'pcoraw', 'qptiff',
-            'gel', 'seq', 'svs', 'zif', 'ndpi', 'bif', 'tf8', 'tf2', 'btf',
+            'gel', 'seq', 'svs', 'scn', 'zif', 'ndpi', 'bif', 'tf8', 'tf2',
+            'btf',
         )
 
     def FILEOPEN_FILTER():
