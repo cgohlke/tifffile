@@ -1,13 +1,17 @@
 Revisions
 ---------
+2020.5.7
+    Pass 2907 tests.
+    Add napari reader plugin (tentative).
+    Fix writing single tiles larger than image data (#3).
+    Always store ExtraSamples values in tuple (breaking).
 2020.5.5
-    Pass 2906 tests.
     Allow to write tiled TIFF from iterator of tiles (WIP).
     Add function to iterate over decoded segments of TiffPage (WIP).
     Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
     Fix reading invalid files with too many strips.
     Fix writing over-aligned image data.
-    Detect OME-XML without declaration.
+    Detect OME-XML without declaration (#2).
     Support LERC compression (WIP).
     Delay load imagecodecs functions.
     Remove maxsize parameter from asarray (breaking).
