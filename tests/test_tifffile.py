@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.5
+:Version: 2020.5.7
 
 """
 
@@ -444,7 +444,7 @@ def test_issue_sampleformat():
         with TiffFile(fname) as tif:
             tags = tif.pages[0].tags
             assert tags['SampleFormat'].value == (2, 2, 2, 2)
-            assert tags['ExtraSamples'].value == 2
+            assert tags['ExtraSamples'].value == (2,)
             assert__str__(tif)
 
 
@@ -456,7 +456,7 @@ def test_issue_sampleformat_default():
         with TiffFile(fname) as tif:
             tags = tif.pages[0].tags
             'SampleFormat' not in tags
-            assert tags['ExtraSamples'].value == 2
+            assert tags['ExtraSamples'].value == (2,)
             assert__str__(tif)
 
 
@@ -641,6 +641,75 @@ def test_issue_pages_iterator():
             for i, page in enumerate(series.pages):
                 im = page.asarray()
                 assert_array_equal(image[i], im)
+            assert__str__(tif)
+
+
+def test_issue_tile_partial():
+    """Test writing single tiles larger than image data."""
+    # https://github.com/cgohlke/tifffile/issues/3
+    data = random_data('uint8', (3, 15, 15, 15))
+    with TempFileName('tile_partial_2d') as fname:
+        imwrite(fname, data[0, 0], tile=(16, 16))
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert not page.is_contiguous
+            assert page.is_tiled
+            assert (
+                page.tags['TileOffsets'].value[0] +
+                page.tags['TileByteCounts'].value[0] ==
+                tif.filehandle.size
+                )
+            assert_array_equal(page.asarray(), data[0, 0])
+            assert__str__(tif)
+
+    with TempFileName('tile_partial_3d') as fname:
+        imwrite(fname, data[0], tile=(16, 16, 16))
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert not page.is_contiguous
+            assert page.is_tiled
+            assert page.is_sgi
+            assert (
+                page.tags['TileOffsets'].value[0] +
+                page.tags['TileByteCounts'].value[0] ==
+                tif.filehandle.size
+                )
+            assert_array_equal(page.asarray(), data[0])
+            assert__str__(tif)
+
+    with TempFileName('tile_partial_3d_separate') as fname:
+        imwrite(fname, data, tile=(16, 16, 16), planarconfig='separate')
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert not page.is_contiguous
+            assert page.is_tiled
+            assert (
+                page.tags['TileOffsets'].value[0] +
+                page.tags['TileByteCounts'].value[0] * 3 ==
+                tif.filehandle.size
+                )
+            assert_array_equal(page.asarray(), data)
+            assert__str__(tif)
+
+    # test complete tile is contiguous
+    data = random_data('uint8', (16, 16))
+    with TempFileName('tile_partial_not') as fname:
+        imwrite(fname, data, tile=(16, 16))
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert page.is_contiguous
+            assert page.is_memmappable
+            assert page.is_tiled
+            assert (
+                page.tags['TileOffsets'].value[0] +
+                page.tags['TileByteCounts'].value[0] ==
+                tif.filehandle.size
+                )
+            assert_array_equal(page.asarray(), data)
             assert__str__(tif)
 
 
@@ -2480,7 +2549,7 @@ def test_read_strike():
         assert page.imagelength == 200
         assert page.bitspersample == 8
         assert page.samplesperpixel == 4
-        assert page.extrasamples == ASSOCALPHA
+        assert page.extrasamples[0] == ASSOCALPHA
         # assert series properties
         series = tif.series[0]
         assert series.shape == (200, 256, 4)
@@ -2614,7 +2683,7 @@ def test_read_pygame_icon():
         assert page.imagelength == 128
         assert page.bitspersample == 8
         assert page.samplesperpixel == 4
-        assert page.extrasamples == UNASSALPHA  # ?
+        assert page.extrasamples[0] == UNASSALPHA  # ?
         assert page.tags['Software'].value == 'QuickTime 5.0.5'
         assert page.tags['HostComputer'].value == 'MacOS 10.1.2'
         assert page.tags['DateTime'].value == '2001:12:21 04:34:56'
@@ -7926,7 +7995,7 @@ def test_write_extrasamples_gray():
             assert page.imagewidth == 219
             assert page.imagelength == 301
             assert page.samplesperpixel == 2
-            assert page.extrasamples == 2
+            assert page.extrasamples[0] == 2
             image = tif.asarray()
             assert_array_equal(data, image)
             assert__str__(tif)
@@ -7948,7 +8017,7 @@ def test_write_extrasamples_gray_planar():
             assert page.imagewidth == 219
             assert page.imagelength == 301
             assert page.samplesperpixel == 2
-            assert page.extrasamples == 2
+            assert page.extrasamples[0] == 2
             image = tif.asarray()
             assert_array_equal(data, image)
             assert__str__(tif)
@@ -8009,7 +8078,7 @@ def test_write_extrasamples_assocalpha():
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 4
-            assert page.extrasamples == 1
+            assert page.extrasamples[0] == 1
             image = tif.asarray()
             assert_array_equal(data, image)
             assert__str__(tif)
@@ -8348,7 +8417,7 @@ def test_write_rgba_contig():
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 4
-            assert page.extrasamples == UNASSALPHA
+            assert page.extrasamples[0] == UNASSALPHA
             image = tif.asarray()
             assert_array_equal(data, image)
             assert__str__(tif)
@@ -8369,7 +8438,7 @@ def test_write_rgba_planar():
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 4
-            assert page.extrasamples == UNASSALPHA
+            assert page.extrasamples[0] == UNASSALPHA
             image = tif.asarray()
             assert_array_equal(data, image)
             assert__str__(tif)
