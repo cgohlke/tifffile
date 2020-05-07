@@ -76,7 +76,7 @@ setup(
             'tifffile = tifffile:main',
             'lsm2bin = tifffile.lsm2bin:main',
         ],
-        # 'napari.plugin': ['tifffile = tifffile.napari_tifffile'],
+        'napari.plugin': ['tifffile = tifffile.napari_tifffile'],
         },
     platforms=['any'],
     classifiers=[
