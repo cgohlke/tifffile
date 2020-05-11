@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.7
+:Version: 2020.5.11
 
 """
 
@@ -581,6 +581,41 @@ def test_issue_missing_eoi_in_strips():
         assert data.dtype.name == 'uint16'
         assert data[64, 128, 128] == 19226
         del data
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_imagej_grascalemode():
+    """Test read ImageJ grayscale mode RGB image."""
+    # https://github.com/cgohlke/tifffile/issues/6
+    fname = private_file('issues/hela-cells.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_imagej
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.photometric == RGB
+        assert page.imagewidth == 672
+        assert page.imagelength == 512
+        assert page.bitspersample == 16
+        assert page.is_contiguous
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (512, 672, 3)
+        assert series.dtype.name == 'uint16'
+        assert series.axes == 'YXS'
+        # assert ImageJ tags
+        ijtags = tif.imagej_metadata
+        assert ijtags['ImageJ'] == '1.52p'
+        assert ijtags['channels'] == 3
+        # assert data
+        data = tif.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.shape == (512, 672, 3)
+        assert data.dtype.name == 'uint16'
+        assert tuple(data[255, 336]) == (440, 378, 298)
         assert__str__(tif)
 
 
