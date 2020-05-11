@@ -68,7 +68,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.7
+:Version: 2020.5.11
 
 Requirements
 ------------
@@ -78,13 +78,16 @@ This release has been tested with the following requirements and dependencies
 * `CPython 3.6.8, 3.7.7, 3.8.2 64-bit <https://www.python.org>`_
 * `Numpy 1.16.6 <https://www.numpy.org>`_
 * `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
-  (optional; used for encoding and decoding LZW, JPEG, etc.)
-* `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
+  (required only for encoding or decoding LZW, JPEG, etc.)
+* `Matplotlib 3.1 <https://www.matplotlib.org>`_ (required only for plotting)
 
 Revisions
 ---------
+2020.5.11
+    Pass 2908 tests.
+    Fix reading ImageJ grayscale mode RGB images (#6).
+    Remove napari reader plugin.
 2020.5.7
-    Pass 2907 tests.
     Add napari reader plugin (tentative).
     Fix writing single tiles larger than image data (#3).
     Always store ExtraSamples values in tuple (breaking).
@@ -486,7 +489,7 @@ Create a TIFF file from an iterator of tiles:
 
 """
 
-__version__ = '2020.5.7'
+__version__ = '2020.5.11'
 
 __all__ = (
     'imwrite',
@@ -964,22 +967,23 @@ class TiffWriter:
             The tile length and width must be a multiple of 16.
             If a tile depth is provided, the SGI ImageDepth and TileDepth
             tags are used to save volume data.
-            Tiles cannot be used to write contiguous files, except if tile
+            Tiles cannot be used to write contiguous series, except if tile
             matches the data shape.
             Few software can read the SGI format, e.g. MeVisLab.
         contiguous : bool
             If True (default) and the data and parameters are compatible with
-            previous ones, if any, the image data are stored contiguously after
-            the previous one. In that case, 'photometric', 'planarconfig',
-            'rowsperstrip', are ignored. Metadata such as 'description',
-            'metadata', 'datetime', and 'extratags' are written to the first
-            page of a contiguous series only.
+            previous saved ones, the image data are stored contiguously after
+            the previous one. In that case, 'photometric',
+            'planarconfig', and 'rowsperstrip' are ignored. Metadata such as
+            'description', 'metadata', 'datetime', and 'extratags' are written
+            to the first page of a contiguous series only.
+            If False, start a new contiguous series.
         align : int
             Byte boundary on which to align the image data in the file.
             Default 16. Use mmap.ALLOCATIONGRANULARITY for memory-mapped data.
             Following contiguous writes are not aligned.
         truncate : bool
-            If True, only write the first page including shape metadata if
+            If True, only write the first page of a contiguous series if
             possible (uncompressed, contiguous, not tiled).
             Other TIFF readers will only be able to read part of the data.
         compress : int, str, or (str, int)
@@ -988,7 +992,7 @@ class TiffWriter:
             If a str, one of TIFF.COMPESSORS, e.g. 'LZMA' or 'ZSTD'.
             If a tuple, the first item is one of TIFF.COMPESSORS and the
             second item is the compression level.
-            Compression cannot be used to write contiguous files.
+            Compression cannot be used to write contiguous series.
             Compressors may require certain data shapes, types or value ranges.
             For example, JPEG requires grayscale or RGB(A), uint8 or 12-bit
             uint16. JPEG compression is experimental. JPEG markers and TIFF
@@ -1013,11 +1017,12 @@ class TiffWriter:
             Must be of shape (3, 2**(data.itemsize*8)) and dtype uint16.
         description : str
             The subject of the image. Must be 7-bit ASCII. Cannot be used with
-            the ImageJ format. Saved with the first page only.
+            the ImageJ format.
+            Saved with the first page of a contiguous series only.
         datetime : datetime, str, or bool
             Date and time of image creation in '%Y:%m:%d %H:%M:%S' format or
             datetime object. Else if True, the current date and time is used.
-            Saved with the first page only.
+            Saved with the first page of a contiguous series only.
         resolution : (float, float[, str]) or ((int, int), (int, int)[, str])
             X and Y resolutions in pixels per resolution unit as float or
             rational numbers. A third, optional parameter specifies the
@@ -1031,7 +1036,7 @@ class TiffWriter:
             MASK, SamplesPerPixel and BitsPerSample must be 1).
         software : str
             Name of the software used to create the file. Must be 7-bit ASCII.
-            Saved with the first page only.
+            Saved with the first page of a contiguous series only.
         metadata : dict
             Additional metadata to be saved along with shape information
             in JSON or ImageJ formats in ImageDescription or IJMetadata tags.
@@ -1041,7 +1046,8 @@ class TiffWriter:
             'LUTs', 'Plot', 'ROI', and 'Overlays' are saved in IJMetadata and
             IJMetadataByteCounts tags. Refer to the imagej_metadata_tag
             function for valid values.
-            Strings must be 7-bit ASCII. Saved with the first page only.
+            Strings must be 7-bit ASCII.
+            Saved with the first page of a contiguous series only.
         extratags : sequence of tuples
             Additional tags as [(code, dtype, count, value, writeonce)].
 
@@ -1056,7 +1062,8 @@ class TiffWriter:
                 'Count' values compatible with 'dtype'.
                 Bytes must contain count values of dtype packed as binary data.
             writeonce : bool
-                If True, the tag is written to the first page only.
+                If True, the tag is written to the first page of a contiguous
+                series only.
 
         """
         # TODO: refactor this function
@@ -2584,7 +2591,7 @@ class TiffFile:
         pages.useframes = True
         pages.keyframe = 0
         page = pages[0]
-        ij = self.imagej_metadata
+        meta = self.imagej_metadata
 
         def is_virtual():
             # ImageJ virtual hyperstacks store all image metadata in the first
@@ -2592,7 +2599,7 @@ class TiffFile:
             # page, if any
             if not page.is_final:
                 return False
-            images = ij.get('images', 0)
+            images = meta.get('images', 0)
             if images <= 1:
                 return False
             offset, count = page.is_contiguous
@@ -2617,11 +2624,10 @@ class TiffFile:
         else:
             pages = pages[:]
 
-        images = ij.get('images', len(pages))
-        frames = ij.get('frames', 1)
-        slices = ij.get('slices', 1)
-        channels = ij.get('channels', 1)
-        mode = ij.get('mode', None)
+        images = meta.get('images', len(pages))
+        frames = meta.get('frames', 1)
+        slices = meta.get('slices', 1)
+        channels = meta.get('channels', 1)
 
         shape = []
         axes = []
@@ -2631,7 +2637,7 @@ class TiffFile:
         if slices > 1:
             shape.append(slices)
             axes.append('Z')
-        if channels > 1 and (page.photometric != 2 or mode != 'composite'):
+        if channels > 1 and (product(shape) if shape else 1) != images:
             shape.append(channels)
             axes.append('C')
 
