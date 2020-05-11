@@ -1,7 +1,10 @@
 Revisions
 ---------
+2020.5.11
+    Pass 2908 tests.
+    Fix reading ImageJ grayscale mode RGB images (#6).
+    Remove napari reader plugin.
 2020.5.7
-    Pass 2907 tests.
     Add napari reader plugin (tentative).
     Fix writing single tiles larger than image data (#3).
     Always store ExtraSamples values in tuple (breaking).
