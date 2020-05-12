@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.7
+:Version: 2020.5.11
 
 Requirements
 ------------
@@ -48,13 +48,16 @@ This release has been tested with the following requirements and dependencies
 * `CPython 3.6.8, 3.7.7, 3.8.2 64-bit <https://www.python.org>`_
 * `Numpy 1.16.6 <https://www.numpy.org>`_
 * `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
-  (optional; used for encoding and decoding LZW, JPEG, etc.)
-* `Matplotlib 3.1 <https://www.matplotlib.org>`_ (optional; used for plotting)
+  (required only for encoding or decoding LZW, JPEG, etc.)
+* `Matplotlib 3.1 <https://www.matplotlib.org>`_ (required only for plotting)
 
 Revisions
 ---------
+2020.5.11
+    Pass 2908 tests.
+    Fix reading ImageJ grayscale mode RGB images (#6).
+    Remove napari reader plugin.
 2020.5.7
-    Pass 2907 tests.
     Add napari reader plugin (tentative).
     Fix writing single tiles larger than image data (#3).
     Always store ExtraSamples values in tuple (breaking).
