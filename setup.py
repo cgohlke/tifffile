@@ -63,13 +63,14 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         'numpy>=1.15.1',
-        'imagecodecs>=2020.2.18',
+        # 'imagecodecs>=2020.2.18',
     ],
     extras_require={
-        'all': ['matplotlib>=3.1'],
+        'all': ['imagecodecs>=2020.2.18', 'matplotlib>=3.1'],
     },
     tests_require=[
-        'pytest', 'czifile', 'cmapfile', 'oiffile', 'lfdfiles', 'roifile'
+        'pytest', 'imagecodecs', 'czifile', 'cmapfile', 'oiffile', 'lfdfiles',
+        'roifile'
         ],
     entry_points={
         'console_scripts': [
@@ -89,5 +90,6 @@ setup(
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
     ],
 )
