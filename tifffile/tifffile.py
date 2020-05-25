@@ -2739,7 +2739,7 @@ class TiffFile:
 
     def _series_ome(self):
         """Return image series in OME-TIFF file(s)."""
-        from xml.etree import cElementTree as etree  # delayed import
+        from xml.etree import ElementTree as etree  # delayed import
         omexml = self.pages[0].description
         try:
             root = etree.fromstring(omexml)
@@ -10513,7 +10513,7 @@ def metaseries_description_metadata(description):
     if not description.startswith('<MetaData>'):
         raise ValueError('invalid MetaSeries image description')
 
-    from xml.etree import cElementTree as etree  # delayed import
+    from xml.etree import ElementTree as etree  # delayed import
 
     root = etree.fromstring(description)
     types = {
@@ -11717,7 +11717,7 @@ def xml2dict(xml, sanitize=True, prefix=None):
     {'level1': {'level2': 3.5322}}
 
     """
-    from xml.etree import cElementTree as etree  # delayed import
+    from xml.etree import ElementTree as etree  # delayed import
 
     at = tx = ''
     if prefix:
