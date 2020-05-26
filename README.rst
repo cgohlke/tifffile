@@ -38,23 +38,29 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.11
+:Version: 2020.5.25
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.6.8, 3.7.7, 3.8.2 64-bit <https://www.python.org>`_
-* `Numpy 1.16.6 <https://www.numpy.org>`_
+* `CPython 3.6.8, 3.7.7, 3.8.3 64-bit <https://www.python.org>`_
+* `Numpy 1.16.6, 1.18.4 <https://www.numpy.org>`_
 * `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (required only for plotting)
 
 Revisions
 ---------
-2020.5.11
+2020.5.25
     Pass 2908 tests.
+    Make imagecodecs an optional dependency again.
+    Disable multi-threaded decoding of small LZW compressed segments.
+    Fix caching of TiffPage.decode function.
+    Fix xml.etree.cElementTree ImportError on Python 3.9.
+    Fix tostring DeprecationWarning.
+2020.5.11
     Fix reading ImageJ grayscale mode RGB images (#6).
     Remove napari reader plugin.
 2020.5.7
@@ -199,10 +205,6 @@ The API is not stable yet and might change between revisions.
 Tested on little-endian platforms only.
 
 Python 32-bit versions are deprecated.
-
-Update pip and setuptools to the latest version before installing tifffile:
-
-    ``python -m pip install --upgrade pip setuptools``
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed images.
