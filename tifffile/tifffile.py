@@ -68,23 +68,29 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.11
+:Version: 2020.5.25
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.6.8, 3.7.7, 3.8.2 64-bit <https://www.python.org>`_
-* `Numpy 1.16.6 <https://www.numpy.org>`_
+* `CPython 3.6.8, 3.7.7, 3.8.3 64-bit <https://www.python.org>`_
+* `Numpy 1.16.6, 1.18.4 <https://www.numpy.org>`_
 * `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (required only for plotting)
 
 Revisions
 ---------
-2020.5.11
+2020.5.25
     Pass 2908 tests.
+    Make imagecodecs an optional dependency again.
+    Disable multi-threaded decoding of small LZW compressed segments.
+    Fix caching of TiffPage.decode function.
+    Fix xml.etree.cElementTree ImportError on Python 3.9.
+    Fix tostring DeprecationWarning.
+2020.5.11
     Fix reading ImageJ grayscale mode RGB images (#6).
     Remove napari reader plugin.
 2020.5.7
@@ -229,10 +235,6 @@ The API is not stable yet and might change between revisions.
 Tested on little-endian platforms only.
 
 Python 32-bit versions are deprecated.
-
-Update pip and setuptools to the latest version before installing tifffile:
-
-    ``python -m pip install --upgrade pip setuptools``
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed images.
@@ -489,7 +491,7 @@ Create a TIFF file from an iterator of tiles:
 
 """
 
-__version__ = '2020.5.11'
+__version__ = '2020.5.25'
 
 __all__ = (
     'imwrite',
@@ -1494,7 +1496,7 @@ class TiffWriter:
                         raise RuntimeError('value.size != count')
                     if value.dtype.char != dtype:
                         raise RuntimeError('value.dtype.char != dtype')
-                    ifdvalue = value.tostring()
+                    ifdvalue = value.tobytes()
                 elif isinstance(value, (tuple, list)):
                     ifdvalue = pack(str(count) + dtype, *value)
                 else:
@@ -2139,7 +2141,7 @@ class TiffFile:
     """
 
     def __init__(self, arg, name=None, offset=None, size=None, multifile=True,
-                 _useframes=None, **kwargs):
+                 _useframes=None, _master=None, **kwargs):
         """Initialize instance from file.
 
         Parameters
@@ -2185,6 +2187,8 @@ class TiffFile:
         self._multifile = bool(multifile)
         self._files = {fh.name: self}  # cache of TiffFiles
         self._decoders = {}  # cache of TiffPage.decode functions
+        self._master = self if _master is None else _master
+
         try:
             fh.seek(0)
             header = fh.read(4)
@@ -2739,7 +2743,8 @@ class TiffFile:
 
     def _series_ome(self):
         """Return image series in OME-TIFF file(s)."""
-        from xml.etree import cElementTree as etree  # delayed import
+        from xml.etree import ElementTree as etree  # delayed import
+
         omexml = self.pages[0].description
         try:
             root = etree.fromstring(omexml)
@@ -2853,7 +2858,10 @@ class TiffFile:
                                 return []
                             fname = uuid.attrib['FileName']
                             try:
-                                tif = TiffFile(os.path.join(dirname, fname))
+                                tif = TiffFile(
+                                    os.path.join(dirname, fname),
+                                    _master=self
+                                )
                                 tif.pages.cache = True
                                 tif.pages.useframes = True
                                 tif.pages.keyframe = 0
@@ -4306,8 +4314,12 @@ class TiffPage:
         Raises ValueError or NotImplementedError if decoding is not supported.
 
         """
-        if self.hash in self.parent._decoders:
-            return self.parent._decoders[self.hash]
+        if self.hash in self.parent._master._decoders:
+            return self.parent._master._decoders[self.hash]
+
+        def cache(decode):
+            self.parent._master._decoders[self.hash] = decode
+            return decode
 
         if self.dtype is None:
             def decode(*args, **kwargs):
@@ -4315,23 +4327,27 @@ class TiffPage:
                     f'TiffPage {self.index}: data type not supported: '
                     f'{self.sampleformat}{self.bitspersample}'
                 )
-            return decode
+            return cache(decode)
 
-        if self.compression not in TIFF.DECOMPESSORS:
-            if imagecodecs is None:
-                def decode(*args, **kwargs):
-                    raise ValueError(
-                        f'TiffPage {self.index}: '
-                        f'cannot decompress {self.compression.name}. '
-                        "The 'imagecodecs' package is not installed"
-                    )
+        try:
+            if self.compression == 1:
+                decompress = None
             else:
-                def decode(*args, **kwargs):
-                    raise ValueError(
-                        f'TiffPage {self.index}: '
-                        f'cannot decompress {self.compression.name}'
-                    )
-            return decode
+                decompress = TIFF.DECOMPESSORS[self.compression]
+        except KeyError as exc:
+            def decode(*args, exc=str(exc)[1:-1], **kwargs):
+                raise ValueError(f'TiffPage {self.index}: {exc}')
+            return cache(decode)
+
+        try:
+            if self.predictor == 1:
+                unpredict = None
+            else:
+                unpredict = TIFF.UNPREDICTORS[self.predictor]
+        except KeyError as exc:
+            def decode(*args, exc=str(exc)[1:-1], **kwargs):
+                raise ValueError(f'TiffPage {self.index}: {exc}')
+            return cache(decode)
 
         if self.tags.get(339) is not None:
             tag = self.tags[339]  # SampleFormat
@@ -4341,7 +4357,7 @@ class TiffPage:
                         f'TiffPage {self.index}: '
                         f'sample formats do not match {tag.value}'
                     )
-                return decode
+                return cache(decode)
 
         if (
             self.is_subsampled and
@@ -4351,17 +4367,7 @@ class TiffPage:
                 raise NotImplementedError(
                     f'TiffPage {self.index}: chroma subsampling not supported'
                 )
-            return decode
-
-        if self.predictor == 1:
-            unpredict = None
-        else:
-            unpredict = TIFF.UNPREDICTORS[self.predictor]
-
-        if self.compression == 1:
-            decompress = None
-        else:
-            decompress = TIFF.DECOMPESSORS[self.compression]
+            return cache(decode)
 
         # normalize segments shape to [depth, length, height, contig]
         if self.is_tiled:
@@ -4475,7 +4481,7 @@ class TiffPage:
                         f'TiffPage {self.index}: cannot decode JPEG '
                         f'with {self.bitspersample} bits per sample'
                     )
-                return decode
+                return cache(decode)
 
             if self.fillorder == 2:
                 log_warning(
@@ -4521,8 +4527,7 @@ class TiffPage:
                 data = reshape(data, index, shape)
                 return data, index, shape
 
-            self.parent._decoders[self.hash] = decode
-            return decode
+            return cache(decode)
 
         dtype = numpy.dtype(self.parent.byteorder + self._dtype.char)
 
@@ -4580,8 +4585,7 @@ class TiffPage:
                 data = unpredict(data, axis=-2, out=data)
             return data, index, shape
 
-        self.parent._decoders[self.hash] = decode
-        return decode
+        return cache(decode)
 
     def segments(self, lock=None, maxworkers=None, func=None, sort=False):
         """Return iterator over decoded segments in TiffPage.
@@ -4744,6 +4748,7 @@ class TiffPage:
             # decode individual strips or tiles
             result = create_output(out, keyframe.shaped, keyframe._dtype)
             out = result[0]
+            keyframe.decode  # init TiffPage.decode function
 
             def func(decoderesult, keyframe=keyframe, out=out):
                 # copy decoded segments to output array
@@ -4889,9 +4894,14 @@ class TiffPage:
     @lazyattr
     def maxworkers(self):
         """Return maximum number of threads for decoding strips or tiles."""
+        if self.is_contiguous:
+            return 1
         if len(self._offsetscounts[0]) < 4:
             return 1
         if self.compression != 1 or self.fillorder != 1 or self.predictor != 1:
+            if self.compression == 5 and self._offsetscounts[1][0] < 8192:
+                # disable multi-threading for small LZW compressed segments
+                return 1
             if imagecodecs is not None:
                 return min(TIFF.MAXWORKERS, len(self._offsetscounts[0]))
         return 2  # optimum for large number of uncompressed tiles
@@ -6654,7 +6664,7 @@ class FileHandle:
             data.tofile(self._fh)
         except Exception:
             # BytesIO
-            self._fh.write(data.tostring())
+            self._fh.write(data.tobytes())
 
     def tell(self):
         """Return file's current position."""
@@ -6835,6 +6845,8 @@ class Timer:
         s = str(datetime.timedelta(seconds=duration))
         i = 0
         while i < len(s) and s[i:i + 2] in '0:0010203040506070809':
+            i += 1
+        if s[i:i + 1] == ':':
             i += 1
         return f'{s[i:]} s'
 
@@ -8152,14 +8164,18 @@ class TIFF:
             def __getitem__(self, key):
                 if key in self._codecs:
                     return self._codecs[key]
-                if imagecodecs is None:
-                    raise KeyError(key)
-                if key == 2:
-                    codec = imagecodecs.delta_encode
-                elif key == 3:
-                    codec = imagecodecs.floatpred_encode
-                else:
-                    raise KeyError(key)
+                try:
+                    if key == 2:
+                        codec = imagecodecs.delta_encode
+                    elif key == 3:
+                        codec = imagecodecs.floatpred_encode
+                    else:
+                        raise KeyError(f'{key} is not a valid PREDICTOR')
+                except AttributeError:
+                    raise KeyError(
+                        f'{TIFF.PREDICTOR(key)!r}'
+                        " requires the 'imagecodecs' package"
+                    )
                 self._codecs[key] = codec
                 return codec
 
@@ -8177,14 +8193,18 @@ class TIFF:
             def __getitem__(self, key):
                 if key in self._codecs:
                     return self._codecs[key]
-                if imagecodecs is None:
-                    raise KeyError(key)
-                if key == 2:
-                    codec = imagecodecs.delta_decode
-                elif key == 3:
-                    codec = imagecodecs.floatpred_decode
-                else:
-                    raise KeyError(key)
+                try:
+                    if key == 2:
+                        codec = imagecodecs.delta_decode
+                    elif key == 3:
+                        codec = imagecodecs.floatpred_decode
+                    else:
+                        raise KeyError(f'{key} is not a valid PREDICTOR')
+                except AttributeError:
+                    raise KeyError(
+                        f'{TIFF.PREDICTOR(key)!r}'
+                        " requires the 'imagecodecs' package"
+                    )
                 self._codecs[key] = codec
                 return codec
 
@@ -8204,32 +8224,40 @@ class TIFF:
             def __getitem__(self, key):
                 if key in self._codecs:
                     return self._codecs[key]
-                if imagecodecs is None:
-                    raise KeyError(key)
-                if key == 5:
-                    codec = imagecodecs.lzw_encode
-                elif key == 7:
-                    codec = imagecodecs.jpeg_encode
-                elif key == 8 or key == 32946:
-                    codec = imagecodecs.zlib_encode
-                elif key == 32773:
-                    codec = imagecodecs.packbits_encode
-                elif key == 34712:
-                    codec = imagecodecs.jpeg2k_encode
-                elif key == 34887:
-                    codec = imagecodecs.lerc_encode
-                elif key == 34925:
-                    codec = imagecodecs.lzma_encode
-                elif key == 34933:
-                    codec = imagecodecs.png_encode
-                elif key == 34934:
-                    codec = imagecodecs.jpegxr_encode
-                elif key == 50000:
-                    codec = imagecodecs.zstd_encode
-                elif key == 50001:
-                    codec = imagecodecs.webp_encode
-                else:
-                    raise KeyError(key)
+                try:
+                    if key == 5:
+                        codec = imagecodecs.lzw_encode
+                    elif key == 7:
+                        codec = imagecodecs.jpeg_encode
+                    elif key == 8 or key == 32946:
+                        codec = imagecodecs.zlib_encode
+                    elif key == 32773:
+                        codec = imagecodecs.packbits_encode
+                    elif key == 34712:
+                        codec = imagecodecs.jpeg2k_encode
+                    elif key == 34887:
+                        codec = imagecodecs.lerc_encode
+                    elif key == 34925:
+                        codec = imagecodecs.lzma_encode
+                    elif key == 34933:
+                        codec = imagecodecs.png_encode
+                    elif key == 34934:
+                        codec = imagecodecs.jpegxr_encode
+                    elif key == 50000:
+                        codec = imagecodecs.zstd_encode
+                    elif key == 50001:
+                        codec = imagecodecs.webp_encode
+                    else:
+                        try:
+                            msg = f'{TIFF.COMPRESSION(key)!r} not supported'
+                        except ValueError:
+                            msg = f'{key} is not a valid COMPRESSION'
+                        raise KeyError(msg)
+                except AttributeError:
+                    raise KeyError(
+                        f'{TIFF.COMPRESSION(key)!r} '
+                        "requires the 'imagecodecs' package"
+                    )
                 self._codecs[key] = codec
                 return codec
 
@@ -8249,34 +8277,42 @@ class TIFF:
             def __getitem__(self, key):
                 if key in self._codecs:
                     return self._codecs[key]
-                if imagecodecs is None:
-                    raise KeyError(key)
-                if key == 5:
-                    codec = imagecodecs.lzw_decode
-                elif key == 6 or key == 7:
-                    codec = imagecodecs.jpeg_decode
-                elif key == 8 or key == 32946:
-                    codec = imagecodecs.zlib_decode
-                elif key == 32773:
-                    codec = imagecodecs.packbits_decode
-                # elif key == 34892:
-                #     codec = imagecodecs.jpeg_decode  # DNG lossy
-                elif key == 33003 or key == 33005 or key == 34712:
-                    codec = imagecodecs.jpeg2k_decode
-                elif key == 34887:
-                    codec = imagecodecs.lerc_decode
-                elif key == 34925:
-                    codec = imagecodecs.lzma_decode
-                elif key == 34933:
-                    codec = imagecodecs.png_decode
-                elif key == 34934:
-                    codec = imagecodecs.jpegxr_decode
-                elif key == 50000 or key == 34926:  # 34926 deprecated
-                    codec = imagecodecs.zstd_decode
-                elif key == 50001 or key == 34927:  # 34927 deprecated
-                    codec = imagecodecs.webp_decode
-                else:
-                    raise KeyError(key)
+                try:
+                    if key == 5:
+                        codec = imagecodecs.lzw_decode
+                    elif key == 6 or key == 7:
+                        codec = imagecodecs.jpeg_decode
+                    elif key == 8 or key == 32946:
+                        codec = imagecodecs.zlib_decode
+                    elif key == 32773:
+                        codec = imagecodecs.packbits_decode
+                    # elif key == 34892:
+                    #     codec = imagecodecs.jpeg_decode  # DNG lossy
+                    elif key == 33003 or key == 33005 or key == 34712:
+                        codec = imagecodecs.jpeg2k_decode
+                    elif key == 34887:
+                        codec = imagecodecs.lerc_decode
+                    elif key == 34925:
+                        codec = imagecodecs.lzma_decode
+                    elif key == 34933:
+                        codec = imagecodecs.png_decode
+                    elif key == 34934:
+                        codec = imagecodecs.jpegxr_decode
+                    elif key == 50000 or key == 34926:  # 34926 deprecated
+                        codec = imagecodecs.zstd_decode
+                    elif key == 50001 or key == 34927:  # 34927 deprecated
+                        codec = imagecodecs.webp_decode
+                    else:
+                        try:
+                            msg = f'{TIFF.COMPRESSION(key)!r} not supported'
+                        except ValueError:
+                            msg = f'{key} is not a valid COMPRESSION'
+                        raise KeyError(msg)
+                except AttributeError:
+                    raise KeyError(
+                        f'{TIFF.COMPRESSION(key)!r} '
+                        "requires the 'imagecodecs' package"
+                    )
                 self._codecs[key] = codec
                 return codec
 
@@ -9852,7 +9888,7 @@ def read_tvips_header(fh, byteorder, dtype, count, offsetsize):
         # decode utf16 strings
         for name, typestr in TIFF.TVIPS_HEADER_V2:
             if typestr.startswith('V'):
-                s = header[name].tostring().decode('utf-16', errors='ignore')
+                s = header[name].tobytes().decode('utf-16', errors='ignore')
                 result[name] = stripnull(s, null='\0')
             else:
                 result[name] = header[name].tolist()
@@ -10513,7 +10549,7 @@ def metaseries_description_metadata(description):
     if not description.startswith('<MetaData>'):
         raise ValueError('invalid MetaSeries image description')
 
-    from xml.etree import cElementTree as etree  # delayed import
+    from xml.etree import ElementTree as etree  # delayed import
 
     root = etree.fromstring(description)
     types = {
@@ -11218,39 +11254,36 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
     dtype = page0.dtype
     out = create_output(out, shape, dtype)
 
-    page_maxworkers = 1
+    # TODO: benchmark and optimize this
     if maxworkers is None or maxworkers < 1:
         # auto-detect
-        maxworkers = TIFF.MAXWORKERS
-        if maxworkers == 1:
-            kwargs['maxworkers'] = 1
+        page_maxworkers = page0.maxworkers
+        maxworkers = min(npages, TIFF.MAXWORKERS)
+        if maxworkers == 1 or page0.is_contiguous:
+            maxworkers = page_maxworkers = 1
         elif npages < 3:
             maxworkers = 1
+        elif (
+            page_maxworkers <= 2 and
+            page0.compression == 1 and
+            page0.fillorder == 1 and
+            page0.predictor == 1
+        ):
+            maxworkers = 1
+        elif page0.compression == 5 and page0._offsetscounts[1][0] < 8192:
+            # disable for small LZW compressed segments
+            maxworkers = page_maxworkers = 1
         else:
-            # TODO: optimize this
-            page_maxworkers = page0.maxworkers
-            kwargs['maxworkers'] = page_maxworkers
-            if (
-                page_maxworkers <= 2 and
-                page0.compression == 1 and
-                page0.fillorder == 1 and
-                page0.predictor == 1
-            ):
-                # multi-threading not worth
-                maxworkers = 1
-            elif page_maxworkers > 2:
-                maxworkers = max(maxworkers - page_maxworkers, 1)
+            page_maxworkers = 1
     elif maxworkers == 1:
-        # disable
-        kwargs['maxworkers'] = 1
+        maxworkers = page_maxworkers = 1
+    elif npages > maxworkers or page0.maxworkers < 2:
+        page_maxworkers = 1
     else:
-        # prefer parallel decoding of tiles or stripes
-        # use remaining threads for parallel decoding of pages
-        page_maxworkers = page0.maxworkers
-        kwargs['maxworkers'] = page_maxworkers
-        if page_maxworkers > 1:
-            maxworkers = max(maxworkers - page_maxworkers, 1)
+        page_maxworkers = maxworkers
+        maxworkers = 1
 
+    kwargs['maxworkers'] = page_maxworkers
     page0.parent.filehandle.lock = maxworkers > 1 or page_maxworkers > 1
 
     filecache = OpenFileCache(size=max(4, maxworkers),
@@ -11268,6 +11301,7 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
         for i, page in enumerate(pages):
             func(page, i)
     else:
+        page0.decode  # init TiffPage.decode function
         with ThreadPoolExecutor(maxworkers) as executor:
             for _ in executor.map(func, pages, range(npages)):
                 pass
@@ -11717,7 +11751,7 @@ def xml2dict(xml, sanitize=True, prefix=None):
     {'level1': {'level2': 3.5322}}
 
     """
-    from xml.etree import cElementTree as etree  # delayed import
+    from xml.etree import ElementTree as etree  # delayed import
 
     at = tx = ''
     if prefix:
