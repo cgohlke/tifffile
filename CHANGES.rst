@@ -1,7 +1,13 @@
 Revisions
 ---------
-2020.5.11
+2020.5.25
     Pass 2908 tests.
+    Make imagecodecs an optional dependency again.
+    Disable multi-threaded decoding of small LZW compressed segments.
+    Fix caching of TiffPage.decode function.
+    Fix xml.etree.cElementTree ImportError on Python 3.9.
+    Fix tostring DeprecationWarning.
+2020.5.11
     Fix reading ImageJ grayscale mode RGB images (#6).
     Remove napari reader plugin.
 2020.5.7
