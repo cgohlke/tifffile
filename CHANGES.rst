@@ -1,7 +1,9 @@
 Revisions
 ---------
-2020.5.25
+2020.5.30
     Pass 2908 tests.
+    Re-add pure Python PackBits decoder.
+2020.5.25
     Make imagecodecs an optional dependency again.
     Disable multi-threaded decoding of small LZW compressed segments.
     Fix caching of TiffPage.decode function.
