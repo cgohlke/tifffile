@@ -68,7 +68,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.25
+:Version: 2020.5.30
 
 Requirements
 ------------
@@ -77,14 +77,16 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.6.8, 3.7.7, 3.8.3 64-bit <https://www.python.org>`_
 * `Numpy 1.16.6, 1.18.4 <https://www.numpy.org>`_
-* `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (required only for plotting)
 
 Revisions
 ---------
-2020.5.25
+2020.5.30
     Pass 2908 tests.
+    Re-add pure Python PackBits decoder.
+2020.5.25
     Make imagecodecs an optional dependency again.
     Disable multi-threaded decoding of small LZW compressed segments.
     Fix caching of TiffPage.decode function.
@@ -297,6 +299,7 @@ Some libraries are using tifffile to write OME-TIFF files:
   <https://github.com/apeer-micro/apeer-ometiff-library>`_
 * `Allen Institute for Cell Science imageio
   <https://pypi.org/project/aicsimageio>`_
+* `xtiff <https://github.com/BodenmillerGroup/xtiff>`_
 
 References
 ----------
@@ -491,7 +494,7 @@ Create a TIFF file from an iterator of tiles:
 
 """
 
-__version__ = '2020.5.25'
+__version__ = '2020.5.30'
 
 __all__ = (
     'imwrite',
@@ -8271,6 +8274,7 @@ class TIFF:
                 self._codecs = {None: identityfunc, 1: identityfunc}
                 if imagecodecs is None:
                     self._codecs[8] = zlib_decode
+                    self._codecs[32773] = packbits_decode
                     self._codecs[32946] = zlib_decode
                     self._codecs[34925] = lzma_decode
 
@@ -10896,6 +10900,38 @@ if imagecodecs is None:
             f'unpacking {numbits}-bit integers '
             f'to {numpy.dtype(dtype)} not supported'
         )
+
+    def packbits_decode(encoded, out=None):
+        r"""Decompress PackBits encoded byte string.
+
+        >>> packbits_decode(b'\x80\x80')  # NOP
+        b''
+        >>> packbits_decode(b'\x02123')
+        b'123'
+        >>> packbits_decode(
+        ...   b'\xfe\xaa\x02\x80\x00\x2a\xfd\xaa\x03\x80\x00\x2a\x22\xf7\xaa'
+        ...     )[:-5]
+        b'\xaa\xaa\xaa\x80\x00*\xaa\xaa\xaa\xaa\x80\x00*"\xaa\xaa\xaa\xaa\xaa'
+
+        """
+        out = []
+        out_extend = out.extend
+        i = 0
+        try:
+            while True:
+                n = ord(encoded[i:i + 1]) + 1
+                i += 1
+                if n > 129:
+                    # replicate
+                    out_extend(encoded[i:i + 1] * (258 - n))
+                    i += 1
+                elif n < 129:
+                    # literal
+                    out_extend(encoded[i:i + n])
+                    i += n
+        except TypeError:
+            pass
+        return bytes(out)
 
 else:
     bitorder_decode = imagecodecs.bitorder_decode  # noqa
