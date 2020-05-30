@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.25
+:Version: 2020.5.30
 
 """
 
@@ -216,6 +216,9 @@ if not SKIP_CODECS:
         import imagecodecs  # noqa
     except ImportError:
         SKIP_CODECS = True
+    else:
+        if imagecodecs is None:
+            SKIP_CODECS = True
 
 
 def config():
