@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.25
+:Version: 2020.5.30
 
 Requirements
 ------------
@@ -47,14 +47,16 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.6.8, 3.7.7, 3.8.3 64-bit <https://www.python.org>`_
 * `Numpy 1.16.6, 1.18.4 <https://www.numpy.org>`_
-* `Imagecodecs 2020.2.18 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.1 <https://www.matplotlib.org>`_ (required only for plotting)
 
 Revisions
 ---------
-2020.5.25
+2020.5.30
     Pass 2908 tests.
+    Re-add pure Python PackBits decoder.
+2020.5.25
     Make imagecodecs an optional dependency again.
     Disable multi-threaded decoding of small LZW compressed segments.
     Fix caching of TiffPage.decode function.
@@ -267,6 +269,7 @@ Some libraries are using tifffile to write OME-TIFF files:
   <https://github.com/apeer-micro/apeer-ometiff-library>`_
 * `Allen Institute for Cell Science imageio
   <https://pypi.org/project/aicsimageio>`_
+* `xtiff <https://github.com/BodenmillerGroup/xtiff>`_
 
 References
 ----------
