@@ -57,8 +57,13 @@ setup(
     long_description=readme,
     author='Christoph Gohlke',
     author_email='cgohlke@uci.edu',
-    url='https://www.lfd.uci.edu/~gohlke/',
     license='BSD',
+    url='https://www.lfd.uci.edu/~gohlke/',
+    project_urls={
+        'Bug Tracker': 'https://github.com/cgohlke/tifffile/issues',
+        'Source Code': 'https://github.com/cgohlke/tifffile',
+        # 'Documentation': 'https://',
+    },
     packages=['tifffile'],
     python_requires='>=3.6',
     install_requires=[
