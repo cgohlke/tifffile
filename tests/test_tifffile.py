@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.30
+:Version: 2020.6.3
 
 """
 
@@ -756,14 +756,45 @@ def test_issue_pathlib():
     data = random_data('uint16', (219, 301))
     with TempFileName('pathlib') as fname:
         fname = pathlib.Path(fname)
+        assert isinstance(fname, os.PathLike)
+        # imwrite
         imwrite(fname, data)
+        # imread
+        im = imread(fname)
+        assert_array_equal(im, data)
+        # memmap
+        im = memmap(fname)
+        try:
+            assert_array_equal(im, data)
+        finally:
+            del im
+        # TiffFile
         with TiffFile(fname) as tif:
             with TempFileName('pathlib_out') as outfname:
                 outfname = pathlib.Path(outfname)
+                # out=file
                 im = tif.asarray(out=outfname)
-                assert isinstance(im, numpy.core.memmap)
-                assert_array_equal(im, data)
-                assert os.path.samefile(im.filename, str(outfname))
+                try:
+                    assert isinstance(im, numpy.core.memmap)
+                    assert_array_equal(im, data)
+                    assert os.path.samefile(im.filename, str(outfname))
+                finally:
+                    del im
+        # TiffSequence
+        with TiffSequence(fname) as tifs:
+            im = tifs.asarray()
+            assert_array_equal(im[0], data)
+        with TiffSequence([fname]) as tifs:
+            im = tifs.asarray()
+            assert_array_equal(im[0], data)
+
+    # TiffSequence container
+    if SKIP_PRIVATE or SKIP_CODECS:
+        pytest.skip(REASON)
+    fname = pathlib.Path(private_file('TiffSequence.zip'))
+    with TiffSequence('*.tif', container=fname, pattern=None) as tifs:
+        im = tifs.asarray()
+        assert im[9, 256, 256] == 135
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
@@ -9605,12 +9636,12 @@ def test_embed_mm_bytesio():
 # Test sequence of image files
 
 def test_sequence_stream_list():
-    """Test TiffSequence with list of ByteIO streams raises ValueError."""
+    """Test TiffSequence with list of ByteIO streams raises TypeError."""
     data = numpy.random.rand(7, 9)
     files = [BytesIO(), BytesIO()]
     for buffer in files:
         imwrite(buffer, data)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         imread(files)
 
 
@@ -9688,16 +9719,16 @@ def test_sequence_leica_series():
 def test_sequence_zip_container():
     """Test TiffSequence with glob pattern without axes pattern."""
     fname = private_file('TiffSequence.zip')
-    tifs = TiffSequence('*.tif', container=fname, pattern=None)
-    assert len(tifs) == 10
-    assert tifs.shape == (10,)
-    assert tifs.axes == 'I'
-    data = tifs.asarray()
-    assert isinstance(data, numpy.ndarray)
-    assert data.flags['C_CONTIGUOUS']
-    assert data.shape == (10, 480, 640)
-    assert data.dtype == 'uint8'
-    assert data[9, 256, 256] == 135
+    with TiffSequence('*.tif', container=fname, pattern=None) as tifs:
+        assert len(tifs) == 10
+        assert tifs.shape == (10,)
+        assert tifs.axes == 'I'
+        data = tifs.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
+        assert data.shape == (10, 480, 640)
+        assert data.dtype == 'uint8'
+        assert data[9, 256, 256] == 135
 
 
 @pytest.mark.skipif(
