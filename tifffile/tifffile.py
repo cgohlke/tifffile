@@ -68,7 +68,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.30
+:Version: 2020.6.3
 
 Requirements
 ------------
@@ -83,8 +83,10 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2020.5.30
+2020.6.3
     Pass 2908 tests.
+    Support os.PathLike file names (#9).
+2020.5.30
     Re-add pure Python PackBits decoder.
 2020.5.25
     Make imagecodecs an optional dependency again.
@@ -494,7 +496,7 @@ Create a TIFF file from an iterator of tiles:
 
 """
 
-__version__ = '2020.5.30'
+__version__ = '2020.6.3'
 
 __all__ = (
     'imwrite',
@@ -546,7 +548,6 @@ import time
 import json
 import enum
 import struct
-import pathlib
 import warnings
 import binascii
 import datetime
@@ -575,7 +576,7 @@ def imread(files, **kwargs):
 
     Parameters
     ----------
-    files : str, binary stream, or sequence
+    files : str, path-like, binary stream, or sequence
         File name, seekable binary stream, glob pattern, or sequence of
         file names.
     kwargs : dict
@@ -619,10 +620,14 @@ def imread(files, **kwargs):
             files = glob.glob(files)
         if not files:
             raise ValueError('no files found')
-        if not hasattr(files, 'seek') and len(files) == 1:
+        if (
+            not hasattr(files, 'seek') and
+            not isinstance(files, (str, os.PathLike)) and
+            len(files) == 1
+        ):
             files = files[0]
 
-        if isinstance(files, str) or hasattr(files, 'seek'):
+        if isinstance(files, (str, os.PathLike)) or hasattr(files, 'seek'):
             with TiffFile(files, **kwargs_file) as tif:
                 return tif.asarray(**kwargs)
 
@@ -641,7 +646,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
 
     Parameters
     ----------
-    file : str or binary stream
+    file : str, path-like, or binary stream
         File name or writable binary stream, such as an open file or BytesIO.
     data : array_like
         Input image. The last dimensions are assumed to be image depth,
@@ -709,7 +714,7 @@ def memmap(filename, shape=None, dtype=None, page=None, series=0, mode='r+',
 
     Parameters
     ----------
-    filename : str
+    filename : str or path-like
         Name of the TIFF file which stores the array.
     shape : tuple
         Shape of the empty array.
@@ -815,7 +820,7 @@ class TiffWriter:
 
         Parameters
         ----------
-        file : str, binary stream, or FileHandle
+        file : str, path-like, binary stream, or FileHandle
             File name or writable binary stream, such as an open file
             or BytesIO.
         bigtiff : bool
@@ -6153,7 +6158,7 @@ class FileSequence:
         fromfile : function or class
             Array read function or class with asarray function returning numpy
             array from single file.
-        files : str, pathlib.Path, or sequence thereof
+        files : str, path-like, or sequence thereof
             Glob filename pattern or sequence of file names. Default: \\*.
             Binary streams are not supported.
         container : str or container instance
@@ -6180,7 +6185,7 @@ class FileSequence:
         self._container = container
         if container:
             import fnmatch
-            if isinstance(container, str):
+            if isinstance(container, (str, os.PathLike)):
                 import zipfile
                 self._container = zipfile.ZipFile(container)
             elif not hasattr(self._container, 'open'):
@@ -6189,23 +6194,16 @@ class FileSequence:
                 files = fnmatch.filter(self._container.namelist(), files)
                 if sort:
                     files = sort(files)
-        else:
-            if isinstance(files, pathlib.Path):
-                files = str(files)
-            if isinstance(files, str):
-                files = glob.glob(files)
-                if sort:
-                    files = sort(files)
-            if not files:
-                raise ValueError('no files found')
+        elif isinstance(files, os.PathLike):
+            files = [os.fspath(files)]
+        elif isinstance(files, str):
+            files = glob.glob(files)
+            if sort:
+                files = sort(files)
 
-        files = list(files)
+        files = [os.fspath(f) for f in files]
         if not files:
             raise ValueError('no files found')
-        if isinstance(files[0], pathlib.Path):
-            files = [str(pathlib.Path(f)) for f in files]
-        elif not isinstance(files[0], str):
-            raise ValueError('not a file name')
 
         if hasattr(fromfile, 'asarray'):
             # redefine fromfile to use asarray from fromfile class
@@ -6393,7 +6391,7 @@ class FileHandle:
 
         Parameters
         ----------
-        file : str, pathlib.Path, binary stream, or FileHandle
+        file : str, path-like, binary stream, or FileHandle
             File name or seekable binary stream, such as an open file
             or BytesIO.
         mode : str
@@ -6425,8 +6423,8 @@ class FileHandle:
         if self._fh:
             return  # file is open
 
-        if isinstance(self._file, pathlib.Path):
-            self._file = str(self._file)
+        if isinstance(self._file, os.PathLike):
+            self._file = os.fspath(self._file)
         if isinstance(self._file, str):
             # file name
             self._file = os.path.realpath(self._file)
@@ -11381,8 +11379,6 @@ def create_output(out, shape, dtype, mode='w+', suffix=None):
         if not numpy.can_cast(dtype, out.dtype):
             raise ValueError('incompatible output dtype')
         return out.reshape(shape)
-    if isinstance(out, pathlib.Path):
-        out = str(out)
     return numpy.memmap(out, shape=shape, dtype=dtype, mode=mode)
 
 
