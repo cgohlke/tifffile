@@ -1,7 +1,9 @@
 Revisions
 ---------
-2020.5.30
+2020.6.3
     Pass 2908 tests.
+    Support os.PathLike file names (#9).
+2020.5.30
     Re-add pure Python PackBits decoder.
 2020.5.25
     Make imagecodecs an optional dependency again.
