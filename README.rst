@@ -38,7 +38,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.5.30
+:Version: 2020.6.3
 
 Requirements
 ------------
@@ -53,8 +53,10 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2020.5.30
+2020.6.3
     Pass 2908 tests.
+    Support os.PathLike file names (#9).
+2020.5.30
     Re-add pure Python PackBits decoder.
 2020.5.25
     Make imagecodecs an optional dependency again.
