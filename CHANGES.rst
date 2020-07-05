@@ -1,7 +1,18 @@
 Revisions
 ---------
+2020.7.4
+    Pass 2932 tests.
+    Deprecate support for Python 3.6 (NEP 29).
+    Move pyramidal subresolution series to TiffPageSeries.levels (breaking).
+    Add parser for SVS, SCN, NDPI, and QPI pyramidal series.
+    Read single-file OME-TIFF pyramids.
+    Read NDPI files > 4 GB (#15).
+    Include SubIFDs in generic series.
+    Preliminary support for writing packed integer arrays (#11, WIP).
+    Read more LSM info subrecords.
+    Fix missing ReferenceBlackWhite tag for YCbCr photometrics.
+    Fix reading lossless JPEG compressed DNG files.
 2020.6.3
-    Pass 2908 tests.
     Support os.PathLike file names (#9).
 2020.5.30
     Re-add pure Python PackBits decoder.
