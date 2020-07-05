@@ -8,7 +8,7 @@ Tifffile is a Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
 NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
-ZIF, QPTIFF, NDPI, and GeoTIFF files.
+ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
 
 Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
 files in multi-page, memory-mappable, tiled, predicted, or compressed form.
@@ -38,23 +38,35 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.6.3
+:Version: 2020.7.4
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.6.8, 3.7.7, 3.8.3 64-bit <https://www.python.org>`_
-* `Numpy 1.16.6, 1.18.4 <https://www.numpy.org>`_
+* `CPython 3.7.8, 3.8.3 64-bit <https://www.python.org>`_
+* `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
-* `Matplotlib 3.1 <https://www.matplotlib.org>`_ (required only for plotting)
+* `Matplotlib 3.2.2 <https://pypi.org/project/matplotlib/>`_
+  (required only for plotting)
 
 Revisions
 ---------
+2020.7.4
+    Pass 2932 tests.
+    Deprecate support for Python 3.6 (NEP 29).
+    Move pyramidal subresolution series to TiffPageSeries.levels (breaking).
+    Add parser for SVS, SCN, NDPI, and QPI pyramidal series.
+    Read single-file OME-TIFF pyramids.
+    Read NDPI files > 4 GB (#15).
+    Include SubIFDs in generic series.
+    Preliminary support for writing packed integer arrays (#11, WIP).
+    Read more LSM info subrecords.
+    Fix missing ReferenceBlackWhite tag for YCbCr photometrics.
+    Fix reading lossless JPEG compressed DNG files.
 2020.6.3
-    Pass 2908 tests.
     Support os.PathLike file names (#9).
 2020.5.30
     Re-add pure Python PackBits decoder.
@@ -208,7 +220,7 @@ The API is not stable yet and might change between revisions.
 
 Tested on little-endian platforms only.
 
-Python 32-bit versions are deprecated.
+Python 32-bit versions are deprecated. Python <= 3.6 are no longer supported.
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed images.
@@ -235,14 +247,14 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   data. Tifffile can read large LSM files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
-  structures. JPEG compressed tiles with dimensions > 65536 are not readable
-  with libjpeg. Tifffile can read NDPI files < 4 GB and decompress large JPEG
-  tiles using the imagecodecs library on Windows.
+  structures. JPEG compressed segments with dimensions >65536 are not readable
+  with libjpeg. Tifffile can read NDPI files > 4 GB. JPEG segments up to 2 GB
+  compressed size can be decoded with the imagecodecs library on Windows.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
-  Tifffile can read such files on Python 3 if the image data are stored
-  contiguously in each page.
+  Tifffile can read such files if the image data are stored contiguously in
+  each page.
 * *GeoTIFF* sparse files allow strip or tile offsets and byte counts to be 0.
   Such segments are implicitly set to 0 or the NODATA value on reading.
   Tifffile can read GeoTIFF sparse files.
@@ -457,9 +469,42 @@ Read an image stack from a series of TIFF files with a file name pattern:
 >>> data.shape
 (1, 2, 64, 64)
 
-Create a TIFF file from an iterator of tiles:
+Create a TIFF file from a generator of tiles:
 
 >>> def tiles():
 ...     data = numpy.arange(3*4*16*16, dtype='uint16').reshape((3*4, 16, 16))
 ...     for i in range(data.shape[0]): yield data[i]
 >>> imwrite('temp.tif', tiles(), dtype='uint16', shape=(48, 64), tile=(16, 16))
+
+Write a tiled, multi-resolution, pyramidal TIFF file using JPEG compression:
+
+>>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
+>>> with TiffWriter('temp.tif') as tif:
+...     options = dict(tile=(256, 256), compress='jpeg', metadata=None)
+...     tif.save(data, **options)
+...     # save pyramid levels. In production use resampling to generate levels!
+...     tif.save(data[::2, ::2], subfiletype=1, **options)
+...     tif.save(data[::4, ::4], subfiletype=1, **options)
+
+Access the image levels in the pyramidal TIFF file:
+
+>>> baseimage = imread('temp.tif')
+>>> second_level = imread('temp.tif', series=0, level=1)
+>>> with TiffFile('temp.tif') as tif:
+...     baseimage = tif.series[0].asarray()
+...     second_level = tif.series[0].levels[1].asarray()
+
+Iterate over and decode single JPEG compressed tiles in the TIFF file:
+
+>>> with TiffFile('temp.tif') as tif:
+...     fh = tif.filehandle
+...     for page in tif.pages:
+...         jpegtables = page.tags.get('JPEGTables', None)
+...         if jpegtables is not None:
+...             jpegtables = jpegtables.value
+...         for index, (offset, bytecount) in enumerate(
+...             zip(page.dataoffsets, page.databytecounts)
+...         ):
+...             fh.seek(offset)
+...             data = fh.read(bytecount)
+...             tile, indices, shape = page.decode(data, index, jpegtables)
