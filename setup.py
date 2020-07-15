@@ -71,11 +71,11 @@ setup(
         # 'imagecodecs>=2020.2.18',
     ],
     extras_require={
-        'all': ['imagecodecs>=2020.2.18', 'matplotlib>=3.1'],
+        'all': ['imagecodecs>=2020.2.18', 'matplotlib>=3.1', 'lxml'],
     },
     tests_require=[
         'pytest', 'imagecodecs', 'czifile', 'cmapfile', 'oiffile', 'lfdfiles',
-        'roifile'
+        'roifile', 'lxml',
         ],
     entry_points={
         'console_scripts': [
