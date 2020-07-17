@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.4
+:Version: 2020.7.17
 
 """
 
@@ -65,6 +65,8 @@ from numpy.testing import (
     assert_array_almost_equal,
     assert_allclose,
 )
+
+from lxml import etree
 
 import tifffile
 
@@ -97,6 +99,7 @@ except NameError:
     STAR_IMPORTED = None
 
 from tifffile.tifffile import (
+    imagecodecs,
     TIFF,
     imwrite,
     imread,
@@ -112,6 +115,8 @@ from tifffile.tifffile import (
     TiffPageSeries,
     TiffTag,
     TiffTags,
+    OmeXmlError,
+    OmeXml,
     lazyattr,
     natural_sorted,
     stripnull,
@@ -154,6 +159,7 @@ from tifffile.tifffile import (
     validate_jhove,
     xml2dict,
     subresolution,
+    asbool,
 )
 
 # skip certain tests
@@ -213,13 +219,7 @@ if not os.path.exists(PRIVATE_DIR):
     SKIP_PRIVATE = True
 
 if not SKIP_CODECS:
-    try:
-        import imagecodecs  # noqa
-    except ImportError:
-        SKIP_CODECS = True
-    else:
-        if imagecodecs is None:
-            SKIP_CODECS = True
+    SKIP_CODECS = imagecodecs is None
 
 
 def config():
@@ -273,6 +273,22 @@ def assert__str__(tif, detail=3):
     """Call the TiffFile.__str__ function."""
     for i in range(detail + 1):
         TiffFile.__str__(tif, detail=i)
+
+
+def assert_valid_omexml(omexml, omexsd=None, _schema=[]):
+    """Validate OME-XML schema."""
+    if not _schema:
+        if omexsd is None:
+            omexsd = os.path.join(os.path.dirname(__file__), 'ome.xsd')
+        try:
+            _schema.append(etree.XMLSchema(etree.parse(omexsd)))
+        except Exception:
+            _schema.append(None)
+    if _schema and _schema[0] is not None:
+        if omexml.startswith('<?xml'):
+            omexml = omexml.split('>', 1)[-1]
+        xml = etree.fromstring(omexml)
+        _schema[0].assert_(xml)
 
 
 if SKIP_VALIDATE:
@@ -385,6 +401,7 @@ def test_issue_infinite_loop():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_issue_jpeg_ia():
     """Test JPEG compressed intensity image with alpha channel."""
     # no extrasamples!
@@ -648,14 +665,16 @@ def test_issue_valueoffset():
                 page = tif.pages[0]
                 # inline value
                 fh.seek(page.tags['ImageLength'].valueoffset)
-                assert page.imagelength == unpack('H', fh.read(2))[0]
+                assert page.imagelength == unpack(tif.byteorder + 'H',
+                                                  fh.read(2))[0]
                 # separate value
                 fh.seek(page.tags['Software'].valueoffset)
                 assert page.software == bytes2str(fh.read(13))
                 # TiffFrame
                 page = tif.pages[1].aspage()
                 fh.seek(page.tags['StripOffsets'].valueoffset)
-                assert page.dataoffsets[0] == unpack('I', fh.read(4))[0]
+                assert page.dataoffsets[0] == unpack(tif.byteorder + 'I',
+                                                     fh.read(4))[0]
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
@@ -830,7 +849,7 @@ def test_class_tifftags():
     data = random_data('uint8', (21, 31))
 
     with TempFileName('class_tifftags') as fname:
-        imwrite(fname, data, description='test', software=None)
+        imwrite(fname, data, description='test', software=False)
 
         with TiffFile(fname) as tif:
             tags = tif.pages[0].tags
@@ -952,6 +971,200 @@ def test_class_tifftagregistry():
     assert "41483, 'FlashEnergy'" in info
 
 
+@pytest.mark.parametrize(
+    'shape, storedshape, dtype, axes, error',
+    [
+        # separate and contig
+        ((32, 32), (1, 2, 1, 32, 32, 2), 'uint8', None, ValueError),
+        # depth
+        ((32, 32, 32), (1, 1, 32, 32, 32, 1), 'uint8', None, OmeXmlError),
+        # dtype
+        ((32, 32), (1, 1, 1, 32, 32, 1), 'float16', None, OmeXmlError),
+        # empty
+        ((0, 0), (1, 1, 1, 0, 0, 1), 'uint8', None, OmeXmlError),
+        # not YX
+        ((32, 32), (1, 1, 1, 32, 32, 1), 'uint8', 'XZ', OmeXmlError),
+        # unknown axis
+        ((1, 32, 32), (1, 1, 1, 32, 32, 1), 'uint8', 'KYX', OmeXmlError),
+        # double axis
+        ((1, 32, 32), (1, 1, 1, 32, 32, 1), 'uint8', 'YYX', OmeXmlError),
+        # more than 5 dimensions
+        ((1, 1, 1, 5, 32, 32), (5, 1, 1, 32, 32, 1), 'uint8', None,
+         OmeXmlError),
+        # more than 6 dimensions
+        ((1, 1, 1, 1, 32, 32, 3), (1, 1, 1, 32, 32, 3), 'uint8', None,
+         OmeXmlError),
+        # more than 8 dimensions
+        ((1, 1, 1, 1, 1, 1, 1, 32, 32), (1, 1, 1, 32, 32, 1), 'uint8',
+         'ARHETZCYX', OmeXmlError),
+        # more than 9 dimensions
+        ((1, 1, 1, 1, 1, 1, 1, 32, 32, 3), (1, 1, 1, 32, 32, 3), 'uint8',
+         'ARHETZCYXS', OmeXmlError),
+        # double axis
+        ((1, 32, 32), (1, 1, 1, 32, 32, 1), 'uint8', 'YYX', OmeXmlError),
+        # planecount mismatch
+        ((3, 32, 32), (1, 1, 1, 32, 32, 1), 'uint8', 'CYX', ValueError),
+        # stored shape mismatch
+        ((3, 32, 32), (1, 2, 1, 32, 32, 1), 'uint8', 'SYX', ValueError),
+        ((32, 32, 3), (1, 1, 1, 32, 32, 2), 'uint8', 'YXS', ValueError),
+        ((3, 32, 32), (1, 3, 1, 31, 31, 1), 'uint8', 'SYX', ValueError),
+        ((32, 32, 3), (1, 1, 1, 31, 31, 3), 'uint8', 'YXS', ValueError),
+        ((32, 32), (1, 1, 1, 32, 31, 1), 'uint8', None, ValueError),
+        # too many modulo dimensions
+        ((2, 3, 4, 5, 32, 32), (60, 1, 1, 32, 32, 1), 'uint8', 'RHEQYX',
+         OmeXmlError),
+    ]
+)
+def test_class_omexml_fail(shape, storedshape, dtype, axes, error):
+    """Test OmeXml class failures."""
+    metadata = {'axes': axes} if axes else {}
+    ox = OmeXml()
+    with pytest.raises(error):
+        ox.addimage(dtype, shape, storedshape, **metadata)
+
+
+@pytest.mark.parametrize(
+    'axes, autoaxes, shape, storedshape, dimorder',
+    [
+        ('YX', 'YX', (32, 32), (1, 1, 1, 32, 32, 1), 'XYCZT'),
+        ('YXS', 'YXS', (32, 32, 1), (1, 1, 1, 32, 32, 1), 'XYCZT'),
+        ('SYX', 'SYX', (1, 32, 32), (1, 1, 1, 32, 32, 1), 'XYCZT'),
+        ('YXS', 'YXS', (32, 32, 3), (1, 1, 1, 32, 32, 3), 'XYCZT'),
+        ('SYX', 'SYX', (3, 32, 32), (1, 3, 1, 32, 32, 1), 'XYCZT'),
+        ('CYX', 'CYX', (5, 32, 32), (5, 1, 1, 32, 32, 1), 'XYCZT'),
+        ('CYXS', 'CYXS', (5, 32, 32, 1), (5, 1, 1, 32, 32, 1), 'XYCZT'),
+        ('CSYX', 'ZCYX', (5, 1, 32, 32), (5, 1, 1, 32, 32, 1), 'XYCZT'),  # !
+        ('CYXS', 'CYXS', (5, 32, 32, 3), (5, 1, 1, 32, 32, 3), 'XYCZT'),
+        ('CSYX', 'CSYX', (5, 3, 32, 32), (5, 3, 1, 32, 32, 1), 'XYCZT'),
+        ('TZCYX', 'TZCYX', (3, 4, 5, 32, 32), (60, 1, 1, 32, 32, 1), 'XYCZT'),
+        ('TZCYXS', 'TZCYXS', (3, 4, 5, 32, 32, 1), (60, 1, 1, 32, 32, 1),
+         'XYCZT'),
+        ('TZCSYX', 'TZCSYX', (3, 4, 5, 1, 32, 32), (60, 1, 1, 32, 32, 1),
+         'XYCZT'),
+        ('TZCYXS', 'TZCYXS', (3, 4, 5, 32, 32, 3), (60, 1, 1, 32, 32, 3),
+         'XYCZT'),
+        ('ZTCSYX', '', (3, 4, 5, 3, 32, 32), (60, 3, 1, 32, 32, 1), 'XYCTZ'),
+    ]
+)
+@pytest.mark.parametrize('metadata', ('axes', None))
+def test_class_omexml(axes, autoaxes, shape, storedshape, dimorder, metadata):
+    """Test OmeXml class."""
+    dtype = 'uint8'
+    if not metadata and dimorder != 'XYCZT':
+        pytest.xfail('')
+    metadata = dict(axes=axes) if metadata else dict()
+    omexml = OmeXml()
+    omexml.addimage(dtype, shape, storedshape, **metadata)
+    assert '\n  ' in str(omexml)
+    omexml = omexml.tostring()
+    assert dimorder in omexml
+    if metadata:
+        autoaxes = axes
+    for ax in 'XYCZT':
+        if ax in autoaxes:
+            size = shape[autoaxes.index(ax)]
+        else:
+            size = 1
+        if ax == 'C':
+            size *= storedshape[1] * storedshape[-1]
+        assert f'Size{ax}="{size}"' in omexml
+    assert_valid_omexml(omexml)
+
+
+@pytest.mark.parametrize(
+    'axes, shape, storedshape, sizetzc, dimorder',
+    [
+        ('ZAYX', (3, 4, 32, 32), (12, 1, 1, 32, 32, 1), (1, 12, 1),
+         'XYCZT'),
+        ('AYX', (3, 32, 32), (3, 1, 1, 32, 32, 1), (3, 1, 1),
+         'XYCZT'),
+        ('APYX', (3, 4, 32, 32), (12, 1, 1, 32, 32, 1), (3, 4, 1),
+         'XYCZT'),
+        ('TAYX', (3, 4, 32, 32), (12, 1, 1, 32, 32, 1), (12, 1, 1),
+         'XYCZT'),
+        ('CHYXS', (3, 4, 32, 32, 3), (12, 1, 1, 32, 32, 3), (1, 1, 36),
+         'XYCZT'),
+        ('CHSYX', (3, 4, 3, 32, 32), (12, 3, 1, 32, 32, 1), (1, 1, 36),
+         'XYCZT'),
+        ('APRYX', (3, 4, 5, 32, 32), (60, 1, 1, 32, 32, 1), (3, 4, 5),
+         'XYCZT'),
+        ('TAPYX', (3, 4, 5, 32, 32), (60, 1, 1, 32, 32, 1), (12, 5, 1),
+         'XYCZT'),
+        ('TZAYX', (3, 4, 5, 32, 32), (60, 1, 1, 32, 32, 1), (3, 20, 1),
+         'XYCZT'),
+        ('ZCHYX', (3, 4, 5, 32, 32), (60, 1, 1, 32, 32, 1), (1, 3, 20),
+         'XYCZT'),
+        ('EPYX', (10, 5, 200, 200), (50, 1, 1, 200, 200, 1), (10, 5, 1),
+         'XYCZT'),
+        ('TQCPZRYX', (2, 3, 4, 5, 6, 7, 32, 32), (5040, 1, 1, 32, 32, 1),
+         (6, 42, 20), 'XYZCT'),
+    ]
+)
+def test_class_omexml_modulo(axes, shape, storedshape, sizetzc, dimorder):
+    """Test OmeXml class with modulo dimensions."""
+    dtype = 'uint8'
+    omexml = OmeXml()
+    omexml.addimage(dtype, shape, storedshape, axes=axes)
+    assert '\n  ' in str(omexml)
+    omexml = omexml.tostring()
+    assert dimorder in omexml
+    for ax, size in zip('TZC', sizetzc):
+        assert f'Size{ax}="{size}"' in omexml
+    assert_valid_omexml(omexml)
+
+
+def test_class_omexml_attributes():
+    """Test OmeXml class with attributes and elements."""
+    from uuid import uuid1  # noqa: delayed import
+
+    uuid = str(uuid1())
+    metadata = dict(
+        # document
+        uuid=uuid,
+        Creator=f'test_tifffile.py {tifffile.__version__}',
+        # image
+        axes='ZYXS',
+        Name='ImageName',
+        Acquisitiondate='2011-09-16T10:45:48',
+        Description='Image "Description" < & >\n{test}',
+        SignificantBits=12,
+        PhysicalSizeX=1.1,
+        PhysicalSizeXUnit='nm',
+        PhysicalSizeY=1.2,
+        PhysicalSizeYUnit='\xb5m',
+        PhysicalSizeZ=1.3,
+        PhysicalSizeZUnit='\xc5',
+        TimeIncrement=1.4,
+        TimeIncrementUnit='\xb5s',
+        Channel=dict(Name=['ChannelName']),  # one channel with 3 samples
+        Plane=dict(PositionZ=[0.0, 2.0, 4.0]),  # 3 Z-planes
+    )
+
+    omexml = OmeXml(**metadata)
+    omexml.addimage('uint16', (3, 32, 32, 3), (3, 1, 1, 32, 32, 3), **metadata)
+    assert '\n  ' in str(omexml)
+    omexml = omexml.tostring()
+    assert_valid_omexml(omexml)
+    assert uuid in omexml
+    assert 'SignificantBits="12"' in omexml
+    assert 'SamplesPerPixel="3" Name="ChannelName"' in omexml
+    assert 'TheC="0" TheZ="2" TheT="0" PositionZ="4.0"' in omexml
+
+
+def test_class_omexml_multiimage():
+    """Test OmeXml class with multiple images."""
+    omexml = OmeXml(description='multiimage')
+    omexml.addimage('uint8', (32, 32, 3), (1, 1, 1, 32, 32, 3), name='preview')
+    omexml.addimage('float32', (4, 256, 256), (4, 1, 1, 256, 256, 1), name='1')
+    omexml.addimage('bool', (256, 256), (1, 1, 1, 256, 256, 1), name='mask')
+    assert '\n  ' in str(omexml)
+    omexml = omexml.tostring()
+    assert 'TiffData IFD="0" PlaneCount="1"' in omexml
+    assert 'TiffData IFD="1" PlaneCount="4"' in omexml
+    assert 'TiffData IFD="5" PlaneCount="1"' in omexml
+    assert_valid_omexml(omexml)
+
+
 def test_func_xml2dict():
     """Test xml2dict function."""
     d = xml2dict("""<?xml version="1.0" ?>
@@ -1010,7 +1223,8 @@ def test_func_memmap_fail():
     """Test non-native byteorder can not be memory mapped."""
     with TempFileName('memmap_fail') as fname:
         with pytest.raises(ValueError):
-            memmap(fname, shape=(16, 16), dtype='float32', byteorder='>')
+            memmap(fname, shape=(16, 16), dtype='float32',
+                   byteorder='>' if sys.byteorder == 'little' else '<')
 
 
 def test_func_repeat_nd():
@@ -1028,10 +1242,14 @@ def test_func_repeat_nd():
 
 def test_func_byteorder_isnative():
     """Test byteorder_isnative function."""
-    assert not byteorder_isnative('>')
-    assert byteorder_isnative('<')
-    assert byteorder_isnative('=')
     assert byteorder_isnative(sys.byteorder)
+    assert byteorder_isnative('=')
+    if sys.byteorder == 'little':
+        assert byteorder_isnative('<')
+        assert not byteorder_isnative('>')
+    else:
+        assert byteorder_isnative('>')
+        assert not byteorder_isnative('<')
 
 
 def test_func_reshape_nd():
@@ -1161,6 +1379,11 @@ def test_func_natural_sorted():
 def test_func_stripnull():
     """Test stripnull function."""
     assert stripnull(b'string\x00') == b'string'
+    assert stripnull('string\x00', null='\0') == 'string'
+    assert stripnull(b'string\x00string\x00\x00', first=False
+                     ) == b'string\x00string'
+    assert stripnull('string\x00string\x00\x00', null='\0', first=False
+                     ) == 'string\x00string'
 
 
 def test_func_stripascii():
@@ -1222,6 +1445,7 @@ def test_func_subresolution():
     assert subresolution(a, b) == 3
 
 
+@pytest.mark.skipif(SKIP_BE, reason=REASON)
 def test_func_unpack_rgb():
     """Test unpack_rgb function."""
     data = struct.pack('BBBB', 0x21, 0x08, 0xFF, 0xFF)
@@ -1236,7 +1460,7 @@ def test_func_unpack_rgb():
 def test_func_json_description():
     """Test json_description function."""
     descr = json_description((256, 256, 3), axes='YXS')
-    assert json.loads(descr) == {"shape": [256, 256, 3], "axes": "YXS"}
+    assert json.loads(descr) == {'shape': [256, 256, 3], 'axes': 'YXS'}
 
 
 def test_func_json_description_metadata():
@@ -1442,6 +1666,22 @@ def test_func_hexdump():
         '................\n'
         '20: 00 00 01 01 04 00 01 00 00 00 00 01 00 00 02 01 '
         '................')
+
+
+def test_func_asbool():
+    """Test asbool function."""
+    for true in ('TRUE', ' True ', 'true '):
+        assert asbool(true)
+        assert asbool(true.encode())
+    for false in ('FALSE', ' False ', 'false '):
+        assert not asbool(false)
+        assert not asbool(false.encode())
+    assert asbool('ON', ['on'], ['off'])
+    assert asbool('ON', 'on', 'off')
+    with pytest.raises(TypeError):
+        assert asbool('Yes')
+    with pytest.raises(TypeError):
+        assert asbool('True', ['on'], ['off'])
 
 
 def test_func_snipstr():
@@ -1893,7 +2133,7 @@ def test_filehandle_bytesio():
     with open(FILEHANDLE_NAME, 'rb') as fh:
         stream = BytesIO(fh.read())
     with FileHandle(stream) as fh:
-        assert fh.name == "Unnamed binary stream"
+        assert fh.name == 'Unnamed binary stream'
         assert not fh.is_file
         assert_filehandle(fh)
 
@@ -1905,7 +2145,7 @@ def test_filehandle_bytesio_offset():
         stream = BytesIO(fh.read())
     with FileHandle(stream, offset=FILEHANDLE_OFFSET,
                     size=FILEHANDLE_LENGTH) as fh:
-        assert fh.name == "Unnamed binary stream"
+        assert fh.name == 'Unnamed binary stream'
         assert not fh.is_file
         assert_filehandle(fh, offset=FILEHANDLE_OFFSET)
 
@@ -3390,6 +3630,7 @@ def test_read_zstd():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_cfa():
     """Test read 14-bit uncompressed and JPEG compressed CFA image."""
     fname = private_file('DNG/cinemadng/M14-1451_000085_cDNG_uncompressed.dng')
@@ -5575,7 +5816,7 @@ def test_read_ome_rgb():
         series = tif.series[0]
         assert series.shape == (3, 720, 1280)
         assert series.dtype.name == 'uint8'
-        assert series.axes == 'CYX'
+        assert series.axes == 'SYX'
         assert series.offset == 17524
         # assert data
         data = tif.asarray()
@@ -5607,7 +5848,7 @@ def test_read_ome_samplesperpixel():
         series = tif.series[0]
         assert series.shape == (6, 3, 1024, 1024)
         assert series.dtype.name == 'uint8'
-        assert series.axes == 'ZCYX'
+        assert series.axes == 'ZSYX'
         # assert data
         data = tif.asarray()
         assert data.shape == (6, 3, 1024, 1024)
@@ -7436,18 +7677,33 @@ def test_write_is_shaped():
             assert__str__(tif)
 
 
+def test_write_bytes_str():
+    """Test write bytes in place of 7-bit ascii string."""
+    micron = 'micron \xB5'.encode('latin-1')  # can't be encoded as 7-bit ascii
+    data = numpy.arange(4, dtype='uint32').reshape((2, 2))
+    with TempFileName('write_bytes_str') as fname:
+        imwrite(fname, data, description=micron, software=micron,
+                extratags=[(50001, 's', 8, micron, True)])
+        with TiffFile(fname) as tif:
+            page = tif.pages[0]
+            assert page.description == 'micron \xB5'
+            assert page.software == 'micron \xB5'
+            assert page.tags[50001].value == 'micron \xB5'
+
+
 def test_write_extratags():
     """Test write extratags."""
     data = random_data('uint8', (2, 219, 301))
-    description = "Created by TestTiffWriter\nLorem ipsum dolor..."
-    pagename = "Page name"
-    extratags = [(270, 's', 0, description, True),
-                 ('PageName', 's', 0, pagename, False),
-                 (50001, 'b', 1, b'1', True),
-                 (50002, 'b', 2, b'12', True),
-                 (50004, 'b', 4, b'1234', True),
-                 (50008, 'B', 8, b'12345678', True),
-                 ]
+    description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
+    pagename = 'Page name'
+    extratags = [
+        (270, 's', 0, description, True),
+        ('PageName', 's', 0, pagename, False),
+        (50001, 'b', 1, b'1', True),
+        (50002, 'b', 2, b'12', True),
+        (50004, 'b', 4, b'1234', True),
+        (50008, 'B', 8, b'12345678', True),
+    ]
     with TempFileName('extratags') as fname:
         imwrite(fname, data, extratags=extratags)
         assert_valid(fname)
@@ -7975,7 +8231,7 @@ def test_write_compress_predictor():
     """Test write horizontal differencing."""
     data = WRITE_DATA
     with TempFileName('compress_predictor') as fname:
-        imwrite(fname, data, compress=6, predictor=True)
+        imwrite(fname, data, compress=6, predictor=TIFF.PREDICTOR.HORIZONTAL)
         assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -9724,6 +9980,55 @@ def test_write_imagej_raw():
             assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_EXTENDED, reason=REASON)
+@pytest.mark.parametrize(
+    'shape, axes',
+    [
+        ((219, 301, 1), None),
+        ((219, 301, 2), None),
+        ((219, 301, 3), None),
+        ((219, 301, 4), None),
+        ((219, 301, 5), None),
+        ((1, 219, 301), None),
+        ((2, 219, 301), None),
+        ((3, 219, 301), None),
+        ((4, 219, 301), None),
+        ((5, 219, 301), None),
+        ((4, 3, 219, 301), None),
+        ((4, 219, 301, 3), None),
+        ((3, 4, 219, 301), None),
+        ((1, 3, 1, 219, 301), None),
+        ((3, 1, 1, 219, 301), None),
+        ((1, 3, 4, 219, 301), None),
+        ((3, 1, 4, 219, 301), None),
+        ((3, 4, 1, 219, 301), None),
+        ((3, 4, 1, 219, 301, 3), None),
+        ((2, 3, 4, 219, 301), None),
+        ((4, 3, 2, 219, 301, 3), None),
+        ((5, 1, 32, 32), 'CSYX'),
+        ((5, 1, 32, 32), 'ZCYX'),
+        ((2, 3, 4, 219, 301, 3), 'TCZYXS'),
+        ((10, 5, 200, 200), 'EPYX'),
+        ((2, 3, 4, 5, 6, 7, 32, 32, 3), 'TQCPZRYXS'),
+    ]
+)
+def test_write_ome(shape, axes):
+    """Test write OME-TIFF format."""
+    metadata = {'axes': axes} if axes is not None else {}
+    data = random_data('uint8', shape)
+    fname = 'write_ome_{}.ome.tif'.format(str(shape).replace(' ', ''))
+    with TempFileName(fname) as fname:
+        imwrite(fname, data, metadata=metadata)
+        with TiffFile(fname) as tif:
+            image = tif.asarray()
+            omexml = tif.ome_metadata
+            if axes:
+                assert tif.series[0].axes == squeeze_axes(shape, axes)[-1]
+        assert_array_equal(data.squeeze(), image.squeeze())
+        assert_valid_omexml(omexml)
+        assert_valid(fname)
+
+
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_write_ome_copy():
     """Test re-write OME time-series of volumes."""
@@ -9868,7 +10173,7 @@ def assert_embed_micromanager(tif):
     assert len(tif.series) == 1
     # assert non-tiff micromanager_metadata
     tags = tif.micromanager_metadata['Summary']
-    assert tags["MicroManagerVersion"] == "1.4.x dev"
+    assert tags["MicroManagerVersion"] == '1.4.x dev'
     # assert page properties
     page = tif.pages[0]
     assert page.is_contiguous
@@ -9886,8 +10191,8 @@ def assert_embed_micromanager(tif):
     assert tags['slices'] == 3
     assert tags['Ranges'] == (706.0, 5846.0)
     tags = tif.micromanager_metadata
-    assert tags["FileName"] == "Untitled_1_MMStack.ome.tif"
-    assert tags["PixelType"] == "GRAY16"
+    assert tags["FileName"] == 'Untitled_1_MMStack.ome.tif'
+    assert tags["PixelType"] == 'GRAY16'
     # assert series properties
     series = tif.series[0]
     assert series.shape == (5, 3, 512, 512)
