@@ -40,8 +40,9 @@ Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
 NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
 ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
 
-Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
-files in multi-page, memory-mappable, tiled, predicted, or compressed form.
+Numpy arrays can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
+compatible files in multi-page, memory-mappable, tiled, predicted, or
+compressed form.
 
 A subset of the TIFF specification is supported, mainly uncompressed and
 losslessly compressed 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
@@ -56,7 +57,7 @@ STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, and OME-TIFF, are custom
 extensions defined by Molecular Devices (Universal Imaging Corporation),
 Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
 Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, and the
-Open Microscopy Environment consortium respectively.
+Open Microscopy Environment consortium, respectively.
 
 For command line usage run ``python -m tifffile --help``
 
@@ -68,24 +69,33 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.4
+:Version: 2020.7.17
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.8, 3.8.3 64-bit <https://www.python.org>`_
+* `CPython 3.7.8, 3.8.4, 3.9.0b4 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.2.2 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
+* `Lxml 4.5.2 <https://github.com/lxml/lxml>`_
+  (required only for validating and printing XML)
 
 Revisions
 ---------
+2020.7.17
+    Pass 3022 tests.
+    Initial support for writing OME-TIFF (WIP).
+    Return samples as separate dimension in OME series (breaking).
+    Fix modulo dimensions for multiple OME series.
+    Fix some test errors on big endian systems (#18).
+    Fix BytesWarning.
+    Allow to pass TIFF.PREDICTOR values to TiffWriter.save.
 2020.7.4
-    Pass 2932 tests.
     Deprecate support for Python 3.6 (NEP 29).
     Move pyramidal subresolution series to TiffPageSeries.levels (breaking).
     Add parser for SVS, SCN, NDPI, and QPI pyramidal series.
@@ -253,7 +263,8 @@ Tested on little-endian platforms only.
 Python 32-bit versions are deprecated. Python <= 3.6 are no longer supported.
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
-package for encoding and decoding LZW, JPEG, and other compressed images.
+package for encoding and decoding LZW, JPEG, and other compressed image
+segments.
 
 Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
 some of which allow file or data sizes to exceed the 4 GB limit:
@@ -270,16 +281,18 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   files. The 8-bit UTF-8 encoded OME-XML metadata found in the ImageDescription
   tag of the first IFD defines the position of TIFF IFDs in the high
   dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
-  metadata are stored in a separate file.
+  metadata are stored in a separate file. Tifffile can write numpy arrays
+  to single-file, non-pyramidal OME-TIFF.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
   data. Tifffile can read large LSM files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
-  structures. JPEG compressed segments with dimensions >65536 are not readable
-  with libjpeg. Tifffile can read NDPI files > 4 GB. JPEG segments up to 2 GB
-  compressed size can be decoded with the imagecodecs library on Windows.
+  structures. JPEG compressed segments with dimensions >65536 or missing
+  restart markers are not readable with libjpeg. Tifffile can read NDPI
+  files > 4 GB. JPEG segments with restart markers and dimensions >65536 can
+  be decoded with the imagecodecs library on Windows.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -317,29 +330,33 @@ Some libraries are using tifffile to write OME-TIFF files:
 
 References
 ----------
-1.  TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
-    https://www.adobe.io/open/standards/TIFF.html
-2.  TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
-3.  MetaMorph Stack (STK) Image File Format.
-    http://mdc.custhelp.com/app/answers/detail/a_id/18862
-4.  Image File Format Description LSM 5/7 Release 6.0 (ZEN 2010).
-    Carl Zeiss MicroImaging GmbH. BioSciences. May 10, 2011
-5.  The OME-TIFF format.
-    https://docs.openmicroscopy.org/ome-model/5.6.4/ome-tiff/
-6.  UltraQuant(r) Version 6.0 for Windows Start-Up Guide.
-    http://www.ultralum.com/images%20ultralum/pdf/UQStart%20Up%20Guide.pdf
-7.  Micro-Manager File Formats.
-    https://micro-manager.org/wiki/Micro-Manager_File_Formats
-8.  Tags for TIFF and Related Specifications. Digital Preservation.
-    https://www.loc.gov/preservation/digital/formats/content/tiff_tags.shtml
-9.  ScanImage BigTiff Specification - ScanImage 2016.
-    http://scanimage.vidriotechnologies.com/display/SI2016/
-    ScanImage+BigTiff+Specification
-10. CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
-    Exif Version 2.31.
-    http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
-11. ZIF, the Zoomable Image File format. http://zif.photo/
-12. GeoTIFF File Format https://gdal.org/drivers/raster/gtiff.html
+* TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
+  https://www.adobe.io/open/standards/TIFF.html
+* TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
+* The BigTIFF File Format.
+  https://www.awaresystems.be/imaging/tiff/bigtiff.html
+* MetaMorph Stack (STK) Image File Format.
+  http://mdc.custhelp.com/app/answers/detail/a_id/18862
+* Image File Format Description LSM 5/7 Release 6.0 (ZEN 2010).
+  Carl Zeiss MicroImaging GmbH. BioSciences. May 10, 2011
+* The OME-TIFF format.
+  https://docs.openmicroscopy.org/ome-model/latest/
+* UltraQuant(r) Version 6.0 for Windows Start-Up Guide.
+  http://www.ultralum.com/images%20ultralum/pdf/UQStart%20Up%20Guide.pdf
+* Micro-Manager File Formats.
+  https://micro-manager.org/wiki/Micro-Manager_File_Formats
+* ScanImage BigTiff Specification - ScanImage 2016.
+  http://scanimage.vidriotechnologies.com/display/SI2016/
+  ScanImage+BigTiff+Specification
+* ZIF, the Zoomable Image File format. http://zif.photo/
+* GeoTIFF File Format https://gdal.org/drivers/raster/gtiff.html
+* Cloud optimized GeoTIFF.
+  https://github.com/cogeotiff/cog-spec/blob/master/spec.md
+* Tags for TIFF and Related Specifications. Digital Preservation.
+  https://www.loc.gov/preservation/digital/formats/content/tiff_tags.shtml
+* CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
+  Exif Version 2.31.
+  http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 
 Examples
 --------
@@ -472,19 +489,21 @@ Iterate over pages and tags in the TIFF file and successively read images:
 ...             tag_name, tag_value = tag.name, tag.value
 ...         image = page.asarray()
 
-Save two image series to a TIFF file:
+Write two numpy arrays to a multi-series OME-TIFF file:
 
->>> data0 = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
->>> data1 = numpy.random.randint(0, 255, (5, 301, 219), 'uint16')
->>> with TiffWriter('temp.tif') as tif:
+>>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
+>>> data1 = numpy.random.randint(0, 1023, (5, 256, 256), 'uint16')
+>>> with TiffWriter('temp.ome.tif', ome=True) as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
-...     tif.save(data1, compress=6, photometric='minisblack', contiguous=False)
+...     tif.save(data1, photometric='minisblack', contiguous=False,
+...              metadata=dict(axes='ZYX', SignificantBits=10,
+...                            PositionZ=[0.0, 1.0, 2.0, 3.0, 4.0]))
 
-Read the second image series from the TIFF file:
+Read the second image series from the OME-TIFF file:
 
->>> series1 = imread('temp.tif', series=1)
+>>> series1 = imread('temp.ome.tif', series=1)
 >>> series1.shape
-(5, 301, 219)
+(5, 256, 256)
 
 Read an image stack from a series of TIFF files with a file name pattern:
 
@@ -541,7 +560,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
 """
 
-__version__ = '2020.7.4'
+__version__ = '2020.7.17'
 
 __all__ = (
     'imwrite',
@@ -558,6 +577,7 @@ __all__ = (
     'TiffFrame',
     'TiffTag',
     'TIFF',
+    'OmeXmlError',
     # utility classes and functions used by oiffile, czifile, etc
     'FileHandle',
     'FileSequence',
@@ -693,6 +713,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     ----------
     file : str, path-like, or binary stream
         File name or writable binary stream, such as an open file or BytesIO.
+        If '.ome.tif' in file, write an OME-TIFF compatible file.
     data : array-like
         Input image. The last dimensions are assumed to be image depth,
         height, width, and samples.
@@ -705,8 +726,9 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     dtype : numpy.dtype
         If 'data' is None, datatype of an empty array to save to the file.
     kwargs : dict
-        Parameters 'append', 'byteorder', 'bigtiff', and 'imagej', are passed
-        to TiffWriter(). Other parameters are passed to TiffWriter.save().
+        Parameters 'append', 'byteorder', 'bigtiff', 'imagej', and 'ome',
+        are passed to TiffWriter().
+        Other parameters are passed to TiffWriter.save().
 
     Returns
     -------
@@ -715,7 +737,9 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
         of image data in the file.
 
     """
-    tifargs = parse_kwargs(kwargs, 'append', 'bigtiff', 'byteorder', 'imagej')
+    tifargs = parse_kwargs(
+        kwargs, 'append', 'bigtiff', 'byteorder', 'imagej', 'ome'
+    )
     if data is None:
         dtype = numpy.dtype(dtype)
         size = product(shape) * dtype.itemsize
@@ -738,6 +762,11 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
         tifargs['bigtiff'] = True
     if 'byteorder' not in tifargs:
         tifargs['byteorder'] = byteorder
+    if 'ome' not in tifargs:
+        try:
+            tifargs['ome'] = '.ome.tif' in str(file)
+        except Exception:
+            pass
 
     with TiffWriter(file, **tifargs) as tif:
         return tif.save(data, shape, dtype, **kwargs)
@@ -857,7 +886,7 @@ class TiffWriter:
     """
 
     def __init__(self, file, bigtiff=False, byteorder=None, append=False,
-                 imagej=False):
+                 imagej=False, ome=False):
         """Open a TIFF file for writing.
 
         An empty TIFF file is created if the file does not exist, else the
@@ -880,7 +909,7 @@ class TiffWriter:
             Appending data may corrupt specifically formatted TIFF files
             such as LSM, STK, ImageJ, or FluoView.
         imagej : bool
-            If True, write an ImageJ hyperstack compatible file.
+            If True and not 'ome', write an ImageJ hyperstack compatible file.
             This format can handle data types uint8, uint16, or float32 and
             data shapes up to 6 dimensions in TZCYXS order.
             RGB images (S=3 or S=4) must be uint8.
@@ -889,6 +918,9 @@ class TiffWriter:
             ImageJ hyperstacks do not support BigTIFF or compression.
             The ImageJ file format is undocumented.
             When using compression, use ImageJ's Bio-Formats import function.
+        ome : bool
+            If True, write an OME-TIFF compatible file. Refer to the OME model
+            for restrictions of this format.
 
         """
         if append:
@@ -917,7 +949,6 @@ class TiffWriter:
             warnings.warn('writing nonconformant BigTIFF ImageJ', UserWarning)
 
         self._byteorder = byteorder
-        self._imagej = bool(imagej)
         self._truncate = False
         self._metadata = None
         self._colormap = None
@@ -962,13 +993,18 @@ class TiffWriter:
             self._ifdoffset = self._fh.tell()
             self._fh.write(struct.pack(byteorder + self._offsetformat, 0))
 
-    def save(self, data=None, shape=None, dtype=None, returnoffset=False,
+        # if ome is None:
+        #     ome = '.ome.tif' in self._fh.name
+        self._ome = bool(ome)
+        self._imagej = False if self._ome else bool(imagej)
+
+    def save(self, data=None, shape=None, dtype=None,
              photometric=None, planarconfig=None, extrasamples=None, tile=None,
-             contiguous=True, align=16, truncate=False, rowsperstrip=None,
-             bitspersample=None, compress=None, predictor=False,
+             contiguous=True, align=None, truncate=False, rowsperstrip=None,
+             bitspersample=None, compress=None, predictor=None,
              subsampling=None, colormap=None, description=None, datetime=None,
-             resolution=None, subfiletype=0, software='tifffile.py',
-             metadata={}, ijmetadata=None, extratags=()):
+             resolution=None, subfiletype=0, software=None,
+             metadata={}, ijmetadata=None, extratags=(), returnoffset=False):
         """Write numpy array and tags to TIFF file.
 
         The data shape's last dimensions are assumed to be image depth,
@@ -990,7 +1026,7 @@ class TiffWriter:
         Parameters
         ----------
         data : numpy.ndarray, sequence of numpy.ndarray, or None
-            Input image or tiles.
+            Input image or sequence of tiles.
             Tiles must match the shape specified in 'tile'.
         shape : tuple or None
             Shape of the empty or tiled array to save.
@@ -998,9 +1034,6 @@ class TiffWriter:
         dtype : numpy.dtype or None
             Datatype of the empty or tiled array to save.
             Used only if 'data' is None or a sequence of tiles.
-        returnoffset : bool
-            If True and the image data in the file is memory-mappable, return
-            the offset and number of bytes of the image data in the file.
         photometric : {'MINISBLACK', 'MINISWHITE', 'RGB', 'PALETTE', 'CFA'}
             The color space of the image data according to TIFF.PHOTOMETRIC.
             By default, this setting is inferred from the data shape and the
@@ -1066,7 +1099,7 @@ class TiffWriter:
             For example, JPEG requires grayscale or RGB(A), uint8 or 12-bit
             uint16. JPEG compression is experimental. JPEG markers and TIFF
             tags may not match.
-        predictor : bool
+        predictor : bool or TIFF.PREDICTOR
             If True, apply horizontal differencing or floating-point predictor
             before compression. Predictors are disabled for 64-bit integers.
         subsampling : {(1, 1), (2, 1), (2, 2), (4, 1)}
@@ -1080,9 +1113,9 @@ class TiffWriter:
         colormap : numpy.ndarray
             RGB color values for the corresponding data value.
             Must be of shape (3, 2**(data.itemsize*8)) and dtype uint16.
-        description : str
+        description : str or encoded bytes
             The subject of the image. Must be 7-bit ASCII. Cannot be used with
-            the ImageJ format.
+            the ImageJ or OME formats.
             Saved with the first page of a contiguous series only.
         datetime : datetime, str, or bool
             Date and time of image creation in '%Y:%m:%d %H:%M:%S' format or
@@ -1100,17 +1133,20 @@ class TiffWriter:
             is transparency mask for another image (photometric must be
             MASK, SamplesPerPixel and BitsPerSample must be 1).
         software : str
-            Name of the software used to create the file. Must be 7-bit ASCII.
+            Name of the software used to create the file.
+            Default 'tifffile.py'. Must be 7-bit ASCII.
             Saved with the first page of a contiguous series only.
         metadata : dict
-            Additional metadata to be saved along with shape information
-            in JSON or ImageJ formats in ImageDescription or IJMetadata tags.
+            Additional metadata describing the image data. Will be saved along
+            with shape information in JSON, OME-XML, or ImageJ formats in
+            ImageDescription or IJMetadata tags.
             If None, do not write a ImageDescription tag with shape in JSON
             format.
             If ImageJ format, values for keys 'Info', 'Labels', 'Ranges',
             'LUTs', 'Plot', 'ROI', and 'Overlays' are saved in IJMetadata and
             IJMetadataByteCounts tags. Refer to the imagej_metadata_tag
             function for valid values.
+            Refer to the OmeXml class for supported keys when writing OME-TIFF.
             Strings must be 7-bit ASCII.
             Saved with the first page of a contiguous series only.
         extratags : sequence of tuples
@@ -1129,6 +1165,10 @@ class TiffWriter:
             writeonce : bool
                 If True, the tag is written to the first page of a contiguous
                 series only.
+
+        returnoffset : bool
+            If True and the image data in the file is memory-mappable, return
+            the offset and number of bytes of the image data in the file.
 
         """
         # TODO: refactor this function
@@ -1183,7 +1223,7 @@ class TiffWriter:
         input_shape = datashape
 
         # just append contiguous data if possible
-        if self._datashape:
+        if self._datashape is not None:
             if (
                 not contiguous
                 or self._datashape[1:] != datashape
@@ -1194,14 +1234,23 @@ class TiffWriter:
             ):
                 # incompatible shape, dtype, compression mode, or colormap
                 self._write_remaining_pages()
-                self._write_image_description()
-                self._descriptionoffset = 0
-                self._descriptionlenoffset = 0
+                if self._ome:
+                    self._ome.addimage(
+                        self._datadtype,
+                        self._datashape[0 if self._datashape[0] != 1 else 1:],
+                        self._shape,
+                        **self._metadata
+                    )
+                else:
+                    self._write_image_description()
+                    self._descriptionoffset = 0
+                    self._descriptionlenoffset = 0
                 self._datashape = None
                 self._colormap = None
                 if self._imagej:
                     raise ValueError(
-                        'ImageJ does not support non-contiguous data')
+                        'ImageJ does not support non-contiguous data'
+                    )
             else:
                 # consecutive mode
                 self._datashape = (self._datashape[0] + 1,) + datashape
@@ -1216,7 +1265,7 @@ class TiffWriter:
                         return offset, datasize
                     return None
 
-        self._truncate = bool(truncate)
+        self._truncate = False if self._ome else bool(truncate)
 
         if datasize == 0:
             # write single placeholder TiffPage for arrays with size=0
@@ -1246,6 +1295,9 @@ class TiffWriter:
             photometric = enumarg(TIFF.PHOTOMETRIC, photometric)
         if planarconfig:
             planarconfig = enumarg(TIFF.PLANARCONFIG, planarconfig)
+        if predictor:
+            if not isinstance(predictor, bool):
+                predictor = bool(enumarg(TIFF.PREDICTOR, predictor))
         if extrasamples is None:
             extrasamples_ = None
         else:
@@ -1285,8 +1337,17 @@ class TiffWriter:
             else:
                 raise ValueError(f'cannot apply predictor to {datadtype}')
 
-        # prepare ImageJ format
-        if self._imagej:
+        if self._ome:
+            if description:
+                warnings.warn(
+                    'not writing description to OME-TIFF', UserWarning
+                )
+                description = None
+            if not isinstance(self._ome, OmeXml):
+                self._ome = OmeXml(**metadata)
+            volume = False
+
+        elif self._imagej:
             # if predictor or compress:
             #     warnings.warn(
             #         'ImageJ cannot handle predictors or compression')
@@ -1341,7 +1402,7 @@ class TiffWriter:
             volume = False
 
         # normalize data shape to 5D or 6D, depending on volume:
-        #   (pages, planar_samples, [depth,] height, width, contig_samples)
+        #   (pages, separate_samples, [depth,] height, width, contig_samples)
         datashape = reshape_nd(datashape, 3 if photometric == RGB else 2)
         shape = datashape
         ndim = len(datashape)
@@ -1367,7 +1428,7 @@ class TiffWriter:
                     photometric = RGB
             elif ndim > 2 and shape[-1] in (3, 4):
                 photometric = RGB
-            elif self._imagej:
+            elif self._imagej or self._ome:
                 photometric = MINISBLACK
             elif volume and ndim > 3 and shape[-4] in (3, 4):
                 photometric = RGB
@@ -1606,7 +1667,12 @@ class TiffWriter:
 
         # write shape and metadata to ImageDescription
         self._metadata = {} if not metadata else metadata.copy()
-        if self._imagej:
+        if self._ome:
+            if len(self._ome.images) == 0:
+                description = '\0\0\0\0'  # will be written at end of file
+            else:
+                description = None
+        elif self._imagej:
             if ijmetadata is None:
                 ijmetadata = parse_kwargs(
                     self._metadata,
@@ -1638,13 +1704,16 @@ class TiffWriter:
         else:
             description = None
         if description:
-            # add 64 bytes buffer
-            # the image description might be updated later with the final shape
             description = description.encode('ascii')
-            description += b'\0' * 64
+            if not self._ome:
+                # add 64 bytes buffer
+                # the description might be updated later with the final shape
+                description += b'\0' * 64
             self._descriptionlen = len(description)
             addtag(270, 's', 0, description, writeonce=True)
 
+        if software is None:
+            software = 'tifffile.py'
         if software:
             addtag(305, 's', 0, software, writeonce=True)
         if datetime:
@@ -1945,6 +2014,8 @@ class TiffWriter:
 
             # write image data
             dataoffset = fh.tell()
+            if align is None:
+                align = 16
             skip = (align - (dataoffset % align)) % align
             fh.seek(skip, 1)
             dataoffset += skip
@@ -2046,13 +2117,12 @@ class TiffWriter:
 
     def _write_remaining_pages(self):
         """Write outstanding IFDs and tags to file."""
-        if not self._tags or self._truncate:
+        if not self._tags or self._truncate or self._datashape is None:
             return
 
         pageno = self._shape[0] * self._datashape[0] - 1
         if pageno < 1:
             self._tags = None
-            self._datadtype = None
             self._dataoffset = None
             self._databytecounts = None
             return
@@ -2159,37 +2229,52 @@ class TiffWriter:
 
         self._ifdoffset = fhpos + ifdoffset
         self._tags = None
-        self._datadtype = None
         self._dataoffset = None
         self._databytecounts = None
-        # do not reset _shape or _datashape
+        # do not reset _shape, _datashape, _datadtype
 
     def _write_image_description(self):
         """Write metadata to ImageDescription tag."""
-        if (
-            not self._datashape
-            or self._datashape[0] == 1
-            or self._descriptionoffset <= 0
-        ):
+        if self._datashape is None or self._descriptionoffset <= 0:
             return
-
-        colormapped = self._colormap is not None
-        if self._imagej:
+        if self._ome:
+            self._ome.addimage(
+                self._datadtype,
+                self._datashape[0 if self._datashape[0] != 1 else 1:],
+                self._shape,
+                **self._metadata
+            )
+            description = self._ome.tostring(declaration=True)
+        elif self._datashape[0] == 1:
+            return
+        elif self._imagej:
+            colormapped = self._colormap is not None
             isrgb = self._shape[-1] in (3, 4)
             description = imagej_description(
                 self._datashape, isrgb, colormapped, **self._metadata)
         else:
             description = json_description(self._datashape, **self._metadata)
 
-        # rewrite description and its length to file
+        # (re)write description, its position, and length to file
         description = description.encode()
-        description = description[:self._descriptionlen]
         pos = self._fh.tell()
+        if self._ome:
+            self._descriptionoffset = pos
+            self._descriptionlen = len(description)
+            pos += self._descriptionlen
+        else:
+            description = description[:self._descriptionlen]
+
         self._fh.seek(self._descriptionoffset)
         self._fh.write(description)
         self._fh.seek(self._descriptionlenoffset)
-        self._fh.write(struct.pack(self._byteorder + self._offsetformat,
-                                   len(description)))
+        self._fh.write(
+            struct.pack(
+                self._byteorder + self._offsetformat + self._offsetformat,
+                self._descriptionlen,
+                self._descriptionoffset
+            )
+        )
         self._fh.seek(pos)
 
         self._descriptionoffset = 0
@@ -3138,6 +3223,7 @@ class TiffFile:
         root_uuid = root.attrib.get('UUID', None)
         self._files = {root_uuid: self}
         dirname = self._fh.dirname
+        moduloref = []
         modulo = {}
         series = []
         for element in root:
@@ -3150,6 +3236,7 @@ class TiffFile:
                     if not annot.attrib.get('Namespace',
                                             '').endswith('modulo'):
                         continue
+                    modulo[annot.attrib['ID']] = mod = {}
                     for value in annot:
                         for modul in value:
                             for along in modul:
@@ -3169,10 +3256,17 @@ class TiffFile:
                                         for label in along
                                         if label.tag.endswith('Label')
                                     ]
-                                modulo[axis] = (newaxis, labels)
+                                mod[axis] = (newaxis, labels)
 
             if not element.tag.endswith('Image'):
                 continue
+
+            for annot in element:
+                if annot.tag.endswith('AnnotationRef'):
+                    annotationref = annot.attrib['ID']
+                    break
+            else:
+                annotationref = None
 
             attr = element.attrib
             name = attr.get('Name', None)
@@ -3183,7 +3277,7 @@ class TiffFile:
                 attr = pixels.attrib
                 # dtype = attr.get('PixelType', None)
                 axes = ''.join(reversed(attr['DimensionOrder']))
-                shape = idxshape = [int(attr['Size' + ax]) for ax in axes]
+                shape = [int(attr['Size' + ax]) for ax in axes]
                 size = product(shape[:-2])
                 ifds = None
                 spp = 1  # samples per pixel
@@ -3195,9 +3289,10 @@ class TiffFile:
                             ifds = [None] * (size // spp)
                             if spp > 1:
                                 # correct channel dimension for spp
-                                idxshape = [
+                                shape = [
                                     shape[i] // spp if ax == 'C' else shape[i]
-                                    for i, ax in enumerate(axes)]
+                                    for i, ax in enumerate(axes)
+                                ]
                         elif int(attr.get('SamplesPerPixel', 1)) != spp:
                             raise ValueError('OME series: cannot handle '
                                              'differing SamplesPerPixel')
@@ -3212,7 +3307,7 @@ class TiffFile:
                     num = int(attr.get('PlaneCount', num))
                     idx = [int(attr.get('First' + ax, 0)) for ax in axes[:-2]]
                     try:
-                        idx = numpy.ravel_multi_index(idx, idxshape[:-2])
+                        idx = numpy.ravel_multi_index(idx, shape[:-2])
                     except ValueError:
                         # ImageJ produces invalid ome-xml when cropping
                         log_warning('OME series: invalid TiffData index')
@@ -3283,13 +3378,13 @@ class TiffFile:
                             ifds[i] = keyframe
                             break
 
-                # move channel axis to match PlanarConfiguration storage
-                # TODO: is this a bug or a inconsistency in the OME spec?
                 if spp > 1:
-                    if keyframe.planarconfig == 1 and axes[-1] != 'C':
-                        i = axes.index('C')
-                        axes = axes[:i] + axes[i + 1:] + axes[i: i + 1]
-                        shape = shape[:i] + shape[i + 1:] + shape[i: i + 1]
+                    if keyframe.planarconfig == 1:
+                        shape += [spp]
+                        axes += 'S'
+                    else:
+                        shape = shape[:-2] + [spp] + shape[-2:]
+                        axes = axes[:-2] + 'S' + axes[-2:]
 
                 # FIXME: this implementation assumes the last dimensions are
                 # stored in TIFF pages. Apparently that is not always the case.
@@ -3312,15 +3407,18 @@ class TiffFile:
                         except RuntimeError as exc:
                             log_warning(f'OME series: {exc}')
 
+                moduloref.append(annotationref)
                 series.append(
                     TiffPageSeries(ifds, shape, keyframe.dtype, axes,
                                    parent=self, name=name, kind='OME')
                 )
                 del ifds
 
-        for serie in series:
+        for serie, annotationref in zip(series, moduloref):
+            if annotationref not in modulo:
+                continue
             shape = list(serie.shape)
-            for axis, (newaxis, labels) in modulo.items():
+            for axis, (newaxis, labels) in modulo[annotationref].items():
                 i = serie.axes.index(axis)
                 size = len(labels)
                 if shape[i] == size:
@@ -6178,7 +6276,7 @@ class TiffTag:
             #   each terminated with a NUL
             value = value[0]
             try:
-                value = bytes2str(stripascii(value).strip())
+                value = bytes2str(stripnull(value, first=False).strip())
             except UnicodeDecodeError:
                 log_warning(
                     f'TiffTag {code}: coercing invalid ASCII to bytes'
@@ -7319,6 +7417,430 @@ class Timer:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.print()
+
+
+class OmeXmlError(Exception):
+    """Exception to indicate invalid OME-XML or unsupported cases."""
+
+
+class OmeXml:
+    """OME-TIFF XML."""
+
+    def __init__(self, **metadata):
+        """Create a new instance.
+
+        creator : str (optional)
+            Name of the creating application. Default 'tifffile.py'.
+        uuid : str (optional)
+            Unique identifier.
+
+        """
+        from uuid import uuid1  # noqa: delayed import
+
+        self.ifd = 0
+        self.images = []
+        self.annotations = []
+        self.elements = []
+        self.uuid = metadata.get('uuid', uuid1())
+        creator = OmeXml._attribute(
+            metadata, 'Creator', default=f'tifffile.py {__version__}'
+        )
+        schema = 'http://www.openmicroscopy.org/Schemas/OME/2016-06'
+        self.xml = (
+            '{declaration}'
+            f'<OME xmlns="{schema}" '
+            f'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            f'xsi:schemaLocation="{schema} {schema}/ome.xsd" '
+            f'UUID="urn:uuid:{self.uuid}" '
+            f'{creator}>'
+            '{images}'
+            '{annotations}'
+            '{elements}'
+            f'</OME>'
+        )
+
+    def addimage(self, dtype, shape, storedshape, axes=None, **metadata):
+        """Add image to OME-XML.
+
+        The OME model can handle up to 9 dimensional images for selected
+        axes orders. Refer to the OME-XML specification for details.
+        Non-TZCYXS (modulo) dimensions must be after a TZC dimension or
+        require an unused TZC dimension.
+
+        dtype : numpy.dtype
+            Data type of image array.
+        shape : tuple
+            Shape of image array.
+        storedshape: tuple
+            Normalized shape describing how the image array is stored in TIFF:
+            (pages, separate_samples, depth, height, width, contig_samples).
+        axes : str (optional)
+            Axes labels for each dimension in shape.
+            By default axes will be matched to the shape in reverse order of
+            TZC(S)YX(S) based on storedshape.
+            The following axes codes are supported: 'S' sample, 'X' width,
+            'Y' height, 'C' channel, 'Z' depth, 'T' time, 'A' angle, 'P' phase,
+            'R' tile, 'H' lifetime, 'E' lambda, 'Q' other.
+        metadata : misc (optional)
+            Additional OME-XML Image attributes or elements to be stored:
+            Name, AcquisitionDate, Description, SignificantBits,
+            PhysicalSizeX, PhysicalSizeXUnit, PhysicalSizeY, PhysicalSizeYUnit,
+            PhysicalSizeZ, PhysicalSizeZUnit, TimeIncrement, TimeIncrementUnit.
+
+        """
+        index = len(self.images)
+
+        try:
+            dtype = numpy.dtype(dtype).name
+            dtype = {
+                'int8': 'int8',
+                'int16': 'int16',
+                'int32': 'int32',
+                'uint8': 'uint8',
+                'uint16': 'uint16',
+                'uint32': 'uint32',
+                'float32': 'float',
+                'float64': 'double',
+                'complex64': 'complex',
+                'complex128': 'double-complex',
+                'bool': 'bit',
+            }[dtype]
+        except KeyError:
+            raise OmeXmlError(f'data type {dtype!r} not supported')
+
+        samples = 1
+        planecount, separate, depth, height, width, contig = storedshape
+        if depth != 1:
+            raise OmeXmlError('ImageDepth not supported')
+        if not (separate == 1 or contig == 1):
+            raise ValueError('invalid stored shape')
+
+        shape = tuple(int(i) for i in shape)
+        ndim = len(shape)
+        if ndim < 1 or product(shape) <= 0:
+            raise OmeXmlError('empty arrays not supported')
+
+        if axes is None:
+            # get axes from shape and stored shape
+            if contig != 1 or shape[-3:] == (height, width, 1):
+                axes = 'YXS'
+                samples = contig
+            elif separate != 1 or (ndim == 6 and
+                                   shape[-3:] == (1, height, width)):
+                axes = 'SYX'
+                samples = separate
+            else:
+                axes = 'YX'
+            if not len(axes) <= ndim <= (6 if 'S' in axes else 5):
+                raise OmeXmlError(f'{ndim} dimensions not supported')
+            axes = 'TZC'[(6 if 'S' in axes else 5) - ndim:] + axes
+
+            assert len(axes) == len(shape)
+
+        else:
+            # validate axes against shape and stored shape
+            axes = axes.upper()
+            if len(axes) != len(shape):
+                raise ValueError('axes do not match shape')
+            if not (axes.endswith('YX') or axes.endswith('YXS')):
+                raise OmeXmlError('dimensions must end with YX or YXS')
+            unique = []
+            for ax in axes:
+                if ax not in 'TZCYXSAPRHEQ':
+                    raise OmeXmlError(f'dimension {ax!r} not supported')
+                if ax in unique:
+                    raise OmeXmlError(f'multiple {ax!r} dimensions')
+                unique.append(ax)
+            if ndim > (9 if 'S' in axes else 8):
+                raise OmeXmlError('more than 8 dimensions not supported')
+            if contig != 1:
+                samples = contig
+                if ndim < 3:
+                    raise ValueError('dimensions do not match stored shape')
+                if axes[-1] != 'S':
+                    raise ValueError('axes do not match stored shape')
+                if shape[-1] != contig or shape[-2] != width:
+                    raise ValueError('shape does not match stored shape')
+            elif separate != 1:
+                samples = separate
+                if ndim < 3:
+                    raise ValueError('dimensions do not match stored shape')
+                if axes[-3] != 'S':
+                    raise ValueError('axes do not match stored shape')
+                if shape[-3] != separate or shape[-1] != height:
+                    raise ValueError('shape does not match stored shape')
+
+        if (
+            shape[axes.index('X')] != width or
+            shape[axes.index('Y')] != height
+        ):
+            raise ValueError('shape does not match stored shape')
+
+        if 'S' in axes:
+            hiaxes = axes[:min(axes.index('S'), axes.index('Y'))]
+        else:
+            hiaxes = axes[:axes.index('Y')]
+
+        if any(ax in 'APRHEQ' for ax in hiaxes):
+            # modulo axes
+            modulo = {}
+            dimorder = []
+            axestype = {
+                'A': 'angle',
+                'P': 'phase',
+                'R': 'tile',
+                'H': 'lifetime',
+                'E': 'lambda',
+                'Q': 'other',
+            }
+            for i, ax in enumerate(hiaxes):
+                if ax in 'APRHEQ':
+                    x = hiaxes[i-1:i]
+                    if x and x in 'TZC':
+                        # use previous axis
+                        modulo[x] = axestype[ax], shape[i]
+                    else:
+                        # use next unused axis
+                        for x in 'TZC':
+                            if x not in dimorder and x not in modulo:
+                                modulo[x] = axestype[ax], shape[i]
+                                dimorder.append(x)
+                                break
+                        else:
+                            # TODO: support any order of axes, e.g. APRTZC
+                            raise OmeXmlError('more than 3 modulo dimensions')
+                else:
+                    dimorder.append(ax)
+            hiaxes = ''.join(dimorder)
+
+            # TODO: use user-specified start, stop, step, or labels
+            moduloalong = ''.join(
+                f'<ModuloAlong{ax} Type="{axtype}" Start="0" End="{size-1}"/>'
+                for ax, (axtype, size) in modulo.items()
+            )
+            annotationref = f'<AnnotationRef ID="Annotation:{index}"/>'
+            annotations = (
+                f'<XMLAnnotation ID="Annotation:{index}" '
+                'Namespace="openmicroscopy.org/omero/dimension/modulo">'
+                '<Value>'
+                '<Modulo namespace='
+                '"http://www.openmicroscopy.org/Schemas/Additions/2011-09">'
+                f'{moduloalong}'
+                '</Modulo>'
+                '</Value>'
+                '</XMLAnnotation>'
+            )
+            self.annotations.append(annotations)
+        else:
+            modulo = {}
+            annotationref = ''
+
+        hiaxes = hiaxes[::-1]
+        for dimorder in ('XYCZT', 'XYZCT', 'XYZTC', 'XYCTZ', 'XYTCZ', 'XYTZC'):
+            if hiaxes in dimorder:
+                break
+        else:
+            raise OmeXmlError(f'dimension order {axes!r} not supported')
+
+        dimsizes = []
+        for ax in dimorder:
+            if ax == 'S':
+                continue
+            if ax in axes:
+                size = shape[axes.index(ax)]
+            else:
+                size = 1
+            if ax == 'C':
+                sizec = size
+                size *= samples
+            if ax in modulo:
+                size *= modulo[ax][1]
+            dimsizes.append(size)
+        sizes = ''.join(
+            f' Size{ax}="{size}"' for ax, size in zip(dimorder, dimsizes)
+        )
+        dimsizes[dimorder.index('C')] //= samples
+        if planecount != product(dimsizes[2:]):
+            raise ValueError('shape does not match stored shape')
+
+        planes = []
+        planeattributes = metadata.get('Plane', '')
+        if planeattributes:
+            cztorder = tuple(dimorder[2:].index(ax) for ax in 'CZT')
+            for p in range(planecount):
+                attributes = OmeXml._attributes(
+                    planeattributes,
+                    p,
+                    'DeltaTUnit',
+                    'ExposureTime',
+                    'ExposureTimeUnit',
+                    'PositionX',
+                    'PositionXUnit',
+                    'PositionY',
+                    'PositionYUnit',
+                    'PositionZ',
+                    'PositionZUnit'
+                )
+                unraveled = numpy.unravel_index(p, dimsizes[2:], order='F')
+                c, z, t = (unraveled[i] for i in cztorder)
+                planes.append(
+                    f'<Plane TheC="{c}" TheZ="{z}" TheT="{t}"{attributes}/>'
+                )
+        planes = ''.join(planes)
+
+        channels = []
+        for c in range(sizec):
+            attributes = OmeXml._attributes(
+                metadata.get('Channel', ''),
+                c,
+                'Name',
+                'AcquisitionMode',
+                'Color',
+                'ContrastMethod',
+                'EmissionWavelength',
+                'EmissionWavelengthUnit',
+                'ExcitationWavelength',
+                'ExcitationWavelengthUnit',
+                'Fluor',
+                'IlluminationType',
+                'NDFilter',
+                'PinholeSize',
+                'PinholeSizeUnit',
+                'PockelCellSetting',
+                'SamplesPerPixel'
+            )
+            channels.append(
+                f'<Channel ID="Channel:{index}:{c}" '
+                f'SamplesPerPixel="{samples}"'
+                f'{attributes}>'
+                '<LightPath/>'  # TODO: support LightPath attributes
+                '</Channel>'
+            )
+        channels = ''.join(channels)
+
+        # TODO: support more Image elements
+        elements = OmeXml._elements(metadata, 'AcquisitionDate', 'Description')
+
+        name = OmeXml._attribute(metadata, 'Name', default=f'Image{index}')
+        attributes = OmeXml._attributes(
+            metadata,
+            None,
+            'SignificantBits',
+            'PhysicalSizeX',
+            'PhysicalSizeXUnit',
+            'PhysicalSizeY',
+            'PhysicalSizeYUnit',
+            'PhysicalSizeZ',
+            'PhysicalSizeZUnit',
+            'TimeIncrement',
+            'TimeIncrementUnit',
+        )
+        if separate > 1 or contig > 1:
+            interleaved = 'false' if separate > 1 else 'true'
+            interleaved = f' Interleaved="{interleaved}"'
+        else:
+            interleaved = ''
+
+        self.images.append(
+            f'<Image ID="Image:{index}"{name}>'
+            f'{elements}'
+            f'<Pixels ID="Pixels:{index}" '
+            f'DimensionOrder="{dimorder}" '
+            f'Type="{dtype}"'
+            f'{sizes}'
+            f'{interleaved}'
+            f'{attributes}>'
+            f'{channels}'
+            f'<TiffData IFD="{self.ifd}" PlaneCount="{planecount}"/>'
+            f'{planes}'
+            f'</Pixels>'
+            f'{annotationref}'
+            f'</Image>'
+        )
+        self.ifd += planecount
+
+    def tostring(self, declaration=False):
+        """Return OME-XML string."""
+        # TODO: support other top-level elements
+        elements = ''.join(self.elements)
+        images = ''.join(self.images)
+        annotations = ''.join(self.annotations)
+        if annotations:
+            annotations = (
+                f'<StructuredAnnotations>{annotations}</StructuredAnnotations>'
+            )
+        if declaration:
+            declaration = '<?xml version="1.0" encoding="UTF-8"?>'
+        else:
+            declaration = ''
+        xml = self.xml.format(
+            declaration=declaration, images=images, annotations=annotations,
+            elements=elements
+        )
+        return xml
+
+    def __str__(self):
+        """Return OME-XML string."""
+        xml = self.tostring()
+        try:
+            from lxml import etree  # noqa: delayed import
+            parser = etree.XMLParser(remove_blank_text=True)
+            xml = etree.fromstring(xml, parser)
+            xml = etree.tostring(xml, encoding='utf-8', pretty_print=True,
+                                 xml_declaration=True)
+            return xml.decode()
+        except Exception:
+            return xml
+
+    @staticmethod
+    def _element(metadata, name, default=None):
+        """Return XML formatted element if name in metadata."""
+        value = metadata.get(name, metadata.get(name.lower(), default))
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.replace('&', '&amp;')
+            value = value.replace('>', '&gt;')
+            value = value.replace('<', '&lt;')
+        return f'<{name}>{value}</{name}>'
+
+    @staticmethod
+    def _elements(metadata, *names):
+        """ """
+        if not metadata:
+            return ''
+        elements = (OmeXml._element(metadata, name) for name in names)
+        return ''.join(e for e in elements if e)
+
+    @staticmethod
+    def _attribute(metadata, name, index=None, default=None):
+        """Return XML formatted attribute if name in metadata."""
+        value = metadata.get(name, metadata.get(name.lower(), default))
+        if value is None:
+            return None
+        if index is not None:
+            value = value[index]
+        if isinstance(value, str):
+            value = value.replace('&', '&amp;')
+            value = value.replace('>', '&gt;')
+            value = value.replace('<', '&lt;')
+        return f' {name}="{value}"'
+
+    @staticmethod
+    def _attributes(metadata, index_, *names):
+        """ """
+        if not metadata:
+            return ''
+        if index_ is None:
+            attributes = (OmeXml._attribute(metadata, name) for name in names)
+        elif isinstance(metadata, (list, tuple)):
+            metadata = metadata[index_]
+            attributes = (OmeXml._attribute(metadata, name) for name in names)
+        elif isinstance(metadata, dict):
+            attributes = (
+                OmeXml._attribute(metadata, name, index_) for name in names
+            )
+        return ''.join(a for a in attributes if a)
 
 
 class LazyConst:
@@ -9877,7 +10399,7 @@ def read_tags(fh, byteorder, offsetsize, tagnames, customtags=None,
                 # TIFF ASCII fields can contain multiple strings,
                 #   each terminated with a NUL
                 try:
-                    value = bytes2str(stripascii(value).strip())
+                    value = bytes2str(stripnull(value, first=False).strip())
                 except UnicodeDecodeError:
                     log_warning(
                         'read_tags: coercing invalid ASCII to bytes '
@@ -11255,6 +11777,7 @@ def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
     """Return array from bytes containing packed samples.
 
     Use to unpack RGB565 or RGB555 to RGB888 format.
+    Works on little-endian platforms only.
 
     Parameters
     ----------
@@ -12168,19 +12691,31 @@ def matlabstr2py(string):
     return parse(string)
 
 
-def stripnull(string, null=b'\x00'):
+def stripnull(string, null=b'\x00', first=True):
     """Return string truncated at first null character.
 
     Clean NULL terminated C strings. For unicode strings use null='\\0'.
 
-    >>> stripnull(b'string\\x00')
+    >>> stripnull(b'string\\x00\\x00')
     b'string'
+    >>> stripnull(b'string\\x00string\\x00\\x00', first=False)
+    b'string\\x00string'
     >>> stripnull('string\\x00', null='\\0')
     'string'
 
     """
-    i = string.find(null)
-    return string if (i < 0) else string[:i]
+    if first:
+        i = string.find(null)
+        return string if i < 0 else string[:i]
+    null = null[0]
+    i = len(string)
+    while i:
+        i -= 1
+        if string[i] != null:
+            break
+    else:
+        i = -1
+    return string[: i + 1]
 
 
 def stripascii(string):
@@ -12205,15 +12740,31 @@ def stripascii(string):
     return string[: i + 1]
 
 
-def asbool(value, true=(b'true', 'true'), false=(b'false', 'false')):
+def asbool(value, true=None, false=None):
     """Return string as bool if possible, else raise TypeError.
 
     >>> asbool(b' False ')
     False
+    >>> asbool('ON', ['on'], ['off'])
+    True
 
     """
     value = value.strip().lower()
-    if value in true:  # might raise UnicodeWarning/BytesWarning
+    isbytes = False
+    if true is None:
+        if isinstance(value, bytes):
+            if value == b'true':
+                return True
+            isbytes = True
+        elif value == 'true':
+            return True
+    if false is None:
+        if isbytes or isinstance(value, bytes):
+            if value == b'false':
+                return False
+        elif value == 'false':
+            return False
+    if value in true:
         return True
     if value in false:
         return False
@@ -12609,21 +13160,21 @@ def pformat(arg, width=79, height=24, compact=True):
     npopt = numpy.get_printoptions()
     numpy.set_printoptions(threshold=100, linewidth=width)
 
-    if isinstance(arg, (str, bytes)):
-        if arg[:5].lower() in ('<?xml', b'<?xml'):
-            if isinstance(arg, bytes):
-                arg = bytes2str(arg)
-            if height == 1:
-                arg = arg[: 4 * width]
-            else:
-                arg = pformat_xml(arg)
-        elif isinstance(arg, bytes):
-            if isprintable(arg):
-                arg = bytes2str(arg)
-                arg = clean_whitespace(arg)
-            else:
-                numpy.set_printoptions(**npopt)
-                return hexdump(arg, width=width, height=height, modulo=1)
+    if isinstance(arg, bytes):
+        if arg[:5].lower() == b'<?xml' or arg[-4:] == b'OME>':
+            arg = bytes2str(arg)
+
+    if isinstance(arg, bytes):
+        if isprintable(arg):
+            arg = bytes2str(arg)
+            arg = clean_whitespace(arg)
+        else:
+            numpy.set_printoptions(**npopt)
+            return hexdump(arg, width=width, height=height, modulo=1)
+        arg = arg.rstrip()
+    elif isinstance(arg, str):
+        if arg[:5].lower() == '<?xml' or arg[-4:] == 'OME>':
+            arg = arg[: 4 * width] if height == 1 else pformat_xml(arg)
         arg = arg.rstrip()
     elif isinstance(arg, numpy.record):
         arg = arg.pprint()
