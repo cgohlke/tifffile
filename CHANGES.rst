@@ -1,7 +1,14 @@
 Revisions
 ---------
+2020.7.17
+    Pass 3022 tests.
+    Initial support for writing OME-TIFF (WIP).
+    Return samples as separate dimension in OME series (breaking).
+    Fix modulo dimensions for multiple OME series.
+    Fix some test errors on big endian systems (#18).
+    Fix BytesWarning.
+    Allow to pass TIFF.PREDICTOR values to TiffWriter.save.
 2020.7.4
-    Pass 2932 tests.
     Deprecate support for Python 3.6 (NEP 29).
     Move pyramidal subresolution series to TiffPageSeries.levels (breaking).
     Add parser for SVS, SCN, NDPI, and QPI pyramidal series.
