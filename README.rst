@@ -10,8 +10,9 @@ Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
 NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
 ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
 
-Numpy arrays can be written to TIFF, BigTIFF, and ImageJ hyperstack compatible
-files in multi-page, memory-mappable, tiled, predicted, or compressed form.
+Numpy arrays can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
+compatible files in multi-page, memory-mappable, tiled, predicted, or
+compressed form.
 
 A subset of the TIFF specification is supported, mainly uncompressed and
 losslessly compressed 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
@@ -26,7 +27,7 @@ STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, and OME-TIFF, are custom
 extensions defined by Molecular Devices (Universal Imaging Corporation),
 Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
 Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, and the
-Open Microscopy Environment consortium respectively.
+Open Microscopy Environment consortium, respectively.
 
 For command line usage run ``python -m tifffile --help``
 
@@ -38,24 +39,33 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.4
+:Version: 2020.7.17
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.8, 3.8.3 64-bit <https://www.python.org>`_
+* `CPython 3.7.8, 3.8.4, 3.9.0b4 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.2.2 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
+* `Lxml 4.5.2 <https://github.com/lxml/lxml>`_
+  (required only for validating and printing XML)
 
 Revisions
 ---------
+2020.7.17
+    Pass 3022 tests.
+    Initial support for writing OME-TIFF (WIP).
+    Return samples as separate dimension in OME series (breaking).
+    Fix modulo dimensions for multiple OME series.
+    Fix some test errors on big endian systems (#18).
+    Fix BytesWarning.
+    Allow to pass TIFF.PREDICTOR values to TiffWriter.save.
 2020.7.4
-    Pass 2932 tests.
     Deprecate support for Python 3.6 (NEP 29).
     Move pyramidal subresolution series to TiffPageSeries.levels (breaking).
     Add parser for SVS, SCN, NDPI, and QPI pyramidal series.
@@ -223,7 +233,8 @@ Tested on little-endian platforms only.
 Python 32-bit versions are deprecated. Python <= 3.6 are no longer supported.
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
-package for encoding and decoding LZW, JPEG, and other compressed images.
+package for encoding and decoding LZW, JPEG, and other compressed image
+segments.
 
 Several TIFF-like formats do not strictly adhere to the TIFF6 specification,
 some of which allow file or data sizes to exceed the 4 GB limit:
@@ -240,16 +251,18 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   files. The 8-bit UTF-8 encoded OME-XML metadata found in the ImageDescription
   tag of the first IFD defines the position of TIFF IFDs in the high
   dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
-  metadata are stored in a separate file.
+  metadata are stored in a separate file. Tifffile can write numpy arrays
+  to single-file, non-pyramidal OME-TIFF.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
   data. Tifffile can read large LSM files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
-  structures. JPEG compressed segments with dimensions >65536 are not readable
-  with libjpeg. Tifffile can read NDPI files > 4 GB. JPEG segments up to 2 GB
-  compressed size can be decoded with the imagecodecs library on Windows.
+  structures. JPEG compressed segments with dimensions >65536 or missing
+  restart markers are not readable with libjpeg. Tifffile can read NDPI
+  files > 4 GB. JPEG segments with restart markers and dimensions >65536 can
+  be decoded with the imagecodecs library on Windows.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -287,29 +300,33 @@ Some libraries are using tifffile to write OME-TIFF files:
 
 References
 ----------
-1.  TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
-    https://www.adobe.io/open/standards/TIFF.html
-2.  TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
-3.  MetaMorph Stack (STK) Image File Format.
-    http://mdc.custhelp.com/app/answers/detail/a_id/18862
-4.  Image File Format Description LSM 5/7 Release 6.0 (ZEN 2010).
-    Carl Zeiss MicroImaging GmbH. BioSciences. May 10, 2011
-5.  The OME-TIFF format.
-    https://docs.openmicroscopy.org/ome-model/5.6.4/ome-tiff/
-6.  UltraQuant(r) Version 6.0 for Windows Start-Up Guide.
-    http://www.ultralum.com/images%20ultralum/pdf/UQStart%20Up%20Guide.pdf
-7.  Micro-Manager File Formats.
-    https://micro-manager.org/wiki/Micro-Manager_File_Formats
-8.  Tags for TIFF and Related Specifications. Digital Preservation.
-    https://www.loc.gov/preservation/digital/formats/content/tiff_tags.shtml
-9.  ScanImage BigTiff Specification - ScanImage 2016.
-    http://scanimage.vidriotechnologies.com/display/SI2016/
-    ScanImage+BigTiff+Specification
-10. CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
-    Exif Version 2.31.
-    http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
-11. ZIF, the Zoomable Image File format. http://zif.photo/
-12. GeoTIFF File Format https://gdal.org/drivers/raster/gtiff.html
+* TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
+  https://www.adobe.io/open/standards/TIFF.html
+* TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
+* The BigTIFF File Format.
+  https://www.awaresystems.be/imaging/tiff/bigtiff.html
+* MetaMorph Stack (STK) Image File Format.
+  http://mdc.custhelp.com/app/answers/detail/a_id/18862
+* Image File Format Description LSM 5/7 Release 6.0 (ZEN 2010).
+  Carl Zeiss MicroImaging GmbH. BioSciences. May 10, 2011
+* The OME-TIFF format.
+  https://docs.openmicroscopy.org/ome-model/latest/
+* UltraQuant(r) Version 6.0 for Windows Start-Up Guide.
+  http://www.ultralum.com/images%20ultralum/pdf/UQStart%20Up%20Guide.pdf
+* Micro-Manager File Formats.
+  https://micro-manager.org/wiki/Micro-Manager_File_Formats
+* ScanImage BigTiff Specification - ScanImage 2016.
+  http://scanimage.vidriotechnologies.com/display/SI2016/
+  ScanImage+BigTiff+Specification
+* ZIF, the Zoomable Image File format. http://zif.photo/
+* GeoTIFF File Format https://gdal.org/drivers/raster/gtiff.html
+* Cloud optimized GeoTIFF.
+  https://github.com/cogeotiff/cog-spec/blob/master/spec.md
+* Tags for TIFF and Related Specifications. Digital Preservation.
+  https://www.loc.gov/preservation/digital/formats/content/tiff_tags.shtml
+* CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
+  Exif Version 2.31.
+  http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 
 Examples
 --------
@@ -442,19 +459,21 @@ Iterate over pages and tags in the TIFF file and successively read images:
 ...             tag_name, tag_value = tag.name, tag.value
 ...         image = page.asarray()
 
-Save two image series to a TIFF file:
+Write two numpy arrays to a multi-series OME-TIFF file:
 
->>> data0 = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
->>> data1 = numpy.random.randint(0, 255, (5, 301, 219), 'uint16')
->>> with TiffWriter('temp.tif') as tif:
+>>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
+>>> data1 = numpy.random.randint(0, 1023, (5, 256, 256), 'uint16')
+>>> with TiffWriter('temp.ome.tif', ome=True) as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
-...     tif.save(data1, compress=6, photometric='minisblack', contiguous=False)
+...     tif.save(data1, photometric='minisblack', contiguous=False,
+...              metadata=dict(axes='ZYX', SignificantBits=10,
+...                            PositionZ=[0.0, 1.0, 2.0, 3.0, 4.0]))
 
-Read the second image series from the TIFF file:
+Read the second image series from the OME-TIFF file:
 
->>> series1 = imread('temp.tif', series=1)
+>>> series1 = imread('temp.ome.tif', series=1)
 >>> series1.shape
-(5, 301, 219)
+(5, 256, 256)
 
 Read an image stack from a series of TIFF files with a file name pattern:
 
