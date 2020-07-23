@@ -39,14 +39,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.17
+:Version: 2020.7.22
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.8, 3.8.4, 3.9.0b4 64-bit <https://www.python.org>`_
+* `CPython 3.7.8, 3.8.5, 3.9.0b5 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -57,8 +57,15 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.7.22
+    Pass 4278 tests.
+    Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
+    Raise error writing empty bilevel or tiled images.
+    Allow to write tiled bilevel images.
+    Allow to write multi-page TIFF from iterator of single page images (WIP).
+    Add function to validate OME-XML.
+    Correct Philips slide width and length.
 2020.7.17
-    Pass 3022 tests.
     Initial support for writing OME-TIFF (WIP).
     Return samples as separate dimension in OME series (breaking).
     Fix modulo dimensions for multiple OME series.
@@ -463,7 +470,7 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 
 >>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
 >>> data1 = numpy.random.randint(0, 1023, (5, 256, 256), 'uint16')
->>> with TiffWriter('temp.ome.tif', ome=True) as tif:
+>>> with TiffWriter('temp.ome.tif') as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
 ...     tif.save(data1, photometric='minisblack', contiguous=False,
 ...              metadata=dict(axes='ZYX', SignificantBits=10,
