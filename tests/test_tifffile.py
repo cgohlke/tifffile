@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.17
+:Version: 2020.7.22
 
 """
 
@@ -65,8 +65,6 @@ from numpy.testing import (
     assert_array_almost_equal,
     assert_allclose,
 )
-
-from lxml import etree
 
 import tifffile
 
@@ -94,6 +92,8 @@ try:
         product,
         create_output,
         askopenfilename,
+        OmeXmlError,
+        OmeXml
     )
 except NameError:
     STAR_IMPORTED = None
@@ -277,18 +277,7 @@ def assert__str__(tif, detail=3):
 
 def assert_valid_omexml(omexml, omexsd=None, _schema=[]):
     """Validate OME-XML schema."""
-    if not _schema:
-        if omexsd is None:
-            omexsd = os.path.join(os.path.dirname(__file__), 'ome.xsd')
-        try:
-            _schema.append(etree.XMLSchema(etree.parse(omexsd)))
-        except Exception:
-            _schema.append(None)
-    if _schema and _schema[0] is not None:
-        if omexml.startswith('<?xml'):
-            omexml = omexml.split('>', 1)[-1]
-        xml = etree.fromstring(omexml)
-        _schema[0].assert_(xml)
+    OmeXml.validate(omexml, assert_=True)
 
 
 if SKIP_VALIDATE:
@@ -7046,6 +7035,37 @@ def test_read_qpi():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_philips():
+    """Test read Philips DP pyramid."""
+    fname = private_file('PhilipsDP/test_001.tif')
+    with TiffFile(fname) as tif:
+        assert len(tif.series) == 1
+        assert len(tif.pages) == 9
+        assert tif.is_philips
+        assert tif.philips_metadata.endswith('</DataObject>')
+        page = tif.pages[0]
+        assert page.compression == JPEG
+        assert page.photometric == YCBCR
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 86016
+        assert page.tags['ImageLength'].value == 89600
+        assert page.imagewidth == 85654
+        assert page.imagelength == 89225
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        assert page.tags['Software'].value == 'Philips DP v1.0'
+        series = tif.series[0]
+        assert series.shape == (89225, 85654, 3)
+        assert len(series.levels) == 9
+        assert series.is_pyramid
+        # assert data
+        image = tif.asarray(series=0, level=5)
+        assert image.shape == (2789, 2677, 3)
+        assert image[300, 400, 1] == 206
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_zif():
     """Test read Zoomable Image Format ZIF."""
     fname = private_file('zif/ZoomifyImageExample.zif')
@@ -7243,29 +7263,38 @@ WRITE_DATA.shape = (3, 219, 301)
 @pytest.mark.parametrize('dtype', list('?bhiqfdBHIQFD'))
 @pytest.mark.parametrize('byteorder', ['>', '<'])
 @pytest.mark.parametrize('bigtiff', ['plaintiff', 'bigtiff'])
-@pytest.mark.parametrize('data', ['random', 'empty'])
-def test_write(data, byteorder, bigtiff, dtype, shape):
+@pytest.mark.parametrize('tile', [None, (64, 64)])
+@pytest.mark.parametrize('data', ['random', None])
+def test_write(data, byteorder, bigtiff, dtype, shape, tile):
     """Test TiffWriter with various options."""
     # TODO: test compression ?
-    fname = '{}_{}_{}_{}{}'.format(
+    fname = '{}_{}_{}_{}{}{}'.format(
         bigtiff,
         {'<': 'le', '>': 'be'}[byteorder],
         numpy.dtype(dtype).name,
         str(shape).replace(' ', ''),
-        '_empty' if data == 'empty' else '')
+        '_tiled' if tile is not None else '',
+        '_empty' if data is None else '')
     bigtiff = bigtiff == 'bigtiff'
 
     with TempFileName(fname) as fname:
-        if data == 'empty':
+        if data is None:
             with TiffWriter(fname, byteorder=byteorder,
                             bigtiff=bigtiff) as tif:
-                tif.save(shape=shape, dtype=dtype)
+                if tile is not None or dtype == '?':
+                    # cannot write non-contiguous empty file
+                    with pytest.raises(ValueError):
+                        tif.save(shape=shape, dtype=dtype, tile=tile)
+                    return
+                else:
+                    tif.save(shape=shape, dtype=dtype, tile=tile)
             with TiffFile(fname) as tif:
                 assert__str__(tif)
                 image = tif.asarray()
         else:
             data = random_data(dtype, shape)
-            imwrite(fname, data, byteorder=byteorder, bigtiff=bigtiff)
+            imwrite(fname, data, byteorder=byteorder, bigtiff=bigtiff,
+                    tile=tile)
             image = imread(fname)
             assert image.flags['C_CONTIGUOUS']
             assert_array_equal(data.squeeze(), image.squeeze())
@@ -8156,7 +8185,8 @@ def test_write_compress_lerc():
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
 @pytest.mark.parametrize('dtype', ['i1', 'u1', 'bool'])
-def test_write_compress_packbits(dtype):
+@pytest.mark.parametrize('tile', [None, (16, 16)])
+def test_write_compress_packbits(dtype, tile):
     """Test write PackBits compression."""
     uncompressed = numpy.frombuffer(
         b'\xaa\xaa\xaa\x80\x00\x2a\xaa\xaa\xaa\xaa\x80\x00'
@@ -8165,7 +8195,7 @@ def test_write_compress_packbits(dtype):
     data = numpy.empty(shape, dtype=dtype)
     data[..., :] = uncompressed
     with TempFileName(f'compress_packits_{dtype}') as fname:
-        imwrite(fname, data, compress='PACKBITS')
+        imwrite(fname, data, compress='PACKBITS', tile=tile)
         assert_valid(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
@@ -10029,30 +10059,101 @@ def test_write_ome(shape, axes):
         assert_valid(fname)
 
 
+def test_write_ome_enable():
+    """Test OME-TIFF enabling."""
+    data = numpy.zeros((32, 32), dtype='uint8')
+    with TempFileName('write_ome_enable.ome.tif') as fname:
+        imwrite(fname, data)
+        with TiffFile(fname) as tif:
+            assert tif.is_ome
+        imwrite(fname, data, description='not OME')
+        with TiffFile(fname) as tif:
+            assert not tif.is_ome
+        with pytest.warns(UserWarning):
+            imwrite(fname, data, description='not OME', ome=True)
+        with TiffFile(fname) as tif:
+            assert tif.is_ome
+        imwrite(fname, data, imagej=True)
+        with TiffFile(fname) as tif:
+            assert not tif.is_ome
+            assert tif.is_imagej
+        imwrite(fname, data, imagej=True, ome=True)
+        with TiffFile(fname) as tif:
+            assert tif.is_ome
+            assert not tif.is_imagej
+
+    with TempFileName('write_ome_auto.tif') as fname:
+        imwrite(fname, data)
+        with TiffFile(fname) as tif:
+            assert not tif.is_ome
+        imwrite(fname, data, ome=True)
+        with TiffFile(fname) as tif:
+            assert tif.is_ome
+
+
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
-def test_write_ome_copy():
-    """Test re-write OME time-series of volumes."""
+@pytest.mark.parametrize('method', ['manual', 'copy', 'iter', 'compress'])
+def test_write_ome_methods(method):
+    """Test re-write OME-TIFF."""
     # 4D (7 time points, 5 focal planes)
     fname = public_file('OME/bioformats-artificial/4D-series.ome.tiff')
     with TiffFile(fname) as tif:
+        series = tif.series[0]
+        data = series.asarray()
+        dtype = data.dtype
+        shape = data.shape
+        axes = series.axes
         omexml = tif.ome_metadata
-        data = tif.asarray()
 
-    with TempFileName('ome_copy') as fname:
-        # process OME-XML
-        omexml = omexml.replace('4D-series.ome.tiff', os.path.split(fname)[-1])
-        # omexml = omexml.replace('BigEndian="true"', 'BigEndian="false"')
-        data = data.newbyteorder('>')
-        # save image planes in the order referenced in the OME-XML
-        # make sure storage options (compression, byteorder, photometric mode)
-        #   match OME-XML
-        # write OME-XML to first page only
-        with TiffWriter(fname, bigtiff=True, byteorder='>') as tif:
-            for i, image in enumerate(data.reshape(-1, *data.shape[-2:])):
-                description = omexml if i == 0 else None
-                tif.save(image, description=description,
-                         photometric='minisblack', metadata=None,
-                         contiguous=False)
+    def pages():
+        for image in data.reshape(-1, *data.shape[-2:]):
+            yield image
+
+    with TempFileName(f'write_ome_{method}.ome') as fname:
+
+        if method == 'manual':
+            # manually write omexml to first page and data to individual pages
+            # process OME-XML
+            omexml = omexml.replace('4D-series.ome.tiff',
+                                    os.path.split(fname)[-1])
+            # omexml = omexml.replace('BigEndian="true"', 'BigEndian="false"')
+            data = data.newbyteorder('>')
+            # save image planes in the order referenced in the OME-XML
+            # make sure storage options (compression, byteorder, photometric)
+            #   match OME-XML
+            # write OME-XML to first page only
+            with TiffWriter(fname, bigtiff=True, byteorder='>') as tif:
+                for i, image in enumerate(pages()):
+                    description = omexml if i == 0 else None
+                    tif.save(
+                        image, description=description,
+                        photometric='minisblack', metadata=None,
+                        contiguous=False
+                    )
+
+        elif method == 'iter':
+            # use iterator over individual pages
+            imwrite(
+                fname, pages(), shape=shape, dtype=dtype,
+                bigtiff=True, byteorder='>', photometric='minisblack',
+                metadata={'axes': axes}
+            )
+
+        elif method == 'compress':
+            # use iterator with compression
+            imwrite(
+                fname, pages(), shape=shape, dtype=dtype, compress=6,
+                bigtiff=True, byteorder='>', photometric='minisblack',
+                metadata={'axes': axes}
+            )
+
+        elif method == 'copy':
+            # use one numpy array
+            imwrite(
+                fname, data,
+                bigtiff=True, byteorder='>', photometric='minisblack',
+                metadata={'axes': axes}
+            )
 
         with TiffFile(fname) as tif:
             assert tif.is_ome
@@ -10061,8 +10162,9 @@ def test_write_ome_copy():
             assert len(tif.series) == 1
             # assert page properties
             page = tif.pages[0]
-            assert page.is_contiguous
-            assert page.compression == NONE
+            if method != 'compress':
+                assert page.is_contiguous
+                assert page.compression == NONE
             assert page.imagewidth == 439
             assert page.imagelength == 167
             assert page.bitspersample == 8
