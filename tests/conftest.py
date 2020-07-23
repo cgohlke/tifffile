@@ -1,6 +1,11 @@
 # tifffile/tests/conftest.py
 
-collect_ignore = ['_tmp', 'data']
+import os
+import sys
+
+
+if os.environ.get('SKIP_CODECS', None):
+    sys.modules['imagecodecs'] = None
 
 
 def pytest_report_header(config):
@@ -12,7 +17,12 @@ def pytest_report_header(config):
             from imagecodecs import __version__ as imagecodecs
         except ImportError:
             imagecodecs = 'N/A'
-        return ('versions: tifffile-%s, imagecodecs-%s, numpy-%s\n'
-                'test config: %s' % (tifffile, imagecodecs, numpy, config()))
+        return (
+            'versions: tifffile-{}, imagecodecs-{}, numpy-{}\n'
+            'test config: {}'.format(tifffile, imagecodecs, numpy, config())
+        )
     except Exception:
         pass
+
+
+collect_ignore = ['_tmp', 'data']
