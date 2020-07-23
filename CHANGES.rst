@@ -1,7 +1,14 @@
 Revisions
 ---------
+2020.7.22
+    Pass 4278 tests.
+    Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
+    Raise error writing empty bilevel or tiled images.
+    Allow to write tiled bilevel images.
+    Allow to write multi-page TIFF from iterator of single page images (WIP).
+    Add function to validate OME-XML.
+    Correct Philips slide width and length.
 2020.7.17
-    Pass 3022 tests.
     Initial support for writing OME-TIFF (WIP).
     Return samples as separate dimension in OME series (breaking).
     Fix modulo dimensions for multiple OME series.
