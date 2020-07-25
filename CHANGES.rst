@@ -1,7 +1,11 @@
 Revisions
 ---------
+2020.7.24
+    Pass 4279 tests.
+    Parse nested OmeXml metadata argument (WIP).
+    Do not lazy load TiffFrame JPEGTables.
+    Fix conditionally skipping some tests.
 2020.7.22
-    Pass 4278 tests.
     Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
     Raise error writing empty bilevel or tiled images.
     Allow to write tiled bilevel images.
