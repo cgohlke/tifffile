@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.22
+:Version: 2020.7.24
 
 """
 
@@ -379,6 +379,7 @@ def test_issue_legacy_kwargs():
                     pass
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_infinite_loop():
     """Test infinite loop reading more than two tags of same code in IFD."""
     # Reported by D. Hughes on 2019.7.26
@@ -1109,7 +1110,7 @@ def test_class_omexml_attributes():
     uuid = str(uuid1())
     metadata = dict(
         # document
-        uuid=uuid,
+        UUID=uuid,
         Creator=f'test_tifffile.py {tifffile.__version__}',
         # image
         axes='ZYXS',
@@ -1125,7 +1126,7 @@ def test_class_omexml_attributes():
         PhysicalSizeZUnit='\xc5',
         TimeIncrement=1.4,
         TimeIncrementUnit='\xb5s',
-        Channel=dict(Name=['ChannelName']),  # one channel with 3 samples
+        Channel=dict(Name='ChannelName'),  # one channel with 3 samples
         Plane=dict(PositionZ=[0.0, 2.0, 4.0]),  # 3 Z-planes
     )
 
@@ -1834,6 +1835,7 @@ def test_func_pformat_numpy():
        5900040.])""")
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='not reliable on Linux')
 def test_func_pformat_xml():
     """Test pformat function with XML."""
     value = """<?xml version="1.0" encoding="ISO-8859-1" ?>
@@ -2053,10 +2055,7 @@ def assert_filehandle(fh, offset=0):
 
 def test_filehandle_seekable():
     """Test FileHandle must be seekable."""
-    try:
-        from urllib2 import build_opener, HTTPSHandler
-    except ImportError:
-        from urllib.request import build_opener, HTTPSHandler
+    from urllib.request import build_opener, HTTPSHandler
     import ssl
 
     context = ssl.create_default_context()
@@ -2065,7 +2064,11 @@ def test_filehandle_seekable():
 
     opener = build_opener(HTTPSHandler(context=context))
     opener.addheaders = [('User-Agent', 'test_tifffile.py')]
-    fh = opener.open('https://localhost/tests/test.tif')
+    try:
+        fh = opener.open('https://localhost/tests/test.tif')
+    except OSError:
+        pytest.skip('https://localhost/tests/test.tif')
+
     with pytest.raises(ValueError):
         FileHandle(fh)
 
@@ -4198,6 +4201,7 @@ def test_read_subifd8():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
 def test_read_tiles():
     """Test iteration over tiles, manually and via page.segments."""
     data = numpy.arange(600*500*3, dtype='uint8').reshape((600, 500, 3))
@@ -5296,7 +5300,8 @@ def test_read_ome_multi_channel_z_series():
     """Test read OME multi-channel volume."""
     # 3D (5 focal planes, 3 channels)
     fname = public_file(
-        'OME/bioformats-artificial/multi-channel-z-series.ome.tiff')
+        'OME/bioformats-artificial/multi-channel-z-series.ome.tiff'
+    )
     with TiffFile(fname) as tif:
         assert tif.is_ome
         assert tif.byteorder == '>'
@@ -5363,7 +5368,8 @@ def test_read_ome_multi_channel_time_series():
     """Test read OME time-series of multi-channel images."""
     # 3D (7 time points, 3 channels)
     fname = public_file(
-        'OME/bioformats-artificial/multi-channel-time-series.ome.tiff')
+        'OME/bioformats-artificial/multi-channel-time-series.ome.tiff'
+    )
     with TiffFile(fname) as tif:
         assert tif.is_ome
         assert tif.byteorder == '>'
@@ -5430,7 +5436,8 @@ def test_read_ome_multi_channel_4d_series():
     """Test read OME time-series of multi-channel volumes."""
     # 4D (7 time points, 5 focal planes, 3 channels)
     fname = public_file(
-        'OME/bioformats-artificial/multi-channel-4D-series.ome.tiff')
+        'OME/bioformats-artificial/multi-channel-4D-series.ome.tiff'
+    )
     with TiffFile(fname) as tif:
         assert tif.is_ome
         assert tif.byteorder == '>'
@@ -5595,7 +5602,8 @@ def test_read_ome_modulo_lambda():
 def test_read_ome_multi_image_pixels():
     """Test read OME with three image series."""
     fname = public_file(
-        'OME/bioformats-artificial/multi-image-pixels.ome.tif')
+        'OME/bioformats-artificial/multi-image-pixels.ome.tif'
+    )
     with TiffFile(fname) as tif:
         assert tif.is_ome
         assert tif.byteorder == '>'
@@ -5632,7 +5640,8 @@ def test_read_ome_multi_image_pixels():
 def test_read_ome_multi_image_nouuid():
     """Test read single-file, multi-image OME without UUID."""
     fname = private_file(
-        'OMETIFF.jl/singles/181003_multi_pos_time_course_1_MMStack.ome.tif')
+        'OMETIFF.jl/singles/181003_multi_pos_time_course_1_MMStack.ome.tif'
+    )
     with TiffFile(fname) as tif:
         assert tif.is_ome
         assert tif.byteorder == '<'
@@ -7037,6 +7046,7 @@ def test_read_qpi():
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_philips():
     """Test read Philips DP pyramid."""
+    # https://camelyon17.grand-challenge.org/Data/
     fname = private_file('PhilipsDP/test_001.tif')
     with TiffFile(fname) as tif:
         assert len(tif.series) == 1
@@ -9057,6 +9067,7 @@ def test_write_extrasamples_planar_rgb():
             assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_write_cfa():
     """Test write uncompressed CFA image."""
     # TODO: write a valid TIFF/EP file
@@ -9355,6 +9366,7 @@ def test_write_volume():
             assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
 def test_write_volume_png():
     """Test write tiled volume using an image compressor."""
     data = random_data('uint8', (16, 64, 96, 3))
@@ -10046,10 +10058,11 @@ def test_write_ome(shape, axes):
     """Test write OME-TIFF format."""
     metadata = {'axes': axes} if axes is not None else {}
     data = random_data('uint8', shape)
-    fname = 'write_ome_{}.ome.tif'.format(str(shape).replace(' ', ''))
+    fname = 'write_ome_{}.ome'.format(str(shape).replace(' ', ''))
     with TempFileName(fname) as fname:
         imwrite(fname, data, metadata=metadata)
         with TiffFile(fname) as tif:
+            assert tif.is_ome
             image = tif.asarray()
             omexml = tif.ome_metadata
             if axes:
@@ -10062,7 +10075,7 @@ def test_write_ome(shape, axes):
 def test_write_ome_enable():
     """Test OME-TIFF enabling."""
     data = numpy.zeros((32, 32), dtype='uint8')
-    with TempFileName('write_ome_enable.ome.tif') as fname:
+    with TempFileName('write_ome_enable.ome') as fname:
         imwrite(fname, data)
         with TiffFile(fname) as tif:
             assert tif.is_ome
@@ -10092,7 +10105,9 @@ def test_write_ome_enable():
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
-@pytest.mark.parametrize('method', ['manual', 'copy', 'iter', 'compress'])
+@pytest.mark.parametrize(
+    'method', ['manual', 'copy', 'iter', 'compress', 'xml']
+)
 def test_write_ome_methods(method):
     """Test re-write OME-TIFF."""
     # 4D (7 time points, 5 focal planes)
@@ -10111,7 +10126,17 @@ def test_write_ome_methods(method):
 
     with TempFileName(f'write_ome_{method}.ome') as fname:
 
-        if method == 'manual':
+        if method == 'xml':
+            # use original XML metadata
+            metadata = xml2dict(omexml)
+            metadata['axes'] = axes
+            imwrite(
+                fname, data,
+                bigtiff=True, byteorder='>', photometric='minisblack',
+                metadata=metadata
+            )
+
+        elif method == 'manual':
             # manually write omexml to first page and data to individual pages
             # process OME-XML
             omexml = omexml.replace('4D-series.ome.tiff',
@@ -10176,6 +10201,7 @@ def test_write_ome_methods(method):
             assert series.axes == 'TZYX'
             # assert data
             assert_array_equal(data, tif.asarray())
+            assert_valid_omexml(tif.ome_metadata)
             assert__str__(tif)
 
 
