@@ -69,7 +69,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.22
+:Version: 2020.7.24
 
 Requirements
 ------------
@@ -87,8 +87,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.7.24
+    Pass 4279 tests.
+    Parse nested OmeXml metadata argument (WIP).
+    Do not lazy load TiffFrame JPEGTables.
+    Fix conditionally skipping some tests.
 2020.7.22
-    Pass 4278 tests.
     Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
     Raise error writing empty bilevel or tiled images.
     Allow to write tiled bilevel images.
@@ -499,18 +503,18 @@ Iterate over pages and tags in the TIFF file and successively read images:
 Write two numpy arrays to a multi-series OME-TIFF file:
 
 >>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
->>> data1 = numpy.random.randint(0, 1023, (5, 256, 256), 'uint16')
+>>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
 ...     tif.save(data1, photometric='minisblack', contiguous=False,
-...              metadata=dict(axes='ZYX', SignificantBits=10,
-...                            PositionZ=[0.0, 1.0, 2.0, 3.0, 4.0]))
+...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
+...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
 Read the second image series from the OME-TIFF file:
 
 >>> series1 = imread('temp.ome.tif', series=1)
 >>> series1.shape
-(5, 256, 256)
+(4, 256, 256)
 
 Read an image stack from a series of TIFF files with a file name pattern:
 
@@ -567,7 +571,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
 """
 
-__version__ = '2020.7.22'
+__version__ = '2020.7.24'
 
 __all__ = (
     'imwrite',
@@ -4598,6 +4602,7 @@ class TiffPage:
     predictor = 1
     extrasamples = ()
     subifds = None
+    jpegtables = None
     colormap = None
     software = ''
     description = ''
@@ -5124,7 +5129,6 @@ class TiffPage:
 
         if self.compression in (6, 7):
             # COMPRESSION.JPEG needs special handling
-
             if self.fillorder == 2:
                 log_warning(
                     f'TiffPage {self.index}: disabling LSB2MSB for JPEG'
@@ -5253,10 +5257,7 @@ class TiffPage:
 
         decodeargs = {}
         if keyframe.compression in (6, 7):  # COMPRESSION.JPEG
-            if 347 in keyframe.tags:
-                # lazy load JPEGTables for TiffFrame
-                decodeargs['tables'] = self._gettags(
-                    {347}, lock=lock)[0][1].value
+            decodeargs['tables'] = self.jpegtables
 
         def decode(args, decodeargs=decodeargs, keyframe=keyframe, func=func):
             result = keyframe.decode(*args, **decodeargs)
@@ -6100,7 +6101,8 @@ class TiffFrame:
     """
 
     __slots__ = (
-        'index', 'parent', 'offset', 'subifds', '_offsetscounts', '_keyframe'
+        'index', 'parent', 'offset', 'subifds', 'jpegtables',
+        '_offsetscounts', '_keyframe'
     )
 
     is_mdgel = False
@@ -6115,10 +6117,11 @@ class TiffFrame:
 
         """
         self._keyframe = None
-        self.subifds = None
         self.parent = parent
         self.index = index
         self.offset = offset
+        self.subifds = None
+        self.jpegtables = None
 
         if offsets is not None:
             # initialize "virtual frame" from offsets and bytecounts
@@ -6132,11 +6135,11 @@ class TiffFrame:
             parent.filehandle.seek(offset)
 
         if keyframe is None:
-            tags = {273, 279, 324, 325, 330}
+            tags = {273, 279, 324, 325, 330, 347}
         elif keyframe.is_contiguous:
             tags = {256, 273, 324, 330}
         else:
-            tags = {256, 273, 279, 324, 325, 330}
+            tags = {256, 273, 279, 324, 325, 330, 347}
 
         dataoffsets = databytecounts = []
 
@@ -6147,6 +6150,8 @@ class TiffFrame:
                 databytecounts = tag.value
             elif code == 330:
                 self.subifds = tag.value
+            elif code == 347:
+                self.jpegtables = tag.value
             elif code == 256 and keyframe.imagewidth != tag.value:
                 raise RuntimeError(
                     f'TiffFrame {self.index} incompatible keyframe'
@@ -7551,19 +7556,36 @@ class OmeXml:
     def __init__(self, **metadata):
         """Create a new instance.
 
-        creator : str (optional)
+        Creator : str (optional)
             Name of the creating application. Default 'tifffile.py'.
-        uuid : str (optional)
+        UUID : str (optional)
             Unique identifier.
 
         """
-        from uuid import uuid1  # noqa: delayed import
+        if 'OME' in metadata:
+            metadata = metadata['OME']
 
         self.ifd = 0
         self.images = []
         self.annotations = []
         self.elements = []
-        self.uuid = metadata.get('uuid', uuid1())
+        # TODO: parse other OME elements from metadata
+        #   Project
+        #   Dataset
+        #   Folder
+        #   Experiment
+        #   Plate
+        #   Screen
+        #   Experimenter
+        #   ExperimenterGroup
+        #   Instrument
+        #   StructuredAnnotations
+        #   ROI
+        if 'UUID' in metadata:
+            self.uuid = metadata['UUID'].split(':')[-1]
+        else:
+            from uuid import uuid1  # noqa: delayed import
+            self.uuid = str(uuid1())
         creator = OmeXml._attribute(
             metadata, 'Creator', default=f'tifffile.py {__version__}'
         )
@@ -7603,13 +7625,33 @@ class OmeXml:
             'Y' height, 'C' channel, 'Z' depth, 'T' time, 'A' angle, 'P' phase,
             'R' tile, 'H' lifetime, 'E' lambda, 'Q' other.
         metadata : misc (optional)
-            Additional OME-XML Image attributes or elements to be stored:
-            Name, AcquisitionDate, Description, SignificantBits,
+            Additional OME-XML attributes or elements to be stored.
+            Image/Pixels: Name, AcquisitionDate, Description,
             PhysicalSizeX, PhysicalSizeXUnit, PhysicalSizeY, PhysicalSizeYUnit,
             PhysicalSizeZ, PhysicalSizeZUnit, TimeIncrement, TimeIncrementUnit.
+            Per Plane: DeltaTUnit, ExposureTime, ExposureTimeUnit,
+            PositionX, PositionXUnit, PositionY, PositionYUnit, PositionZ,
+            PositionZUnit.
+            Per Channel: Name, AcquisitionMode, Color, ContrastMethod,
+            EmissionWavelength, EmissionWavelengthUnit, ExcitationWavelength,
+            ExcitationWavelengthUnit, Fluor, IlluminationType, NDFilter,
+            PinholeSize, PinholeSizeUnit, PockelCellSetting.
 
         """
         index = len(self.images)
+
+        # get Image and Pixels metadata
+        metadata = metadata.get('OME', metadata)
+        metadata = metadata.get('Image', metadata)
+        if isinstance(metadata, (list, tuple)):
+            # multiple images
+            metadata = metadata[index]
+        if 'Pixels' in metadata:
+            # merge with Image
+            if 'ID' in metadata['Pixels']:
+                del metadata['Pixels']['ID']
+            metadata.update(metadata['Pixels'])
+            del metadata['Pixels']
 
         try:
             dtype = numpy.dtype(dtype).name
@@ -7628,6 +7670,9 @@ class OmeXml:
             }[dtype]
         except KeyError:
             raise OmeXmlError(f'data type {dtype!r} not supported')
+
+        if metadata.get('Type', dtype) != dtype:
+            raise OmeXmlError(f'metadata Type does not match {dtype!r}')
 
         samples = 1
         planecount, separate, depth, height, width, contig = storedshape
@@ -7757,7 +7802,10 @@ class OmeXml:
             annotationref = ''
 
         hiaxes = hiaxes[::-1]
-        for dimorder in ('XYCZT', 'XYZCT', 'XYZTC', 'XYCTZ', 'XYTCZ', 'XYTZC'):
+        for dimorder in (
+            metadata.get('DimensionOrder', 'XYCZT'),
+            'XYCZT', 'XYZCT', 'XYZTC', 'XYCTZ', 'XYTCZ', 'XYTZC'
+        ):
             if hiaxes in dimorder:
                 break
         else:
@@ -7780,6 +7828,25 @@ class OmeXml:
         sizes = ''.join(
             f' Size{ax}="{size}"' for ax, size in zip(dimorder, dimsizes)
         )
+
+        # verify DimensionOrder in metadata is compatible
+        if 'DimensionOrder' in metadata:
+            omedimorder = metadata['DimensionOrder']
+            omedimorder = ''.join(
+                ax for ax in omedimorder if dimsizes[dimorder.index(ax)] > 1
+            )
+            if hiaxes not in omedimorder:
+                raise OmeXmlError(
+                    f'metadata DimensionOrder does not match {axes!r}'
+                )
+
+        # verify metadata Size values match shape
+        for ax, size in zip(dimorder, dimsizes):
+            if metadata.get(f'Size{ax}', size) != size:
+                raise OmeXmlError(
+                    f'metadata Size{ax} does not match {shape!r}'
+                )
+
         dimsizes[dimorder.index('C')] //= samples
         if planecount != product(dimsizes[2:]):
             raise ValueError('shape does not match stored shape')
@@ -7807,10 +7874,17 @@ class OmeXml:
                 planes.append(
                     f'<Plane TheC="{c}" TheZ="{z}" TheT="{t}"{attributes}/>'
                 )
+                # TODO: if possible, verify c, z, t match planeattributes
         planes = ''.join(planes)
 
         channels = []
         for c in range(sizec):
+            lightpath = '<LightPath/>'
+            # TODO: use LightPath elements from metadata
+            #    'AnnotationRef',
+            #    'DichroicRef',
+            #    'EmissionFilterRef',
+            #    'ExcitationFilterRef'
             attributes = OmeXml._attributes(
                 metadata.get('Channel', ''),
                 c,
@@ -7827,14 +7901,13 @@ class OmeXml:
                 'NDFilter',
                 'PinholeSize',
                 'PinholeSizeUnit',
-                'PockelCellSetting',
-                'SamplesPerPixel'
+                'PockelCellSetting'
             )
             channels.append(
                 f'<Channel ID="Channel:{index}:{c}" '
                 f'SamplesPerPixel="{samples}"'
                 f'{attributes}>'
-                '<LightPath/>'  # TODO: support LightPath attributes
+                f'{lightpath}'
                 '</Channel>'
             )
         channels = ''.join(channels)
@@ -7914,16 +7987,24 @@ class OmeXml:
             return xml
 
     @staticmethod
+    def _escape(value):
+        """Return escaped string of value."""
+        if not isinstance(value, str):
+            value = str(value)
+        elif '&amp;' in value or '&gt;' in value or '&lt;' in value:
+            return value
+        value = value.replace('&', '&amp;')
+        value = value.replace('>', '&gt;')
+        value = value.replace('<', '&lt;')
+        return value
+
+    @staticmethod
     def _element(metadata, name, default=None):
         """Return XML formatted element if name in metadata."""
-        value = metadata.get(name, metadata.get(name.lower(), default))
+        value = metadata.get(name, default)
         if value is None:
             return None
-        if isinstance(value, str):
-            value = value.replace('&', '&amp;')
-            value = value.replace('>', '&gt;')
-            value = value.replace('<', '&lt;')
-        return f'<{name}>{value}</{name}>'
+        return f'<{name}>{OmeXml._escape(value)}</{name}>'
 
     @staticmethod
     def _elements(metadata, *names):
@@ -7936,16 +8017,17 @@ class OmeXml:
     @staticmethod
     def _attribute(metadata, name, index=None, default=None):
         """Return XML formatted attribute if name in metadata."""
-        value = metadata.get(name, metadata.get(name.lower(), default))
+        value = metadata.get(name, default)
         if value is None:
             return None
         if index is not None:
-            value = value[index]
-        if isinstance(value, str):
-            value = value.replace('&', '&amp;')
-            value = value.replace('>', '&gt;')
-            value = value.replace('<', '&lt;')
-        return f' {name}="{value}"'
+            if isinstance(value, (list, tuple)):
+                value = value[index]
+            elif index > 0:
+                raise TypeError(
+                    f'{type(value).__name__!r} is not a list or tuple'
+                )
+        return f' {name}="{OmeXml._escape(value)}"'
 
     @staticmethod
     def _attributes(metadata, index_, *names):
@@ -7962,6 +8044,18 @@ class OmeXml:
                 OmeXml._attribute(metadata, name, index_) for name in names
             )
         return ''.join(a for a in attributes if a)
+
+    @staticmethod
+    def _reference(metadata, name):
+        """Return XML formatted reference element."""
+        value = metadata.get(name, None)
+        if value is None:
+            return ''
+        try:
+            value = value['ID']
+        except KeyError:
+            pass
+        return f'<{name} ID="{OmeXml._escape(value)}"/>'
 
     @staticmethod
     def validate(omexml, omexsd=None, assert_=True, _schema=[]):
@@ -8916,6 +9010,7 @@ class TIFF:
             330: 'subifds',
             338: 'extrasamples',
             339: 'sampleformat',
+            347: 'jpegtables',
             32997: 'imagedepth',
             32998: 'tiledepth',
         }
