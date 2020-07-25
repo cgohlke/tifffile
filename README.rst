@@ -39,7 +39,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.22
+:Version: 2020.7.24
 
 Requirements
 ------------
@@ -57,8 +57,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.7.24
+    Pass 4279 tests.
+    Parse nested OmeXml metadata argument (WIP).
+    Do not lazy load TiffFrame JPEGTables.
+    Fix conditionally skipping some tests.
 2020.7.22
-    Pass 4278 tests.
     Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
     Raise error writing empty bilevel or tiled images.
     Allow to write tiled bilevel images.
@@ -469,18 +473,18 @@ Iterate over pages and tags in the TIFF file and successively read images:
 Write two numpy arrays to a multi-series OME-TIFF file:
 
 >>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
->>> data1 = numpy.random.randint(0, 1023, (5, 256, 256), 'uint16')
+>>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
 ...     tif.save(data1, photometric='minisblack', contiguous=False,
-...              metadata=dict(axes='ZYX', SignificantBits=10,
-...                            PositionZ=[0.0, 1.0, 2.0, 3.0, 4.0]))
+...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
+...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
 Read the second image series from the OME-TIFF file:
 
 >>> series1 = imread('temp.ome.tif', series=1)
 >>> series1.shape
-(5, 256, 256)
+(4, 256, 256)
 
 Read an image stack from a series of TIFF files with a file name pattern:
 
