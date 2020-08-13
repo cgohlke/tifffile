@@ -1,7 +1,10 @@
 Revisions
 ---------
+2020.8.13
+    Pass 4281 tests.
+    Fix writing iterable of pages with compression (#20).
+    Expand error checking of TiffWriter data, dtype, shape, and tile arguments.
 2020.7.24
-    Pass 4279 tests.
     Parse nested OmeXml metadata argument (WIP).
     Do not lazy load TiffFrame JPEGTables.
     Fix conditionally skipping some tests.
@@ -9,7 +12,7 @@ Revisions
     Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
     Raise error writing empty bilevel or tiled images.
     Allow to write tiled bilevel images.
-    Allow to write multi-page TIFF from iterator of single page images (WIP).
+    Allow to write multi-page TIFF from iterable of single page images (WIP).
     Add function to validate OME-XML.
     Correct Philips slide width and length.
 2020.7.17
@@ -48,7 +51,7 @@ Revisions
     Fix writing single tiles larger than image data (#3).
     Always store ExtraSamples values in tuple (breaking).
 2020.5.5
-    Allow to write tiled TIFF from iterator of tiles (WIP).
+    Allow to write tiled TIFF from iterable of tiles (WIP).
     Add function to iterate over decoded segments of TiffPage (WIP).
     Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
     Fix reading invalid files with too many strips.
