@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.24
+:Version: 2020.8.13
 
 """
 
@@ -828,6 +828,27 @@ def test_issue_lzw_corrupt():
     with pytest.raises(RuntimeError):
         with TiffFile(fname) as tif:
             tif.asarray()
+
+
+def test_issue_iterable_compress():
+    """Test writing iterable of pages with compression."""
+    # https://github.com/cgohlke/tifffile/issues/20
+    data = numpy.random.rand(10, 10, 10) * 127
+    data = data.astype('int8')
+    with TempFileName('issue_iterable_compress') as fname:
+        with TiffWriter(fname) as tif:
+            tif.save(data, shape=(10, 10, 10), dtype='int8')
+            tif.save(data, shape=(10, 10, 10), dtype='int8', compress=6)
+        with TiffFile(fname) as tif:
+            assert_array_equal(tif.series[0].asarray(), data)
+            assert_array_equal(tif.series[1].asarray(), data)
+    with TempFileName('issue_iterable_compress_fail') as fname:
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.save(data, shape=(10, 10, 10), dtype='uint8')
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.save(data, shape=(10, 10, 10), dtype='uint8', compress=6)
 
 
 ###############################################################################
@@ -7481,6 +7502,24 @@ def test_write_zeroshape(shaped, data, repeat, shape):
         assert dtype == image.dtype
 
 
+def test_write_lists():
+    """Test write lists."""
+    array = numpy.arange(1000).reshape(10, 10, 10).astype('uint16')
+    data = array.tolist()
+    with TempFileName('write_lists') as fname:
+        with TiffWriter(fname) as tif:
+            tif.save(data, dtype='uint16')
+            tif.save(data, compress=6)
+            tif.save([100.0])
+            with pytest.warns(UserWarning):
+                tif.save([])
+        with TiffFile(fname) as tif:
+            assert_array_equal(tif.series[0].asarray(), array)
+            assert_array_equal(tif.series[1].asarray(), array)
+            assert_array_equal(tif.series[2].asarray(), [100.0])
+            assert_array_equal(tif.series[3].asarray(), [])
+
+
 def test_write_nopages():
     """Test write TIFF with no pages."""
     with TempFileName('nopages') as fname:
@@ -9231,13 +9270,23 @@ def test_write_tileiter():
             imwrite(fname, tiles(), shape=(43, 81), tile=(16, 16),
                     dtype='uint16')
 
-        with pytest.raises(AttributeError):
+        with pytest.raises(TypeError):
             # missing parameters
             imwrite(fname, tiles())
 
-        with pytest.raises(AttributeError):
+        with pytest.raises(TypeError):
             # missing parameters
             imwrite(fname, tiles(), shape=(43, 81))
+
+        with pytest.raises(ValueError):
+            # dtype mismatch
+            imwrite(fname, tiles(), shape=(43, 61), tile=(16, 16),
+                    dtype='uint32')
+
+        with pytest.raises(ValueError):
+            # shape mismatch
+            imwrite(fname, tiles(), shape=(43, 61), tile=(32, 32),
+                    dtype='uint16')
 
         imwrite(fname, tiles(), shape=(43, 61), tile=(16, 16), dtype='uint16')
 
@@ -9922,6 +9971,7 @@ def test_write_imagej_hyperstack(truncate, mmap):
         # assert file
         with TiffFile(fname) as tif:
             assert not tif.is_bigtiff
+            assert not tif.is_shaped
             assert len(tif.pages) == 1 if truncate else 210
             page = tif.pages[0]
             assert page.is_contiguous
@@ -9966,6 +10016,7 @@ def test_write_imagej_append():
         # assert file
         with TiffFile(fname) as tif:
             assert not tif.is_bigtiff
+            assert not tif.is_shaped
             assert len(tif.pages) == 256
             page = tif.pages[0]
             assert page.is_contiguous
@@ -10000,6 +10051,7 @@ def test_write_imagej_raw():
         # assert file
         with TiffFile(fname) as tif:
             assert not tif.is_bigtiff
+            assert not tif.is_shaped
             assert len(tif.pages) == 1
             page = tif.pages[0]
             assert page.is_contiguous
@@ -10063,6 +10115,7 @@ def test_write_ome(shape, axes):
         imwrite(fname, data, metadata=metadata)
         with TiffFile(fname) as tif:
             assert tif.is_ome
+            assert not tif.is_shaped
             image = tif.asarray()
             omexml = tif.ome_metadata
             if axes:
