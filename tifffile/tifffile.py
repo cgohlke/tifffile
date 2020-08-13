@@ -69,14 +69,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.7.24
+:Version: 2020.8.13
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.8, 3.8.5, 3.9.0b5 64-bit <https://www.python.org>`_
+* `CPython 3.7.8, 3.8.5, 3.9.0rc1 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -87,8 +87,11 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.8.13
+    Pass 4281 tests.
+    Fix writing iterable of pages with compression (#20).
+    Expand error checking of TiffWriter data, dtype, shape, and tile arguments.
 2020.7.24
-    Pass 4279 tests.
     Parse nested OmeXml metadata argument (WIP).
     Do not lazy load TiffFrame JPEGTables.
     Fix conditionally skipping some tests.
@@ -96,7 +99,7 @@ Revisions
     Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
     Raise error writing empty bilevel or tiled images.
     Allow to write tiled bilevel images.
-    Allow to write multi-page TIFF from iterator of single page images (WIP).
+    Allow to write multi-page TIFF from iterable of single page images (WIP).
     Add function to validate OME-XML.
     Correct Philips slide width and length.
 2020.7.17
@@ -135,7 +138,7 @@ Revisions
     Fix writing single tiles larger than image data (#3).
     Always store ExtraSamples values in tuple (breaking).
 2020.5.5
-    Allow to write tiled TIFF from iterator of tiles (WIP).
+    Allow to write tiled TIFF from iterable of tiles (WIP).
     Add function to iterate over decoded segments of TiffPage (WIP).
     Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
     Fix reading invalid files with too many strips.
@@ -571,7 +574,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
 """
 
-__version__ = '2020.7.24'
+__version__ = '2020.8.13'
 
 __all__ = (
     'imwrite',
@@ -955,7 +958,9 @@ class TiffWriter:
         elif byteorder not in ('<', '>'):
             raise ValueError(f'invalid byteorder {byteorder}')
         if imagej and bigtiff:
-            warnings.warn('writing nonconformant BigTIFF ImageJ', UserWarning)
+            warnings.warn(
+                'TiffWriter: writing nonconformant BigTIFF ImageJ', UserWarning
+            )
 
         self._byteorder = byteorder
         self._truncate = False
@@ -1024,12 +1029,12 @@ class TiffWriter:
         and the data values are indices into the last dimension of the
         colormap.
         If 'shape' and 'dtype' are specified instead of 'data', an empty array
-        is saved. This option cannot be used with compression, bilevel images,
-        or multiple tiles.
+        is saved. This option cannot be used with compression, predictors,
+        packed integers, bilevel images, or multiple tiles.
         If 'shape', 'dtype', and 'tile' are specified, 'data' must be a
-        sequence or generator of all tiles in the image.
+        iterable of all tiles in the image.
         If 'shape' and 'dtype' are specified but not 'tile', 'data' must be a
-        sequence or generator of all single plane images in the image.
+        iterable of all single planes in the image.
         Image data are written uncompressed in one strip per plane by default.
         Dimensions larger than 2 to 4 (depending on photometric mode, planar
         configuration, and SGI mode) are flattened and saved as separate pages.
@@ -1038,15 +1043,16 @@ class TiffWriter:
 
         Parameters
         ----------
-        data : numpy.ndarray, sequence of numpy.ndarray, or None
-            Input image or sequence of tiles or images.
-            Tiles must match the shape specified in 'tile'.
+        data : numpy.ndarray, iterable of numpy.ndarray, or None
+            Input image or iterable of tiles or images.
+            Iterable tiles must match 'dtype' and the shape specified in
+            'tile'. Iterable images must match 'dtype' and 'shape[1:]'.
         shape : tuple or None
             Shape of the empty or tiled array to save.
-            Used only if 'data' is None or a sequence of tiles or images.
+            Use only if 'data' is None or a iterable of tiles or images.
         dtype : numpy.dtype or None
             Datatype of the empty or tiled array to save.
-            Used only if 'data' is None or a sequence of tiles or images.
+            Use only if 'data' is None or a iterable of tiles or images.
         photometric : {'MINISBLACK', 'MINISWHITE', 'RGB', 'PALETTE', 'CFA'}
             The color space of the image data according to TIFF.PHOTOMETRIC.
             By default, this setting is inferred from the data shape and the
@@ -1060,7 +1066,7 @@ class TiffWriter:
             If this parameter is set, extra samples are used to store grayscale
             images.
             'CONTIG': last dimension contains samples.
-            'SEPARATE': third last dimension contains samples.
+            'SEPARATE': third (or fourth) last dimension contains samples.
         extrasamples : tuple of {'UNSPECIFIED', 'ASSOCALPHA', 'UNASSALPHA'}
             Defines the interpretation of extra components in pixels.
             'UNSPECIFIED': no transparency information (default).
@@ -1094,7 +1100,7 @@ class TiffWriter:
         rowsperstrip : int
             The number of rows per strip. By default, strips will be ~64 KB
             if compression is enabled, else rowsperstrip is set to the image
-            length. Bilevel images are always stored in one strip per plane.
+            length.
         bitspersample : int
             Number of bits per sample. By default, this is the number of
             bits of the data dtype. Different values for different samples
@@ -1146,9 +1152,9 @@ class TiffWriter:
             the image is part of a multi-page image. Set bit 2 if the image
             is transparency mask for another image (photometric must be
             MASK, SamplesPerPixel and BitsPerSample must be 1).
-        software : str
+        software : str or bool
             Name of the software used to create the file.
-            Default 'tifffile.py'. Must be 7-bit ASCII.
+            If None (default), 'tifffile.py'. Must be 7-bit ASCII.
             Saved with the first page of a contiguous series only.
         metadata : dict
             Additional metadata describing the image data. Will be saved along
@@ -1192,20 +1198,40 @@ class TiffWriter:
         if data is None:
             # empty
             dataiter = None
-            datashape = shape
+            datashape = tuple(shape)
             datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
             datadtypechar = datadtype.char
-        elif shape is not None and dtype is not None:
+        elif (
+            shape is not None and
+            dtype is not None and
+            hasattr(data, '__iter__')
+        ):
             # iterable pages or tiles
-            if not hasattr(data, '__iter__'):
-                raise ValueError('data is not iterable')
-            dataiter = data
-            datashape = shape
+            if hasattr(data, '__next__'):
+                dataiter = data
+            else:
+                dataiter = iter(data)
+            datashape = tuple(shape)
             datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
             datadtypechar = datadtype.char
+        elif hasattr(data, '__next__'):
+            # generator
+            raise TypeError('generators require `shape` and `dtype`')
         else:
             # whole image data
-            data = numpy.asarray(data, byteorder + data.dtype.char, 'C')
+            if hasattr(data, 'dtype'):
+                data = numpy.asarray(data, byteorder + data.dtype.char, 'C')
+            else:
+                data = numpy.asarray(data, dtype, 'C')
+                data = data.newbyteorder(byteorder)
+            if dtype is not None and dtype != data.dtype:
+                warnings.warn(
+                    'TiffWriter: ignoring `dtype` argument', UserWarning
+                )
+            if shape is not None and shape != data.shape:
+                warnings.warn(
+                    'TiffWriter: ignoring `shape` argument', UserWarning
+                )
             dataiter = None
             datashape = data.shape
             datadtype = data.dtype
@@ -1295,7 +1321,8 @@ class TiffWriter:
             # write single placeholder TiffPage for arrays with size=0
             datashape = (0, 0)
             warnings.warn(
-                'saving zero size array to nonconformant TIFF', UserWarning
+                'TiffWriter: writing zero size array to nonconformant TIFF',
+                UserWarning
             )
             # TODO: reconsider this
             # raise ValueError('cannot save zero size array')
@@ -1364,7 +1391,8 @@ class TiffWriter:
         if self._ome:
             if description:
                 warnings.warn(
-                    'not writing description to OME-TIFF', UserWarning
+                    'TiffWriter: not writing description to OME-TIFF',
+                    UserWarning
                 )
                 description = None
             if not isinstance(self._ome, OmeXml):
@@ -1377,7 +1405,8 @@ class TiffWriter:
             #         'ImageJ cannot handle predictors or compression')
             if description:
                 warnings.warn(
-                    'not writing description to ImageJ file', UserWarning
+                    'TiffWriter: not writing description to ImageJ file',
+                    UserWarning
                 )
                 description = None
             volume = False
@@ -1887,6 +1916,7 @@ class TiffWriter:
                 pass
             else:
                 dataiter = iter_images(data)
+
         else:
             # use rowsperstrip
             rowsize = product(storedshape[-2:]) * datadtype.itemsize
@@ -2059,32 +2089,37 @@ class TiffWriter:
                     fh.write_empty(datasize)
                 elif dataiter is not None:
                     for pagedata in dataiter:
+                        if pagedata.dtype != datadtype:
+                            raise ValueError(
+                                'dtype of iterable does not match dtype'
+                            )
                         fh.write_array(pagedata.reshape(storedshape[1:]))
                 else:
                     fh.write_array(data)
             elif tile:
+                tilesize = product(tile) * storedshape[-1] * datadtype.itemsize
                 if data is None:
                     fh.write_empty(numtiles * databytecounts[0])
-                else:
-                    tilesize = product(tile) * storedshape[-1]
+                elif compress:
                     for tileindex in range(storedshape[1] * product(tiles)):
                         chunk = next(dataiter)
                         if chunk is None:
-                            if compress:
-                                databytecounts[tileindex] = 0
-                            else:
-                                fh.write_empty(databytecounts[0])
+                            databytecounts[tileindex] = 0
                             continue
-                        if chunk.size != tilesize:
-                            raise ValueError(
-                                f'invalid tile {chunk.shape!r} != {tile!r}')
-                        if compress:
-                            t = compress(chunk)
-                            fh.write(t)
-                            databytecounts[tileindex] = len(t)
-                        else:
-                            fh.write_array(chunk)
-                            # fh.flush()
+                        if chunk.size * chunk.itemsize != tilesize:
+                            raise ValueError('invalid tile shape or dtype')
+                        t = compress(chunk)
+                        fh.write(t)
+                        databytecounts[tileindex] = len(t)
+                else:
+                    for tileindex in range(storedshape[1] * product(tiles)):
+                        chunk = next(dataiter)
+                        if chunk is None:
+                            fh.write_empty(databytecounts[0])
+                            continue
+                        if chunk.size * chunk.itemsize != tilesize:
+                            raise ValueError('invalid tile shape or dtype')
+                        fh.write_array(chunk)
             elif compress:
                 # write one strip per rowsperstrip
                 if storedshape[2] != 1:
@@ -2093,8 +2128,10 @@ class TiffWriter:
                     (storedshape[-3] + rowsperstrip - 1) // rowsperstrip
                 )
                 stripindex = 0
-                page = next(dataiter).reshape(storedshape[1:])
-                for plane in page:
+                pagedata = next(dataiter).reshape(storedshape[1:])
+                if pagedata.dtype != datadtype:
+                    raise ValueError('dtype of iterable does not match dtype')
+                for plane in pagedata:
                     for i in range(numstrips):
                         strip = plane[
                             0,
@@ -2105,8 +2142,10 @@ class TiffWriter:
                         databytecounts[stripindex] = len(strip)
                         stripindex += 1
             else:
-                page = next(dataiter).reshape(storedshape[1:])
-                fh.write_array(page)
+                pagedata = next(dataiter).reshape(storedshape[1:])
+                if pagedata.dtype != datadtype:
+                    raise ValueError('dtype of iterable does not match dtype')
+                fh.write_array(pagedata)
 
             # update strip/tile offsets
             offset, pos = dataoffsetsoffset
@@ -2206,7 +2245,9 @@ class TiffWriter:
                     ifd.write(pack(offsetformat, fhpos + pos))
                 except Exception:  # struct.error
                     if self._imagej:
-                        warnings.warn('truncating ImageJ file', UserWarning)
+                        warnings.warn(
+                            'TiffWriter: truncating ImageJ file', UserWarning
+                        )
                         self._truncate = True
                         return
                     raise ValueError('data too large for non-BigTIFF file')
@@ -2226,7 +2267,9 @@ class TiffWriter:
         # check if all IFDs fit in file
         if not self._bigtiff and fhpos + ifdsize * pageno > 2**32 - 32:
             if self._imagej:
-                warnings.warn('truncating ImageJ file', UserWarning)
+                warnings.warn(
+                    'TiffWriter: truncating ImageJ file', UserWarning
+                )
                 self._truncate = True
                 return
             raise ValueError('data too large for non-BigTIFF file')
@@ -2647,10 +2690,10 @@ class TiffFile:
         keyframe = self.pages.keyframe.index
         series = []
         for name in (
+            'shaped',
             'lsm',
             'ome',
             'imagej',
-            'shaped',
             'fluoview',
             'sis',
             'svs',
@@ -2803,7 +2846,8 @@ class TiffFile:
             keyframe = pages.keyframe
             if not keyframe.is_shaped:
                 log_warning(
-                    'Shaped series: invalid metadata or corrupted file')
+                    'Shaped series: invalid metadata or corrupted file'
+                )
                 return None
             # read metadata
             axes = None
@@ -2829,7 +2873,8 @@ class TiffFile:
                 mod = 0
             if mod:
                 log_warning(
-                    'Shaped series: series shape does not match page shape')
+                    'Shaped series: series shape does not match page shape'
+                )
                 return None
             if 1 < npages <= lenpages - index:
                 size *= keyframe._dtype.itemsize
@@ -3387,7 +3432,8 @@ class TiffFile:
                                 tif.pages._load(keyframe=None)
                             except (OSError, FileNotFoundError, ValueError):
                                 log_warning(
-                                    f'OME series: failed to read {fname!r}')
+                                    f'OME series: failed to read {fname!r}'
+                                )
                                 break
                             self._files[uuid.text] = tif
                             tif.close()
@@ -3786,15 +3832,15 @@ class TiffFile:
         info.append('\n'.join(str(s) for s in self.series))
         if detail >= 3:
             info.extend(
-                    TiffPage.__str__(p, detail=detail, width=width)
-                    for p in self.pages
-                    if p is not None
+                TiffPage.__str__(p, detail=detail, width=width)
+                for p in self.pages
+                if p is not None
             )
         elif self.series:
             info.extend(
-                    TiffPage.__str__(s.pages[0], detail=detail, width=width)
-                    for s in self.series
-                    if s.pages[0] is not None
+                TiffPage.__str__(s.pages[0], detail=detail, width=width)
+                for s in self.series
+                if s.pages[0] is not None
             )
         elif self.pages and self.pages[0]:
             info.append(
@@ -3830,7 +3876,7 @@ class TiffFile:
             ismdgel = (
                 self.pages[0].is_mdgel or
                 self.pages.get(1, cache=True).is_mdgel
-                )
+            )
             if ismdgel:
                 self.is_uniform = False
             return ismdgel
@@ -6041,7 +6087,7 @@ class TiffPage:
     @property
     def is_svs(self):
         """Page contains Aperio metadata."""
-        return self.description[:20] == 'Aperio Image Library'
+        return self.description[:7] == 'Aperio '
 
     @property
     def is_scanimage(self):
@@ -7672,7 +7718,10 @@ class OmeXml:
             raise OmeXmlError(f'data type {dtype!r} not supported')
 
         if metadata.get('Type', dtype) != dtype:
-            raise OmeXmlError(f'metadata Type does not match {dtype!r}')
+            raise OmeXmlError(
+                f'metadata Pixels Type {metadata["Type"]!r} '
+                f'does not match array dtype {dtype!r}'
+            )
 
         samples = 1
         planecount, separate, depth, height, width, contig = storedshape
@@ -9482,7 +9531,7 @@ class TIFF:
                         codec = imagecodecs.zlib_encode
                     elif key == 32773:
                         codec = imagecodecs.packbits_encode
-                    elif key == 34712:
+                    elif key == 33003 or key == 33005 or key == 34712:
                         codec = imagecodecs.jpeg2k_encode
                     elif key == 34887:
                         codec = imagecodecs.lerc_encode
@@ -11826,7 +11875,7 @@ def svs_description_metadata(description):
     {'Aperio Image Library': 'v1.0'}
 
     """
-    if not description.startswith('Aperio Image Library '):
+    if not description.startswith('Aperio '):
         raise ValueError('invalid Aperio image description')
     result = {}
     lines = description.split('\n')
@@ -13804,7 +13853,10 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
                 interpolation = 'nearest'
 
     if photometric == 'PALETTE' and isrgb:
-        datamax = data.max()
+        try:
+            datamax = numpy.max(data)
+        except ValueError:
+            datamax = 1
         if datamax > 255:
             data = data >> 8  # possible precision loss
         data = data.astype('B')
@@ -13828,7 +13880,10 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
         if nodata:
             data = data.copy()
             data[data > 1e30] = 0.0
-        datamax = data.max()
+        try:
+            datamax = numpy.max(data)
+        except ValueError:
+            datamax = 1
         if isrgb and datamax > 1.0:
             if data.dtype.char == 'd':
                 data = data.astype('f')
@@ -13839,7 +13894,10 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
         datamax = 1
     elif data.dtype.kind == 'c':
         data = numpy.absolute(data)
-        datamax = data.max()
+        try:
+            datamax = numpy.max(data)
+        except ValueError:
+            datamax = 1
 
     if isrgb:
         vmin = 0
@@ -13849,12 +13907,18 @@ def imshow(data, photometric=None, planarconfig=None, bitspersample=None,
         if vmin is None:
             if data.dtype.kind == 'i':
                 dtmin = numpy.iinfo(data.dtype).min
-                vmin = numpy.min(data)
+                try:
+                    vmin = numpy.min(data)
+                except ValueError:
+                    vmin = -1
                 if vmin == dtmin:
                     vmin = numpy.min(data[data > dtmin])
             elif data.dtype.kind == 'f':
                 dtmin = numpy.finfo(data.dtype).min
-                vmin = numpy.min(data)
+                try:
+                    vmin = numpy.min(data)
+                except ValueError:
+                    vmin = 0.0
                 if vmin == dtmin:
                     vmin = numpy.min(data[data > dtmin])
             else:
