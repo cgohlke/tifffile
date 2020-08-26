@@ -1,7 +1,12 @@
 Revisions
 ---------
+2020.8.25
+    Pass 4283 tests.
+    Do not convert EPICS timeStamp to datetime object.
+    Read incompletely written Micro-Manager image file stack header (#23).
+    Remove tag 51123 values from TiffFile.micromanager_metadata (breaking).
 2020.8.13
-    Pass 4281 tests.
+    Use tifffile metadata over OME and ImageJ for TiffFile.series (breaking).
     Fix writing iterable of pages with compression (#20).
     Expand error checking of TiffWriter data, dtype, shape, and tile arguments.
 2020.7.24
