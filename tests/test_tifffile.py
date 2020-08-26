@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.8.13
+:Version: 2020.8.25
 
 """
 
@@ -125,6 +125,7 @@ from tifffile.tifffile import (
     repeat_nd,
     julian_datetime,
     excel_datetime,
+    epics_datetime,
     squeeze_axes,
     transpose_axes,
     parse_filenames,
@@ -152,6 +153,7 @@ from tifffile.tifffile import (
     pformat,
     snipstr,
     byteorder_isnative,
+    byteorder_compare,
     enumarg,
     lsm2bin,
     create_output,
@@ -165,7 +167,6 @@ from tifffile.tifffile import (
 # skip certain tests
 SKIP_HUGE = False
 SKIP_EXTENDED = False
-SKIP_ROUNDTRIPS = False
 SKIP_PUBLIC = False  # skip public files
 SKIP_PRIVATE = False  # skip private files
 SKIP_VALIDATE = True  # skip validate written files with jhove
@@ -275,7 +276,7 @@ def assert__str__(tif, detail=3):
         TiffFile.__str__(tif, detail=i)
 
 
-def assert_valid_omexml(omexml, omexsd=None, _schema=[]):
+def assert_valid_omexml(omexml):
     """Validate OME-XML schema."""
     OmeXml.validate(omexml, assert_=True)
 
@@ -1263,6 +1264,24 @@ def test_func_byteorder_isnative():
         assert not byteorder_isnative('<')
 
 
+def test_func_byteorder_compare():
+    """Test byteorder_isnative function."""
+    assert byteorder_compare('<', '<')
+    assert byteorder_compare('>', '>')
+    assert byteorder_compare('=', '=')
+    assert byteorder_compare('|', '|')
+    assert byteorder_compare('>', '|')
+    assert byteorder_compare('<', '|')
+    assert byteorder_compare('|', '>')
+    assert byteorder_compare('|', '<')
+    assert byteorder_compare('=', '|')
+    assert byteorder_compare('|', '=')
+    if sys.byteorder == 'little':
+        assert byteorder_compare('<', '=')
+    else:
+        assert byteorder_compare('>', '=')
+
+
 def test_func_reshape_nd():
     """Test reshape_nd function."""
     assert reshape_nd(numpy.empty(0), 2).shape == (1, 0)
@@ -1480,7 +1499,8 @@ def test_func_json_description_metadata():
         'shape=(256, 256, 3)') == {'shape': (256, 256, 3)}
     assert json_description_metadata(
         '{"shape": [256, 256, 3], "axes": "YXS"}') == {
-            'shape': [256, 256, 3], 'axes': 'YXS'}
+            'shape': [256, 256, 3], 'axes': 'YXS'
+        }
 
 
 def test_func_imagej_shape():
@@ -6937,10 +6957,12 @@ def test_read_epics_attrib():
         assert page.is_contiguous
         # assert EPICS tags
         tags = tif.epics_metadata
-        assert tags['timeStamp'] == datetime.datetime(
-            1995, 6, 2, 11, 31, 31, 571414)
+        assert tags['timeStamp'] == 802117891.5714135
         assert tags['uniqueID'] == 15
         assert tags['Focus'] == 0.6778
+        assert epics_datetime(
+            tags['epicsTSSec'], tags['epicsTSNsec']
+        ) == datetime.datetime(2015, 6, 2, 11, 31, 56, 103746)
         assert__str__(tif)
 
 
@@ -7267,6 +7289,23 @@ def test_read_fei_metadata():
         assert fei['User']['User'] == 'supervisor'
         assert fei['System']['DisplayHeight'] == 0.324
         assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_ndtiffstorage():
+    """Test read NDTiffStorage/MagellanStack."""
+    # https://github.com/cgohlke/tifffile/issues/23
+    fname = private_file(
+        'NDTiffStorage/MagellanStack/Full resolution/democam_MagellanStack.tif'
+    )
+    with TiffFile(fname) as tif:
+        assert tif.is_micromanager
+        assert len(tif.pages) == 12
+        # with pytest.warns(UserWarning):
+        assert 'Comments' not in tif.micromanager_metadata
+        meta = tif.pages[-1].tags['MicroManagerMetadata'].value
+        assert meta['Axes']['repetition'] == 2
+        assert meta['Axes']['exposure'] == 3
 
 
 ###############################################################################
@@ -10354,7 +10393,8 @@ def assert_embed_micromanager(tif):
     assert len(tif.series) == 1
     # assert non-tiff micromanager_metadata
     tags = tif.micromanager_metadata['Summary']
-    assert tags["MicroManagerVersion"] == '1.4.x dev'
+    assert tags['MicroManagerVersion'] == '1.4.x dev'
+    assert tags['UserName'] == 'trurl'
     # assert page properties
     page = tif.pages[0]
     assert page.is_contiguous
@@ -10371,9 +10411,9 @@ def assert_embed_micromanager(tif):
     assert tags['frames'] == 5
     assert tags['slices'] == 3
     assert tags['Ranges'] == (706.0, 5846.0)
-    tags = tif.micromanager_metadata
-    assert tags["FileName"] == 'Untitled_1_MMStack.ome.tif'
-    assert tags["PixelType"] == 'GRAY16'
+    tags = tif.pages[0].tags[51123].value
+    assert tags['FileName'] == 'Untitled_1_MMStack.ome.tif'
+    assert tags['PixelType'] == 'GRAY16'
     # assert series properties
     series = tif.series[0]
     assert series.shape == (5, 3, 512, 512)
