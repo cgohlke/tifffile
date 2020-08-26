@@ -69,14 +69,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.8.13
+:Version: 2020.8.25
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.8, 3.8.5, 3.9.0rc1 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.5, 3.9.0rc1 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -87,8 +87,13 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.8.25
+    Pass 4283 tests.
+    Do not convert EPICS timeStamp to datetime object.
+    Read incompletely written Micro-Manager image file stack header (#23).
+    Remove tag 51123 values from TiffFile.micromanager_metadata (breaking).
 2020.8.13
-    Pass 4281 tests.
+    Use tifffile metadata over OME and ImageJ for TiffFile.series (breaking).
     Fix writing iterable of pages with compression (#20).
     Expand error checking of TiffWriter data, dtype, shape, and tile arguments.
 2020.7.24
@@ -562,19 +567,17 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 >>> with TiffFile('temp.tif') as tif:
 ...     fh = tif.filehandle
 ...     for page in tif.pages:
-...         jpegtables = page.tags.get('JPEGTables', None)
-...         if jpegtables is not None:
-...             jpegtables = jpegtables.value
 ...         for index, (offset, bytecount) in enumerate(
 ...             zip(page.dataoffsets, page.databytecounts)
 ...         ):
 ...             fh.seek(offset)
 ...             data = fh.read(bytecount)
-...             tile, indices, shape = page.decode(data, index, jpegtables)
+...             tile, indices, shape = page.decode(data, index,
+...                                                page.jpegtables)
 
 """
 
-__version__ = '2020.8.13'
+__version__ = '2020.8.25'
 
 __all__ = (
     'imwrite',
@@ -593,6 +596,7 @@ __all__ = (
     'TIFF',
     'OmeXmlError',
     'OmeXml',
+    'read_micromanager_metadata',
     # utility classes and functions used by oiffile, czifile, etc
     'FileHandle',
     'FileSequence',
@@ -1219,11 +1223,13 @@ class TiffWriter:
             raise TypeError('generators require `shape` and `dtype`')
         else:
             # whole image data
+            # must be converted to numpy array of TIFF byteorder
             if hasattr(data, 'dtype'):
-                data = numpy.asarray(data, byteorder + data.dtype.char, 'C')
+                data = numpy.asarray(data, byteorder + data.dtype.char)
             else:
-                data = numpy.asarray(data, dtype, 'C')
-                data = data.newbyteorder(byteorder)
+                datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
+                data = numpy.asarray(data, datadtype)
+
             if dtype is not None and dtype != data.dtype:
                 warnings.warn(
                     'TiffWriter: ignoring `dtype` argument', UserWarning
@@ -1631,7 +1637,11 @@ class TiffWriter:
             try:
                 tifftype = TIFF.DATA_DTYPES[dtype]
             except KeyError as exc:
-                raise ValueError(f'unknown dtype {dtype}') from exc
+                try:
+                    tifftype = dtype
+                    dtype = TIFF.DATA_FORMATS[tifftype]
+                except KeyError:
+                    raise ValueError(f'unknown dtype {dtype}') from exc
             rawcount = count
 
             if dtype == 's':
@@ -2064,7 +2074,8 @@ class TiffWriter:
                             # image description buffer
                             self._descriptionoffset = ifdpos + pos
                             self._descriptionlenoffset = (
-                                ifdpos + tagoffset + tagindex * tagsize + 4)
+                                ifdpos + tagoffset + tagindex * tagsize + 4
+                            )
                     elif code == tagoffsets:
                         dataoffsetsoffset = offset, None
                     elif code == tagbytecounts:
@@ -4128,10 +4139,9 @@ class TiffFile:
         if not self.is_micromanager:
             return None
         # from file header
-        result = read_micromanager_metadata(self._fh)
+        return read_micromanager_metadata(self._fh)
         # from MicroManagerMetadata tag
-        result.update(self.pages[0].tags[51123].value)
-        return result
+        # result.update(self.pages[0].tags[51123].value)
 
     @lazyattr
     def scanimage_metadata(self):
@@ -5770,6 +5780,9 @@ class TiffPage:
     def epics_tags(self):
         """Return consolidated metadata from EPICS areaDetector tags as dict.
 
+        Use epics_datetime() to get a datetime object from the epicsTSSec and
+        epicsTSNsec tags.
+
         """
         if not self.is_epics:
             return None
@@ -5780,8 +5793,9 @@ class TiffPage:
                 continue
             value = tag.value
             if code == 65000:
-                result['timeStamp'] = datetime.datetime.fromtimestamp(
-                    float(value))
+                # not a POSIX timestamp
+                # https://github.com/bluesky/area-detector-handlers/issues/20
+                result['timeStamp'] = float(value)
             elif code == 65001:
                 result['uniqueID'] = int(value)
             elif code == 65002:
@@ -8137,7 +8151,7 @@ class OmeXml:
                     etree.XMLSchema(etree.fromstring(omexsd.decode()))
                 )
             except Exception:
-                raise
+                # raise
                 _schema.append(None)
         if _schema and _schema[0] is not None:
             if omexml.startswith('<?xml'):
@@ -10810,7 +10824,8 @@ def read_mm_header(fh, byteorder, dtype, count, offsetsize):
         for d in mmh['Dimensions']]
     d = mmh['GrayChannel']
     mmh['GrayChannel'] = (
-        bytes2str(d[0]).strip(), d[1], d[2], d[3], bytes2str(d[4]).strip())
+        bytes2str(d[0]).strip(), d[1], d[2], d[3], bytes2str(d[4]).strip()
+    )
     return mmh
 
 
@@ -11392,8 +11407,6 @@ def read_micromanager_metadata(fh):
 
     The settings can be used to read image data without parsing the TIFF file.
 
-    Raise ValueError if the file does not contain valid MicroManager metadata.
-
     """
     fh.seek(0)
     try:
@@ -11414,40 +11427,53 @@ def read_micromanager_metadata(fh):
         summary_length
     ) = struct.unpack(byteorder + 'IIIIIIII', fh.read(32))
 
-    if summary_header != 2355492:
-        raise ValueError('invalid MicroManager summary header')
-    result['Summary'] = read_json(fh, byteorder, None, summary_length, None)
+    if summary_header == 2355492:
+        result['Summary'] = read_json(
+            fh, byteorder, None, summary_length, None
+        )
+    else:
+        log_warning('invalid MicroManager summary header')
 
-    if index_header != 54773648:
-        raise ValueError('invalid MicroManager index header')
-    fh.seek(index_offset)
-    header, count = struct.unpack(byteorder + 'II', fh.read(8))
-    if header != 3453623:
-        raise ValueError('invalid MicroManager index header')
-    data = struct.unpack(byteorder + 'IIIII' * count, fh.read(20 * count))
-    result['IndexMap'] = {
-        'Channel': data[::5],
-        'Slice': data[1::5],
-        'Frame': data[2::5],
-        'Position': data[3::5],
-        'Offset': data[4::5],
-    }
+    if index_header == 54773648:
+        fh.seek(index_offset)
+        header, count = struct.unpack(byteorder + 'II', fh.read(8))
+        if header == 3453623:
+            data = struct.unpack(
+                byteorder + 'IIIII' * count, fh.read(20 * count)
+            )
+            result['IndexMap'] = {
+                'Channel': data[::5],
+                'Slice': data[1::5],
+                'Frame': data[2::5],
+                'Position': data[3::5],
+                'Offset': data[4::5],
+            }
+        else:
+            log_warning('invalid MicroManager index header')
+    else:
+        log_warning('invalid MicroManager index header')
 
-    if display_header != 483765892:
-        raise ValueError('invalid MicroManager display header')
-    fh.seek(display_offset)
-    header, count = struct.unpack(byteorder + 'II', fh.read(8))
-    if header != 347834724:
-        raise ValueError('invalid MicroManager display header')
-    result['DisplaySettings'] = read_json(fh, byteorder, None, count, None)
+    if display_header == 483765892:
+        fh.seek(display_offset)
+        header, count = struct.unpack(byteorder + 'II', fh.read(8))
+        if header == 347834724:
+            result['DisplaySettings'] = read_json(
+                fh, byteorder, None, count, None
+            )
+        else:
+            log_warning('invalid MicroManager display header')
+    else:
+        log_warning('invalid MicroManager display header')
 
-    if comments_header != 99384722:
-        raise ValueError('invalid MicroManager comments header')
-    fh.seek(comments_offset)
-    header, count = struct.unpack(byteorder + 'II', fh.read(8))
-    if header != 84720485:
-        raise ValueError('invalid MicroManager comments header')
-    result['Comments'] = read_json(fh, byteorder, None, count, None)
+    if comments_header == 99384722:
+        fh.seek(comments_offset)
+        header, count = struct.unpack(byteorder + 'II', fh.read(8))
+        if header == 84720485:
+            result['Comments'] = read_json(fh, byteorder, None, count, None)
+        else:
+            log_warning('invalid MicroManager comments header')
+    else:
+        log_warning('invalid MicroManager comments header')
 
     return result
 
@@ -13194,6 +13220,11 @@ def natural_sorted(iterable):
     return sorted(iterable, key=sortkey)
 
 
+def epics_datetime(sec, nsec):
+    """Return datetime object from epicsTSSec and epicsTSNsec tag values."""
+    return datetime.datetime.fromtimestamp(sec + 631152000 + nsec / 1e9)
+
+
 def excel_datetime(timestamp, epoch=None):
     """Return datetime object from timestamp in Excel serial format.
 
@@ -13253,6 +13284,24 @@ def byteorder_isnative(byteorder):
         return True
     keys = {'big': '>', 'little': '<'}
     return keys.get(byteorder, byteorder) == keys[sys.byteorder]
+
+
+def byteorder_compare(byteorder, byteorder2):
+    """Return if byteorders match.
+
+    >>> byteorder_compare('<', '<')
+    True
+    >>> byteorder_compare('>', '<')
+    False
+
+    """
+    if byteorder == byteorder2 or byteorder == '|' or byteorder2 == '|':
+        return True
+    if byteorder == '=':
+        byteorder = {'big': '>', 'little': '<'}[sys.byteorder]
+    elif byteorder2 == '=':
+        byteorder2 = {'big': '>', 'little': '<'}[sys.byteorder]
+    return byteorder == byteorder2
 
 
 def recarray2dict(recarray):
