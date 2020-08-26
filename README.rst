@@ -39,14 +39,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.8.13
+:Version: 2020.8.25
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.8, 3.8.5, 3.9.0rc1 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.5, 3.9.0rc1 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -57,8 +57,13 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.8.25
+    Pass 4283 tests.
+    Do not convert EPICS timeStamp to datetime object.
+    Read incompletely written Micro-Manager image file stack header (#23).
+    Remove tag 51123 values from TiffFile.micromanager_metadata (breaking).
 2020.8.13
-    Pass 4281 tests.
+    Use tifffile metadata over OME and ImageJ for TiffFile.series (breaking).
     Fix writing iterable of pages with compression (#20).
     Expand error checking of TiffWriter data, dtype, shape, and tile arguments.
 2020.7.24
@@ -532,12 +537,10 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 >>> with TiffFile('temp.tif') as tif:
 ...     fh = tif.filehandle
 ...     for page in tif.pages:
-...         jpegtables = page.tags.get('JPEGTables', None)
-...         if jpegtables is not None:
-...             jpegtables = jpegtables.value
 ...         for index, (offset, bytecount) in enumerate(
 ...             zip(page.dataoffsets, page.databytecounts)
 ...         ):
 ...             fh.seek(offset)
 ...             data = fh.read(bytecount)
-...             tile, indices, shape = page.decode(data, index, jpegtables)
+...             tile, indices, shape = page.decode(data, index,
+...                                                page.jpegtables)
