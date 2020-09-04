@@ -1,7 +1,11 @@
 Revisions
 ---------
+2020.9.3
+    Pass 4338 tests.
+    Do not write contiguous series by default (breaking).
+    Allow to write to SubIFDs (WIP).
+    Fix writing F-contiguous numpy arrays (#24).
 2020.8.25
-    Pass 4283 tests.
     Do not convert EPICS timeStamp to datetime object.
     Read incompletely written Micro-Manager image file stack header (#23).
     Remove tag 51123 values from TiffFile.micromanager_metadata (breaking).
