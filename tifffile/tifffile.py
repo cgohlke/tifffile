@@ -69,7 +69,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.8.25
+:Version: 2020.9.3
 
 Requirements
 ------------
@@ -87,8 +87,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.9.3
+    Pass 4338 tests.
+    Do not write contiguous series by default (breaking).
+    Allow to write to SubIFDs (WIP).
+    Fix writing F-contiguous numpy arrays (#24).
 2020.8.25
-    Pass 4283 tests.
     Do not convert EPICS timeStamp to datetime object.
     Read incompletely written Micro-Manager image file stack header (#23).
     Remove tag 51123 values from TiffFile.micromanager_metadata (breaking).
@@ -488,7 +492,7 @@ Memory-map image data of the first page in the TIFF file:
 1.0
 >>> del memmap_image
 
-Successively append images to a BigTIFF file, which can exceed 4 GB:
+Successively append image series to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
@@ -514,7 +518,7 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 >>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
-...     tif.save(data1, photometric='minisblack', contiguous=False,
+...     tif.save(data1, photometric='minisblack',
 ...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
@@ -544,27 +548,28 @@ Create a TIFF file from a generator of tiles:
 ...     for i in range(data.shape[0]): yield data[i]
 >>> imwrite('temp.tif', tiles(), dtype='uint16', shape=(48, 64), tile=(16, 16))
 
-Write a tiled, multi-resolution, pyramidal TIFF file using JPEG compression:
+Write a tiled, multi-resolution, pyramidal OME-TIFF file using JPEG
+compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
->>> with TiffWriter('temp.tif') as tif:
-...     options = dict(tile=(256, 256), compress='jpeg', metadata=None)
-...     tif.save(data, **options)
+>>> with TiffWriter('temp.ome.tif') as tif:
+...     options = dict(tile=(256, 256), compress='jpeg')
+...     tif.save(data, subifds=2, **options)
 ...     # save pyramid levels. In production use resampling to generate levels!
 ...     tif.save(data[::2, ::2], subfiletype=1, **options)
 ...     tif.save(data[::4, ::4], subfiletype=1, **options)
 
-Access the image levels in the pyramidal TIFF file:
+Access the image levels in the pyramidal OME-TIFF file:
 
->>> baseimage = imread('temp.tif')
->>> second_level = imread('temp.tif', series=0, level=1)
->>> with TiffFile('temp.tif') as tif:
+>>> baseimage = imread('temp.ome.tif')
+>>> second_level = imread('temp.ome.tif', series=0, level=1)
+>>> with TiffFile('temp.ome.tif') as tif:
 ...     baseimage = tif.series[0].asarray()
 ...     second_level = tif.series[0].levels[1].asarray()
 
 Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
->>> with TiffFile('temp.tif') as tif:
+>>> with TiffFile('temp.ome.tif') as tif:
 ...     fh = tif.filehandle
 ...     for page in tif.pages:
 ...         for index, (offset, bytecount) in enumerate(
@@ -577,7 +582,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
 """
 
-__version__ = '2020.8.25'
+__version__ = '2020.9.3'
 
 __all__ = (
     'imwrite',
@@ -722,7 +727,7 @@ def imread(files, **kwargs):
 def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     """Write numpy array to TIFF file.
 
-    Refer to the TiffWriter class and its asarray function for documentation.
+    Refer to the TiffWriter class and its save function for documentation.
 
     A BigTIFF file is created if the data size in bytes is larger than 4 GB
     minus 32 MB (for metadata), and 'bigtiff' is not specified, and 'imagej'
@@ -892,9 +897,9 @@ class TiffWriter:
 
     TiffWriter instances are not thread-safe.
 
-    TiffWriter's main purpose is saving nD numpy array's as TIFF,
-    not to create any possible TIFF format. Specifically, SubIFDs, ExifIFD,
-    and GPSIFD tags are not supported.
+    TiffWriter's main purpose is saving nD numpy array's as TIFF, not to
+    create any possible TIFF format. Specifically, ExifIFD and GPSIFD tags
+    are not supported.
 
     """
 
@@ -947,8 +952,9 @@ class TiffWriter:
                     try:
                         with TiffFile(fh) as tif:
                             if append != 'force' and not tif.is_appendable:
-                                raise TiffFileError('cannot append to file'
-                                                    ' containing metadata')
+                                raise TiffFileError(
+                                    'cannot append to file containing metadata'
+                                )
                             byteorder = tif.byteorder
                             bigtiff = tif.is_bigtiff
                             self._ifdoffset = tif.pages.next_page_offset
@@ -980,6 +986,12 @@ class TiffWriter:
         self._dataoffset = None  # offset to data
         self._databytecounts = None  # byte counts per plane
         self._tagoffsets = None  # strip or tile offset tag code
+        self._subifds = 0  # number of subifds
+        self._subifdslevel = -1  # index of current subifd level
+        self._subifdsoffsets = []  # offsets to offsets to subifds
+        self._nextifdoffsets = []  # offsets to offset to next ifd
+        self._ifdindex = 0  # index of current ifd
+
         # normalized shape of data in consecutive pages
         # (pages, separate_samples, depth, height, width, contig_samples)
         self._storedshape = None
@@ -1020,12 +1032,12 @@ class TiffWriter:
 
     def save(self, data=None, shape=None, dtype=None,
              photometric=None, planarconfig=None, extrasamples=None, tile=None,
-             contiguous=True, align=None, truncate=False, rowsperstrip=None,
-             bitspersample=None, compress=None, predictor=None,
-             subsampling=None, colormap=None, description=None, datetime=None,
-             resolution=None, subfiletype=0, software=None,
+             contiguous=False, subifds=None, truncate=False, align=None,
+             rowsperstrip=None, bitspersample=None, compress=None,
+             predictor=None, subsampling=None, colormap=None, description=None,
+             datetime=None, resolution=None, subfiletype=0, software=None,
              metadata={}, ijmetadata=None, extratags=(), returnoffset=False):
-        """Write numpy array and tags to TIFF file.
+        """Write numpy array to TIFF file.
 
         The data shape's last dimensions are assumed to be image depth,
         height (length), width, and samples.
@@ -1049,13 +1061,16 @@ class TiffWriter:
         ----------
         data : numpy.ndarray, iterable of numpy.ndarray, or None
             Input image or iterable of tiles or images.
+            A copy of the image data is made if it is not a C-contiguous
+            numpy array with the same byteorder as the TIFF file.
             Iterable tiles must match 'dtype' and the shape specified in
             'tile'. Iterable images must match 'dtype' and 'shape[1:]'.
+            Iterables must contain C-contiguous numpy array of TIFF byteorder.
         shape : tuple or None
-            Shape of the empty or tiled array to save.
+            Shape of the empty or iterable data to save.
             Use only if 'data' is None or a iterable of tiles or images.
         dtype : numpy.dtype or None
-            Datatype of the empty or tiled array to save.
+            Datatype of the empty or iterable data to save.
             Use only if 'data' is None or a iterable of tiles or images.
         photometric : {'MINISBLACK', 'MINISWHITE', 'RGB', 'PALETTE', 'CFA'}
             The color space of the image data according to TIFF.PHOTOMETRIC.
@@ -1086,21 +1101,30 @@ class TiffWriter:
             matches the data shape.
             Few software can read the SGI format, e.g. MeVisLab.
         contiguous : bool
-            If True (default) and the data and parameters are compatible with
-            previous saved ones, the image data are stored contiguously after
-            the previous one. In that case, 'photometric',
-            'planarconfig', and 'rowsperstrip' are ignored. Metadata such as
-            'description', 'metadata', 'datetime', and 'extratags' are written
-            to the first page of a contiguous series only.
-            If False, start a new contiguous series.
-        align : int
-            Byte boundary on which to align the image data in the file.
-            Default 16. Use mmap.ALLOCATIONGRANULARITY for memory-mapped data.
-            Following contiguous writes are not aligned.
+            If False (default), save data to a new series.
+            If True and the data and parameters are compatible with previous
+            saved ones, the image data are stored contiguously after the
+            previous one. In that case, 'photometric', 'planarconfig', and
+            'rowsperstrip' are ignored. Metadata such as 'description',
+            'metadata', 'datetime', and 'extratags' are written to the first
+            page of a contiguous series only.
+        subifds : int
+            Number of child IFDs. If greater than 0, the following 'subifds'
+            number of series will be written as child IFDs of the current
+            series. The number of IFDs written for each SubIFD level must match
+            the number of IFDs written for the current series. All pages
+            written to a certain SubIFD level of the current series must have
+            the same hash. SubIFDs cannot be used with truncated or ImageJ
+            files. SubIFDs in OME-TIFF files must be sub-resolutions of the
+            main IFDs.
         truncate : bool
             If True, only write the first page of a contiguous series if
             possible (uncompressed, contiguous, not tiled).
             Other TIFF readers will only be able to read part of the data.
+        align : int
+            Byte boundary on which to align the image data in the file.
+            Default 16. Use mmap.ALLOCATIONGRANULARITY for memory-mapped data.
+            Following contiguous writes are not aligned.
         rowsperstrip : int
             The number of rows per strip. By default, strips will be ~64 KB
             if compression is enabled, else rowsperstrip is set to the image
@@ -1223,12 +1247,12 @@ class TiffWriter:
             raise TypeError('generators require `shape` and `dtype`')
         else:
             # whole image data
-            # must be converted to numpy array of TIFF byteorder
+            # must be C-contiguous numpy array of TIFF byteorder
             if hasattr(data, 'dtype'):
-                data = numpy.asarray(data, byteorder + data.dtype.char)
+                data = numpy.asarray(data, byteorder + data.dtype.char, 'C')
             else:
                 datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
-                data = numpy.asarray(data, datadtype)
+                data = numpy.asarray(data, datadtype, 'C')
 
             if dtype is not None and dtype != data.dtype:
                 warnings.warn(
@@ -1278,43 +1302,69 @@ class TiffWriter:
                 not contiguous
                 or self._datashape[1:] != datashape
                 or self._datadtype != datadtype
-                or (compress and self._tags)
-                or tile
-                or packints
                 or not numpy.array_equal(colormap, self._colormap)
             ):
-                # incompatible shape, dtype, compression mode, or colormap
+                # incompatible shape, dtype, or colormap
                 self._write_remaining_pages()
-                if self._ome:
-                    self._ome.addimage(
-                        self._datadtype,
-                        self._datashape[0 if self._datashape[0] != 1 else 1:],
-                        self._storedshape,
-                        **self._metadata
+
+                if self._imagej:
+                    raise ValueError(
+                        'ImageJ does not support non-contiguous series'
                     )
+                elif self._ome:
+                    if self._subifdslevel < 0:
+                        # add image to OME-XML
+                        self._ome.addimage(
+                            self._datadtype,
+                            self._datashape[
+                                0 if self._datashape[0] != 1 else 1:
+                            ],
+                            self._storedshape,
+                            **self._metadata
+                        )
                 else:
                     self._write_image_description()
                     self._descriptionoffset = 0
                     self._descriptionlenoffset = 0
+
+                if self._subifds:
+                    if self._truncate or truncate:
+                        raise ValueError(
+                            'SubIFDs cannot be used with truncated series'
+                        )
+                    self._subifdslevel += 1
+                    if self._subifdslevel == self._subifds:
+                        # done with writing SubIFDs
+                        self._nextifdoffsets = []
+                        self._subifdsoffsets = []
+                        self._subifdslevel = -1
+                        self._subifds = 0
+                        self._ifdindex = 0
+                    elif subifds:
+                        raise ValueError(
+                            'SubIFDs in SubIFDs are not supported'
+                        )
+
                 self._datashape = None
                 self._colormap = None
-                if self._imagej:
-                    raise ValueError(
-                        'ImageJ does not support non-contiguous data'
-                    )
+
+            elif compress or packints or tile:
+                raise ValueError(
+                    'contiguous cannot be used with compression, tiles, etc.'
+                )
+
             else:
                 # consecutive mode
+                # write contiguous data, write IFDs/tags later
                 self._datashape = (self._datashape[0] + 1,) + datashape
-                if not compress:
-                    # write contiguous data, write IFDs/tags later
-                    offset = fh.tell()
-                    if data is None:
-                        fh.write_empty(datasize)
-                    else:
-                        fh.write_array(data)
-                    if returnoffset:
-                        return offset, datasize
-                    return None
+                offset = fh.tell()
+                if data is None:
+                    fh.write_empty(datasize)
+                else:
+                    fh.write_array(data)
+                if returnoffset:
+                    return offset, datasize
+                return None
 
         if self._ome is None:
             if not description:
@@ -1786,6 +1836,12 @@ class TiffWriter:
                 addtag(32998, 'I', 1, tile[0])  # TileDepth
         if subfiletype:
             addtag(254, 'I', 1, subfiletype)  # NewSubfileType
+        if (subifds or self._subifds) and self._subifdslevel < 0:
+            if self._subifds:
+                subifds = self._subifds
+            else:
+                self._subifds = subifds = int(subifds)
+            addtag(330, 18 if self._bigtiff else 13, subifds, [0] * subifds)
         if not bilevel and not datadtype.kind == 'u':
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
             addtag(
@@ -2038,13 +2094,16 @@ class TiffWriter:
                 fh.write(b'\0')
                 ifdpos += 1
 
-            # update pointer at ifdoffset
-            fh.seek(self._ifdoffset)
-            fh.write(pack(offsetformat, ifdpos))
+            if self._subifdslevel < 0:
+                # update pointer at ifdoffset
+                fh.seek(self._ifdoffset)
+                fh.write(pack(offsetformat, ifdpos))
+
             fh.seek(ifdpos)
 
             # create IFD in memory
             if pageindex < 2:
+                subifdsoffsets = None
                 ifd = io.BytesIO()
                 ifd.write(pack(tagnoformat, len(tags)))
                 tagoffset = ifd.tell()
@@ -2076,10 +2135,14 @@ class TiffWriter:
                             self._descriptionlenoffset = (
                                 ifdpos + tagoffset + tagindex * tagsize + 4
                             )
+                        elif code == 330:
+                            subifdsoffsets = offset, pos
                     elif code == tagoffsets:
                         dataoffsetsoffset = offset, None
                     elif code == tagbytecounts:
                         databytecountsoffset = offset, None
+                    elif code == 330:
+                        subifdsoffsets = offset, None
                 ifdsize = ifd.tell()
                 if ifdsize % 2:
                     ifd.write(b'\0')
@@ -2180,13 +2243,42 @@ class TiffWriter:
                     ifd.seek(pos)
                 ifd.write(pack(bytecountformat, *databytecounts))
 
+            if subifdsoffsets is not None:
+                # update and save pointer to SubIFDs tag values if necessary
+                offset, pos = subifdsoffsets
+                if pos is not None:
+                    ifd.seek(offset)
+                    ifd.write(pack(offsetformat, ifdpos + pos))
+                    self._subifdsoffsets.append(ifdpos + pos)
+                else:
+                    self._subifdsoffsets.append(ifdpos + offset)
+
             fhpos = fh.tell()
             fh.seek(ifdpos)
             fh.write(ifd.getbuffer())
             fh.flush()
-            fh.seek(fhpos)
 
-            self._ifdoffset = ifdpos + ifdoffset
+            if self._subifdslevel < 0:
+                self._ifdoffset = ifdpos + ifdoffset
+            else:
+                # update SubIFDs tag values
+                fh.seek(
+                    self._subifdsoffsets[self._ifdindex] +
+                    self._subifdslevel * self._offsetsize
+                )
+                fh.write(pack(offsetformat, ifdpos))
+
+                # update SubIFD chain offsets
+                if self._subifdslevel == 0:
+                    self._nextifdoffsets.append(ifdpos + ifdoffset)
+                else:
+                    fh.seek(self._nextifdoffsets[self._ifdindex])
+                    fh.write(pack(offsetformat, ifdpos))
+                    self._nextifdoffsets[self._ifdindex] = ifdpos + ifdoffset
+                self._ifdindex += 1
+                self._ifdindex %= len(self._subifdsoffsets)
+
+            fh.seek(fhpos)
 
             # remove tags that should be written only once
             if pageindex == 0:
@@ -2231,6 +2323,7 @@ class TiffWriter:
         tagsize = self._tagsize
         dataoffset = self._dataoffset
         pagedatasize = sum(self._databytecounts)
+        subifdsoffsets = None
 
         # construct template IFD in memory
         # need to patch offsets to next IFD and data before writing to file
@@ -2267,8 +2360,13 @@ class TiffWriter:
                 if code == self._tagoffsets:
                     # save strip/tile offsets for later updates
                     dataoffsetsoffset = offset, pos
+                elif code == 330:
+                    # save subifds offsets for later updates
+                    subifdsoffsets = offset, pos
             elif code == self._tagoffsets:
                 dataoffsetsoffset = offset, None
+            elif code == 330:
+                subifdsoffsets = offset, None
 
         ifdsize = ifd.tell()
         if ifdsize % 2:
@@ -2293,7 +2391,7 @@ class TiffWriter:
             dataoffset += pagedatasize  # offset to image data
             offset, pos = dataoffsetsoffset
             ifd.seek(offset)
-            if pos:
+            if pos is not None:
                 ifd.write(pack(offsetformat, ifdpos + pos))
                 ifd.seek(pos)
                 offset = dataoffset
@@ -2302,10 +2400,45 @@ class TiffWriter:
                     offset += size
             else:
                 ifd.write(pack(offsetformat, dataoffset))
-            # update pointer at ifdoffset to point to next IFD in file
-            ifdpos += ifdsize
-            ifd.seek(ifdoffset)
-            ifd.write(pack(offsetformat, ifdpos))
+
+            if subifdsoffsets is not None:
+                offset, pos = subifdsoffsets
+                self._subifdsoffsets.append(
+                    ifdpos + (pos if pos is not None else offset)
+                )
+
+            if self._subifdslevel < 0:
+                if subifdsoffsets is not None:
+                    # update pointer to SubIFDs tag values if necessary
+                    offset, pos = subifdsoffsets
+                    if pos is not None:
+                        ifd.seek(offset)
+                        ifd.write(pack(offsetformat, ifdpos + pos))
+
+                # update pointer at ifdoffset to point to next IFD in file
+                ifdpos += ifdsize
+                ifd.seek(ifdoffset)
+                ifd.write(pack(offsetformat, ifdpos))
+
+            else:
+                # update SubIFDs tag values in file
+                fh.seek(
+                    self._subifdsoffsets[self._ifdindex] +
+                    self._subifdslevel * self._offsetsize
+                )
+                fh.write(pack(offsetformat, ifdpos))
+
+                # update SubIFD chain
+                if self._subifdslevel == 0:
+                    self._nextifdoffsets.append(ifdpos + ifdoffset)
+                else:
+                    fh.seek(self._nextifdoffsets[self._ifdindex])
+                    fh.write(pack(offsetformat, ifdpos))
+                    self._nextifdoffsets[self._ifdindex] = ifdpos + ifdoffset
+                self._ifdindex += 1
+                self._ifdindex %= len(self._subifdsoffsets)
+                ifdpos += ifdsize
+
             # write IFD entry
             ifds.write(ifd.getbuffer())
 
@@ -2314,15 +2447,18 @@ class TiffWriter:
         ifds.seek(ifdoffset)
         ifds.write(pack(offsetformat, 0))
         # write IFD chain to file
+        fh.seek(fhpos)
         fh.write(ifds.getbuffer())
-        # update file to point to new IFD chain
-        pos = fh.tell()
-        fh.seek(self._ifdoffset)
-        fh.write(pack(offsetformat, fhpos))
-        fh.flush()
-        fh.seek(pos)
 
-        self._ifdoffset = fhpos + ifdoffset
+        if self._subifdslevel < 0:
+            # update file to point to new IFD chain
+            pos = fh.tell()
+            fh.seek(self._ifdoffset)
+            fh.write(pack(offsetformat, fhpos))
+            fh.flush()
+            fh.seek(pos)
+            self._ifdoffset = fhpos + ifdoffset
+
         self._tags = None
         self._dataoffset = None
         self._databytecounts = None
@@ -2330,18 +2466,27 @@ class TiffWriter:
 
     def _write_image_description(self):
         """Write metadata to ImageDescription tag."""
-        if self._datashape is None or self._descriptionoffset <= 0:
+        if (
+            self._datashape is None or
+            self._descriptionoffset <= 0
+        ):
             return
+
         if self._ome:
-            self._ome.addimage(
-                self._datadtype,
-                self._datashape[0 if self._datashape[0] != 1 else 1:],
-                self._storedshape,
-                **self._metadata
-            )
+            if self._subifdslevel < 0:
+                self._ome.addimage(
+                    self._datadtype,
+                    self._datashape[0 if self._datashape[0] != 1 else 1:],
+                    self._storedshape,
+                    **self._metadata
+                )
             description = self._ome.tostring(declaration=True)
         elif self._datashape[0] == 1:
+            # description already up-to-date
             return
+        # elif self._subifdlevel >= 0:
+        #     # don't write metadata to SubIFDs
+        #     return
         elif self._imagej:
             colormapped = self._colormap is not None
             isrgb = self._storedshape[-1] in (3, 4)
@@ -2814,9 +2959,6 @@ class TiffFile:
 
     def _series_shaped(self):
         """Return image series in "shaped" file."""
-        pages = self.pages
-        pages.useframes = True
-        lenpages = len(pages)
 
         def append(series, pages, axes, shape, reshape, name, truncated):
             # append TiffPageSeries to series
@@ -2846,66 +2988,105 @@ class TiffFile:
                                name=name, kind='Shaped', truncated=truncated)
             )
 
-        keyframe = axes = shape = reshape = name = None
-        series = []
-        index = 0
-        while True:
-            if index >= lenpages:
-                break
-            # new keyframe; start of new series
-            pages.keyframe = index
-            keyframe = pages.keyframe
-            if not keyframe.is_shaped:
-                log_warning(
-                    'Shaped series: invalid metadata or corrupted file'
-                )
-                return None
-            # read metadata
-            axes = None
-            shape = None
-            metadata = json_description_metadata(keyframe.is_shaped)
-            name = metadata.get('name', '')
-            reshape = metadata['shape']
-            truncated = metadata.get('truncated', None)
-            if 'axes' in metadata:
-                axes = metadata['axes']
-                if len(axes) == len(reshape):
-                    shape = reshape
+        def detect_series(pages, series, issubifds=False):
+            lenpages = len(pages)
+            keyframe = axes = shape = reshape = name = None
+            index = 0
+            while True:
+                if index >= lenpages:
+                    break
+                if issubifds:
+                    keyframe = pages[0]
                 else:
-                    axes = ''
-                    log_warning('Shaped series: axes do not match shape')
-            # skip pages if possible
-            spages = [keyframe]
-            size = product(reshape)
-            if size > 0:
-                npages, mod = divmod(size, product(keyframe.shape))
-            else:
-                npages = 1
-                mod = 0
-            if mod:
-                log_warning(
-                    'Shaped series: series shape does not match page shape'
-                )
-                return None
-            if 1 < npages <= lenpages - index:
-                size *= keyframe._dtype.itemsize
-                if truncated:
+                    # new keyframe; start of new series
+                    pages.keyframe = index
+                    keyframe = pages.keyframe
+                if not keyframe.is_shaped:
+                    log_warning(
+                        'Shaped series: invalid metadata or corrupted file'
+                    )
+                    return None
+                # read metadata
+                axes = None
+                shape = None
+                metadata = json_description_metadata(keyframe.is_shaped)
+                name = metadata.get('name', '')
+                reshape = metadata['shape']
+                truncated = None if keyframe.subifds is None else False
+                truncated = metadata.get('truncated', truncated)
+                if 'axes' in metadata:
+                    axes = metadata['axes']
+                    if len(axes) == len(reshape):
+                        shape = reshape
+                    else:
+                        axes = ''
+                        log_warning('Shaped series: axes do not match shape')
+                # skip pages if possible
+                spages = [keyframe]
+                size = product(reshape)
+                if size > 0:
+                    npages, mod = divmod(size, product(keyframe.shape))
+                else:
                     npages = 1
-                elif (
-                    keyframe.is_final
-                    and keyframe.offset + size < pages[index + 1].offset
-                ):
-                    truncated = False
-                else:
-                    # need to read all pages for series
-                    truncated = False
-                    for j in range(index + 1, index + npages):
-                        page = pages[j]
-                        page.keyframe = keyframe
-                        spages.append(page)
-            append(series, spages, axes, shape, reshape, name, truncated)
-            index += npages
+                    mod = 0
+                if mod:
+                    log_warning(
+                        'Shaped series: series shape does not match page shape'
+                    )
+                    return None
+                if 1 < npages <= lenpages - index:
+                    size *= keyframe._dtype.itemsize
+                    if truncated:
+                        npages = 1
+                    elif (
+                        keyframe.is_final and
+                        keyframe.offset + size < pages[index + 1].offset and
+                        keyframe.subifds is None
+                    ):
+                        truncated = False
+                    else:
+                        # need to read all pages for series
+                        truncated = False
+                        for j in range(index + 1, index + npages):
+                            page = pages[j]
+                            page.keyframe = keyframe
+                            spages.append(page)
+                append(series, spages, axes, shape, reshape, name, truncated)
+                index += npages
 
+                # create series from SubIFDs
+                if keyframe.subifds:
+                    for i, offset in enumerate(keyframe.subifds):
+                        if offset < 8:
+                            continue
+                        subifds = []
+                        for j, page in enumerate(spages):
+                            # if page.subifds is not None:
+                            try:
+                                self._fh.seek(page.subifds[i])
+                                if j == 0:
+                                    subifd = TiffPage(self, (page.index, i))
+                                    keysubifd = subifd
+                                else:
+                                    subifd = TiffFrame(self, (page.index, i),
+                                                       keyframe=keysubifd)
+                            except Exception as exc:
+                                log_warning(
+                                    f'Generic series: {exc.__class__.__name__}'
+                                    f': {exc}'
+                                )
+                                return None
+                            subifds.append(subifd)
+                        if subifds:
+                            series = detect_series(subifds, series, True)
+                            if series is None:
+                                return None
+            return series
+
+        self.pages.useframes = True
+        series = detect_series(self.pages, [])
+        if series is None:
+            return None
         self.is_uniform = len(series) == 1
         pyramidize_series(series, isreduced=True)
         return series
@@ -3900,6 +4081,8 @@ class TiffFile:
         # the hashes of IFDs 0, 7, and -1 are the same
         pages = self.pages
         page = pages[0]
+        if page.subifds:
+            return False
         if page.is_scanimage or page.is_nih:
             return True
         try:
@@ -4688,8 +4871,7 @@ class TiffPage:
         fh = parent.filehandle
         self.offset = fh.tell()  # offset to this IFD
         try:
-            tagno = struct.unpack(
-                tiff.tagnoformat, fh.read(tiff.tagnosize))[0]
+            tagno = struct.unpack(tiff.tagnoformat, fh.read(tiff.tagnosize))[0]
             if tagno > 4096:
                 raise TiffFileError(
                     f'TiffPage {self.index}: suspicious number of tags'
@@ -5539,8 +5721,19 @@ class TiffPage:
 
     def _gettags(self, codes=None, lock=None):
         """Return list of (code, TiffTag)."""
-        return [(tag.code, tag) for tag in self.tags
-                if codes is None or tag.code in codes]
+        return [
+            (tag.code, tag) for tag in self.tags
+            if codes is None or tag.code in codes
+        ]
+
+    def _nextifd(self):
+        """Return offset to next IFD from file."""
+        fh = self.parent.filehandle
+        tiff = self.parent.tiff
+        fh.seek(self.offset)
+        tagno = struct.unpack(tiff.tagnoformat, fh.read(tiff.tagnosize))[0]
+        fh.seek(self.offset + tiff.tagnosize + tagno * tiff.tagsize)
+        return struct.unpack(tiff.offsetformat, fh.read(tiff.offsetsize))[0]
 
     def aspage(self):
         """Return self."""
@@ -6271,6 +6464,10 @@ class TiffFrame:
                 tags.append((code, tag))
 
         return tags
+
+    def _nextifd(self):
+        """Return offset to next IFD from file."""
+        return TiffPage._nextifd(self)
 
     def aspage(self):
         """Return TiffPage from file."""
@@ -11220,15 +11417,17 @@ def read_sis(fh, byteorder, dtype, count, offsetsize):
     result = {}
 
     (magic, minute, hour, day, month, year, name, tagcount) = struct.unpack(
-        '<4s6xhhhhh6x32sh', fh.read(60))
+        '<4s6xhhhhh6x32sh', fh.read(60)
+    )
 
     if magic != b'SIS0':
         raise ValueError('invalid OlympusSIS structure')
 
     result['name'] = bytes2str(stripnull(name))
     try:
-        result['datetime'] = datetime.datetime(1900 + year, month + 1, day,
-                                               hour, minute)
+        result['datetime'] = datetime.datetime(
+            1900 + year, month + 1, day, hour, minute
+        )
     except ValueError:
         pass
 
@@ -11239,7 +11438,8 @@ def read_sis(fh, byteorder, dtype, count, offsetsize):
         if tagtype == 1:
             # general data
             (lenexp, xcal, ycal, mag, camname, pictype) = struct.unpack(
-                '<10xhdd8xd2x34s32s', fh.read(112))  # 220
+                '<10xhdd8xd2x34s32s', fh.read(112)  # 220
+            )
             m = math.pow(10, lenexp)
             result['pixelsizex'] = xcal * m
             result['pixelsizey'] = ycal * m
