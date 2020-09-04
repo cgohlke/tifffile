@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.8.25
+:Version: 2020.9.3
 
 """
 
@@ -71,6 +71,7 @@ import tifffile
 try:
     from tifffile import *
     STAR_IMPORTED = (
+        TIFF,
         imwrite,
         imread,
         imshow,
@@ -771,6 +772,19 @@ def test_issue_tile_partial():
                 page.tags['TileByteCounts'].value[0] ==
                 tif.filehandle.size
                 )
+            assert_array_equal(page.asarray(), data)
+            assert__str__(tif)
+
+
+def test_issue_fcontiguous():
+    """Test writing F-contiguous arrays."""
+    # https://github.com/cgohlke/tifffile/issues/24
+    data = numpy.asarray(random_data('uint8', (31, 33)), order='F')
+    with TempFileName('fcontiguous') as fname:
+        imwrite(fname, data, compress=6)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
             assert_array_equal(page.asarray(), data)
             assert__str__(tif)
 
@@ -7501,7 +7515,8 @@ def test_write_zeroshape(shaped, data, repeat, shape):
             with TiffWriter(fname) as tif:
                 with pytest.warns(UserWarning):
                     for _ in range(repeat):
-                        tif.save(shape=shape, dtype=dtype, metadata=metadata)
+                        tif.save(shape=shape, dtype=dtype, contiguous=True,
+                                 metadata=metadata)
                     tif.save(numpy.zeros((16, 16), 'u2'), metadata=metadata)
             with TiffFile(fname) as tif:
                 assert__str__(tif)
@@ -7511,7 +7526,7 @@ def test_write_zeroshape(shaped, data, repeat, shape):
             with TiffWriter(fname) as tif:
                 with pytest.warns(UserWarning):
                     for _ in range(repeat):
-                        tif.save(data, metadata=metadata)
+                        tif.save(data, contiguous=True, metadata=metadata)
                     tif.save(numpy.zeros((16, 16), 'u2'), metadata=metadata)
             with TiffFile(fname) as tif:
                 assert__str__(tif)
@@ -7539,6 +7554,91 @@ def test_write_zeroshape(shaped, data, repeat, shape):
         else:
             assert image.shape == (0, 0)
         assert dtype == image.dtype
+
+
+@pytest.mark.parametrize('repeats', [1, 2])
+@pytest.mark.parametrize('series', [1, 2])
+@pytest.mark.parametrize('subifds', [0, 1, 2])
+@pytest.mark.parametrize('compressed', [False, True])
+@pytest.mark.parametrize('tiled', [False, True])
+@pytest.mark.parametrize('ome', [False, True])
+def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
+    """Test writing SubIFDs."""
+    if repeats > 1 and (compressed or tiled or ome):
+        pytest.xfail('contiguous not working with compression, tiles, ome')
+
+    data = [
+        (numpy.random.rand(5, 64, 64) * 1023).astype('uint16'),
+        (numpy.random.rand(5, 32, 32) * 1023).astype('uint16'),
+        (numpy.random.rand(5, 16, 16) * 1023).astype('uint16'),
+    ]
+
+    kwargs = {
+        'tile': (16, 16) if tiled else None,
+        'compress': 6 if compressed else None,
+    }
+
+    with TempFileName(
+        'write_subidfs_'
+        f'{ome}-{tiled}-{compressed}-{subifds}-{series}-{repeats}'
+    ) as fname:
+        with TiffWriter(fname, ome=ome) as tif:
+            for _ in range(series):
+                for r in range(repeats):
+                    kwargs['contiguous'] = r != 0
+                    tif.save(data[0], subifds=subifds, **kwargs)
+                for i in range(1, subifds + 1):
+                    for r in range(repeats):
+                        kwargs['contiguous'] = r != 0
+                        tif.save(data[i], subfiletype=1, **kwargs)
+
+        with TiffFile(fname) as tif:
+            for i, page in enumerate(tif.pages):
+                if i % (5 * repeats):
+                    assert page.description == ''
+                elif ome:
+                    if i == 0:
+                        assert page.is_ome
+                    else:
+                        assert page.description == ''
+                else:
+                    assert page.is_shaped
+
+                assert_array_equal(page.asarray(), data[0][i % 5])
+                assert len(page.pages) == subifds
+
+                for j, subifd in enumerate(page.pages):
+                    assert_array_equal(subifd.asarray(), data[j + 1][i % 5])
+
+            for i, page in enumerate(tif.pages[:-1]):
+                assert page._nextifd() == tif.pages[i + 1].offset
+
+                if subifds:
+                    for j, subifd in enumerate(page.pages[:-1]):
+                        assert subifd.subfiletype == 1
+                        assert subifd._nextifd() == page.subifds[j + 1]
+
+                    assert page.pages[-1]._nextifd() == 0
+
+            assert len(tif.series) == series
+
+            if repeats > 1:
+                for s in range(series):
+                    assert tif.series[s].kind == 'OME' if ome else 'Shaped'
+                    assert_array_equal(tif.series[s].asarray()[0], data[0])
+                    for i in range(subifds):
+                        assert_array_equal(
+                            tif.series[s].levels[i + 1].asarray()[0],
+                            data[i + 1]
+                        )
+            else:
+                for s in range(series):
+                    assert tif.series[s].kind == 'OME' if ome else 'Shaped'
+                    assert_array_equal(tif.series[s].asarray(), data[0])
+                    for i in range(subifds):
+                        assert_array_equal(
+                            tif.series[s].levels[i + 1].asarray(), data[i + 1]
+                        )
 
 
 def test_write_lists():
@@ -7633,7 +7733,7 @@ def test_write_append():
 
         with TiffWriter(fname, append=True) as tif:
             tif.save(data)
-            tif.save(data)
+            tif.save(data, contiguous=True)
         with TiffFile(fname) as tif:
             assert len(tif.series) == 2
             assert len(tif.pages) == 3
@@ -7674,7 +7774,7 @@ def test_write_append_bytesio():
     file.seek(offset)
     with TiffWriter(file, append=True) as tif:
         tif.save(data)
-        tif.save(data)
+        tif.save(data, contiguous=True)
     file.seek(offset)
     with TiffFile(file) as tif:
         assert len(tif.series) == 2
@@ -7783,7 +7883,7 @@ def test_write_is_shaped():
             assert page.description == '{"shape": [4, 5, 6, 3]}'
             assert__str__(tif)
     with TempFileName('is_shaped_with_description') as fname:
-        descr = "test is_shaped_with_description"
+        descr = 'test is_shaped_with_description'
         imwrite(fname, random_data('uint8', (5, 6, 3)), description=descr)
         assert_valid(fname)
         with TiffFile(fname) as tif:
@@ -7949,7 +8049,7 @@ def test_write_datetime_tag(dt):
 def test_write_description_tag():
     """Test write two description tags."""
     data = random_data('uint8', (2, 219, 301))
-    description = "Created by TestTiffWriter\nLorem ipsum dolor..."
+    description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
     with TempFileName('description_tag') as fname:
         imwrite(fname, data, description=description)
         assert_valid(fname)
@@ -7964,7 +8064,7 @@ def test_write_description_tag():
 def test_write_description_tag_nojson():
     """Test no JSON description is written with metatata=None."""
     data = random_data('uint8', (2, 219, 301))
-    description = "Created by TestTiffWriter\nLorem ipsum dolor..."
+    description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
     with TempFileName('description_tag_nojson') as fname:
         imwrite(fname, data, description=description, metadata=None)
         assert_valid(fname)
@@ -7979,7 +8079,7 @@ def test_write_description_tag_nojson():
 def test_write_software_tag():
     """Test write Software tag."""
     data = random_data('uint8', (2, 219, 301))
-    software = "test_tifffile.py"
+    software = 'test_tifffile.py'
     with TempFileName('software_tag') as fname:
         imwrite(fname, data, software=software)
         assert_valid(fname)
@@ -9596,7 +9696,7 @@ def test_write_multiple_save():
     with TempFileName('append') as fname:
         with TiffWriter(fname, bigtiff=True) as tif:
             for i in range(data.shape[0]):
-                tif.save(data[i])
+                tif.save(data[i], contiguous=True)
         # assert_jhove(fname)
         with TiffFile(fname) as tif:
             assert tif.is_bigtiff
@@ -9724,7 +9824,7 @@ def test_write_multiple_series():
             # series 2
             tif.save(data1[0], metadata=dict(axes='TCZYX'))
             for i in range(1, data1.shape[0]):
-                tif.save(data1[i])
+                tif.save(data1[i], contiguous=True)
             # series 3
             tif.save(data1[0], contiguous=False)
             # series 4
@@ -10048,7 +10148,7 @@ def test_write_imagej_append():
     with TempFileName('imagej_append') as fname:
         with TiffWriter(fname, imagej=True) as tif:
             for image in data:
-                tif.save(image)
+                tif.save(image, contiguous=True)
 
         assert_valid(fname)
 
