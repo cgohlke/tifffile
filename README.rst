@@ -39,7 +39,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.8.25
+:Version: 2020.9.3
 
 Requirements
 ------------
@@ -57,8 +57,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.9.3
+    Pass 4338 tests.
+    Do not write contiguous series by default (breaking).
+    Allow to write to SubIFDs (WIP).
+    Fix writing F-contiguous numpy arrays (#24).
 2020.8.25
-    Pass 4283 tests.
     Do not convert EPICS timeStamp to datetime object.
     Read incompletely written Micro-Manager image file stack header (#23).
     Remove tag 51123 values from TiffFile.micromanager_metadata (breaking).
@@ -458,7 +462,7 @@ Memory-map image data of the first page in the TIFF file:
 1.0
 >>> del memmap_image
 
-Successively append images to a BigTIFF file, which can exceed 4 GB:
+Successively append image series to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
@@ -484,7 +488,7 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 >>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
 ...     tif.save(data0, compress=6, photometric='rgb')
-...     tif.save(data1, photometric='minisblack', contiguous=False,
+...     tif.save(data1, photometric='minisblack',
 ...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
@@ -514,27 +518,28 @@ Create a TIFF file from a generator of tiles:
 ...     for i in range(data.shape[0]): yield data[i]
 >>> imwrite('temp.tif', tiles(), dtype='uint16', shape=(48, 64), tile=(16, 16))
 
-Write a tiled, multi-resolution, pyramidal TIFF file using JPEG compression:
+Write a tiled, multi-resolution, pyramidal OME-TIFF file using JPEG
+compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
->>> with TiffWriter('temp.tif') as tif:
-...     options = dict(tile=(256, 256), compress='jpeg', metadata=None)
-...     tif.save(data, **options)
+>>> with TiffWriter('temp.ome.tif') as tif:
+...     options = dict(tile=(256, 256), compress='jpeg')
+...     tif.save(data, subifds=2, **options)
 ...     # save pyramid levels. In production use resampling to generate levels!
 ...     tif.save(data[::2, ::2], subfiletype=1, **options)
 ...     tif.save(data[::4, ::4], subfiletype=1, **options)
 
-Access the image levels in the pyramidal TIFF file:
+Access the image levels in the pyramidal OME-TIFF file:
 
->>> baseimage = imread('temp.tif')
->>> second_level = imread('temp.tif', series=0, level=1)
->>> with TiffFile('temp.tif') as tif:
+>>> baseimage = imread('temp.ome.tif')
+>>> second_level = imread('temp.ome.tif', series=0, level=1)
+>>> with TiffFile('temp.ome.tif') as tif:
 ...     baseimage = tif.series[0].asarray()
 ...     second_level = tif.series[0].levels[1].asarray()
 
 Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
->>> with TiffFile('temp.tif') as tif:
+>>> with TiffFile('temp.ome.tif') as tif:
 ...     fh = tif.filehandle
 ...     for page in tif.pages:
 ...         for index, (offset, bytecount) in enumerate(
