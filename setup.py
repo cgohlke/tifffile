@@ -17,11 +17,15 @@ version += ('.' + buildnumber) if buildnumber else ''
 
 description = re.search(r'"""(.*)\.(?:\r\n|\r|\n)', code).groups()[0]
 
-readme = re.search(r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}__version__',
-                   code, re.MULTILINE | re.DOTALL).groups()[0]
+readme = re.search(
+    r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}__version__',
+    code,
+    re.MULTILINE | re.DOTALL,
+).groups()[0]
 
-readme = '\n'.join([description, '=' * len(description)] +
-                   readme.splitlines()[1:])
+readme = '\n'.join(
+    [description, '=' * len(description)] + readme.splitlines()[1:]
+)
 
 if 'sdist' in sys.argv:
     # update README, LICENSE, and CHANGES files
@@ -29,8 +33,11 @@ if 'sdist' in sys.argv:
     with open('README.rst', 'w') as fh:
         fh.write(readme)
 
-    license = re.search(r'(# Copyright.*?(?:\r\n|\r|\n))(?:\r\n|\r|\n)+""',
-                        code, re.MULTILINE | re.DOTALL).groups()[0]
+    license = re.search(
+        r'(# Copyright.*?(?:\r\n|\r|\n))(?:\r\n|\r|\n)+""',
+        code,
+        re.MULTILINE | re.DOTALL,
+    ).groups()[0]
 
     license = license.replace('# ', '').replace('#', '')
 
@@ -38,8 +45,15 @@ if 'sdist' in sys.argv:
         fh.write('BSD 3-Clause License\n\n')
         fh.write(license)
 
-    revisions = re.search(r'(?:\r\n|\r|\n){2}(Revisions.*)   \.\.\.', readme,
-                          re.MULTILINE | re.DOTALL).groups()[0].strip()
+    revisions = (
+        re.search(
+            r'(?:\r\n|\r|\n){2}(Revisions.*)   \.\.\.',
+            readme,
+            re.MULTILINE | re.DOTALL,
+        )
+        .groups()[0]
+        .strip()
+    )
 
     with open('CHANGES.rst', 'r') as fh:
         old = fh.read()
@@ -65,25 +79,32 @@ setup(
         # 'Documentation': 'https://',
     },
     packages=['tifffile'],
-    python_requires='>=3.6',
+    python_requires='>=3.7',
     install_requires=[
         'numpy>=1.15.1',
-        # 'imagecodecs>=2020.2.18',
+        # 'imagecodecs>=2020.5.30',
     ],
     extras_require={
-        'all': ['imagecodecs>=2020.2.18', 'matplotlib>=3.1', 'lxml'],
+        'all': ['imagecodecs>=2020.5.30', 'matplotlib>=3.2', 'lxml']
     },
     tests_require=[
-        'pytest', 'imagecodecs', 'czifile', 'cmapfile', 'oiffile', 'lfdfiles',
-        'roifile', 'lxml',
-        ],
+        'pytest',
+        'imagecodecs',
+        'czifile',
+        'cmapfile',
+        'oiffile',
+        'lfdfiles',
+        'roifile',
+        'lxml',
+        'zarr>=2.4.0',
+    ],
     entry_points={
         'console_scripts': [
             'tifffile = tifffile:main',
             'lsm2bin = tifffile.lsm2bin:main',
         ],
         # 'napari.plugin': ['tifffile = tifffile.napari_tifffile'],
-        },
+    },
     platforms=['any'],
     classifiers=[
         'Development Status :: 4 - Beta',
