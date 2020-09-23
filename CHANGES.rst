@@ -1,7 +1,19 @@
 Revisions
 ---------
+2020.9.22
+    Pass 4343 tests.
+    Add experimental zarr storage interface (WIP).
+    Remove unused first dimension from TiffPage.shaped (breaking).
+    Move reading of STK planes to series interface (breaking).
+    Always use virtual frames for ScanImage files.
+    Use DimensionOrder to determine axes order in OmeXml.
+    Enable writing striped volumetric images.
+    Keep complete dataoffsets and databytecounts for TiffFrames.
+    Return full size tiles from Tiffpage.segments.
+    Rename TiffPage.is_sgi property to is_volumetric (breaking).
+    Rename TiffPageSeries.is_pyramid to is_pyramidal (breaking).
+    Fix TypeError when passing jpegtables to non-JPEG decode function (#25).
 2020.9.3
-    Pass 4338 tests.
     Do not write contiguous series by default (breaking).
     Allow to write to SubIFDs (WIP).
     Fix writing F-contiguous numpy arrays (#24).
