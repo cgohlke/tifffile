@@ -10,16 +10,18 @@ Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
 NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
 ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
 
-Numpy arrays can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
-compatible files in multi-page, memory-mappable, tiled, predicted, or
-compressed form.
+Image data can be read as numpy arrays or zarr arrays/groups from strips,
+tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
 
-A subset of the TIFF specification is supported, mainly uncompressed and
-losslessly compressed 8, 16, 32 and 64-bit integer, 16, 32 and 64-bit float,
-grayscale and multi-sample images.
-Specifically, reading slices of image data, CCITT and OJPEG compression,
-chroma subsampling without JPEG compression, color space transformations,
-samples with differing types, or IPTC and XMP metadata are not implemented.
+Numpy arrays can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
+compatible files in multi-page, volumetric, pyramidal, memory-mappable, tiled,
+predicted, or compressed form.
+
+A subset of the TIFF specification is supported, mainly 8, 16, 32 and 64-bit
+integer, 16, 32 and 64-bit float, grayscale and multi-sample images.
+Specifically, CCITT and OJPEG compression, chroma subsampling without JPEG
+compression, color space transformations, samples with differing types, or
+IPTC and XMP metadata are not implemented.
 
 TIFF(r), the Tagged Image File Format, is a trademark and under control of
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
@@ -39,14 +41,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.3
+:Version: 2020.9.22
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.5, 3.9.0rc1 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.5, 3.9.0rc2 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -57,8 +59,20 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.9.22
+    Pass 4343 tests.
+    Add experimental zarr storage interface (WIP).
+    Remove unused first dimension from TiffPage.shaped (breaking).
+    Move reading of STK planes to series interface (breaking).
+    Always use virtual frames for ScanImage files.
+    Use DimensionOrder to determine axes order in OmeXml.
+    Enable writing striped volumetric images.
+    Keep complete dataoffsets and databytecounts for TiffFrames.
+    Return full size tiles from Tiffpage.segments.
+    Rename TiffPage.is_sgi property to is_volumetric (breaking).
+    Rename TiffPageSeries.is_pyramid to is_pyramidal (breaking).
+    Fix TypeError when passing jpegtables to non-JPEG decode function (#25).
 2020.9.3
-    Pass 4338 tests.
     Do not write contiguous series by default (breaking).
     Allow to write to SubIFDs (WIP).
     Fix writing F-contiguous numpy arrays (#24).
@@ -253,7 +267,7 @@ The API is not stable yet and might change between revisions.
 
 Tested on little-endian platforms only.
 
-Python 32-bit versions are deprecated. Python <= 3.6 are no longer supported.
+Python 32-bit versions are deprecated. Python <= 3.7 are no longer supported.
 
 Tifffile relies on the `imagecodecs <https://pypi.org/project/imagecodecs/>`_
 package for encoding and decoding LZW, JPEG, and other compressed image
@@ -312,6 +326,7 @@ Other libraries for reading scientific TIFF files from Python:
 * `ScanImageTiffReaderPython
   <https://gitlab.com/vidriotech/scanimagetiffreader-python>`_
 * `bigtiff <https://pypi.org/project/bigtiff>`_
+* `Large Image <https://github.com/girder/large_image>`_
 
 Some libraries are using tifffile to write OME-TIFF files:
 
@@ -320,6 +335,10 @@ Some libraries are using tifffile to write OME-TIFF files:
 * `Allen Institute for Cell Science imageio
   <https://pypi.org/project/aicsimageio>`_
 * `xtiff <https://github.com/BodenmillerGroup/xtiff>`_
+
+Other tools for inspecting and manipulating TIFF files:
+
+* `tifftools <https://github.com/DigitalSlideArchive/tifftools>`_
 
 References
 ----------
@@ -498,19 +517,6 @@ Read the second image series from the OME-TIFF file:
 >>> series1.shape
 (4, 256, 256)
 
-Read an image stack from a series of TIFF files with a file name pattern:
-
->>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
->>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
->>> image_sequence = TiffSequence('temp_C001*.tif', pattern='axes')
->>> image_sequence.shape
-(1, 2)
->>> image_sequence.axes
-'CT'
->>> data = image_sequence.asarray()
->>> data.shape
-(1, 2, 64, 64)
-
 Create a TIFF file from a generator of tiles:
 
 >>> def tiles():
@@ -525,7 +531,8 @@ compression. Sub-resolution images are written to SubIFDs:
 >>> with TiffWriter('temp.ome.tif') as tif:
 ...     options = dict(tile=(256, 256), compress='jpeg')
 ...     tif.save(data, subifds=2, **options)
-...     # save pyramid levels. In production use resampling to generate levels!
+...     # save pyramid levels to the two subifds
+...     # in production use resampling to generate levels!
 ...     tif.save(data[::2, ::2], subfiletype=1, **options)
 ...     tif.save(data[::4, ::4], subfiletype=1, **options)
 
@@ -547,5 +554,33 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 ...         ):
 ...             fh.seek(offset)
 ...             data = fh.read(bytecount)
-...             tile, indices, shape = page.decode(data, index,
-...                                                page.jpegtables)
+...             tile, indices, shape = page.decode(
+...                 data, index, jpegtables=page.jpegtables
+...             )
+
+Use zarr to access the tiled, pyramidal images in the TIFF file:
+
+>>> import zarr
+>>> store = imread('temp.ome.tif', aszarr=True)
+>>> z = zarr.open(store, mode='r')
+>>> z
+<zarr.hierarchy.Group '/' read-only>
+>>> z[0]  # base layer
+<zarr.core.Array '/0' (1024, 1024, 3) uint8 read-only>
+>>> store.close()
+
+Read an image stack from a series of TIFF files with a file name pattern:
+
+>>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
+>>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
+>>> image_sequence = TiffSequence('temp_C001*.tif', pattern='axes')
+>>> image_sequence.shape
+(1, 2)
+>>> image_sequence.axes
+'CT'
+>>> data = image_sequence.asarray()
+>>> data.shape
+(1, 2, 64, 64)
+>>> with image_sequence.aszarr() as store:
+...     zarr.open(store, mode='r')
+<zarr.core.Array (1, 2, 64, 64) float64 read-only>
