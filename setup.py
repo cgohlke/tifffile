@@ -85,7 +85,12 @@ setup(
         # 'imagecodecs>=2020.5.30',
     ],
     extras_require={
-        'all': ['imagecodecs>=2020.5.30', 'matplotlib>=3.2', 'lxml']
+        'all': [
+            'imagecodecs>=2020.5.30',
+            'matplotlib>=3.2',
+            'lxml',
+            # 'zarr>=2.4.0'
+        ]
     },
     tests_require=[
         'pytest',
