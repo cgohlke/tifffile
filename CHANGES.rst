@@ -1,7 +1,17 @@
 Revisions
 ---------
+2020.9.28
+    Pass 4347 tests.
+    Derive ZarrStore from MutableMapping.
+    Support zero shape ZarrTiffStore.
+    Fix ZarrFileStore with non-TIFF files.
+    Fix ZarrFileStore with missing files.
+    Cache one chunk in ZarrFileStore.
+    Keep track of already opened files in FileCache.
+    Change parse_filenames function to return zero-based indices.
+    Remove reopen parameter from asarray (breaking).
+    Rename FileSequence.fromfile to imread (breaking).
 2020.9.22
-    Pass 4343 tests.
     Add experimental zarr storage interface (WIP).
     Remove unused first dimension from TiffPage.shaped (breaking).
     Move reading of STK planes to series interface (breaking).
