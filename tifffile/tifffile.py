@@ -71,14 +71,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.22
+:Version: 2020.9.28
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.5, 3.9.0rc2 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.6, 3.9.0rc2 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -86,11 +86,23 @@ This release has been tested with the following requirements and dependencies
   (required only for plotting)
 * `Lxml 4.5.2 <https://github.com/lxml/lxml>`_
   (required only for validating and printing XML)
+* `Zarr 2.4.0 <https://github.com/zarr-developers/zarr-python>`_
+  (required only for opening zarr storage)
 
 Revisions
 ---------
+2020.9.28
+    Pass 4347 tests.
+    Derive ZarrStore from MutableMapping.
+    Support zero shape ZarrTiffStore.
+    Fix ZarrFileStore with non-TIFF files.
+    Fix ZarrFileStore with missing files.
+    Cache one chunk in ZarrFileStore.
+    Keep track of already opened files in FileCache.
+    Change parse_filenames function to return zero-based indices.
+    Remove reopen parameter from asarray (breaking).
+    Rename FileSequence.fromfile to imread (breaking).
 2020.9.22
-    Pass 4343 tests.
     Add experimental zarr storage interface (WIP).
     Remove unused first dimension from TiffPage.shaped (breaking).
     Move reading of STK planes to series interface (breaking).
@@ -511,12 +523,19 @@ Memory-map image data of the first page in the TIFF file:
 1.0
 >>> del memmap_image
 
+Successively write the frames of one contiguous series to a TIFF file:
+
+>>> data = numpy.random.randint(0, 255, (30, 301, 219), 'uint8')
+>>> with TiffWriter('temp.tif') as tif:
+...     for frame in data:
+...         tif.save(data, contiguous=True)
+
 Successively append image series to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
 ...     for i in range(data.shape[0]):
-...         tif.save(data[i], compress=6, photometric='minisblack')
+...         tif.save(data[i], photometric='minisblack')
 
 Append an image to the existing TIFF file:
 
@@ -617,7 +636,7 @@ Read an image stack from a series of TIFF files with a file name pattern:
 
 """
 
-__version__ = '2020.9.22'
+__version__ = '2020.9.28'
 
 __all__ = (
     'imwrite',
@@ -662,23 +681,22 @@ __all__ = (
     'imsave',
 )
 
-import sys
-import os
-import io
-import re
-import glob
-import math
-import time
-import json
-import enum
-import struct
-import warnings
 import binascii
-import datetime
-import threading
 import collections
-
-from collections.abc import Iterable
+import datetime
+import enum
+import glob
+import io
+import json
+import math
+import os
+import re
+import struct
+import sys
+import threading
+import time
+import warnings
+from collections.abc import Iterable, MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy
@@ -714,6 +732,14 @@ def imread(files, aszarr=False, **kwargs):
         Other parameters are passed to the asarray or aszarr functions.
         The first image series in the file is returned if no arguments are
         provided.
+
+    Returns
+    -------
+    numpy.ndarray or zarr storage
+        Image data from the specified pages.
+        Zarr storage instances must be closed after use.
+        See TiffPage.asarray for operations that are applied (or not)
+        to the raw data stored in the file.
 
     """
     kwargs_file = parse_kwargs(
@@ -1506,7 +1532,7 @@ class TiffWriter:
         else:
             if isinstance(compress, (tuple, list)):
                 compress, compresslevel = compress
-            elif isinstance(compress, int):
+            elif isinstance(compress, (int, numpy.integer)):
                 compress, compresslevel = 'ADOBE_DEFLATE', int(compress)
                 if not 0 <= compresslevel <= 9:
                     raise ValueError(f'invalid compression level {compress}')
@@ -2305,16 +2331,22 @@ class TiffWriter:
                 if data is None:
                     fh.write_empty(numtiles * databytecounts[0])
                 elif compress:
+                    isbytes = True
                     for tileindex in range(storedshape[1] * product(tiles)):
                         chunk = next(dataiter)
                         if chunk is None:
                             databytecounts[tileindex] = 0
                             continue
-                        if chunk.size * chunk.itemsize != tilesize:
+                        if isbytes and isinstance(chunk, bytes):
+                            # pre-compressed
+                            pass
+                        elif chunk.size * chunk.itemsize != tilesize:
                             raise ValueError('invalid tile shape or dtype')
-                        t = compress(chunk)
-                        fh.write(t)
-                        databytecounts[tileindex] = len(t)
+                        else:
+                            isbytes = False
+                            chunk = compress(chunk)
+                        fh.write(chunk)
+                        databytecounts[tileindex] = len(chunk)
                 else:
                     for tileindex in range(storedshape[1] * product(tiles)):
                         chunk = next(dataiter)
@@ -2844,7 +2876,6 @@ class TiffFile:
         """Close open file handle(s)."""
         for tif in self._files.values():
             tif.filehandle.close()
-        self._files = {}
 
     def asarray(
         self, key=None, series=None, level=None, out=None, maxworkers=None
@@ -5820,9 +5851,7 @@ class TiffPage:
                 ):
                     yield from executor.map(decode, segments)
 
-    def asarray(
-        self, out=None, squeeze=True, lock=None, reopen=True, maxworkers=None
-    ):
+    def asarray(self, out=None, squeeze=True, lock=None, maxworkers=None):
         """Read image data from file and return as numpy array.
 
         Raise ValueError if format is unsupported.
@@ -5845,9 +5874,6 @@ class TiffPage:
         lock : {RLock, NullContext}
             A reentrant lock used to synchronize seeks and reads from file.
             If None (default), the lock of the parent's filehandle is used.
-        reopen : bool
-            If True (default) and the parent file handle is closed, the file
-            is temporarily re-opened and closed if no exception occurs.
         maxworkers : int or None
             Maximum number of threads to concurrently decode strips ot tiles.
             If None (default), up to half the CPU cores are used.
@@ -5877,12 +5903,7 @@ class TiffPage:
         with lock:
             closed = fh.closed
             if closed:
-                if reopen:
-                    fh.open()
-                else:
-                    raise OSError(
-                        f'TiffPage {self.index}: file handle is closed'
-                    )
+                fh.open()
 
         if (
             isinstance(out, str)
@@ -6456,12 +6477,15 @@ class TiffPage:
         #     tiepoints = tags[33922].value  # ModelTiepointTag
         #     transforms = []
         #     for tp in range(0, len(tiepoints), 6):
-        #         i, j, k, x, y, z = tiepoints[tp:tp+6]
-        #         transforms.append([
-        #             [sx, 0.0, 0.0, x - i * sx],
-        #             [0.0, -sy, 0.0, y + j * sy],
-        #             [0.0, 0.0, sz, z - k * sz],
-        #             [0.0, 0.0, 0.0, 1.0]])
+        #         i, j, k, x, y, z = tiepoints[tp : tp + 6]
+        #         transforms.append(
+        #             [
+        #                 [sx, 0.0, 0.0, x - i * sx],
+        #                 [0.0, -sy, 0.0, y + j * sy],
+        #                 [0.0, 0.0, sz, z - k * sz],
+        #                 [0.0, 0.0, 0.0, 1.0],
+        #             ]
+        #         )
         #     if len(tiepoints) == 6:
         #         transforms = transforms[0]
         #     result['ModelTransformation'] = transforms
@@ -7459,10 +7483,10 @@ class TiffPageSeries:
         return f'TiffPageSeries {self.index}  {s}'
 
 
-class ZarrStore:
+class ZarrStore(MutableMapping):
     """Zarr storage base class.
 
-    Some ZarrStore instances must be closed using the 'close' method, which is
+    ZarrStore instances must be closed using the 'close' method, which is
     automatically called when using the 'with' context manager.
 
     https://zarr.readthedocs.io/en/stable/spec/v2.html
@@ -7470,9 +7494,10 @@ class ZarrStore:
 
     """
 
-    def __init__(self):
+    def __init__(self, fillvalue=None):
         """Initialize ZarrStore."""
         self._store = {}
+        self._fillvalue = 0 if fillvalue is None else fillvalue
 
     def __enter__(self):
         return self
@@ -7480,30 +7505,48 @@ class ZarrStore:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
+    def __del__(self):
+        self.close()
+
     def close(self):
         """Close ZarrStore."""
 
+    def flush(self):
+        """Flush ZarrStore."""
+        raise PermissionError('ZarrStore is read-only')
+
+    def clear(self):
+        """Clear ZarrStore."""
+        raise PermissionError('ZarrStore is read-only')
+
     def keys(self):
-        """Return iterator over keys in ZarrStore."""
+        """Return keys in ZarrStore."""
         return self._store.keys()
 
-    def __len__(self):
-        """Return length of ZarrStore."""
-        return len(self._store.keys())
+    def items(self):
+        """Return items in ZarrStore."""
+        return self._store.items()
+
+    def values(self):
+        """Return values in ZarrStore."""
+        return self._store.values()
 
     def __iter__(self):
-        """Return iterator over keys in ZarrStore."""
         return iter(self._store.keys())
 
+    def __len__(self):
+        return len(self._store)
+
     def __delitem__(self, key):
-        raise NotImplementedError
+        raise PermissionError('ZarrStore is read-only')
+
+    def __contains__(self, key):
+        return key in self._store
 
     def __setitem__(self, key, value):
-        """Update store attribute or write chunks."""
-        raise NotImplementedError
+        raise PermissionError('ZarrStore is read-only')
 
     def __getitem__(self, key):
-        """Return store attribute or image chunk from file."""
         if key in self._store:
             return self._store[key]
         return self._getitem(key)
@@ -7516,6 +7559,15 @@ class ZarrStore:
     def is_multiscales(self):
         """Return if ZarrStore is multiscales."""
         return b'multiscales' in self._store['.zattrs']
+
+    @staticmethod
+    def _empty_chunk(shape, dtype, fillvalue):
+        """Return empty chunk."""
+        if fillvalue is None or fillvalue == 0:
+            return bytes(product(shape) * dtype.itemsize)
+        chunk = numpy.empty(shape, dtype)
+        chunk[:] = fillvalue
+        return chunk.tobytes()
 
     @staticmethod
     def _dtype(dtype):
@@ -7567,16 +7619,15 @@ class ZarrTiffStore(ZarrStore):
     """Zarr storage interface to image data in TiffPage or TiffPageSeries."""
 
     def __init__(
-        self, arg, level=None, openfiles=8, lock=None, fillvalue=None
+        self, arg, level=None, openfiles=None, lock=None, fillvalue=None
     ):
         """Initialize Zarr storage from TiffPage or TiffPageSeries."""
-        super().__init__()
+        super().__init__(fillvalue=fillvalue)
 
         if lock is None:
             lock = threading.RLock()
 
-        self._fillvalue = 0 if fillvalue is None else fillvalue
-        self._filecache = OpenFileCache(size=openfiles, lock=lock)
+        self._filecache = FileCache(size=openfiles, lock=lock)
         self._transform = getattr(arg, 'transform', None)
         self._data = getattr(arg, 'levels', [TiffPageSeries([arg])])
         if level is not None:
@@ -7658,29 +7709,26 @@ class ZarrTiffStore(ZarrStore):
                 raise RuntimeError('truncated series is not contiguous')
             page = series[0]
             if page is None:
-                chunk = numpy.empty(keyframe.chunks, keyframe.dtype)
-                chunk[:] = self._fillvalue
-                return chunk.tobytes()
+                return ZarrStore._empty_chunk(
+                    keyframe.chunks, keyframe.dtype, self._fillvalue
+                )
             offset = pageindex * page.size * page.dtype.itemsize
             offset += page.dataoffsets[chunkindex]
         else:
             page = series[pageindex]
             if page is None:
-                chunk = numpy.empty(keyframe.chunks, keyframe.dtype)
-                chunk[:] = self._fillvalue
-                return chunk.tobytes()
+                return ZarrStore._empty_chunk(
+                    keyframe.chunks, keyframe.dtype, self._fillvalue
+                )
             offset = page.dataoffsets[chunkindex]
         bytecount = page.databytecounts[chunkindex]
 
         if offset == 0 or bytecount == 0:
-            return bytes(product(keyframe.chunks) * keyframe.dtype.itemsize)
+            return ZarrStore._empty_chunk(
+                keyframe.chunks, keyframe.dtype, self._fillvalue
+            )
 
-        fh = page.parent.filehandle
-        self._filecache.open(fh)
-        with self._filecache.lock:
-            fh.seek(offset)
-            chunk = fh.read(bytecount)
-        self._filecache.close(fh)
+        chunk = self._filecache.read(page.parent.filehandle, offset, bytecount)
 
         decodeargs = {'_fullsize': True}
         if page.jpegtables is not None:
@@ -7698,8 +7746,10 @@ class ZarrTiffStore(ZarrStore):
     def _chunks(chunks, shape):
         """Return chunks with same length as shape."""
         ndim = len(shape)
-        if ndim == len(chunks):
-            return chunks
+        if ndim == 0:
+            return ()  # empty array
+        if 0 in shape:
+            return (1,) * ndim
         newchunks = []
         i = ndim - 1
         j = len(chunks) - 1
@@ -7780,33 +7830,23 @@ class ZarrTiffStore(ZarrStore):
 
 
 class ZarrFileStore(ZarrStore):
-    """Zarr storage interface to data in TIFF files."""
+    """Zarr storage interface to image data in TiffSequence."""
 
-    def __init__(self, files, fillvalue=None, **kwargs):
+    def __init__(self, arg, fillvalue=None, **kwargs):
         """Initialize Zarr storage from FileSequence."""
-        super().__init__()
+        super().__init__(fillvalue=fillvalue)
 
-        if not isinstance(files, FileSequence):
+        if not isinstance(arg, FileSequence):
             raise TypeError('not a FileSequence')
 
-        with TiffFile(files.files[0]) as tif:
-            key = kwargs.get('key', None)
-            series = kwargs.get('series', None)
-            if series is None and key is None:
-                obj = tif.series[0]
-            elif series is None:
-                obj = tif.pages[int(key)]
-            else:
-                obj = tif.series[int(series)].pages[int(key)]
-            dtype = obj.dtype
-            chunks = obj.shape
+        if arg._container:
+            raise NotImplementedError('cannot open container as zarr storage')
 
-        self._fillvalue = 0 if fillvalue is None else fillvalue
-        self._files = files
-        self._kwargs = kwargs
-
-        shape = files.shape + chunks
-        chunks = (1,) * len(files.shape) + chunks
+        image = arg.imread(arg.files[0], **kwargs)
+        dtype = image.dtype
+        chunks = image.shape
+        shape = arg.shape + chunks
+        chunks = (1,) * len(arg.shape) + chunks
 
         self._store['.zattrs'] = ZarrStore._json({})
         self._store['.zarray'] = ZarrStore._json(
@@ -7822,23 +7862,33 @@ class ZarrFileStore(ZarrStore):
             }
         )
 
+        self._kwargs = kwargs
+        self._imread = arg.imread
+        self._lookup = dict(zip(arg.indices, arg.files))
+        self._chunks = image.shape
+        self._dtype = image.dtype
+        self._cache = {arg.indices[0]: image}  # TODO: cache MRU number chunks
+
     def _getitem(self, key):
         """Return chunk from file."""
-        files = self._files
-        indices = [int(i) for i in key.split('.')]
-        indices = indices[: len(files.shape)]
-        if files.axesorder is not None:
-            order = [0] * len(files.shape)
-            for i, j in enumerate(files.axesorder):
-                order[j] = i
-            indices = tuple(indices[i] for i in order)
-            shape = tuple(files.shape[i] for i in order)
+        indices = tuple(int(i) for i in key.split('.'))
+        indices = indices[: -len(self._chunks)]
+        if indices in self._cache:
+            return self._cache[indices]
+        self._cache.clear()
+        filename = self._lookup.get(indices, None)
+        if filename is None:
+            chunk = ZarrStore._empty_chunk(
+                self._chunks, self._dtype, self._fillvalue
+            )
         else:
-            shape = files.shape
-        fileindex = int(numpy.ravel_multi_index(indices, shape))
-        chunk = files.fromfile(files.files[fileindex], **self._kwargs)
-        return chunk.tobytes()
-        return chunk.tobytes()
+            chunk = self._imread(filename, **self._kwargs).tobytes()
+        self._cache[indices] = chunk
+        return chunk
+
+    def close(self):
+        """Clear chunk cache."""
+        self._cache.clear()
 
 
 class FileSequence:
@@ -7852,25 +7902,14 @@ class FileSequence:
         Shape of file series. Excludes shape of individual arrays.
     axes : str
         Labels of axes in shape.
+    indices : tuple of tuples
+        ND indices of files in shape.
 
     """
 
-    _patterns = {
-        'axes': r"""
-            # matches Olympus OIF and Leica TIFF series
-            _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))
-            _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
-            _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
-            _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
-            _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
-            _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
-            _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
-            """
-    }
-
     def __init__(
         self,
-        fromfile,
+        imread,
         files,
         container=None,
         sort=None,
@@ -7881,7 +7920,7 @@ class FileSequence:
 
         Parameters
         ----------
-        fromfile : function or class
+        imread : function or class
             Array read function or class with asarray function returning numpy
             array from single file.
         files : str, path-like, or sequence thereof
@@ -7933,34 +7972,34 @@ class FileSequence:
         if not files:
             raise ValueError('no files found')
 
-        if hasattr(fromfile, 'asarray'):
-            # redefine fromfile to use asarray from fromfile class
-            if not callable(fromfile.asarray):
-                raise ValueError('invalid fromfile function')
-            _fromfile0 = fromfile
+        if hasattr(imread, 'asarray'):
+            # redefine imread to use asarray from imread class
+            if not callable(imread.asarray):
+                raise ValueError('invalid imread function')
+            _imread_ = imread
 
-            def fromfile(fname, **kwargs):
-                with _fromfile0(fname) as handle:
+            def imread(fname, **kwargs):
+                with _imread_(fname) as handle:
                     return handle.asarray(**kwargs)
 
-        elif not callable(fromfile):
-            raise ValueError('invalid fromfile function')
+        elif not callable(imread):
+            raise ValueError('invalid imread function')
 
         if container:
-            # redefine fromfile to read from container
-            _fromfile1 = fromfile
+            # redefine imread to read from container
+            _imread_ = imread
 
-            def fromfile(fname, **kwargs):
+            def imread(fname, **kwargs):
                 with self._container.open(fname) as handle1:
                     with io.BytesIO(handle1.read()) as handle2:
-                        return _fromfile1(handle2, **kwargs)
+                        return _imread_(handle2, **kwargs)
 
         axes = 'I'
         shape = (len(files),)
         indices = tuple((i,) for i in range(len(files)))
         startindex = (0,)
 
-        pattern = self._patterns.get(pattern, pattern)
+        pattern = TIFF.FILE_PATTERNS.get(pattern, pattern)
         if pattern:
             try:
                 axes, shape, indices, startindex = parse_filenames(
@@ -7977,13 +8016,12 @@ class FileSequence:
                 'FileSequence: files are missing. Missing data are zeroed'
             )
 
-        self.fromfile = fromfile
+        self.imread = imread
         self.files = files
         self.pattern = pattern
         self.axes = axes.upper()
         self.shape = shape
-        self.axesorder = axesorder
-        self._indices = indices
+        self.indices = indices
         self._startindex = startindex
 
     def __str__(self):
@@ -8042,19 +8080,18 @@ class FileSequence:
         """
         if file is not None:
             if isinstance(file, int):
-                return self.fromfile(self.files[file], **kwargs)
-            return self.fromfile(file, **kwargs)
+                return self.imread(self.files[file], **kwargs)
+            return self.imread(file, **kwargs)
 
-        im = self.fromfile(self.files[0], **kwargs)
+        im = self.imread(self.files[0], **kwargs)
         shape = self.shape + im.shape
         result = create_output(out, shape, dtype=im.dtype)
         result = result.reshape(-1, *im.shape)
 
         def func(index, fname):
             """Read single image from file into result."""
-            index = [i - j for i, j in zip(index, self._startindex)]
             index = int(numpy.ravel_multi_index(index, self.shape))
-            im = self.fromfile(fname, **kwargs)
+            im = self.imread(fname, **kwargs)
             result[index] = im
 
         if len(self.files) < 2:
@@ -8065,11 +8102,11 @@ class FileSequence:
             ioworkers = max(multiprocessing.cpu_count() * 5, 1)
 
         if ioworkers < 2:
-            for index, fname in zip(self._indices, self.files):
+            for index, fname in zip(self.indices, self.files):
                 func(index, fname)
         else:
             with ThreadPoolExecutor(ioworkers) as executor:
-                for _ in executor.map(func, self._indices, self.files):
+                for _ in executor.map(func, self.indices, self.files):
                     pass
 
         result.shape = shape
@@ -8108,7 +8145,7 @@ class FileHandle:
 
     A limited, special purpose file handle that can:
 
-    * handle embedded files (for CZI within CZI files)
+    * handle embedded files (e.g. for LSM within LSM files)
     * re-open closed files (for multi-file formats, such as OME-TIFF)
     * read and write numpy arrays and records from file like objects
 
@@ -8174,13 +8211,13 @@ class FileHandle:
         self._offset = offset
         self._size = size
         self._close = True
-        self.is_file = False
+        self.is_file = None
         self._lock = NullContext()
         self.open()
 
     def open(self):
         """Open or re-open file."""
-        if self._fh:
+        if self._fh is not None:
             return  # file is open
 
         if isinstance(self._file, os.PathLike):
@@ -8244,11 +8281,12 @@ class FileHandle:
             self._size = self._fh.tell()
             self._fh.seek(pos)
 
-        try:
-            self._fh.fileno()
-            self.is_file = True
-        except Exception:
-            self.is_file = False
+        if self.is_file is None:
+            try:
+                self._fh.fileno()
+                self.is_file = True
+            except Exception:
+                self.is_file = False
 
     def close(self):
         """Close file."""
@@ -8348,6 +8386,7 @@ class FileHandle:
             # data = bytearray(size)
             # n = self._fh.readinto(data)
             # data = data[:n]
+            # TODO: record is not writable
             data = self._fh.read(size)
             record = rec.fromstring(data, dtype, shape, byteorder=byteorder)
         return record[0] if shape == 1 else record
@@ -8508,7 +8547,90 @@ class FileHandle:
 
     @lock.setter
     def lock(self, value):
-        self._lock = threading.RLock() if value else NullContext()
+        if bool(value) == isinstance(self._lock, NullContext):
+            self._lock = threading.RLock() if value else NullContext()
+
+    @property
+    def has_lock(self):
+        return not isinstance(self._lock, NullContext)
+
+
+class FileCache:
+    """Keep FileHandles open."""
+
+    __slots__ = ('files', 'keep', 'past', 'lock', 'size')
+
+    def __init__(self, size=None, lock=None):
+        """Initialize open file cache."""
+        self.past = []  # FIFO of opened files
+        self.files = {}  # refcounts of opened file handles
+        self.keep = set()  # files to keep open
+        self.lock = NullContext() if lock is None else lock
+        self.size = 8 if size is None else int(size)
+
+    def __len__(self):
+        """Return number of open files."""
+        return len(self.files)
+
+    def open(self, filehandle):
+        """Open file, re-open if necessary."""
+        with self.lock:
+            if filehandle in self.files:
+                self.files[filehandle] += 1
+            elif filehandle.closed:
+                filehandle.open()
+                self.files[filehandle] = 1
+                self.past.append(filehandle)
+            else:
+                self.files[filehandle] = 2
+                self.keep.add(filehandle)
+                self.past.append(filehandle)
+
+    def close(self, filehandle):
+        """Close least recently used open files."""
+        with self.lock:
+            if filehandle in self.files:
+                self.files[filehandle] -= 1
+            self._trim()
+
+    def clear(self):
+        """Close all opened files if not in use when opened first."""
+        with self.lock:
+            for filehandle, refcount in list(self.files.items()):
+                if filehandle not in self.keep:
+                    filehandle.close()
+                    del self.files[filehandle]
+                    del self.past[self.past.index(filehandle)]
+
+    def read(self, filehandle, offset, bytecount, whence=0):
+        """Return bytes read from binary file."""
+        with self.lock:
+            if filehandle not in self.files:
+                if filehandle.closed:
+                    filehandle.open()
+                    self.files[filehandle] = 0
+                else:
+                    self.files[filehandle] = 1
+                    self.keep.add(filehandle)
+                self.past.append(filehandle)
+            filehandle.seek(offset, whence)
+            data = filehandle.read(bytecount)
+            self._trim()
+        return data
+
+    def _trim(self):
+        """Trim the file cache."""
+        index = 0
+        size = len(self.past)
+        while size > self.size and index < size:
+            filehandle = self.past[index]
+            if filehandle not in self.keep and self.files[filehandle] <= 0:
+                filehandle.close()
+                del self.files[filehandle]
+                del self.past[index]
+                size -= 1
+            else:
+                index += 1
 
 
 class NullContext:
@@ -8526,56 +8648,6 @@ class NullContext:
 
     def __exit__(self, exc_type, exc_value, traceback):
         pass
-
-
-class OpenFileCache:
-    """Keep files open."""
-
-    __slots__ = ('files', 'past', 'lock', 'size')
-
-    def __init__(self, size=None, lock=None):
-        """Initialize open file cache."""
-        self.past = []  # FIFO of opened files
-        self.files = {}  # refcounts of opened files
-        self.lock = NullContext() if lock is None else lock
-        self.size = 8 if size is None else int(size)
-
-    def open(self, filehandle):
-        """Re-open file if necessary."""
-        with self.lock:
-            if filehandle in self.files:
-                self.files[filehandle] += 1
-            elif filehandle.closed:
-                filehandle.open()
-                self.files[filehandle] = 1
-                self.past.append(filehandle)
-
-    def close(self, filehandle):
-        """Close openend file if no longer used."""
-        with self.lock:
-            if filehandle in self.files:
-                self.files[filehandle] -= 1
-                # trim the file cache
-                index = 0
-                size = len(self.past)
-                while size > self.size and index < size:
-                    filehandle = self.past[index]
-                    if self.files[filehandle] == 0:
-                        filehandle.close()
-                        del self.files[filehandle]
-                        del self.past[index]
-                        size -= 1
-                    else:
-                        index += 1
-
-    def clear(self):
-        """Close all opened files if not in use."""
-        with self.lock:
-            for filehandle, refcount in list(self.files.items()):
-                if refcount == 0:
-                    filehandle.close()
-                    del self.files[filehandle]
-                    del self.past[self.past.index(filehandle)]
 
 
 class Timer:
@@ -10706,6 +10778,21 @@ class TIFF:
             a[3:]
             for a in dir(TiffPage)
             if a[:3] == 'is_' and a[3:] not in exclude
+        }
+
+    def FILE_PATTERNS():
+        # predefined FileSequence patterns
+        return {
+            'axes': r"""
+                # matches Olympus OIF and Leica TIFF series
+                _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))
+                _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
+                _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
+                _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
+                _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
+                _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
+                _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
+                """
         }
 
     def FILE_EXTENSIONS():
@@ -13259,8 +13346,8 @@ def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
 
 
 if imagecodecs is None:
-    import zlib
     import lzma
+    import zlib
 
     def zlib_encode(data, level=6, out=None):
         """Compress Zlib DEFLATE."""
@@ -13476,7 +13563,7 @@ def parse_filenames(files, pattern, axesorder=None):
 
     >>> parse_filenames(['c1001.ext', 'c2002.ext'],
     ...                 r'([^\\d])(\\d)(?P<t>\\d+)\\.ext')
-    ('ct', (2, 2), [(1, 1), (2, 2)], (1, 1))
+    ('ct', (2, 2), [(0, 0), (1, 1)], (1, 1))
 
     """
     if not pattern:
@@ -13514,7 +13601,7 @@ def parse_filenames(files, pattern, axesorder=None):
             indices.append(m)
             axes.append(ax)
             ax = None
-        return ''.join(axes), tuple(indices)
+        return ''.join(axes), indices
 
     files = [os.path.normpath(f) for f in files]
     if len(files) == 1:
@@ -13537,17 +13624,22 @@ def parse_filenames(files, pattern, axesorder=None):
         elif axes != ax:
             raise ValueError('axes do not match within image sequence')
         if axesorder is not None:
-            idx = tuple(idx[i] for i in axesorder)
+            idx = [idx[i] for i in axesorder]
         indices.append(idx)
 
     if axesorder is not None:
         axes = ''.join(axes[i] for i in axesorder)
 
-    shape = tuple(numpy.max(indices, axis=0))
-    startindex = tuple(int(i) for i in numpy.min(indices, axis=0))
-    shape = tuple(int(i - j + 1) for i, j in zip(shape, startindex))
-    # if product(shape) != len(files):
-    #     raise VaueError('files are missing')
+    indices = numpy.array(indices, dtype=numpy.intp)
+    startindex = numpy.min(indices, axis=0)
+    shape = numpy.max(indices, axis=0)
+    shape -= startindex
+    shape += 1
+    shape = tuple(shape.tolist())
+    indices -= startindex
+    indices = indices.tolist()
+    indices = [tuple(index) for index in indices]
+    startindex = tuple(startindex.tolist())
     return axes, shape, indices, startindex
 
 
@@ -13904,19 +13996,18 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
         maxworkers = 1
 
     kwargs['maxworkers'] = page_maxworkers
-    page0.parent.filehandle.lock = maxworkers > 1 or page_maxworkers > 1
 
-    filecache = OpenFileCache(
-        size=max(4, maxworkers), lock=page0.parent.filehandle.lock
-    )
+    filehandle = page0.parent.filehandle
+    haslock = filehandle.has_lock
+    if not haslock and maxworkers > 1 or page_maxworkers > 1:
+        filehandle.lock = True
+    filecache = FileCache(size=max(4, maxworkers), lock=filehandle.lock)
 
     def func(page, index, out=out, filecache=filecache, kwargs=kwargs):
         # read, decode, and copy page data
         if page is not None:
             filecache.open(page.parent.filehandle)
-            page.asarray(
-                lock=filecache.lock, reopen=False, out=out[index], **kwargs
-            )
+            page.asarray(lock=filecache.lock, out=out[index], **kwargs)
             filecache.close(page.parent.filehandle)
 
     if maxworkers < 2:
@@ -13929,7 +14020,8 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
                 pass
 
     filecache.clear()
-    page0.parent.filehandle.lock = None
+    if not haslock:
+        filehandle.lock = False
     return out
 
 
@@ -15259,8 +15351,8 @@ def askopenfilename(**kwargs):
 
 def main():
     """Tifffile command line usage main function."""
-    import optparse  # TODO: use argparse
     import logging
+    import optparse  # TODO: use argparse
 
     logging.getLogger(__name__).setLevel(logging.INFO)
 
