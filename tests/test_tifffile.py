@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.28
+:Version: 2020.9.29
 
 """
 
@@ -95,6 +95,8 @@ try:
         product,
         create_output,
         askopenfilename,
+        read_scanimage_metadata,
+        read_micromanager_metadata,
         OmeXmlError,
         OmeXml,
     )
@@ -5643,6 +5645,7 @@ def test_read_scanimage_no_framedata():
         # description tags
         metadata = scanimage_description_metadata(page.description)
         assert metadata['state.software.version'] == 3.6
+        assert_aszarr_method(tif)
         assert__str__(tif)
 
 
@@ -5693,12 +5696,12 @@ def test_read_scanimage_2gb():
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_scanimage_bigtiff():
     """Test read ScanImage BigTIFF."""
-    fname = private_file('ScanImage/TS_UnitTestImage_BigTIFF.tif')
+    # https://github.com/cgohlke/tifffile/issues/29
+    fname = private_file('ScanImage/area1__00001.tif')
     with TiffFile(fname) as tif:
         assert tif.is_scanimage
-        assert len(tif.pages) == 3
+        assert len(tif.pages) == 162
         assert len(tif.series) == 1
-
         # assert page properties
         page = tif.pages[0]
         assert page.is_scanimage
@@ -5719,6 +5722,10 @@ def test_read_scanimage_bigtiff():
         assert metadata['FrameData']['SI.TIFF_FORMAT_VERSION'] == 3
         assert metadata['RoiGroups']['imagingRoiGroup']['ver'] == 1
         assert metadata['Description']['frameNumbers'] == 1
+        # assert page offsets are correct
+        assert tif.pages[-1].offset == 84527590  # not 84526526 (calculated)
+        # read image data
+        assert_aszarr_method(tif)
         assert__str__(tif)
 
 
