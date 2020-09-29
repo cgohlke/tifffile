@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.28
+:Version: 2020.9.29
 
 Requirements
 ------------
@@ -61,8 +61,10 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2020.9.28
+2020.9.29
     Pass 4347 tests.
+    Fix reading files produced by ScanImage > 2015 (#29).
+2020.9.28
     Derive ZarrStore from MutableMapping.
     Support zero shape ZarrTiffStore.
     Fix ZarrFileStore with non-TIFF files.
@@ -603,3 +605,4 @@ Read an image stack from a series of TIFF files with a file name pattern:
 >>> with image_sequence.aszarr() as store:
 ...     zarr.open(store, mode='r')
 <zarr.core.Array (1, 2, 64, 64) float64 read-only>
+>>> image_sequence.close()
