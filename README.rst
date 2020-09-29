@@ -41,14 +41,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.22
+:Version: 2020.9.28
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.5, 3.9.0rc2 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.6, 3.9.0rc2 64-bit <https://www.python.org>`_
 * `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -56,11 +56,23 @@ This release has been tested with the following requirements and dependencies
   (required only for plotting)
 * `Lxml 4.5.2 <https://github.com/lxml/lxml>`_
   (required only for validating and printing XML)
+* `Zarr 2.4.0 <https://github.com/zarr-developers/zarr-python>`_
+  (required only for opening zarr storage)
 
 Revisions
 ---------
+2020.9.28
+    Pass 4347 tests.
+    Derive ZarrStore from MutableMapping.
+    Support zero shape ZarrTiffStore.
+    Fix ZarrFileStore with non-TIFF files.
+    Fix ZarrFileStore with missing files.
+    Cache one chunk in ZarrFileStore.
+    Keep track of already opened files in FileCache.
+    Change parse_filenames function to return zero-based indices.
+    Remove reopen parameter from asarray (breaking).
+    Rename FileSequence.fromfile to imread (breaking).
 2020.9.22
-    Pass 4343 tests.
     Add experimental zarr storage interface (WIP).
     Remove unused first dimension from TiffPage.shaped (breaking).
     Move reading of STK planes to series interface (breaking).
@@ -481,12 +493,19 @@ Memory-map image data of the first page in the TIFF file:
 1.0
 >>> del memmap_image
 
+Successively write the frames of one contiguous series to a TIFF file:
+
+>>> data = numpy.random.randint(0, 255, (30, 301, 219), 'uint8')
+>>> with TiffWriter('temp.tif') as tif:
+...     for frame in data:
+...         tif.save(data, contiguous=True)
+
 Successively append image series to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
 ...     for i in range(data.shape[0]):
-...         tif.save(data[i], compress=6, photometric='minisblack')
+...         tif.save(data[i], photometric='minisblack')
 
 Append an image to the existing TIFF file:
 
