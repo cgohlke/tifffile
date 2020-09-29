@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.28
+:Version: 2020.9.29
 
 Requirements
 ------------
@@ -91,8 +91,10 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2020.9.28
+2020.9.29
     Pass 4347 tests.
+    Fix reading files produced by ScanImage > 2015 (#29).
+2020.9.28
     Derive ZarrStore from MutableMapping.
     Support zero shape ZarrTiffStore.
     Fix ZarrFileStore with non-TIFF files.
@@ -633,10 +635,11 @@ Read an image stack from a series of TIFF files with a file name pattern:
 >>> with image_sequence.aszarr() as store:
 ...     zarr.open(store, mode='r')
 <zarr.core.Array (1, 2, 64, 64) float64 read-only>
+>>> image_sequence.close()
 
 """
 
-__version__ = '2020.9.28'
+__version__ = '2020.9.29'
 
 __all__ = (
     'imwrite',
@@ -656,6 +659,7 @@ __all__ = (
     'OmeXmlError',
     'OmeXml',
     'read_micromanager_metadata',
+    'read_scanimage_metadata',
     # utility classes and functions used by oiffile, czifile, etc.
     'FileHandle',
     'FileSequence',
@@ -2822,8 +2826,8 @@ class TiffFile:
             ):
                 self._lsm_load_pages()
 
-            elif self.is_scanimage:
-                # and (not self.is_bigtiff and self.filehandle.size >= 2 ** 31)
+            elif self.is_scanimage and not self.is_bigtiff:
+                # ScanImage <= 2015
                 try:
                     self.pages._load_virtual_frames()
                 except Exception as exc:
@@ -12553,7 +12557,7 @@ def read_scanimage_metadata(fh):
     try:
         byteorder, version = struct.unpack('<2sH', fh.read(4))
         if byteorder != b'II' or version != 43:
-            raise Exception
+            raise ValueError('not a ScanImage BigTIFF file')
         fh.seek(16)
         magic, version, size0, size1 = struct.unpack('<IIII', fh.read(16))
         if magic != 117637889 or version != 3:
