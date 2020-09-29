@@ -1,7 +1,9 @@
 Revisions
 ---------
-2020.9.28
+2020.9.29
     Pass 4347 tests.
+    Fix reading files produced by ScanImage > 2015 (#29).
+2020.9.28
     Derive ZarrStore from MutableMapping.
     Support zero shape ZarrTiffStore.
     Fix ZarrFileStore with non-TIFF files.
