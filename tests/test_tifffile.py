@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.29
+:Version: 2020.9.30
 
 """
 
@@ -385,7 +385,21 @@ def test_issue_deprecated_import():
     # from tifffile import decode_lzw
 
 
-def test_issue_legacy_kwargs():
+def test_issue_imread_kwargs():
+    """Test that is_flags are handled by imread."""
+    data = random_data('uint16', (5, 63, 95))
+    with TempFileName(f'issue_imread_kwargs') as fname:
+        with TiffWriter(fname) as tif:
+            for image in data:
+                tif.write(image)  # create 5 series
+        assert_valid_tiff(fname)
+        image = imread(fname)  # reads first series
+        assert_array_equal(image, data[0])
+        image = imread(fname, is_shaped=False)  # reads all pages
+        assert_array_equal(image, data)
+
+
+def test_issue_imread_kwargs_legacy():
     """Test legacy arguments still work in some cases.
 
     Imread accepts 'movie', 'pages', 'fastij' and 'multifile_close'.
@@ -395,7 +409,7 @@ def test_issue_legacy_kwargs():
     """
     data = random_data('uint8', (3, 21, 31))
     with pytest.warns(DeprecationWarning):
-        with TempFileName('legacy_kwargs') as fname:
+        with TempFileName('issue_imread_kwargs_legacy') as fname:
             imwrite(fname, data, photometric='MINISBLACK')
             image = imread(
                 fname,
@@ -836,7 +850,7 @@ def test_issue_fcontiguous():
     # https://github.com/cgohlke/tifffile/issues/24
     data = numpy.asarray(random_data('uint8', (31, 33)), order='F')
     with TempFileName('fcontiguous') as fname:
-        imwrite(fname, data, compress=6)
+        imwrite(fname, data, compression='zlib')
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
@@ -900,25 +914,29 @@ def test_issue_lzw_corrupt():
             tif.asarray()
 
 
-def test_issue_iterable_compress():
+def test_issue_iterable_compression():
     """Test writing iterable of pages with compression."""
     # https://github.com/cgohlke/tifffile/issues/20
     data = numpy.random.rand(10, 10, 10) * 127
     data = data.astype('int8')
-    with TempFileName('issue_iterable_compress') as fname:
+    with TempFileName('issue_iterable_compression') as fname:
         with TiffWriter(fname) as tif:
-            tif.save(data, shape=(10, 10, 10), dtype='int8')
-            tif.save(data, shape=(10, 10, 10), dtype='int8', compress=6)
+            tif.write(data, shape=(10, 10, 10), dtype='int8')
+            tif.write(
+                data, shape=(10, 10, 10), dtype='int8', compression='zlib'
+            )
         with TiffFile(fname) as tif:
             assert_array_equal(tif.series[0].asarray(), data)
             assert_array_equal(tif.series[1].asarray(), data)
-    with TempFileName('issue_iterable_compress_fail') as fname:
+    with TempFileName('issue_iterable_compression_fail') as fname:
         with TiffWriter(fname) as tif:
             with pytest.raises(ValueError):
-                tif.save(data, shape=(10, 10, 10), dtype='uint8')
+                tif.write(data, shape=(10, 10, 10), dtype='uint8')
         with TiffWriter(fname) as tif:
             with pytest.raises(ValueError):
-                tif.save(data, shape=(10, 10, 10), dtype='uint8', compress=6)
+                tif.write(
+                    data, shape=(10, 10, 10), dtype='uint8', compression='zlib'
+                )
 
 
 ###############################################################################
@@ -1446,7 +1464,7 @@ def test_func_memmap():
             shape=(32, 16),
             dtype='float32',
             bigtiff=True,
-            compress=False,
+            compression=False,
         )
         im[31, 15] = 1.0
         im.flush()
@@ -1481,7 +1499,11 @@ def test_func_memmap():
         # can not memory-map compressed array
         with pytest.raises(ValueError):
             memmap(
-                fname, shape=(16, 16), dtype='float32', append=True, compress=6
+                fname,
+                shape=(16, 16),
+                dtype='float32',
+                append=True,
+                compression='zlib',
             )
 
 
@@ -4709,9 +4731,9 @@ def test_read_tiles():
     data = numpy.arange(600 * 500 * 3, dtype='uint8').reshape((600, 500, 3))
     with TempFileName('read_tiles') as fname:
         with TiffWriter(fname) as tif:
-            options = dict(tile=(256, 256), compress='jpeg', metadata=None)
-            tif.save(data, **options)
-            tif.save(data[::2, ::2], subfiletype=1, **options)
+            options = dict(tile=(256, 256), compression='jpeg', metadata=None)
+            tif.write(data, **options)
+            tif.write(data[::2, ::2], subfiletype=1, **options)
         with TiffFile(fname) as tif:
             fh = tif.filehandle
             for page in tif.pages:
@@ -6589,6 +6611,39 @@ def test_read_ome_shape_mismatch(caplog):
         assert series.kind == 'Generic'
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_ome_jpeg2000_be():
+    """Test read JPEG2000 compressed big-endian OME-TIFF."""
+    fname = private_file('OME/mitosis.jpeg2000.ome.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_ome
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 510
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert not page.is_contiguous
+        assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
+        assert page.compression == APERIO_JP2000_YCBC
+        assert page.imagewidth == 171
+        assert page.imagelength == 196
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (51, 5, 2, 196, 171)
+        assert series.dtype.name == 'uint16'
+        assert series.axes == 'TZCYX'
+        # assert data
+        data = page.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.shape == (196, 171)
+        assert data.dtype.name == 'uint16'
+        assert data[0, 0] == 1904
+        assert_aszarr_method(page, data)
+        assert__str__(tif)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_andor_light_sheet_512p():
     """Test read Andor."""
@@ -7951,10 +8006,10 @@ def test_write(data, byteorder, bigtiff, dtype, shape, tile):
                 if tile is not None or dtype == '?':
                     # cannot write non-contiguous empty file
                     with pytest.raises(ValueError):
-                        tif.save(shape=shape, dtype=dtype, tile=tile)
+                        tif.write(shape=shape, dtype=dtype, tile=tile)
                     return
                 else:
-                    tif.save(shape=shape, dtype=dtype, tile=tile)
+                    tif.write(shape=shape, dtype=dtype, tile=tile)
             with TiffFile(fname) as tif:
                 assert__str__(tif)
                 image = tif.asarray()
@@ -7985,7 +8040,7 @@ def test_write(data, byteorder, bigtiff, dtype, shape, tile):
         'deflate',
         'lzma',
         'packbits',
-        'zstd',  # 'lzw'
+        'zstd',  # TODO: 'lzw'
         'webp',
         'png',
         'jpeg',
@@ -8021,7 +8076,7 @@ def test_write_codecs(mode, tile, codec):
         imwrite(
             fname,
             data,
-            compress=(codec, level),
+            compression=(codec, level),
             tile=tile,
             photometric=photometric,
             planarconfig=planarconfig,
@@ -8050,10 +8105,10 @@ def test_write_codecs(mode, tile, codec):
 
 @pytest.mark.parametrize('bytecount', [16, 256])
 @pytest.mark.parametrize('count', [1, 2, 4])
-@pytest.mark.parametrize('compress', [0, 6])
+@pytest.mark.parametrize('compression', [0, 6])
 @pytest.mark.parametrize('tiled', [0, 1])
 @pytest.mark.parametrize('bigtiff', [0, 1])
-def test_write_bytecount(bigtiff, tiled, compress, count, bytecount):
+def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
     """Test write bytecount formats."""
     if tiled:
         tag = 'TileByteCounts'
@@ -8080,7 +8135,7 @@ def test_write_bytecount(bigtiff, tiled, compress, count, bytecount):
 
     with TempFileName(
         'bytecounts_{}{}{}{}{}'.format(
-            bigtiff, tiled, compress, count, bytecount
+            bigtiff, tiled, compression, count, bytecount
         )
     ) as fname:
         imwrite(
@@ -8088,7 +8143,7 @@ def test_write_bytecount(bigtiff, tiled, compress, count, bytecount):
             data,
             bigtiff=bigtiff,
             tile=tile,
-            compress=compress,
+            compression=('zlib', compression) if compression else compression,
             rowsperstrip=rowsperstrip,
         )
         if not bigtiff:
@@ -8098,7 +8153,7 @@ def test_write_bytecount(bigtiff, tiled, compress, count, bytecount):
             page = tif.pages[0]
             assert page.tags[tag].count == count
             assert page.tags[tag].dtype[-1] == dtype
-            assert page.is_contiguous != bool(compress)
+            assert page.is_contiguous != bool(compression)
             assert page.planarconfig == CONTIG
             assert page.photometric == MINISBLACK
             assert page.imagewidth == shape[1]
@@ -8130,13 +8185,13 @@ def test_write_zeroshape(shaped, data, repeat, shape):
             with TiffWriter(fname) as tif:
                 with pytest.warns(UserWarning):
                     for _ in range(repeat):
-                        tif.save(
+                        tif.write(
                             shape=shape,
                             dtype=dtype,
                             contiguous=True,
                             metadata=metadata,
                         )
-                    tif.save(numpy.zeros((16, 16), 'u2'), metadata=metadata)
+                    tif.write(numpy.zeros((16, 16), 'u2'), metadata=metadata)
             with TiffFile(fname) as tif:
                 assert__str__(tif)
                 image = zimage = tif.asarray()
@@ -8147,8 +8202,8 @@ def test_write_zeroshape(shaped, data, repeat, shape):
             with TiffWriter(fname) as tif:
                 with pytest.warns(UserWarning):
                     for _ in range(repeat):
-                        tif.save(data, contiguous=True, metadata=metadata)
-                    tif.save(numpy.zeros((16, 16), 'u2'), metadata=metadata)
+                        tif.write(data, contiguous=True, metadata=metadata)
+                    tif.write(numpy.zeros((16, 16), 'u2'), metadata=metadata)
             with TiffFile(fname) as tif:
                 assert__str__(tif)
                 image = zimage = tif.asarray()
@@ -8206,7 +8261,7 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
 
     kwargs = {
         'tile': (16, 16) if tiled else None,
-        'compress': 6 if compressed else None,
+        'compression': ('zlib', 6) if compressed else None,
     }
 
     with TempFileName(
@@ -8217,11 +8272,11 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
             for _ in range(series):
                 for r in range(repeats):
                     kwargs['contiguous'] = r != 0
-                    tif.save(data[0], subifds=subifds, **kwargs)
+                    tif.write(data[0], subifds=subifds, **kwargs)
                 for i in range(1, subifds + 1):
                     for r in range(repeats):
                         kwargs['contiguous'] = r != 0
-                        tif.save(data[i], subfiletype=1, **kwargs)
+                        tif.write(data[i], subfiletype=1, **kwargs)
 
         with TiffFile(fname) as tif:
             for i, page in enumerate(tif.pages):
@@ -8280,11 +8335,11 @@ def test_write_lists():
     data = array.tolist()
     with TempFileName('write_lists') as fname:
         with TiffWriter(fname) as tif:
-            tif.save(data, dtype='uint16')
-            tif.save(data, compress=6)
-            tif.save([100.0])
+            tif.write(data, dtype='uint16')
+            tif.write(data, compression='zlib')
+            tif.write([100.0])
             with pytest.warns(UserWarning):
-                tif.save([])
+                tif.write([])
         with TiffFile(fname) as tif:
             assert_array_equal(tif.series[0].asarray(), array)
             assert_array_equal(tif.series[1].asarray(), array)
@@ -8359,7 +8414,7 @@ def test_write_append():
             assert__str__(tif)
 
         with TiffWriter(fname, append=True) as tif:
-            tif.save(data)
+            tif.write(data)
         with TiffFile(fname) as tif:
             assert len(tif.series) == 1
             assert len(tif.pages) == 1
@@ -8369,8 +8424,8 @@ def test_write_append():
             assert__str__(tif)
 
         with TiffWriter(fname, append=True) as tif:
-            tif.save(data)
-            tif.save(data, contiguous=True)
+            tif.write(data)
+            tif.write(data, contiguous=True)
         with TiffFile(fname) as tif:
             assert len(tif.series) == 2
             assert len(tif.pages) == 3
@@ -8398,7 +8453,7 @@ def test_write_append_bytesio():
 
     file.seek(offset)
     with TiffWriter(file, append=True) as tif:
-        tif.save(data)
+        tif.write(data)
     file.seek(offset)
     with TiffFile(file) as tif:
         assert len(tif.series) == 1
@@ -8410,8 +8465,8 @@ def test_write_append_bytesio():
 
     file.seek(offset)
     with TiffWriter(file, append=True) as tif:
-        tif.save(data)
-        tif.save(data, contiguous=True)
+        tif.write(data)
+        tif.write(data, contiguous=True)
     file.seek(offset)
     with TiffFile(file) as tif:
         assert len(tif.series) == 2
@@ -8810,28 +8865,99 @@ def test_write_bitspersample_fail():
         with TiffWriter(fname) as tif:
             # not working with compression
             with pytest.raises(ValueError):
-                tif.save(data.astype('uint8'), bitspersample=4, compress=6)
+                tif.write(
+                    data.astype('uint8'), bitspersample=4, compression='zlib'
+                )
             # dtype.itemsize != bitspersample
             for dtype in ('int8', 'int16', 'float32', 'uint64'):
                 with pytest.raises(ValueError):
-                    tif.save(data.astype(dtype), bitspersample=4)
+                    tif.write(data.astype(dtype), bitspersample=4)
             # bitspersample out of data range
             for bps in (0, 9, 16, 32):
                 with pytest.raises(ValueError):
-                    tif.save(data.astype('uint8'), bitspersample=bps)
+                    tif.write(data.astype('uint8'), bitspersample=bps)
             for bps in (1, 8, 17, 32):
                 with pytest.raises(ValueError):
-                    tif.save(data.astype('uint16'), bitspersample=bps)
+                    tif.write(data.astype('uint16'), bitspersample=bps)
             for bps in (1, 8, 16, 33, 64):
                 with pytest.raises(ValueError):
-                    tif.save(data.astype('uint32'), bitspersample=bps)
+                    tif.write(data.astype('uint32'), bitspersample=bps)
 
 
-def test_write_compress_none():
-    """Test write compress=0."""
+@pytest.mark.parametrize(
+    'args',
+    [
+        (0, 0),
+        (1, 1),
+        (2, NONE),
+        (3, ADOBE_DEFLATE),
+        (4, 'zlib'),
+        (5, 'zlib', 5),
+        (6, 'zlib', 5, {'out': None}),
+        (7, 'zlib', None, {'level': 5}),
+    ],
+)
+def test_write_compression_args(args):
+    """Test compression parameter."""
+    i = args[0]
+    compressionargs = args[1:]
+    compressed = compressionargs[0] not in (0, 1, NONE)
+    if len(compressionargs) == 1:
+        compressionargs = compressionargs[0]
+
     data = WRITE_DATA
-    with TempFileName('compress_none') as fname:
-        imwrite(fname, data, compress=0)
+    with TempFileName(f'compression_args_{i}') as fname:
+        imwrite(fname, data, compression=compressionargs)
+        assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert page.compression == (ADOBE_DEFLATE if compressed else NONE)
+            assert page.planarconfig == SEPARATE
+            assert page.photometric == RGB
+            assert page.imagewidth == 301
+            assert page.imagelength == 219
+            assert page.samplesperpixel == 3
+            assert len(page.dataoffsets) == (9 if compressed else 3)
+            image = tif.asarray()
+            assert_array_equal(data, image)
+            assert__str__(tif)
+
+
+@pytest.mark.parametrize('args', [(0, 0), (1, 5), (2, 'zlib'), (3, 'zlib', 5)])
+def test_write_compress_args(args):
+    """Test deprecated compress parameter."""
+    i = args[0]
+    compressargs = args[1:]
+    compressed = compressargs[0] != 0
+    if len(compressargs) == 1:
+        compressargs = compressargs[0]
+
+    data = WRITE_DATA
+    with TempFileName(f'compression_args_{i}') as fname:
+        # TODO: with pytest.warns(DeprecationWarning):
+        imwrite(fname, data, compress=compressargs)
+        assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert page.compression == (ADOBE_DEFLATE if compressed else NONE)
+            assert page.planarconfig == SEPARATE
+            assert page.photometric == RGB
+            assert page.imagewidth == 301
+            assert page.imagelength == 219
+            assert page.samplesperpixel == 3
+            assert len(page.dataoffsets) == (9 if compressed else 3)
+            image = tif.asarray()
+            assert_array_equal(data, image)
+            assert__str__(tif)
+
+
+def test_write_compression_none():
+    """Test write compression=0."""
+    data = WRITE_DATA
+    with TempFileName('compression_none') as fname:
+        imwrite(fname, data, compression=0)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -8855,9 +8981,9 @@ def test_write_compress_none():
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
 @pytest.mark.parametrize('subsampling', ['444', '422', '420', '411'])
 @pytest.mark.parametrize('dtype', ['u1', 'u2'])
-def test_write_compress_jpeg(dtype, subsampling):
+def test_write_compression_jpeg(dtype, subsampling):
     """Test write JPEG compression with subsampling."""
-    filename = f'compress_jpeg_{dtype}_{subsampling}'
+    filename = f'compression_jpeg_{dtype}_{subsampling}'
     subsampling, atol = {
         '444': [(1, 1), 5],
         '422': [(2, 1), 10],
@@ -8867,7 +8993,7 @@ def test_write_compress_jpeg(dtype, subsampling):
     data = numpy.load(public_file('tifffile/rgb.u1.npy')).astype(dtype)
     data = data[:32, :16].copy()  # make divisable by subsamples
     with TempFileName(filename) as fname:
-        imwrite(fname, data, compress=('JPEG', 99), subsampling=subsampling)
+        imwrite(fname, data, compression=('JPEG', 99), subsampling=subsampling)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -8887,11 +9013,11 @@ def test_write_compress_jpeg(dtype, subsampling):
             assert__str__(tif)
 
 
-def test_write_compress_deflate():
+def test_write_compression_deflate():
     """Test write ZLIB compression."""
     data = WRITE_DATA
-    with TempFileName('compress_deflate') as fname:
-        imwrite(fname, data, compress=('DEFLATE', 6))
+    with TempFileName('compression_deflate') as fname:
+        imwrite(fname, data, compression=('DEFLATE', 6))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -8911,11 +9037,11 @@ def test_write_compress_deflate():
             assert__str__(tif)
 
 
-def test_write_compress_deflate_level():
+def test_write_compression_deflate_level():
     """Test write ZLIB compression with level."""
     data = WRITE_DATA
-    with TempFileName('compress_deflate_level') as fname:
-        imwrite(fname, data, compress=9)
+    with TempFileName('compression_deflate_level') as fname:
+        imwrite(fname, data, compression=('zlib', 9))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -8934,11 +9060,11 @@ def test_write_compress_deflate_level():
 
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
-def test_write_compress_lzma():
+def test_write_compression_lzma():
     """Test write LZMA compression."""
     data = WRITE_DATA
-    with TempFileName('compress_lzma') as fname:
-        imwrite(fname, data, compress='LZMA')
+    with TempFileName('compression_lzma') as fname:
+        imwrite(fname, data, compression='LZMA')
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -8959,11 +9085,11 @@ def test_write_compress_lzma():
 
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
-def test_write_compress_zstd():
+def test_write_compression_zstd():
     """Test write ZSTD compression."""
     data = WRITE_DATA
-    with TempFileName('compress_zstd') as fname:
-        imwrite(fname, data, compress='ZSTD')
+    with TempFileName('compression_zstd') as fname:
+        imwrite(fname, data, compression='ZSTD')
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -8984,11 +9110,11 @@ def test_write_compress_zstd():
 
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
-def test_write_compress_webp():
+def test_write_compression_webp():
     """Test write WEBP compression."""
     data = WRITE_DATA.astype('uint8').reshape((219, 301, 3))
-    with TempFileName('compress_webp') as fname:
-        imwrite(fname, data, compress=('WEBP', -1))
+    with TempFileName('compression_webp') as fname:
+        imwrite(fname, data, compression=('WEBP', -1))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -9006,13 +9132,13 @@ def test_write_compress_webp():
 
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
-def test_write_compress_lerc():
+def test_write_compression_lerc():
     """Test write LERC compression."""
     if not hasattr(imagecodecs, 'LERC'):
         pytest.skip('LERC codec missing')
     data = WRITE_DATA.astype('uint16').reshape((219, 301, 3))
-    with TempFileName('compress_lerc') as fname:
-        imwrite(fname, data, compress='LERC')
+    with TempFileName('compression_lerc') as fname:
+        imwrite(fname, data, compression='LERC')
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -9032,7 +9158,7 @@ def test_write_compress_lerc():
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
 @pytest.mark.parametrize('dtype', ['i1', 'u1', 'bool'])
 @pytest.mark.parametrize('tile', [None, (16, 16)])
-def test_write_compress_packbits(dtype, tile):
+def test_write_compression_packbits(dtype, tile):
     """Test write PackBits compression."""
     uncompressed = numpy.frombuffer(
         b'\xaa\xaa\xaa\x80\x00\x2a\xaa\xaa\xaa\xaa\x80\x00'
@@ -9042,8 +9168,8 @@ def test_write_compress_packbits(dtype, tile):
     shape = 2, 7, uncompressed.size
     data = numpy.empty(shape, dtype=dtype)
     data[..., :] = uncompressed
-    with TempFileName(f'compress_packits_{dtype}') as fname:
-        imwrite(fname, data, compress='PACKBITS', tile=tile)
+    with TempFileName(f'compression_packits_{dtype}') as fname:
+        imwrite(fname, data, compression='PACKBITS', tile=tile)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
@@ -9060,11 +9186,11 @@ def test_write_compress_packbits(dtype, tile):
             assert__str__(tif)
 
 
-def test_write_compress_rowsperstrip():
+def test_write_compression_rowsperstrip():
     """Test write rowsperstrip with compression."""
     data = WRITE_DATA
-    with TempFileName('compress_rowsperstrip') as fname:
-        imwrite(fname, data, compress=6, rowsperstrip=32)
+    with TempFileName('compression_rowsperstrip') as fname:
+        imwrite(fname, data, compression='zlib', rowsperstrip=32)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -9084,11 +9210,11 @@ def test_write_compress_rowsperstrip():
             assert__str__(tif)
 
 
-def test_write_compress_tiled():
+def test_write_compression_tiled():
     """Test write compressed tiles."""
     data = WRITE_DATA
-    with TempFileName('compress_tiled') as fname:
-        imwrite(fname, data, compress=6, tile=(32, 32))
+    with TempFileName('compression_tiled') as fname:
+        imwrite(fname, data, compression='zlib', tile=(32, 32))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -9108,11 +9234,16 @@ def test_write_compress_tiled():
             assert__str__(tif)
 
 
-def test_write_compress_predictor():
+def test_write_compression_predictor():
     """Test write horizontal differencing."""
     data = WRITE_DATA
-    with TempFileName('compress_predictor') as fname:
-        imwrite(fname, data, compress=6, predictor=TIFF.PREDICTOR.HORIZONTAL)
+    with TempFileName('compression_predictor') as fname:
+        imwrite(
+            fname,
+            data,
+            compression='zlib',
+            predictor=TIFF.PREDICTOR.HORIZONTAL,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -9133,11 +9264,11 @@ def test_write_compress_predictor():
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
 @pytest.mark.parametrize('dtype', ['u2', 'f4'])
-def test_write_compressed_predictor_tiled(dtype):
+def test_write_compression_predictor_tiled(dtype):
     """Test write horizontal differencing with tiles."""
     data = WRITE_DATA.astype(dtype)
-    with TempFileName(f'compress_tiled_predictor_{dtype}') as fname:
-        imwrite(fname, data, compress=6, predictor=True, tile=(32, 32))
+    with TempFileName(f'compression_tiled_predictor_{dtype}') as fname:
+        imwrite(fname, data, compression='zlib', predictor=True, tile=(32, 32))
         if dtype[0] != 'f':
             assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -9996,7 +10127,7 @@ def test_write_tiled_compressed():
     """Test write compressed tiles."""
     data = random_data('uint8', (3, 219, 301))
     with TempFileName('tiled_compressed') as fname:
-        imwrite(fname, data, compress=5, tile=(96, 64))
+        imwrite(fname, data, compression=('zlib', 5), tile=(96, 64))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -10184,7 +10315,7 @@ def test_write_tileiter_separate():
             tile=(16, 16),
             dtype='uint16',
             planarconfig='separate',
-            compress=6,
+            compression='zlib',
         )
 
         with TiffFile(fname) as tif:
@@ -10206,15 +10337,15 @@ def test_write_pyramids():
     with TempFileName('pyramids') as fname:
         with TiffWriter(fname) as tif:
             # use pages
-            tif.save(data, tile=(16, 16))
+            tif.write(data, tile=(16, 16))
             # interrupt pyramid, e.g. thumbnail
-            tif.save(data[0, :, :, 0])
+            tif.write(data[0, :, :, 0])
             # pyramid levels
-            tif.save(data[:, ::2, ::2], tile=(16, 16), subfiletype=1)
-            tif.save(data[:, ::4, ::4], tile=(16, 16), subfiletype=1)
+            tif.write(data[:, ::2, ::2], tile=(16, 16), subfiletype=1)
+            tif.write(data[:, ::4, ::4], tile=(16, 16), subfiletype=1)
             # second pyramid using volumetric with downsampling factor 3
-            tif.save(data, tile=(16, 16, 16))
-            tif.save(data[::3, ::3, ::3], tile=(16, 16, 16), subfiletype=1)
+            tif.write(data, tile=(16, 16, 16))
+            tif.write(data[::3, ::3, ::3], tile=(16, 16, 16), subfiletype=1)
 
         assert_valid_tiff(fname)
 
@@ -10306,7 +10437,7 @@ def test_write_volumetric_tiled_png():
     """Test write tiled volume using an image compressor."""
     data = random_data('uint8', (16, 64, 96, 3))
     with TempFileName('volumetric_tiled_png') as fname:
-        imwrite(fname, data, tile=(1, 64, 64), compress='png')
+        imwrite(fname, data, tile=(1, 64, 64), compression='png')
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -10411,7 +10542,7 @@ def test_write_volumetric_tiled_contig_rgb_empty():
     shape = (2, 3, 256, 64, 96, 3)
     with TempFileName('volumetric_tiled_contig_rgb_empty') as fname:
         with TiffWriter(fname) as tif:
-            tif.save(shape=shape, dtype='uint8', tile=(256, 64, 96))
+            tif.write(shape=shape, dtype='uint8', tile=(256, 64, 96))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 6
@@ -10472,7 +10603,9 @@ def test_write_volumetric_striped_png():
     """Test write tiled volume using an image compressor."""
     data = random_data('uint8', (15, 63, 95, 3))
     with TempFileName('volumetric_striped_png') as fname:
-        imwrite(fname, data, volumetric=True, rowsperstrip=32, compress='png')
+        imwrite(
+            fname, data, volumetric=True, rowsperstrip=32, compression='png'
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -10572,7 +10705,7 @@ def test_write_volumetric_striped_contig_rgb_empty():
     shape = (2, 3, 15, 63, 95, 3)
     with TempFileName('volumetric_striped_contig_rgb_empty') as fname:
         with TiffWriter(fname) as tif:
-            tif.save(shape=shape, dtype='uint8', volumetric=True)
+            tif.write(shape=shape, dtype='uint8', volumetric=True)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 6
@@ -10605,7 +10738,7 @@ def test_write_multiple_save():
     with TempFileName('append') as fname:
         with TiffWriter(fname, bigtiff=True) as tif:
             for i in range(data.shape[0]):
-                tif.save(data[i], contiguous=True)
+                tif.write(data[i], contiguous=True)
         # assert_jhove(fname)
         with TiffFile(fname) as tif:
             assert tif.is_bigtiff
@@ -10645,7 +10778,7 @@ def test_write_bigtiff():
         # TiffWriter should fail without bigtiff parameter
         with pytest.raises(ValueError):
             with TiffWriter(fname) as tif:
-                tif.save(data)
+                tif.write(data)
         # imwrite should use bigtiff for large data
         imwrite(fname, data)
         # assert_jhove(fname)
@@ -10666,19 +10799,24 @@ def test_write_bigtiff():
             assert__str__(tif)
 
 
-@pytest.mark.parametrize('compress', [0, 6])
+@pytest.mark.parametrize('compression', [0, 6])
 @pytest.mark.parametrize('dtype', ['uint8', 'uint16'])
-def test_write_palette(dtype, compress):
+def test_write_palette(dtype, compression):
     """Test write palette images."""
     data = random_data(dtype, (3, 219, 301))
     cmap = random_data('uint16', (3, 2 ** (data.itemsize * 8)))
-    with TempFileName(f'palette_{compress}{dtype}') as fname:
-        imwrite(fname, data, colormap=cmap, compress=compress)
+    with TempFileName(f'palette_{compression}{dtype}') as fname:
+        imwrite(
+            fname,
+            data,
+            colormap=cmap,
+            compression=('zlib', compression) if compression else compression,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 3
             page = tif.pages[0]
-            assert page.is_contiguous != bool(compress)
+            assert page.is_contiguous != bool(compression)
             assert page.planarconfig == CONTIG
             assert page.photometric == PALETTE
             assert page.imagewidth == 301
@@ -10702,7 +10840,7 @@ def test_write_palette_django():
         cmap = page.colormap
         assert__str__(tif)
     with TempFileName('palette_django') as fname:
-        imwrite(fname, data, colormap=cmap, compress=6)
+        imwrite(fname, data, colormap=cmap, compression='zlib')
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -10727,19 +10865,19 @@ def test_write_multiple_series():
     with TempFileName('multiple_series') as fname:
         with TiffWriter(fname, bigtiff=False) as tif:
             # series 0
-            tif.save(image1, compress=5, description='Django')
+            tif.write(image1, compression=('zlib', 5), description='Django')
             # series 1
-            tif.save(image2)
+            tif.write(image2)
             # series 2
-            tif.save(data1[0], metadata=dict(axes='TCZYX'))
+            tif.write(data1[0], metadata=dict(axes='TCZYX'))
             for i in range(1, data1.shape[0]):
-                tif.save(data1[i], contiguous=True)
+                tif.write(data1[i], contiguous=True)
             # series 3
-            tif.save(data1[0], contiguous=False)
+            tif.write(data1[0], contiguous=False)
             # series 4
-            tif.save(data1[0, 0, 0], tile=(64, 64))
+            tif.write(data1[0, 0, 0], tile=(64, 64))
             # series 5
-            tif.save(image1, compress=6, description='DEFLATE')
+            tif.write(image1, compression='zlib', description='DEFLATE')
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 124
@@ -10944,15 +11082,15 @@ def test_write_imagej_ijmetadata_tag():
     assert_valid_tiff(fname)
 
     with TempFileName('imagej_ijmetadata') as fname:
-        # with pytest.warns(DeprecationWarning):
-        imwrite(
-            fname,
-            data,
-            byteorder='>',
-            imagej=True,
-            metadata={'mode': 'composite'},
-            ijmetadata=ijmetadata,
-        )
+        with pytest.warns(DeprecationWarning):
+            imwrite(
+                fname,
+                data,
+                byteorder='>',
+                imagej=True,
+                metadata={'mode': 'composite'},
+                ijmetadata=ijmetadata,
+            )
 
         imwrite(
             fname,
@@ -11096,7 +11234,7 @@ def test_write_imagej_append():
     with TempFileName('imagej_append') as fname:
         with TiffWriter(fname, imagej=True) as tif:
             for image in data:
-                tif.save(image, contiguous=True)
+                tif.write(image, contiguous=True)
 
         assert_valid_tiff(fname)
 
@@ -11247,7 +11385,7 @@ def test_write_ome_enable():
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 @pytest.mark.parametrize(
-    'method', ['manual', 'copy', 'iter', 'compress', 'xml']
+    'method', ['manual', 'copy', 'iter', 'compression', 'xml']
 )
 def test_write_ome_methods(method):
     """Test re-write OME-TIFF."""
@@ -11295,7 +11433,7 @@ def test_write_ome_methods(method):
             with TiffWriter(fname, bigtiff=True, byteorder='>') as tif:
                 for i, image in enumerate(pages()):
                     description = omexml if i == 0 else None
-                    tif.save(
+                    tif.write(
                         image,
                         description=description,
                         photometric='minisblack',
@@ -11316,14 +11454,14 @@ def test_write_ome_methods(method):
                 metadata={'axes': axes},
             )
 
-        elif method == 'compress':
+        elif method == 'compression':
             # use iterator with compression
             imwrite(
                 fname,
                 pages(),
                 shape=shape,
                 dtype=dtype,
-                compress=6,
+                compression='zlib',
                 bigtiff=True,
                 byteorder='>',
                 photometric='minisblack',
@@ -11348,7 +11486,7 @@ def test_write_ome_methods(method):
             assert len(tif.series) == 1
             # assert page properties
             page = tif.pages[0]
-            if method != 'compress':
+            if method != 'compression':
                 assert page.is_contiguous
                 assert page.compression == NONE
             assert page.imagewidth == 439
@@ -11699,6 +11837,7 @@ def test_sequence_zip_container():
         assert data.shape == (10, 480, 640)
         assert data.dtype == 'uint8'
         assert data[9, 256, 256] == 135
+    assert_array_equal(data, imread(container=fname))
 
 
 @pytest.mark.skipif(
@@ -11725,7 +11864,7 @@ def test_sequence_wells_axesorder():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
-def test_aasequence_imread():
+def test_sequence_imread():
     """Test TiffSequence with imagecodecs.imread."""
     fname = private_file('PNG/*.png')
     pngs = TiffSequence(fname, imread=imagecodecs.imread)
