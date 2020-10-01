@@ -1,7 +1,14 @@
 Revisions
 ---------
+2020.9.30
+    Pass 4361 tests.
+    Allow to pass additional arguments to compression codecs.
+    Deprecate TiffWriter.save function (use TiffWriter.write)
+    Deprecate TiffWriter.save compress parameter (use compression).
+    Remove multifile parameter from TiffFile (breaking).
+    Pass all is_flag arguments from imread to TiffFile.
+    Do not byte-swap JPEG2000, WEBP, PNG, JPEGXR segments in TiffPage.decode.
 2020.9.29
-    Pass 4347 tests.
     Fix reading files produced by ScanImage > 2015 (#29).
 2020.9.28
     Derive ZarrStore from MutableMapping.
