@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.30
+:Version: 2020.10.1
 
 """
 
@@ -402,30 +402,34 @@ def test_issue_imread_kwargs():
 def test_issue_imread_kwargs_legacy():
     """Test legacy arguments still work in some cases.
 
-    Imread accepts 'movie', 'pages', 'fastij' and 'multifile_close'.
+    Specifying 'fastij', 'movie', 'multifile', 'multifile_close', or
+    'pages' raises DeprecationWarning.
     Specifying 'key' and 'pages' raises TypeError.
     Specifying 'pages' in TiffFile constructor raises TypeError.
 
     """
     data = random_data('uint8', (3, 21, 31))
-    with pytest.warns(DeprecationWarning):
-        with TempFileName('issue_imread_kwargs_legacy') as fname:
-            imwrite(fname, data, photometric='MINISBLACK')
+    with TempFileName('issue_imread_kwargs_legacy') as fname:
+        imwrite(fname, data, photometric='MINISBLACK')
+        with pytest.warns(DeprecationWarning):
             image = imread(
                 fname,
                 fastij=True,
-                multifile_close=True,
-                pages=[1, 2],
                 movie=True,
+                multifile=True,
+                multifile_close=True,
             )
-            assert_array_equal(image, data[1:])
-            with TiffFile(fname, fastij=True, multifile_close=True) as tif:
+        assert_array_equal(image, data)
+        with pytest.warns(DeprecationWarning):
+            with TiffFile(
+                fname, fastij=True, multifile=True, multifile_close=True
+            ) as tif:
                 assert_array_equal(tif.asarray(), data)
-            with pytest.raises(TypeError):
-                imread(fname, key=0, pages=[1, 2])
-            with pytest.raises(TypeError):
-                with TiffFile(fname, pages=[1, 2]) as tif:
-                    pass
+        with pytest.raises(TypeError):
+            imread(fname, key=0, pages=[1, 2])
+        with pytest.raises(TypeError):
+            with TiffFile(fname, pages=[1, 2]) as tif:
+                pass
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
