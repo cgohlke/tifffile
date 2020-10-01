@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.29
+:Version: 2020.9.30
 
 Requirements
 ------------
@@ -91,8 +91,15 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.9.30
+    Pass 4361 tests.
+    Allow to pass additional arguments to compression codecs.
+    Deprecate TiffWriter.save function (use TiffWriter.write)
+    Deprecate TiffWriter.save compress parameter (use compression).
+    Remove multifile parameter from TiffFile (breaking).
+    Pass all is_flag arguments from imread to TiffFile.
+    Do not byte-swap JPEG2000, WEBP, PNG, JPEGXR segments in TiffPage.decode.
 2020.9.29
-    Pass 4347 tests.
     Fix reading files produced by ScanImage > 2015 (#29).
 2020.9.28
     Derive ZarrStore from MutableMapping.
@@ -205,102 +212,6 @@ Revisions
     Remove deprecated lzw_decode functions (breaking).
     Remove support for Python 2.7 and 3.5 (breaking).
 2019.7.26
-    Fix infinite loop reading more than two tags of same code in IFD.
-    Delay import of logging module.
-2019.7.20
-    Fix OME-XML detection for files created by Imaris.
-    Remove or replace assert statements.
-2019.7.2
-    Do not write SampleFormat tag for unsigned data types.
-    Write ByteCount tag values as SHORT or LONG if possible.
-    Allow to specify axes in FileSequence pattern via group names.
-    Add option to concurrently read FileSequence using threads.
-    Derive TiffSequence from FileSequence.
-    Use str(datetime.timedelta) to format Timer duration.
-    Use perf_counter for Timer if possible.
-2019.6.18
-    Fix reading planar RGB ImageJ files created by Bio-Formats.
-    Fix reading single-file, multi-image OME-TIFF without UUID.
-    Presume LSM stores uncompressed images contiguously per page.
-    Reformat some complex expressions.
-2019.5.30
-    Ignore invalid frames in OME-TIFF.
-    Set default subsampling to (2, 2) for RGB JPEG compression.
-    Fix reading and writing planar RGB JPEG compression.
-    Replace buffered_read with FileHandle.read_segments.
-    Include page or frame numbers in exceptions and warnings.
-    Add Timer class.
-2019.5.22
-    Add optional chroma subsampling for JPEG compression.
-    Enable writing PNG, JPEG, JPEGXR, and JPEG2K compression (WIP).
-    Fix writing tiled images with WebP compression.
-    Improve handling GeoTIFF sparse files.
-2019.3.18
-    Fix regression decoding JPEG with RGB photometrics.
-    Fix reading OME-TIFF files with corrupted but unused pages.
-    Allow to load TiffFrame without specifying keyframe.
-    Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
-    Rename property is_chroma_subsampled to is_subsampled (breaking).
-    Make more attributes and methods private (WIP).
-2019.3.8
-    Fix MemoryError when RowsPerStrip > ImageLength.
-    Fix SyntaxWarning on Python 3.8.
-    Fail to decode JPEG to planar RGB (tentative).
-    Separate public from private test files (WIP).
-    Allow testing without data files or imagecodecs.
-2019.2.22
-    Use imagecodecs-lite as a fallback for imagecodecs.
-    Simplify reading numpy arrays from file.
-    Use TiffFrames when reading arrays from page sequences.
-    Support slices and iterators in TiffPageSeries sequence interface.
-    Auto-detect uniform series.
-    Use page hash to determine generic series.
-    Turn off TiffPages cache (tentative).
-    Pass through more parameters in imread.
-    Discontinue movie parameter in imread and TiffFile (breaking).
-    Discontinue bigsize parameter in imwrite (breaking).
-    Raise TiffFileError in case of issues with TIFF structure.
-    Return TiffFile.ome_metadata as XML (breaking).
-    Ignore OME series when last dimensions are not stored in TIFF pages.
-2019.2.10
-    Assemble IFDs in memory to speed-up writing on some slow media.
-    Handle discontinued arguments fastij, multifile_close, and pages.
-2019.1.30
-    Use black background in imshow.
-    Do not write datetime tag by default (breaking).
-    Fix OME-TIFF with SamplesPerPixel > 1.
-    Allow 64-bit IFD offsets for NDPI (files > 4GB still not supported).
-2019.1.4
-    Fix decoding deflate without imagecodecs.
-2019.1.1
-    Update copyright year.
-    Require imagecodecs >= 2018.12.16.
-    Do not use JPEG tables from keyframe.
-    Enable decoding large JPEG in NDPI.
-    Decode some old-style JPEG.
-    Reorder OME channel axis to match PlanarConfiguration storage.
-    Return tiled images as contiguous arrays.
-    Add decode_lzw proxy function for compatibility with old czifile module.
-    Use dedicated logger.
-2018.11.28
-    Make SubIFDs accessible as TiffPage.pages.
-    Make parsing of TiffSequence axes pattern optional (breaking).
-    Limit parsing of TiffSequence axes pattern to file names, not path names.
-    Do not interpolate in imshow if image dimensions <= 512, else use bilinear.
-    Use logging.warning instead of warnings.warn in many cases.
-    Fix numpy FutureWarning for out == 'memmap'.
-    Adjust ZSTD and WebP compression to libtiff-4.0.10 (WIP).
-    Decode old-style LZW with imagecodecs >= 2018.11.8.
-    Remove TiffFile.qptiff_metadata (QPI metadata are per page).
-    Do not use keyword arguments before variable positional arguments.
-    Make either all or none return statements in a function return expression.
-    Use pytest parametrize to generate tests.
-    Replace test classes with functions.
-2018.11.6
-    Rename imsave function to imwrite.
-    Readd Python implementations of packints, delta, and bitorder codecs.
-    Fix TiffFrame.compression AttributeError.
-2018.10.18
     ...
 
 Refer to the CHANGES file for older revisions.
@@ -333,17 +244,24 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   tag of the first IFD defines the position of TIFF IFDs in the high
   dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
   metadata are stored in a separate file. Tifffile can write numpy arrays
-  to single-file, non-pyramidal OME-TIFF.
+  to single-file OME-TIFF.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
   data. Tifffile can read large LSM files.
+* *STK* (MetaMorph Stack) contains additional image planes stored contiguously
+  after the image data of the first page. The total number of planes
+  is equal to the counts of the UIC2tag. Tifffile can read STK files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
   structures. JPEG compressed segments with dimensions >65536 or missing
   restart markers are not readable with libjpeg. Tifffile can read NDPI
   files > 4 GB. JPEG segments with restart markers and dimensions >65536 can
   be decoded with the imagecodecs library on Windows.
+* *Philips* TIFF slides store wrong ImageWidth and ImageLength tag values for
+  tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
+  attributes of the XML formatted description of the first page. Tifffile can
+  read Philips slides.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -449,7 +367,7 @@ Save a numpy array to a single-page RGB TIFF file:
 Save a floating-point array and metadata, using zlib compression:
 
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
->>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
+>>> imwrite('temp.tif', data, compression='zlib', metadata={'axes': 'TZCYX'})
 
 Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an ImageJ
 formatted TIFF file:
@@ -530,14 +448,14 @@ Successively write the frames of one contiguous series to a TIFF file:
 >>> data = numpy.random.randint(0, 255, (30, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif') as tif:
 ...     for frame in data:
-...         tif.save(data, contiguous=True)
+...         tif.write(data, contiguous=True)
 
 Successively append image series to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
 ...     for i in range(data.shape[0]):
-...         tif.save(data[i], photometric='minisblack')
+...         tif.write(data[i], photometric='minisblack')
 
 Append an image to the existing TIFF file:
 
@@ -557,8 +475,8 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 >>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
 >>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
-...     tif.save(data0, compress=6, photometric='rgb')
-...     tif.save(data1, photometric='minisblack',
+...     tif.write(data0, photometric='rgb')
+...     tif.write(data1, photometric='minisblack',
 ...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
@@ -580,12 +498,12 @@ compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
 >>> with TiffWriter('temp.ome.tif') as tif:
-...     options = dict(tile=(256, 256), compress='jpeg')
-...     tif.save(data, subifds=2, **options)
+...     options = dict(tile=(256, 256), compression='jpeg')
+...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
-...     # in production use resampling to generate levels!
-...     tif.save(data[::2, ::2], subfiletype=1, **options)
-...     tif.save(data[::4, ::4], subfiletype=1, **options)
+...     # in production use resampling to generate sub-resolutions!
+...     tif.write(data[::2, ::2], subfiletype=1, **options)
+...     tif.write(data[::4, ::4], subfiletype=1, **options)
 
 Access the image levels in the pyramidal OME-TIFF file:
 
@@ -639,7 +557,7 @@ Read an image stack from a series of TIFF files with a file name pattern:
 
 """
 
-__version__ = '2020.9.29'
+__version__ = '2020.9.30'
 
 __all__ = (
     'imwrite',
@@ -714,7 +632,7 @@ except Exception:
 #   logging, subprocess, multiprocessing, tempfile, zipfile, fnmatch
 
 
-def imread(files, aszarr=False, **kwargs):
+def imread(files=None, aszarr=False, **kwargs):
     """Return image data from TIFF file(s) as numpy array.
 
     Refer to the TiffFile and TiffSequence classes and their asarray
@@ -729,8 +647,8 @@ def imread(files, aszarr=False, **kwargs):
         If True, return file sequences, series, or single pages as
         zarr storage instead of numpy array (experimental).
     kwargs : dict
-        Parameters 'name', 'offset', 'size', 'multifile', and 'is_ome'
-        are passed to TiffFile().
+        Parameters 'name', 'offset', 'size', and 'is_' flags are passed to
+        TiffFile().
         The 'pattern', 'sort', 'container', and 'axesorder' parameters are
         passed to TiffSequence().
         Other parameters are passed to the asarray or aszarr functions.
@@ -748,16 +666,18 @@ def imread(files, aszarr=False, **kwargs):
     """
     kwargs_file = parse_kwargs(
         kwargs,
-        'is_ome',
-        'multifile',
-        '_useframes',
         'name',
         'offset',
         'size',
+        # private
+        '_multifile',
+        '_useframes',
         # legacy
         'multifile_close',
         'fastij',
         'movie',
+        # is_flags
+        *(key for key in kwargs if key[:3] == 'is_'),
     )
     kwargs_seq = parse_kwargs(
         kwargs, 'pattern', 'sort', 'container', 'imread', 'axesorder'
@@ -824,7 +744,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     kwargs : dict
         Parameters 'append', 'byteorder', 'bigtiff', 'imagej', and 'ome',
         are passed to TiffWriter().
-        Other parameters are passed to TiffWriter.save().
+        Other parameters are passed to TiffWriter.write().
 
     Returns
     -------
@@ -834,7 +754,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
 
     """
     tifargs = parse_kwargs(
-        kwargs, 'append', 'bigtiff', 'byteorder', 'imagej', 'ome'
+        kwargs, 'append', 'bigtiff', 'byteorder', 'imagej', 'ome', '_multifile'
     )
     if data is None:
         dtype = numpy.dtype(dtype)
@@ -853,14 +773,15 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
         and size > bigsize
         and not tifargs.get('imagej', False)
         and not tifargs.get('truncate', False)
-        and not kwargs.get('compress', False)
+        and not kwargs.get('compression', False)
+        and not kwargs.get('compress', False)  # TODO: remove deprecated
     ):
         tifargs['bigtiff'] = True
     if 'byteorder' not in tifargs:
         tifargs['byteorder'] = byteorder
 
     with TiffWriter(file, **tifargs) as tif:
-        return tif.save(data, shape, dtype, **kwargs)
+        return tif.write(data, shape, dtype, **kwargs)
 
 
 def memmap(
@@ -1118,7 +1039,7 @@ class TiffWriter:
         if self._imagej:
             self._ome = False
 
-    def save(
+    def write(
         self,
         data=None,
         shape=None,
@@ -1133,7 +1054,7 @@ class TiffWriter:
         align=None,
         rowsperstrip=None,
         bitspersample=None,
-        compress=None,
+        compression=None,
         predictor=None,
         subsampling=None,
         colormap=None,
@@ -1144,9 +1065,10 @@ class TiffWriter:
         software=None,
         subifds=None,
         metadata={},
-        ijmetadata=None,  # deprecated
         extratags=(),
         returnoffset=False,
+        ijmetadata=None,  # deprecated: use metadata
+        compress=None,  # deprecated: use compression
     ):
         """Write numpy array to TIFF file.
 
@@ -1243,12 +1165,12 @@ class TiffWriter:
             as tightly as possible. Valid values are 1-8 for uint8, 9-16 for
             uint16 and 17-32 for uint32. Cannot be used with compression,
             contiguous series, or empty files.
-        compress : int, str, or (str, int)
-            If 0 or None (default), data are written uncompressed.
-            If 0-9, the level of ADOBE_DEFLATE compression.
+        compression : str, (str, int), (str, int, dict)
+            If None (default), data are written uncompressed.
             If a str, one of TIFF.COMPESSORS, e.g. 'LZMA' or 'ZSTD'.
-            If a tuple, the first item is one of TIFF.COMPESSORS and the
-            second item is the compression level.
+            If a tuple, the first item is one of TIFF.COMPESSORS, the
+            second item is the compression level, and the third item is a dict
+            of arguments passed to the compression codec.
             Compression cannot be used to write contiguous series.
             Compressors may require certain data shapes, types or value ranges.
             For example, JPEG requires grayscale or RGB(A), uint8 or 12-bit
@@ -1383,6 +1305,21 @@ class TiffWriter:
             datadtype = data.dtype
             datadtypechar = data.dtype.char
 
+        if compression is None and compress is not None:
+            # TODO: activate DeprecationWarning and update tests
+            # warnings.warn(
+            #     "TiffWriter: the 'compress' argument is deprecated",
+            #     DeprecationWarning
+            # )
+            if isinstance(compress, (int, numpy.integer)) and compress > 0:
+                # ADOBE_DEFLATE
+                compression = 8, int(compress)
+                if not 0 < compress <= 9:
+                    raise ValueError(f'invalid compression level {compress}')
+            else:
+                compression = compress
+            del compress
+
         returnoffset = returnoffset and datadtype.isnative
         bilevel = datadtypechar == '?'
         if bilevel:
@@ -1397,15 +1334,14 @@ class TiffWriter:
 
         if datasize == 0:
             data = None
-            compress = False
+            compression = False
             bitspersample = None
             if metadata is not None:
                 truncate = True
+        elif compression in (None, 0, 1, 'NONE', 'none'):
+            compression = False
 
         inputshape = datashape
-
-        if compress in (0, None, 'NONE', 'none'):
-            compress = False
 
         packints = (
             bitspersample is not None
@@ -1464,7 +1400,7 @@ class TiffWriter:
                 self._datashape = None
                 self._colormap = None
 
-            elif compress or packints or tile:
+            elif compression or packints or tile:
                 raise ValueError(
                     'contiguous cannot be used with compression, tiles, etc.'
                 )
@@ -1527,27 +1463,35 @@ class TiffWriter:
             extrasamples_ = tuple(
                 enumarg(TIFF.EXTRASAMPLE, es) for es in sequence(extrasamples)
             )
-        if not compress:
-            compress = False
-            compresstag = 1
-            # TODO: support predictors without compression?
-            predictor = False
-            predictortag = 1
-        else:
-            if isinstance(compress, (tuple, list)):
-                compress, compresslevel = compress
-            elif isinstance(compress, (int, numpy.integer)):
-                compress, compresslevel = 'ADOBE_DEFLATE', int(compress)
-                if not 0 <= compresslevel <= 9:
-                    raise ValueError(f'invalid compression level {compress}')
+
+        if compression:
+            if isinstance(compression, (tuple, list)):
+                if len(compression) == 2:
+                    compressionargs = {'level': compression[1]}
+                else:
+                    compressionargs = dict(compression[2])
+                    if compression[1] is not None:
+                        compressionargs['level'] = compression[1]
+                compression = compression[0]
             else:
-                compresslevel = None
-            compress = compress.upper()
-            compresstag = enumarg(TIFF.COMPRESSION, compress)
+                compressionargs = {}
+            if isinstance(compression, str):
+                compression = compression.upper()
+                if compression == 'ZLIB':
+                    compression = 8  # ADOBE_DEFLATE
+            compressiontag = enumarg(TIFF.COMPRESSION, compression)
+            compression = True
+        else:
+            compression = False
+            compressiontag = 1
+            compressionargs = {}
+            predictor = False  # TODO: support predictors without compression?
+            predictortag = 1
 
         if predictor:
-            if compresstag == 7:
-                predictor = False  # disable predictor for lossy compression
+            if compressiontag in (7, 33003, 33005, 34712, 34933, 34934, 50001):
+                # disable predictor for JPEG, JPEG2000, WEBP, PNG, JPEGXR
+                predictor = False
             elif datadtype.kind in 'iu':
                 if datadtype.itemsize > 4:
                     predictor = False  # disable predictor for 64 bit
@@ -1574,9 +1518,9 @@ class TiffWriter:
             volumetric = False
 
         elif self._imagej:
-            # if tile is not None or predictor or compress:
+            # if tile is not None or predictor or compression:
             #     warnings.warn(
-            #         'ImageJ does not support tils, predictors or compression'
+            #         'ImageJ does not support tiles, predictors, compression'
             #     )
             if description:
                 warnings.warn(
@@ -1741,7 +1685,7 @@ class TiffWriter:
             if bitspersample is not None and bitspersample != 1:
                 raise ValueError('bitspersample must be 1 for bilevel')
             bitspersample = 1
-        elif compresstag == 7 and datadtype == 'uint16':
+        elif compressiontag == 7 and datadtype == 'uint16':
             if bitspersample is not None and bitspersample != 12:
                 raise ValueError(
                     'bitspersample must be 12 for JPEG compressed uint16'
@@ -1758,7 +1702,7 @@ class TiffWriter:
             and bitspersample <= datadtype.itemsize * 8
         ):
             raise ValueError('bitspersample out of range of dtype')
-        elif compress:
+        elif compression:
             if bitspersample != datadtype.itemsize * 8:
                 raise ValueError(
                     'bitspersample cannot be used with compression'
@@ -1914,12 +1858,12 @@ class TiffWriter:
                     'roi',
                     'overlays',
                 )
-            # TODO: activate DeprecationWarning and update tests
-            # else:
-            #     warnings.warn(
-            #         "TiffWriter: the 'ijmetadata' argument is deprecated",
-            #         DeprecationWarning
-            #     )
+            else:
+                # TODO: remove ijmetadata parameter and update tests
+                warnings.warn(
+                    "TiffWriter: the 'ijmetadata' argument is deprecated",
+                    DeprecationWarning,
+                )
             for t in imagej_metadata_tag(ijmetadata, byteorder):
                 addtag(*t)
             description = imagej_description(
@@ -1960,8 +1904,8 @@ class TiffWriter:
                 except AttributeError:
                     datetime = self._now().strftime('%Y:%m:%d %H:%M:%S')
             addtag(306, 's', 0, datetime, writeonce=True)
-        addtag(259, 'H', 1, compresstag)  # Compression
-        if compresstag == 34887:
+        addtag(259, 'H', 1, compressiontag)  # Compression
+        if compressiontag == 34887:
             # LERC without additional compression
             addtag(50674, 'I', 2, (4, 0))
         if predictor:
@@ -1981,7 +1925,11 @@ class TiffWriter:
             if self._subifds:
                 subifds = self._subifds
             else:
-                self._subifds = subifds = int(subifds)
+                try:
+                    self._subifds = subifds = int(subifds)
+                except TypeError:
+                    # allow TiffPage.subifds tuple
+                    self._subifds = subifds = len(subifds)
             addtag(330, 18 if self._bigtiff else 13, subifds, [0] * subifds)
         if not bilevel and not datadtype.kind == 'u':
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
@@ -2012,7 +1960,7 @@ class TiffWriter:
                 # Unspecified alpha channel
                 addtag(338, 'H', extrasamples, (0,) * extrasamples)
 
-        if compresstag == 7 and photometric == RGB and planarconfig == 1:
+        if compressiontag == 7 and photometric == RGB and planarconfig == 1:
             # JPEG compression with subsampling. Store as YCbCr
             # TODO: use JPEGTables for multiple tiles or strips
             if subsampling is None:
@@ -2056,12 +2004,14 @@ class TiffWriter:
             addtag(283, '2I', 1, (1, 1))  # YResolution
             addtag(296, 'H', 1, 1)  # ResolutionUnit
 
-        def bytecount_format(bytecounts, compress=compress, size=offsetsize):
+        def bytecount_format(
+            bytecounts, compression=compression, size=offsetsize
+        ):
             # return small bytecount format
             if len(bytecounts) == 1:
                 return {4: 'I', 8: 'Q'}[size]
             bytecount = bytecounts[0]
-            if compress:
+            if compression:
                 bytecount = bytecount * 10
             if bytecount < 2 ** 16:
                 return 'H'
@@ -2072,7 +2022,7 @@ class TiffWriter:
             return 'Q'
 
         # can save data array contiguous
-        contiguous = not (compress or packints or bilevel)
+        contiguous = not (compression or packints or bilevel)
         if tile:
             # one chunk per tile per plane
             if len(tile) == 2:
@@ -2130,7 +2080,7 @@ class TiffWriter:
             rowsize = product(storedshape[-2:]) * datadtype.itemsize
             if rowsperstrip is None:
                 # compress ~64 KB chunks by default
-                if compress:
+                if compression:
                     rowsperstrip = 65536 // rowsize
                 else:
                     rowsperstrip = storedshape[-3]
@@ -2178,39 +2128,41 @@ class TiffWriter:
 
         # define compress function
         if bilevel:
-            if compresstag == 1:
+            if compressiontag == 1:
 
                 def compress(data, level=None):
                     return numpy.packbits(data, axis=-2).tobytes()
 
-            elif compresstag in (5, 32773):
+            elif compressiontag in (5, 32773):
                 # LZW, PackBits
                 def compress(
-                    data, level=None, compressor=TIFF.COMPESSORS[compresstag]
+                    data,
+                    compressor=TIFF.COMPESSORS[compressiontag],
+                    kwargs=compressionargs,
                 ):
                     data = numpy.packbits(data, axis=-2).tobytes()
-                    return compressor(data)
+                    return compressor(data, **kwargs)
 
             else:
                 raise ValueError('cannot compress bilevel image')
 
-        elif compress:
-            compressor = TIFF.COMPESSORS[compresstag]
+        elif compression:
+            compressor = TIFF.COMPESSORS[compressiontag]
 
             if subsampling:
                 # JPEG with subsampling. Store RGB as YCbCr
                 def compress(
                     data,
                     compressor=compressor,
-                    level=compresslevel,
                     subsampling=subsampling,
+                    kwargs=compressionargs,
                 ):
                     return compressor(
                         data,
-                        level,
                         subsampling=subsampling,
                         colorspace=2,
                         outcolorspace=3,
+                        **kwargs,
                     )
 
             elif predictor:
@@ -2219,15 +2171,17 @@ class TiffWriter:
                     data,
                     predictor=predictor,
                     compressor=compressor,
-                    level=compresslevel,
+                    kwargs=compressionargs,
                 ):
                     data = predictor(data, axis=-2)
-                    return compressor(data, level)
+                    return compressor(data, **kwargs)
 
-            elif compresslevel is not None:
+            elif compressionargs:
 
-                def compress(data, compressor=compressor, level=compresslevel):
-                    return compressor(data, level)
+                def compress(
+                    data, compressor=compressor, kwargs=compressionargs
+                ):
+                    return compressor(data, **kwargs)
 
             else:
                 compress = compressor
@@ -2236,6 +2190,11 @@ class TiffWriter:
 
             def compress(data, bps=bitspersample):
                 return packints_encode(data, bps, axis=-2)
+
+        else:
+            compress = False
+
+        del compression
 
         fhpos = fh.tell()
         if (
@@ -2733,7 +2692,7 @@ class TiffFile:
         name=None,
         offset=None,
         size=None,
-        multifile=True,
+        _multifile=True,
         _useframes=None,
         _master=None,
         **kwargs,
@@ -2753,9 +2712,6 @@ class TiffFile:
         size : int
             Optional size of embedded file. By default, this is the number
             of bytes from the 'offset' to the end of the file.
-        multifile : bool
-            If True (default), series may include pages from multiple files.
-            Currently applies to OME-TIFF only.
         kwargs : bool
             'is_ome': If False, disable processing of OME-XML metadata.
 
@@ -2781,7 +2737,7 @@ class TiffFile:
 
         fh = FileHandle(arg, mode='rb', name=name, offset=offset, size=size)
         self._fh = fh
-        self._multifile = bool(multifile)
+        self._multifile = bool(_multifile)
         self._files = {fh.name: self}  # cache of TiffFiles
         self._decoders = {}  # cache of TiffPage.decode functions
         self._master = self if _master is None else _master
@@ -5735,6 +5691,35 @@ class TiffPage:
                     outcolorspace=outcolorspace,
                     shape=shape[1:3],
                 )
+                data = reshape(data, index, shape)
+                if _fullsize:
+                    data, shape = pad(data, shape)
+                return data, index, shape
+
+            return cache(decode)
+
+        if self.compression in (33003, 33005, 34712, 34933, 34934, 50001):
+            # JPEG2000, WEBP, PNG, JPEGXR
+            # presume codecs always return correct dtype, native byte order...
+            if self.fillorder == 2:
+                log_warning(
+                    f'TiffPage {self.index}: disabling LSB2MSB for '
+                    f'compression {self.compression}'
+                )
+            if unpredict:
+                log_warning(
+                    f'TiffPage {self.index}: disabling predictor for '
+                    f'compression {self.compression}'
+                )
+
+            def decode(data, segmentindex, jpegtables=None, _fullsize=False):
+                # return decoded segment, its shape, and indices in image
+                index, shape = indices(segmentindex)
+                if data is None:
+                    if _fullsize:
+                        data, shape = pad(data, shape)
+                    return data, index, shape
+                data = decompress(data)
                 data = reshape(data, index, shape)
                 if _fullsize:
                     data, shape = pad(data, shape)
@@ -12659,7 +12644,7 @@ def read_metaseries_catalog(fh):
 def imagej_metadata_tag(metadata, byteorder):
     """Return IJMetadata and IJMetadataByteCounts tags from metadata dict.
 
-    The tags can be passed to TiffWriter.save() as extratags.
+    The tags can be passed to TiffWriter.write() as extratags.
 
     The metadata dict may contain the following keys and values:
 
@@ -15475,7 +15460,7 @@ def main():
         print('\nReading TIFF header:', end=' ', flush=True)
     timer = Timer()
     try:
-        tif = TiffFile(path, multifile=not settings.nomultifile)
+        tif = TiffFile(path, _multifile=not settings.nomultifile)
     except Exception as exc:
         if settings.debug:
             raise
@@ -15633,6 +15618,7 @@ def bytestr(s, encoding='cp1252'):
 
 # deprecated
 imsave = imwrite
+TiffWriter.save = TiffWriter.write
 
 if __name__ == '__main__':
     sys.exit(main())
