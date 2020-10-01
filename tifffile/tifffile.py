@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.30
+:Version: 2020.10.1
 
 Requirements
 ------------
@@ -91,10 +91,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2020.9.30
+2020.10.1
     Pass 4361 tests.
+    Formally deprecate unused TiffFile parameters (scikit-image #4996).
+2020.9.30
     Allow to pass additional arguments to compression codecs.
-    Deprecate TiffWriter.save function (use TiffWriter.write)
+    Deprecate TiffWriter.save function (use TiffWriter.write).
     Deprecate TiffWriter.save compress parameter (use compression).
     Remove multifile parameter from TiffFile (breaking).
     Pass all is_flag arguments from imread to TiffFile.
@@ -557,7 +559,7 @@ Read an image stack from a series of TIFF files with a file name pattern:
 
 """
 
-__version__ = '2020.9.30'
+__version__ = '2020.10.1'
 
 __all__ = (
     'imwrite',
@@ -672,10 +674,11 @@ def imread(files=None, aszarr=False, **kwargs):
         # private
         '_multifile',
         '_useframes',
-        # legacy
-        'multifile_close',
+        # deprecated, ignored
         'fastij',
         'movie',
+        'multifile',
+        'multifile_close',
         # is_flags
         *(key for key in kwargs if key[:3] == 'is_'),
     )
@@ -686,10 +689,10 @@ def imread(files=None, aszarr=False, **kwargs):
     if kwargs.get('pages', None) is not None:
         if kwargs.get('key', None) is not None:
             raise TypeError(
-                "the 'pages' and 'key' arguments cannot be used together"
+                "the 'pages' and 'key' parameters cannot be used together"
             )
         warnings.warn(
-            "imread: the 'pages' argument is deprecated", DeprecationWarning
+            "imread: the 'pages' parameter is deprecated", DeprecationWarning
         )
         kwargs['key'] = kwargs.pop('pages')
 
@@ -754,7 +757,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
 
     """
     tifargs = parse_kwargs(
-        kwargs, 'append', 'bigtiff', 'byteorder', 'imagej', 'ome', '_multifile'
+        kwargs, 'append', 'bigtiff', 'byteorder', 'imagej', 'ome'
     )
     if data is None:
         dtype = numpy.dtype(dtype)
@@ -1308,7 +1311,7 @@ class TiffWriter:
         if compression is None and compress is not None:
             # TODO: activate DeprecationWarning and update tests
             # warnings.warn(
-            #     "TiffWriter: the 'compress' argument is deprecated",
+            #     "TiffWriter: the 'compress' parameter is deprecated",
             #     DeprecationWarning
             # )
             if isinstance(compress, (int, numpy.integer)) and compress > 0:
@@ -1861,7 +1864,7 @@ class TiffWriter:
             else:
                 # TODO: remove ijmetadata parameter and update tests
                 warnings.warn(
-                    "TiffWriter: the 'ijmetadata' argument is deprecated",
+                    "TiffWriter: the 'ijmetadata' parameter is deprecated",
                     DeprecationWarning,
                 )
             for t in imagej_metadata_tag(ijmetadata, byteorder):
@@ -2717,14 +2720,17 @@ class TiffFile:
 
         """
         if kwargs:
-            for key in ('movie', 'fastij', 'multifile_close'):
+            for key in ('fastij', 'movie', 'multifile', 'multifile_close'):
                 if key in kwargs:
                     del kwargs[key]
-                    log_warning(f'TiffFile: the {key!r} argument is ignored')
+                    warnings.warn(
+                        f'TiffFile: the {key!r} argument is ignored',
+                        DeprecationWarning,
+                    )
             if 'pages' in kwargs:
                 raise TypeError(
-                    "the TiffFile 'pages' argument is no longer supported.\n\n"
-                    "Use TiffFile.asarray(key=[...]) to read image data "
+                    "the TiffFile 'pages' parameter is no longer supported."
+                    "\n\nUse TiffFile.asarray(key=[...]) to read image data "
                     "from specific pages.\n"
                 )
 
