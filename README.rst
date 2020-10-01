@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.29
+:Version: 2020.9.30
 
 Requirements
 ------------
@@ -61,8 +61,15 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.9.30
+    Pass 4361 tests.
+    Allow to pass additional arguments to compression codecs.
+    Deprecate TiffWriter.save function (use TiffWriter.write)
+    Deprecate TiffWriter.save compress parameter (use compression).
+    Remove multifile parameter from TiffFile (breaking).
+    Pass all is_flag arguments from imread to TiffFile.
+    Do not byte-swap JPEG2000, WEBP, PNG, JPEGXR segments in TiffPage.decode.
 2020.9.29
-    Pass 4347 tests.
     Fix reading files produced by ScanImage > 2015 (#29).
 2020.9.28
     Derive ZarrStore from MutableMapping.
@@ -175,102 +182,6 @@ Revisions
     Remove deprecated lzw_decode functions (breaking).
     Remove support for Python 2.7 and 3.5 (breaking).
 2019.7.26
-    Fix infinite loop reading more than two tags of same code in IFD.
-    Delay import of logging module.
-2019.7.20
-    Fix OME-XML detection for files created by Imaris.
-    Remove or replace assert statements.
-2019.7.2
-    Do not write SampleFormat tag for unsigned data types.
-    Write ByteCount tag values as SHORT or LONG if possible.
-    Allow to specify axes in FileSequence pattern via group names.
-    Add option to concurrently read FileSequence using threads.
-    Derive TiffSequence from FileSequence.
-    Use str(datetime.timedelta) to format Timer duration.
-    Use perf_counter for Timer if possible.
-2019.6.18
-    Fix reading planar RGB ImageJ files created by Bio-Formats.
-    Fix reading single-file, multi-image OME-TIFF without UUID.
-    Presume LSM stores uncompressed images contiguously per page.
-    Reformat some complex expressions.
-2019.5.30
-    Ignore invalid frames in OME-TIFF.
-    Set default subsampling to (2, 2) for RGB JPEG compression.
-    Fix reading and writing planar RGB JPEG compression.
-    Replace buffered_read with FileHandle.read_segments.
-    Include page or frame numbers in exceptions and warnings.
-    Add Timer class.
-2019.5.22
-    Add optional chroma subsampling for JPEG compression.
-    Enable writing PNG, JPEG, JPEGXR, and JPEG2K compression (WIP).
-    Fix writing tiled images with WebP compression.
-    Improve handling GeoTIFF sparse files.
-2019.3.18
-    Fix regression decoding JPEG with RGB photometrics.
-    Fix reading OME-TIFF files with corrupted but unused pages.
-    Allow to load TiffFrame without specifying keyframe.
-    Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
-    Rename property is_chroma_subsampled to is_subsampled (breaking).
-    Make more attributes and methods private (WIP).
-2019.3.8
-    Fix MemoryError when RowsPerStrip > ImageLength.
-    Fix SyntaxWarning on Python 3.8.
-    Fail to decode JPEG to planar RGB (tentative).
-    Separate public from private test files (WIP).
-    Allow testing without data files or imagecodecs.
-2019.2.22
-    Use imagecodecs-lite as a fallback for imagecodecs.
-    Simplify reading numpy arrays from file.
-    Use TiffFrames when reading arrays from page sequences.
-    Support slices and iterators in TiffPageSeries sequence interface.
-    Auto-detect uniform series.
-    Use page hash to determine generic series.
-    Turn off TiffPages cache (tentative).
-    Pass through more parameters in imread.
-    Discontinue movie parameter in imread and TiffFile (breaking).
-    Discontinue bigsize parameter in imwrite (breaking).
-    Raise TiffFileError in case of issues with TIFF structure.
-    Return TiffFile.ome_metadata as XML (breaking).
-    Ignore OME series when last dimensions are not stored in TIFF pages.
-2019.2.10
-    Assemble IFDs in memory to speed-up writing on some slow media.
-    Handle discontinued arguments fastij, multifile_close, and pages.
-2019.1.30
-    Use black background in imshow.
-    Do not write datetime tag by default (breaking).
-    Fix OME-TIFF with SamplesPerPixel > 1.
-    Allow 64-bit IFD offsets for NDPI (files > 4GB still not supported).
-2019.1.4
-    Fix decoding deflate without imagecodecs.
-2019.1.1
-    Update copyright year.
-    Require imagecodecs >= 2018.12.16.
-    Do not use JPEG tables from keyframe.
-    Enable decoding large JPEG in NDPI.
-    Decode some old-style JPEG.
-    Reorder OME channel axis to match PlanarConfiguration storage.
-    Return tiled images as contiguous arrays.
-    Add decode_lzw proxy function for compatibility with old czifile module.
-    Use dedicated logger.
-2018.11.28
-    Make SubIFDs accessible as TiffPage.pages.
-    Make parsing of TiffSequence axes pattern optional (breaking).
-    Limit parsing of TiffSequence axes pattern to file names, not path names.
-    Do not interpolate in imshow if image dimensions <= 512, else use bilinear.
-    Use logging.warning instead of warnings.warn in many cases.
-    Fix numpy FutureWarning for out == 'memmap'.
-    Adjust ZSTD and WebP compression to libtiff-4.0.10 (WIP).
-    Decode old-style LZW with imagecodecs >= 2018.11.8.
-    Remove TiffFile.qptiff_metadata (QPI metadata are per page).
-    Do not use keyword arguments before variable positional arguments.
-    Make either all or none return statements in a function return expression.
-    Use pytest parametrize to generate tests.
-    Replace test classes with functions.
-2018.11.6
-    Rename imsave function to imwrite.
-    Readd Python implementations of packints, delta, and bitorder codecs.
-    Fix TiffFrame.compression AttributeError.
-2018.10.18
     ...
 
 Refer to the CHANGES file for older revisions.
@@ -303,17 +214,24 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   tag of the first IFD defines the position of TIFF IFDs in the high
   dimensional data. Tifffile can read OME-TIFF files, except when the OME-XML
   metadata are stored in a separate file. Tifffile can write numpy arrays
-  to single-file, non-pyramidal OME-TIFF.
+  to single-file OME-TIFF.
 * *LSM* stores all IFDs below 4 GB but wraps around 32-bit StripOffsets.
   The StripOffsets of each series and position require separate unwrapping.
   The StripByteCounts tag contains the number of bytes for the uncompressed
   data. Tifffile can read large LSM files.
+* *STK* (MetaMorph Stack) contains additional image planes stored contiguously
+  after the image data of the first page. The total number of planes
+  is equal to the counts of the UIC2tag. Tifffile can read STK files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
   structures. JPEG compressed segments with dimensions >65536 or missing
   restart markers are not readable with libjpeg. Tifffile can read NDPI
   files > 4 GB. JPEG segments with restart markers and dimensions >65536 can
   be decoded with the imagecodecs library on Windows.
+* *Philips* TIFF slides store wrong ImageWidth and ImageLength tag values for
+  tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
+  attributes of the XML formatted description of the first page. Tifffile can
+  read Philips slides.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -419,7 +337,7 @@ Save a numpy array to a single-page RGB TIFF file:
 Save a floating-point array and metadata, using zlib compression:
 
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
->>> imwrite('temp.tif', data, compress=6, metadata={'axes': 'TZCYX'})
+>>> imwrite('temp.tif', data, compression='zlib', metadata={'axes': 'TZCYX'})
 
 Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an ImageJ
 formatted TIFF file:
@@ -500,14 +418,14 @@ Successively write the frames of one contiguous series to a TIFF file:
 >>> data = numpy.random.randint(0, 255, (30, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif') as tif:
 ...     for frame in data:
-...         tif.save(data, contiguous=True)
+...         tif.write(data, contiguous=True)
 
 Successively append image series to a BigTIFF file, which can exceed 4 GB:
 
 >>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif', bigtiff=True) as tif:
 ...     for i in range(data.shape[0]):
-...         tif.save(data[i], photometric='minisblack')
+...         tif.write(data[i], photometric='minisblack')
 
 Append an image to the existing TIFF file:
 
@@ -527,8 +445,8 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 >>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
 >>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
-...     tif.save(data0, compress=6, photometric='rgb')
-...     tif.save(data1, photometric='minisblack',
+...     tif.write(data0, photometric='rgb')
+...     tif.write(data1, photometric='minisblack',
 ...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
@@ -550,12 +468,12 @@ compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
 >>> with TiffWriter('temp.ome.tif') as tif:
-...     options = dict(tile=(256, 256), compress='jpeg')
-...     tif.save(data, subifds=2, **options)
+...     options = dict(tile=(256, 256), compression='jpeg')
+...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
-...     # in production use resampling to generate levels!
-...     tif.save(data[::2, ::2], subfiletype=1, **options)
-...     tif.save(data[::4, ::4], subfiletype=1, **options)
+...     # in production use resampling to generate sub-resolutions!
+...     tif.write(data[::2, ::2], subfiletype=1, **options)
+...     tif.write(data[::4, ::4], subfiletype=1, **options)
 
 Access the image levels in the pyramidal OME-TIFF file:
 
