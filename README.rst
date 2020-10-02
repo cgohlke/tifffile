@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.9.30
+:Version: 2020.10.1
 
 Requirements
 ------------
@@ -61,10 +61,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2020.9.30
+2020.10.1
     Pass 4361 tests.
+    Formally deprecate unused TiffFile parameters (scikit-image #4996).
+2020.9.30
     Allow to pass additional arguments to compression codecs.
-    Deprecate TiffWriter.save function (use TiffWriter.write)
+    Deprecate TiffWriter.save function (use TiffWriter.write).
     Deprecate TiffWriter.save compress parameter (use compression).
     Remove multifile parameter from TiffFile (breaking).
     Pass all is_flag arguments from imread to TiffFile.
