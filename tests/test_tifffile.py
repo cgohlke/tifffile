@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.10.1
+:Version: 2020.11.18
 
 """
 
@@ -78,6 +78,7 @@ try:
         imread,
         imshow,
         TiffWriter,
+        TiffReader,
         TiffFile,
         TiffFileError,
         TiffSequence,
@@ -110,6 +111,8 @@ from tifffile.tifffile import (
     FileSequence,
     OmeXml,
     OmeXmlError,
+    TiffWriter,
+    TiffReader,
     TiffFile,
     TiffFileError,
     TiffFrame,
@@ -118,7 +121,6 @@ from tifffile.tifffile import (
     TiffSequence,
     TiffTag,
     TiffTags,
-    TiffWriter,
     apply_colormap,
     asbool,
     byteorder_compare,
@@ -186,6 +188,7 @@ MINISBLACK = TIFF.PHOTOMETRIC.MINISBLACK
 MINISWHITE = TIFF.PHOTOMETRIC.MINISWHITE
 RGB = TIFF.PHOTOMETRIC.RGB
 CFA = TIFF.PHOTOMETRIC.CFA
+SEPARATED = TIFF.PHOTOMETRIC.SEPARATED
 PALETTE = TIFF.PHOTOMETRIC.PALETTE
 YCBCR = TIFF.PHOTOMETRIC.YCBCR
 CONTIG = TIFF.PLANARCONFIG.CONTIG
@@ -331,6 +334,8 @@ def assert_aszarr_method(obj, image=None, **kwargs):
         image = obj.asarray(**kwargs)
     with obj.aszarr(**kwargs) as store:
         data = zarr.open(store, mode='r')
+        if isinstance(data, zarr.Group):
+            data = data[0]
         assert_array_equal(data, image)
         del data
 
@@ -941,6 +946,33 @@ def test_issue_iterable_compression():
                 tif.write(
                     data, shape=(10, 10, 10), dtype='uint8', compression='zlib'
                 )
+
+
+def test_issue_write_separated():
+    """Test write SEPARATED colorspace."""
+    # https://github.com/cgohlke/tifffile/issues/37
+    contig = random_data('uint8', (63, 95, 4))
+    separate = random_data('uint8', (4, 63, 95))
+    extrasample = random_data('uint8', (63, 95, 5))
+    with TempFileName(f'issue_write_separated') as fname:
+        with TiffWriter(fname) as tif:
+            tif.write(contig, photometric='SEPARATED')
+            tif.write(separate, photometric=SEPARATED)
+            tif.write(extrasample, photometric=SEPARATED, extrasamples=[1])
+        assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 3
+            assert len(tif.series) == 3
+            page = tif.pages[0]
+            assert page.photometric == SEPARATED
+            assert_array_equal(page.asarray(), contig)
+            page = tif.pages[1]
+            assert page.photometric == SEPARATED
+            assert_array_equal(page.asarray(), separate)
+            page = tif.pages[2]
+            assert page.photometric == SEPARATED
+            assert page.extrasamples == (1,)
+            assert_array_equal(page.asarray(), extrasample)
 
 
 ###############################################################################
@@ -3200,7 +3232,7 @@ def test_read_cramps_tile():
         # assert page properties
         page = tif.pages[0]
         assert page.is_tiled
-        assert page.is_volumetric
+        assert not page.is_volumetric
         assert page.compression == NONE
         assert page.photometric == MINISWHITE
         assert page.imagewidth == 800
@@ -5639,6 +5671,41 @@ def test_read_svs_jp2k_33003_1():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS or SKIP_HUGE, reason=REASON)
+def test_read_scn_collection():
+    """Test read Leica SCN slide, JPEG."""
+    # collection of 43 CZYX images
+    # https://forum.image.sc/t/43585
+    fname = private_file(
+        'LeicaSCN/19-3-12_b5992c2e-5b6e-46f2-bf9b-d5872bdebdc1.SCN'
+    )
+    with TiffFile(fname) as tif:
+        assert tif.is_scn
+        assert tif.is_bigtiff
+        assert len(tif.pages) == 5358
+        assert len(tif.series) == 46
+        # first page
+        page = tif.pages[0]
+        assert page.is_scn
+        assert page.is_tiled
+        assert page.photometric == YCBCR
+        assert page.compression == JPEG
+        assert page.shape == (12990, 5741, 3)
+        metadata = tif.scn_metadata
+        assert metadata.startswith('<?xml version="1.0" encoding="utf-8"?>')
+        for series in tif.series[2:]:
+            assert series.kind == 'SCN'
+            assert series.axes == 'CZYX'
+            assert series.shape[:2] == (4, 8)
+            assert len(series.levels) in (2, 3, 4, 5)
+            assert len(series.pages) == 32
+        # third series
+        series = tif.series[2]
+        assert series.shape == (4, 8, 946, 993)
+        assert_aszarr_method(series)
+        assert__str__(tif)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_scanimage_metadata():
     """Test read ScanImage metadata."""
@@ -5781,6 +5848,7 @@ def test_read_ome_single_channel():
         assert series.shape == (167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'YX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -5815,6 +5883,7 @@ def test_read_ome_multi_channel():
         assert series.shape == (3, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'CYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -5849,6 +5918,7 @@ def test_read_ome_z_series():
         assert series.shape == (5, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'ZYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -5885,6 +5955,7 @@ def test_read_ome_multi_channel_z_series():
         assert series.shape == (3, 5, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'CZYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -5919,6 +5990,7 @@ def test_read_ome_time_series():
         assert series.shape == (7, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'TYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -5955,6 +6027,7 @@ def test_read_ome_multi_channel_time_series():
         assert series.shape == (7, 3, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'TCYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -5989,6 +6062,7 @@ def test_read_ome_4d_series():
         assert series.shape == (7, 5, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'TZYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6025,6 +6099,7 @@ def test_read_ome_multi_channel_4d_series():
         assert series.shape == (7, 3, 5, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'TCZYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6058,6 +6133,7 @@ def test_read_ome_modulo_flim():
         assert series.shape == (2, 8, 150, 180)
         assert series.dtype.name == 'int8'
         assert series.axes == 'CHYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6092,6 +6168,7 @@ def test_read_ome_modulo_flim_tcspc():
         assert series.shape == (2, 8, 2, 200, 180)
         assert series.dtype.name == 'int8'
         assert series.axes == 'THCYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6126,6 +6203,7 @@ def test_read_ome_modulo_spim():
         assert series.shape == (3, 4, 2, 4, 2, 220, 160)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'TRZACYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6161,6 +6239,7 @@ def test_read_ome_modulo_lambda():
         assert series.shape == (10, 5, 200, 200)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'EPYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6199,6 +6278,7 @@ def test_read_ome_multi_image_pixels():
             assert series.shape == shape
             assert series.dtype.name == 'uint8'
             assert series.axes == axes
+            assert not series.is_multifile
             # assert data
             data = tif.asarray(series=i)
             assert isinstance(data, numpy.ndarray)
@@ -6236,6 +6316,7 @@ def test_read_ome_multi_image_nouuid():
             assert series.shape == (10, 256, 256)
             assert series.dtype.name == 'uint16'
             assert series.axes == 'TYX'
+            assert not series.is_multifile
             # assert data
             data = tif.asarray(series=i)
             assert isinstance(data, numpy.ndarray)
@@ -6269,6 +6350,7 @@ def test_read_ome_zen_2chzt():
         assert series.shape == (2, 19, 21, 300, 400)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'CTZYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6303,6 +6385,7 @@ def test_read_ome_multifile():
         assert series.shape == (2, 43, 10, 512, 512)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'CTZYX'
+        assert series.is_multifile
         # assert other files are closed after TiffFile._series_ome
         for page in tif.series[0].pages:
             assert bool(page.parent.filehandle._fh) == (page.parent == tif)
@@ -6361,6 +6444,7 @@ def test_read_ome_multifile_missing(caplog):
         assert series.shape == (2, 43, 10, 512, 512)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'CTZYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray(out='memmap')
         assert isinstance(data, numpy.core.memmap)
@@ -6397,6 +6481,7 @@ def test_read_ome_rgb():
         assert series.dtype.name == 'uint8'
         assert series.axes == 'SYX'
         assert series.offset == 17524
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert data.shape == (3, 720, 1280)
@@ -6429,6 +6514,7 @@ def test_read_ome_samplesperpixel():
         assert series.shape == (6, 3, 1024, 1024)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'ZSYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert data.shape == (6, 3, 1024, 1024)
@@ -6462,6 +6548,7 @@ def test_read_ome_float_modulo_attributes():
         assert series.shape == (2, 512, 512)
         assert series.dtype.name == 'uint16'
         assert series.axes == 'QYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6497,6 +6584,7 @@ def test_read_ome_cropped(caplog):
         assert series.shape == (5, 10, 2, 249, 324)
         assert series.dtype.name == 'uint16'
         assert series.axes == 'TZCYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert data.shape == (5, 10, 2, 249, 324)
@@ -6529,6 +6617,7 @@ def test_read_ome_corrupted_page(caplog):
         assert series.shape == (4, 7506, 7506)
         assert series.dtype.name == 'uint16'
         assert series.axes == 'CYX'
+        assert not series.is_multifile
         # assert data
         data = tif.asarray()
         assert data.shape == (4, 7506, 7506)
@@ -8390,7 +8479,7 @@ def test_write_append_nontif():
 def test_write_append_lsm():
     """Test fail to append to LSM file."""
     fname = private_file('lsm/take1.lsm')
-    with pytest.raises(TiffFileError):
+    with pytest.raises(ValueError):
         with TiffWriter(fname, append=True):
             pass
 
@@ -10179,15 +10268,15 @@ def test_write_tiled_planar():
     """Test write planar tiles."""
     data = random_data('uint8', (4, 219, 301))
     with TempFileName('tiled_planar') as fname:
-        imwrite(fname, data, tile=(1, 96, 64))  #
+        imwrite(fname, data, tile=(96, 64))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages[0]
             assert page.is_tiled
             assert not page.is_contiguous
-            assert page.planarconfig == SEPARATE
             assert not page.is_volumetric
+            assert page.planarconfig == SEPARATE
             assert page.photometric == RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
