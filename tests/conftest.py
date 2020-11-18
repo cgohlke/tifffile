@@ -13,6 +13,7 @@ def pytest_report_header(config):
         from numpy import __version__ as numpy
         from tifffile import __version__ as tifffile
         from test_tifffile import config
+
         try:
             from imagecodecs import __version__ as imagecodecs
         except ImportError:
