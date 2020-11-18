@@ -89,7 +89,7 @@ setup(
             'imagecodecs>=2020.5.30',
             'matplotlib>=3.2',
             'lxml',
-            # 'zarr>=2.4.0'
+            # 'zarr>=2.5.0'
         ]
     },
     tests_require=[
@@ -101,7 +101,7 @@ setup(
         'lfdfiles',
         'roifile',
         'lxml',
-        'zarr>=2.4.0',
+        'zarr>=2.5.0',
     ],
     entry_points={
         'console_scripts': [
