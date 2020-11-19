@@ -1,7 +1,14 @@
 Revisions
 ---------
+2020.11.18
+    Pass 4363 tests.
+    Support writing SEPARATED colorspace (#37).
+    Use imagecodecs.deflate if available.
+    Fix SCN and NDPI series with Z dimensions.
+    Add TiffReader alias for TiffFile.
+    TiffPage.is_volumetric returns True if ImageDepth > 1.
+    Zarr store getitem returns numpy arrays instead of bytes.
 2020.10.1
-    Pass 4361 tests.
     Formally deprecate unused TiffFile parameters (scikit-image #4996).
 2020.9.30
     Allow to pass additional arguments to compression codecs.
