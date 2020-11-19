@@ -25,10 +25,10 @@ IPTC and XMP metadata are not implemented.
 
 TIFF(r), the Tagged Image File Format, is a trademark and under control of
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, and OME-TIFF, are custom
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, and OME-TIFF, are custom
 extensions defined by Molecular Devices (Universal Imaging Corporation),
 Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
-Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, and the
+Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica, and the
 Open Microscopy Environment consortium, respectively.
 
 For command line usage run ``python -m tifffile --help``
@@ -41,28 +41,35 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.10.1
+:Version: 2020.11.18
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.6, 3.9.0rc2 64-bit <https://www.python.org>`_
-* `Numpy 1.18.5 <https://pypi.org/project/numpy/>`_
+* `CPython 3.7.9, 3.8.6, 3.9.0 64-bit <https://www.python.org>`_
+* `Numpy 1.19.4 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
-* `Matplotlib 3.2.2 <https://pypi.org/project/matplotlib/>`_
+* `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
-* `Lxml 4.5.2 <https://github.com/lxml/lxml>`_
+* `Lxml 4.6.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.4.0 <https://github.com/zarr-developers/zarr-python>`_
+* `Zarr 2.5.0 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2020.11.18
+    Pass 4363 tests.
+    Support writing SEPARATED colorspace (#37).
+    Use imagecodecs.deflate if available.
+    Fix SCN and NDPI series with Z dimensions.
+    Add TiffReader alias for TiffFile.
+    TiffPage.is_volumetric returns True if ImageDepth > 1.
+    Zarr store getitem returns numpy arrays instead of bytes.
 2020.10.1
-    Pass 4361 tests.
     Formally deprecate unused TiffFile parameters (scikit-image #4996).
 2020.9.30
     Allow to pass additional arguments to compression codecs.
@@ -420,7 +427,7 @@ Successively write the frames of one contiguous series to a TIFF file:
 >>> data = numpy.random.randint(0, 255, (30, 301, 219), 'uint8')
 >>> with TiffWriter('temp.tif') as tif:
 ...     for frame in data:
-...         tif.write(data, contiguous=True)
+...         tif.write(frame, contiguous=True)
 
 Successively append image series to a BigTIFF file, which can exceed 4 GB:
 
