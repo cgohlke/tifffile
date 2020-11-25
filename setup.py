@@ -106,6 +106,7 @@ setup(
     entry_points={
         'console_scripts': [
             'tifffile = tifffile:main',
+            'tiffcomment = tifffile.tiffcomment:main',
             'lsm2bin = tifffile.lsm2bin:main',
         ],
         # 'napari.plugin': ['tifffile = tifffile.napari_tifffile'],
