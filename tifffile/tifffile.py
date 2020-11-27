@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.11.18
+:Version: 2020.11.26
 
 Requirements
 ------------
@@ -91,10 +91,18 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.11.26
+    Pass 4372 tests.
+    Add option to pass axes metadata to ImageJ writer.
+    Pad incomplete tiles passed to TiffWriter.write (#38).
+    Split TiffTag constructor (breaking).
+    Change TiffTag.dtype to TIFF.DATATYPES (breaking).
+    Add TiffTag.overwrite method.
+    Add script to change ImageDescription in files.
+    Add TiffWriter.overwrite_description method (WIP).
 2020.11.18
-    Pass 4363 tests.
-    Support writing SEPARATED colorspace (#37).
-    Use imagecodecs.deflate if available.
+    Support writing SEPARATED color space (#37).
+    Use imagecodecs.deflate codec if available.
     Fix SCN and NDPI series with Z dimensions.
     Add TiffReader alias for TiffFile.
     TiffPage.is_volumetric returns True if ImageDepth > 1.
@@ -103,7 +111,7 @@ Revisions
     Formally deprecate unused TiffFile parameters (scikit-image #4996).
 2020.9.30
     Allow to pass additional arguments to compression codecs.
-    Deprecate TiffWriter.save function (use TiffWriter.write).
+    Deprecate TiffWriter.save method (use TiffWriter.write).
     Deprecate TiffWriter.save compress parameter (use compression).
     Remove multifile parameter from TiffFile (breaking).
     Pass all is_flag arguments from imread to TiffFile.
@@ -131,7 +139,7 @@ Revisions
     Return full size tiles from Tiffpage.segments.
     Rename TiffPage.is_sgi property to is_volumetric (breaking).
     Rename TiffPageSeries.is_pyramid to is_pyramidal (breaking).
-    Fix TypeError when passing jpegtables to non-JPEG decode function (#25).
+    Fix TypeError when passing jpegtables to non-JPEG decode method (#25).
 2020.9.3
     Do not write contiguous series by default (breaking).
     Allow to write to SubIFDs (WIP).
@@ -180,7 +188,7 @@ Revisions
 2020.5.25
     Make imagecodecs an optional dependency again.
     Disable multi-threaded decoding of small LZW compressed segments.
-    Fix caching of TiffPage.decode function.
+    Fix caching of TiffPage.decode method.
     Fix xml.etree.cElementTree ImportError on Python 3.9.
     Fix tostring DeprecationWarning.
 2020.5.11
@@ -192,7 +200,7 @@ Revisions
     Always store ExtraSamples values in tuple (breaking).
 2020.5.5
     Allow to write tiled TIFF from iterable of tiles (WIP).
-    Add function to iterate over decoded segments of TiffPage (WIP).
+    Add method to iterate over decoded segments of TiffPage (WIP).
     Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
     Fix reading invalid files with too many strips.
     Fix writing over-aligned image data.
@@ -202,7 +210,7 @@ Revisions
     Remove maxsize parameter from asarray (breaking).
     Deprecate ijmetadata parameter from TiffWriter.save (use metadata).
 2020.2.16
-    Add function to decode individual strips or tiles.
+    Add method to decode individual strips or tiles.
     Read strips and tiles in order of their offsets.
     Enable multi-threading when decompressing multiple strips.
     Replace TiffPage.tags dictionary with TiffTags (breaking).
@@ -217,7 +225,7 @@ Revisions
     Fix xml2dict.
     Require imagecodecs >= 2020.1.31.
     Remove support for imagecodecs-lite (breaking).
-    Remove verify parameter to asarray function (breaking).
+    Remove verify parameter to asarray method (breaking).
     Remove deprecated lzw_decode functions (breaking).
     Remove support for Python 2.7 and 3.5 (breaking).
 2019.7.26
@@ -343,16 +351,27 @@ References
 
 Examples
 --------
-Save a 3D numpy array to a multi-page, 16-bit grayscale TIFF file:
+Write a numpy array to a single-page RGB TIFF file:
 
->>> data = numpy.random.randint(0, 2**12, (4, 301, 219), 'uint16')
+>>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
+>>> imwrite('temp.tif', data, photometric='rgb')
+
+Read the image from the TIFF file as numpy array:
+
+>>> image = imread('temp.tif')
+>>> image.shape
+(256, 256, 3)
+
+Write a 3D numpy array to a multi-page, 16-bit grayscale TIFF file:
+
+>>> data = numpy.random.randint(0, 2**12, (64, 301, 219), 'uint16')
 >>> imwrite('temp.tif', data, photometric='minisblack')
 
 Read the whole image stack from the TIFF file as numpy array:
 
 >>> image_stack = imread('temp.tif')
 >>> image_stack.shape
-(4, 301, 219)
+(64, 301, 219)
 >>> image_stack.dtype
 dtype('uint16')
 
@@ -362,67 +381,46 @@ Read the image from the first page in the TIFF file as numpy array:
 >>> image.shape
 (301, 219)
 
-Read images from a sequence of TIFF files as numpy array:
+Read images from a selected range of pages:
 
->>> image_sequence = imread(['temp.tif', 'temp.tif'])
->>> image_sequence.shape
-(2, 4, 301, 219)
+>>> image = imread('temp.tif', key=range(4, 40, 2))
+>>> image.shape
+(18, 301, 219)
 
-Save a numpy array to a single-page RGB TIFF file:
+Iterate over all pages in the TIFF file and successively read images:
 
->>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
->>> imwrite('temp.tif', data, photometric='rgb')
+>>> with TiffFile('temp.tif') as tif:
+...     for page in tif.pages:
+...         image = page.asarray()
 
-Save a floating-point array and metadata, using zlib compression:
-
->>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
->>> imwrite('temp.tif', data, compression='zlib', metadata={'axes': 'TZCYX'})
-
-Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an ImageJ
-formatted TIFF file:
-
->>> volume = numpy.random.randn(57*256*256).astype('float32')
->>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
->>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
-...         metadata={'spacing': 3.947368, 'unit': 'um'})
-
-Get the shape and dtype of the volume stored in the TIFF file:
+Get information about the image stack in the TIFF file without reading
+the image data:
 
 >>> tif = TiffFile('temp.tif')
 >>> len(tif.pages)  # number of pages in the file
-57
+64
 >>> page = tif.pages[0]  # get shape and dtype of the image in the first page
 >>> page.shape
-(256, 256)
+(301, 219)
 >>> page.dtype
-dtype('float32')
+dtype('uint16')
 >>> page.axes
 'YX'
 >>> series = tif.series[0]  # get shape and dtype of the first image series
 >>> series.shape
-(57, 256, 256)
+(64, 301, 219)
 >>> series.dtype
-dtype('float32')
+dtype('uint16')
 >>> series.axes
-'ZYX'
+'QYX'
 >>> tif.close()
 
-Read hyperstack and metadata from the ImageJ file:
-
->>> with TiffFile('temp.tif') as tif:
-...     imagej_hyperstack = tif.asarray()
-...     imagej_metadata = tif.imagej_metadata
->>> imagej_hyperstack.shape
-(57, 256, 256)
->>> imagej_metadata['slices']
-57
-
-Read the "XResolution" tag from the first page in the TIFF file:
+Inspect the "XResolution" tag from the first page in the TIFF file:
 
 >>> with TiffFile('temp.tif') as tif:
 ...     tag = tif.pages[0].tags['XResolution']
 >>> tag.value
-(2000, 5351)
+(1, 1)
 >>> tag.name
 'XResolution'
 >>> tag.code
@@ -430,27 +428,70 @@ Read the "XResolution" tag from the first page in the TIFF file:
 >>> tag.count
 1
 >>> tag.dtype
-'2I'
+<DATATYPES.RATIONAL: 5>
 
-Read images from a selected range of pages:
+Iterate over all tags in the TIFF file:
 
->>> image = imread('temp.tif', key=range(4, 40, 2))
->>> image.shape
-(18, 256, 256)
+>>> with TiffFile('temp.tif') as tif:
+...     for page in tif.pages:
+...         for tag in page.tags:
+...             tag_name, tag_value = tag.name, tag.value
+
+Write a floating-point ndarray and metadata using BigTIFF format, tiling,
+compression, and planar storage:
+
+>>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
+>>> imwrite('temp.tif', data, bigtiff=True, photometric='minisblack',
+...         compression='deflate', planarconfig='separate', tile=(32, 32),
+...         metadata={'axes': 'TZCYX'})
+
+Write a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an
+ImageJ hyperstack formatted TIFF file:
+
+>>> volume = numpy.random.randn(57, 256, 256).astype('float32')
+>>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
+...         metadata={'spacing': 3.947368, 'unit': 'um', 'axes': 'ZYX'})
+
+Read the volume and metadata from the ImageJ file:
+
+>>> with TiffFile('temp.tif') as tif:
+...     volume = tif.asarray()
+...     axes = tif.series[0].axes
+...     imagej_metadata = tif.imagej_metadata
+>>> volume.shape
+(57, 256, 256)
+>>> axes
+'ZYX'
+>>> imagej_metadata['slices']
+57
 
 Create an empty TIFF file and write to the memory-mapped numpy array:
 
->>> memmap_image = memmap('temp.tif', shape=(256, 256), dtype='float32')
->>> memmap_image[255, 255] = 1.0
+>>> memmap_image = memmap('temp.tif', shape=(3, 256, 256), dtype='float32')
+>>> memmap_image[1, 255, 255] = 1.0
 >>> memmap_image.flush()
 >>> del memmap_image
 
 Memory-map image data of the first page in the TIFF file:
 
 >>> memmap_image = memmap('temp.tif', page=0)
->>> memmap_image[255, 255]
+>>> memmap_image[1, 255, 255]
 1.0
 >>> del memmap_image
+
+Write two numpy arrays to a multi-series TIFF file:
+
+>>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
+>>> series1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
+>>> with TiffWriter('temp.tif') as tif:
+...     tif.write(series0, photometric='rgb')
+...     tif.write(series1, photometric='minisblack')
+
+Read the second image series from the TIFF file:
+
+>>> series1 = imread('temp.tif', series=1)
+>>> series1.shape
+(4, 256, 256)
 
 Successively write the frames of one contiguous series to a TIFF file:
 
@@ -459,58 +500,40 @@ Successively write the frames of one contiguous series to a TIFF file:
 ...     for frame in data:
 ...         tif.write(frame, contiguous=True)
 
-Successively append image series to a BigTIFF file, which can exceed 4 GB:
-
->>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
->>> with TiffWriter('temp.tif', bigtiff=True) as tif:
-...     for i in range(data.shape[0]):
-...         tif.write(data[i], photometric='minisblack')
-
-Append an image to the existing TIFF file:
+Append an image series to the existing TIFF file:
 
 >>> data = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
 >>> imwrite('temp.tif', data, append=True)
 
-Iterate over pages and tags in the TIFF file and successively read images:
+Create a TIFF file from a generator of tiles:
 
->>> with TiffFile('temp.tif') as tif:
-...     for page in tif.pages:
-...         for tag in page.tags:
-...             tag_name, tag_value = tag.name, tag.value
-...         image = page.asarray()
+>>> data = numpy.random.randint(0, 2**12, (31, 33, 3), 'uint16')
+>>> def tiles(data, tileshape):
+...     for y in range(0, data.shape[0], tileshape[0]):
+...         for x in range(0, data.shape[1], tileshape[1]):
+...             yield data[y : y + tileshape[0], x : x + tileshape[1]]
+>>> imwrite('temp.tif', tiles(data, (16, 16)), tile=(16, 16),
+...         shape=data.shape, dtype=data.dtype)
 
 Write two numpy arrays to a multi-series OME-TIFF file:
 
->>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
->>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
+>>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
+>>> series1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
-...     tif.write(data0, photometric='rgb')
-...     tif.write(data1, photometric='minisblack',
+...     tif.write(series0, photometric='rgb')
+...     tif.write(series1, photometric='minisblack',
 ...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
-Read the second image series from the OME-TIFF file:
-
->>> series1 = imread('temp.ome.tif', series=1)
->>> series1.shape
-(4, 256, 256)
-
-Create a TIFF file from a generator of tiles:
-
->>> def tiles():
-...     data = numpy.arange(3*4*16*16, dtype='uint16').reshape((3*4, 16, 16))
-...     for i in range(data.shape[0]): yield data[i]
->>> imwrite('temp.tif', tiles(), dtype='uint16', shape=(48, 64), tile=(16, 16))
-
-Write a tiled, multi-resolution, pyramidal OME-TIFF file using JPEG
-compression. Sub-resolution images are written to SubIFDs:
+Write a tiled, multi-resolution, pyramidal, OME-TIFF file using
+JPEG compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
->>> with TiffWriter('temp.ome.tif') as tif:
+>>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
 ...     options = dict(tile=(256, 256), compression='jpeg')
 ...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
-...     # in production use resampling to generate sub-resolutions!
+...     # in production use resampling to generate sub-resolutions
 ...     tif.write(data[::2, ::2], subfiletype=1, **options)
 ...     tif.write(data[::4, ::4], subfiletype=1, **options)
 
@@ -547,10 +570,17 @@ Use zarr to access the tiled, pyramidal images in the TIFF file:
 <zarr.core.Array '/0' (1024, 1024, 3) uint8 read-only>
 >>> store.close()
 
-Read an image stack from a series of TIFF files with a file name pattern:
+Read images from a sequence of TIFF files as numpy array:
 
 >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
 >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
+>>> image_sequence = imread(['temp_C001T001.tif', 'temp_C001T002.tif'])
+>>> image_sequence.shape
+(2, 64, 64)
+
+Read an image stack from a series of TIFF files with a file name pattern
+as numpy or zarr arrays:
+
 >>> image_sequence = TiffSequence('temp_C001*.tif', pattern='axes')
 >>> image_sequence.shape
 (1, 2)
@@ -566,7 +596,7 @@ Read an image stack from a series of TIFF files with a file name pattern:
 
 """
 
-__version__ = '2020.11.18'
+__version__ = '2020.11.26'
 
 __all__ = (
     'imwrite',
@@ -768,19 +798,19 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     )
     if data is None:
         dtype = numpy.dtype(dtype)
-        size = product(shape) * dtype.itemsize
+        datasize = product(shape) * dtype.itemsize
         byteorder = dtype.byteorder
     else:
         try:
-            size = data.nbytes
+            datasize = data.nbytes
             byteorder = data.dtype.byteorder
         except Exception:
-            size = 0
+            datasize = 0
             byteorder = None
     bigsize = kwargs.pop('bigsize', 2 ** 32 - 2 ** 25)
     if (
         'bigtiff' not in tifargs
-        and size > bigsize
+        and datasize > bigsize
         and not tifargs.get('imagej', False)
         and not tifargs.get('truncate', False)
         and not kwargs.get('compression', False)
@@ -987,29 +1017,31 @@ class TiffWriter:
             except (OSError, FileNotFoundError):
                 append = False
 
-        if byteorder in (None, '=', '|'):
-            byteorder = '<' if sys.byteorder == 'little' else '>'
-        elif byteorder not in ('<', '>'):
-            raise ValueError(f'invalid byteorder {byteorder}')
         if imagej and bigtiff:
             warnings.warn(
                 'TiffWriter: writing nonconformant BigTIFF ImageJ', UserWarning
             )
 
-        self._byteorder = byteorder
+        if byteorder in (None, '=', '|'):
+            byteorder = '<' if sys.byteorder == 'little' else '>'
+        elif byteorder not in ('<', '>'):
+            raise ValueError(f'invalid byteorder {byteorder}')
+
+        if byteorder == '<':
+            self.tiff = TIFF.BIG_LE if bigtiff else TIFF.CLASSIC_LE
+        else:
+            self.tiff = TIFF.BIG_BE if bigtiff else TIFF.CLASSIC_BE
+
         self._truncate = False
         self._metadata = None
         self._colormap = None
-
-        self._descriptionoffset = 0
-        self._descriptionlen = 0
-        self._descriptionlenoffset = 0
         self._tags = None
         self._datashape = None  # shape of data in consecutive pages
         self._datadtype = None  # data type
         self._dataoffset = None  # offset to data
         self._databytecounts = None  # byte counts per plane
-        self._tagoffsets = None  # strip or tile offset tag code
+        self._dataoffsetstag = None  # strip or tile offset tag code
+        self._descriptiontag = None  # TiffTag for updating comment
         self._subifds = 0  # number of subifds
         self._subifdslevel = -1  # index of current subifd level
         self._subifdsoffsets = []  # offsets to offsets to subifds
@@ -1019,21 +1051,6 @@ class TiffWriter:
         # normalized shape of data in consecutive pages
         # (pages, separate_samples, depth, length, width, contig_samples)
         self._storedshape = None
-
-        if bigtiff:
-            self._bigtiff = True
-            self._offsetsize = 8
-            self._tagsize = 20
-            self._tagnoformat = 'Q'
-            self._offsetformat = 'Q'
-            self._valueformat = '8s'
-        else:
-            self._bigtiff = False
-            self._offsetsize = 4
-            self._tagsize = 12
-            self._tagnoformat = 'H'
-            self._offsetformat = 'I'
-            self._valueformat = '4s'
 
         if append:
             self._fh = FileHandle(file, mode='r+b', size=0)
@@ -1047,12 +1064,17 @@ class TiffWriter:
                 self._fh.write(struct.pack(byteorder + 'H', 42))
             # first IFD
             self._ifdoffset = self._fh.tell()
-            self._fh.write(struct.pack(byteorder + self._offsetformat, 0))
+            self._fh.write(struct.pack(self.tiff.offsetformat, 0))
 
         self._ome = None if ome is None else bool(ome)
         self._imagej = False if self._ome else bool(imagej)
         if self._imagej:
             self._ome = False
+
+    @property
+    def filehandle(self):
+        """Return file handle."""
+        return self._fh
 
     def write(
         self,
@@ -1118,9 +1140,10 @@ class TiffWriter:
             Input image or iterable of tiles or images.
             A copy of the image data is made if 'data' is not a C-contiguous
             numpy array with the same byteorder as the TIFF file.
+            Iterables must yield C-contiguous numpy array of TIFF byteorder.
             Iterable tiles must match 'dtype' and the shape specified in
-            'tile'. Iterable images must match 'dtype' and 'shape[1:]'.
-            Iterables must contain C-contiguous numpy array of TIFF byteorder.
+            'tile'. Incomplete tiles are zero-padded.
+            Iterable images must match 'dtype' and 'shape[1:]'.
         shape : tuple or None
             Shape of the empty or iterable data to save.
             Use only if 'data' is None or an iterable of tiles or images.
@@ -1263,9 +1286,8 @@ class TiffWriter:
 
             code : int
                 The TIFF tag Id.
-            dtype : str
-                Data type of items in 'value' in Python struct format.
-                One of B, s, H, I, 2I, b, h, i, 2i, f, d, Q, or q.
+            dtype : int or str
+                Data type of items in 'value'. One of TIFF.DATATYPES.
             count : int
                 Number of data values. Not used for string or bytes values.
             value : sequence
@@ -1288,7 +1310,7 @@ class TiffWriter:
         """
         # TODO: refactor this function
         fh = self._fh
-        byteorder = self._byteorder
+        byteorder = self.tiff.byteorder
 
         if data is None:
             # empty
@@ -1404,10 +1426,8 @@ class TiffWriter:
                             self._storedshape,
                             **self._metadata,
                         )
-                else:
+                elif metadata is not None:
                     self._write_image_description()
-                    self._descriptionoffset = 0
-                    self._descriptionlenoffset = 0
 
                 if self._subifds:
                     if self._truncate or truncate:
@@ -1449,7 +1469,7 @@ class TiffWriter:
                 return None
 
         if self._ome is None:
-            if not description:
+            if description is None:
                 self._ome = '.ome.tif' in fh.name
             else:
                 self._ome = False
@@ -1465,11 +1485,11 @@ class TiffWriter:
             # TODO: reconsider this
             # raise ValueError('cannot save zero size array')
 
-        tagnoformat = self._tagnoformat
-        valueformat = self._valueformat
-        offsetformat = self._offsetformat
-        offsetsize = self._offsetsize
-        tagsize = self._tagsize
+        valueformat = f'{self.tiff.offsetsize}s'
+        tagnoformat = self.tiff.tagnoformat
+        offsetformat = self.tiff.offsetformat
+        offsetsize = self.tiff.offsetsize
+        tagsize = self.tiff.tagsize
 
         MINISBLACK = TIFF.PHOTOMETRIC.MINISBLACK
         MINISWHITE = TIFF.PHOTOMETRIC.MINISWHITE
@@ -1534,7 +1554,7 @@ class TiffWriter:
                 raise ValueError(f'cannot apply predictor to {datadtype}')
 
         if self._ome:
-            if description:
+            if description is not None:
                 warnings.warn(
                     'TiffWriter: not writing description to OME-TIFF',
                     UserWarning,
@@ -1551,7 +1571,7 @@ class TiffWriter:
             #     warnings.warn(
             #         'ImageJ does not support tiles, predictors, compression'
             #     )
-            if description:
+            if description is not None:
                 warnings.warn(
                     'TiffWriter: not writing description to ImageJ file',
                     UserWarning,
@@ -1567,7 +1587,9 @@ class TiffWriter:
             ijrgb = photometric == RGB if photometric else None
             if datadtypechar not in 'B':
                 ijrgb = False
-            ijshape = imagej_shape(datashape, ijrgb)
+            ijshape = imagej_shape(
+                datashape, ijrgb, metadata.get('axes', None)
+            )
             if ijshape[-1] in (3, 4):
                 photometric = RGB
                 if datadtypechar not in 'B':
@@ -1796,10 +1818,12 @@ class TiffWriter:
         else:
             tagbytecounts = 279  # StripByteCounts
             tagoffsets = 273  # StripOffsets
-        self._tagoffsets = tagoffsets
+        self._dataoffsetstag = tagoffsets
 
         def pack(fmt, *val):
-            return struct.pack(byteorder + fmt, *val)
+            if fmt[0] not in '<>':
+                fmt = byteorder + fmt
+            return struct.pack(fmt, *val)
 
         def addtag(code, dtype, count, value, writeonce=False):
             # compute ifdentry & ifdvalue bytes from code, dtype, count, value
@@ -1807,50 +1831,76 @@ class TiffWriter:
             if not isinstance(code, int):
                 code = TIFF.TAGS[code]
             try:
-                tifftype = TIFF.DATA_DTYPES[dtype]
+                datatype = dtype
+                dataformat = TIFF.DATA_FORMATS[datatype][-1]
             except KeyError as exc:
                 try:
-                    tifftype = dtype
-                    dtype = TIFF.DATA_FORMATS[tifftype]
-                except KeyError:
+                    dataformat = dtype
+                    if dataformat[0] in '<>':
+                        dataformat = dataformat[1:]
+                    datatype = TIFF.DATA_DTYPES[dataformat]
+                except (KeyError, TypeError):
                     raise ValueError(f'unknown dtype {dtype}') from exc
-            rawcount = count
+            del dtype
 
-            if dtype == 's':
-                # strings; enforce 7-bit ASCII on Unicode strings
-                value = bytestr(value, 'ascii') + b'\0'
-                count = rawcount = len(value)
-                rawcount = value.find(b'\0\0')
-                if rawcount < 0:
-                    rawcount = count
+            rawcount = count
+            if datatype == 2:
+                # string
+                if isinstance(value, str):
+                    # enforce 7-bit ASCII on Unicode strings
+                    try:
+                        value = value.encode('ascii')
+                    except UnicodeEncodeError as exc:
+                        raise ValueError(
+                            'TIFF strings must be 7-bit ASCII'
+                        ) from exc
+                elif not isinstance(value, bytes):
+                    raise ValueError('TIFF strings must be 7-bit ASCII')
+                if len(value) == 0 or value[-1] != b'\x00':
+                    value += b'\x00'
+                count = len(value)
+                if code == 270:
+                    self._descriptiontag = TiffTag(270, 2, count, None, 0, 0)
+                    rawcount = value.rfind(b'\x00\x00')
+                    if rawcount < 0:
+                        rawcount = count
+                    else:
+                        # length of string without buffer
+                        rawcount = max(offsetsize + 1, rawcount + 1)
+                        rawcount = min(count, rawcount)
                 else:
-                    rawcount += 1  # length of string without buffer
+                    rawcount = count
                 value = (value,)
+
             elif isinstance(value, bytes):
                 # packed binary data
-                dtsize = struct.calcsize(dtype)
-                if len(value) % dtsize:
+                itemsize = struct.calcsize(dataformat)
+                if len(value) % itemsize:
                     raise ValueError('invalid packed binary data')
-                count = len(value) // dtsize
-            if len(dtype) > 1:
-                count *= int(dtype[:-1])
-                dtype = dtype[-1]
+                count = len(value) // itemsize
+                rawcount = count
+
+            if datatype in (5, 10):  # rational
+                count *= 2
+                dataformat = dataformat[-1]
+
             ifdentry = [
-                pack('HH', code, tifftype),
+                pack('HH', code, datatype),
                 pack(offsetformat, rawcount),
             ]
+
             ifdvalue = None
-            if struct.calcsize(dtype) * count <= offsetsize:
+            if struct.calcsize(dataformat) * count <= offsetsize:
                 # value(s) can be written directly
                 if isinstance(value, bytes):
                     ifdentry.append(pack(valueformat, value))
                 elif count == 1:
                     if isinstance(value, (tuple, list, numpy.ndarray)):
                         value = value[0]
-                    ifdentry.append(pack(valueformat, pack(dtype, value)))
+                    ifdentry.append(pack(valueformat, pack(dataformat, value)))
                 else:
                     ifdentry.append(
-                        pack(valueformat, pack(str(count) + dtype, *value))
+                        pack(valueformat, pack(f'{count}{dataformat}', *value))
                     )
             else:
                 # use offset to value(s)
@@ -1860,13 +1910,13 @@ class TiffWriter:
                 elif isinstance(value, numpy.ndarray):
                     if value.size != count:
                         raise RuntimeError('value.size != count')
-                    if value.dtype.char != dtype:
+                    if value.dtype.char != dataformat:
                         raise RuntimeError('value.dtype.char != dtype')
                     ifdvalue = value.tobytes()
                 elif isinstance(value, (tuple, list)):
-                    ifdvalue = pack(str(count) + dtype, *value)
+                    ifdvalue = pack(f'{count}{dataformat}', *value)
                 else:
-                    ifdvalue = pack(dtype, value)
+                    ifdvalue = pack(dataformat, value)
             tags.append((code, b''.join(ifdentry), ifdvalue, writeonce))
 
         def rational(arg, max_denominator=1000000):
@@ -1880,15 +1930,15 @@ class TiffWriter:
             f = f.limit_denominator(max_denominator)
             return f.numerator, f.denominator
 
-        if description:
+        if description is not None:
             # ImageDescription: user provided description
-            addtag(270, 's', 0, description, writeonce=True)
+            addtag(270, 2, 0, description, writeonce=True)
 
         # write shape and metadata to ImageDescription
         self._metadata = {} if not metadata else metadata.copy()
         if self._ome:
             if len(self._ome.images) == 0:
-                description = '\0' * 10  # rewritten at end of file
+                description = ''  # rewritten later at end of file
             else:
                 description = None
         elif self._imagej:
@@ -1932,20 +1982,20 @@ class TiffWriter:
         #     raise ValueError('cannot truncate without writing metadata')
         else:
             description = None
-        if description:
+        if description is not None:
             description = description.encode('ascii')
             if not self._ome:
                 # add 64 bytes buffer
-                # the description might be updated later with the final shape
-                description += b'\0' * 64
-            self._descriptionlen = len(description)
-            addtag(270, 's', 0, description, writeonce=True)
+                # the description might be updated later inplace with the
+                # final shape
+                description += b'\x00' * 64
+            addtag(270, 2, 0, description, writeonce=True)
         del description
 
         if software is None:
             software = 'tifffile.py'
         if software:
-            addtag(305, 's', 0, software, writeonce=True)
+            addtag(305, 2, 0, software, writeonce=True)
         if datetime:
             if isinstance(datetime, str):
                 if len(datetime) != 19 or datetime[16] != ':':
@@ -1955,24 +2005,24 @@ class TiffWriter:
                     datetime = datetime.strftime('%Y:%m:%d %H:%M:%S')
                 except AttributeError:
                     datetime = self._now().strftime('%Y:%m:%d %H:%M:%S')
-            addtag(306, 's', 0, datetime, writeonce=True)
-        addtag(259, 'H', 1, compressiontag)  # Compression
+            addtag(306, 2, 0, datetime, writeonce=True)
+        addtag(259, 3, 1, compressiontag)  # Compression
         if compressiontag == 34887:
             # LERC without additional compression
-            addtag(50674, 'I', 2, (4, 0))
+            addtag(50674, 4, 2, (4, 0))
         if predictor:
-            addtag(317, 'H', 1, predictortag)
-        addtag(256, 'I', 1, storedshape[-2])  # ImageWidth
-        addtag(257, 'I', 1, storedshape[-3])  # ImageLength
+            addtag(317, 3, 1, predictortag)
+        addtag(256, 4, 1, storedshape[-2])  # ImageWidth
+        addtag(257, 4, 1, storedshape[-3])  # ImageLength
         if tile:
-            addtag(322, 'I', 1, tile[-1])  # TileWidth
-            addtag(323, 'I', 1, tile[-2])  # TileLength
+            addtag(322, 4, 1, tile[-1])  # TileWidth
+            addtag(323, 4, 1, tile[-2])  # TileLength
         if volumetric:
-            addtag(32997, 'I', 1, storedshape[-4])  # ImageDepth
+            addtag(32997, 4, 1, storedshape[-4])  # ImageDepth
             if tile:
-                addtag(32998, 'I', 1, tile[0])  # TileDepth
+                addtag(32998, 4, 1, tile[0])  # TileDepth
         if subfiletype:
-            addtag(254, 'I', 1, subfiletype)  # NewSubfileType
+            addtag(254, 4, 1, subfiletype)  # NewSubfileType
         if (subifds or self._subifds) and self._subifdslevel < 0:
             if self._subifds:
                 subifds = self._subifds
@@ -1982,35 +2032,33 @@ class TiffWriter:
                 except TypeError:
                     # allow TiffPage.subifds tuple
                     self._subifds = subifds = len(subifds)
-            addtag(330, 18 if self._bigtiff else 13, subifds, [0] * subifds)
+            addtag(330, 18 if offsetsize > 4 else 13, subifds, [0] * subifds)
         if not bilevel and not datadtype.kind == 'u':
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
-            addtag(
-                339, 'H', samplesperpixel, (sampleformat,) * samplesperpixel
-            )
+            addtag(339, 3, samplesperpixel, (sampleformat,) * samplesperpixel)
         if colormap is not None:
-            addtag(320, 'H', colormap.size, colormap)
-        addtag(277, 'H', 1, samplesperpixel)
+            addtag(320, 3, colormap.size, colormap)
+        addtag(277, 3, 1, samplesperpixel)
         if bilevel:
             pass
         elif planarconfig and samplesperpixel > 1:
-            addtag(284, 'H', 1, planarconfig.value)  # PlanarConfiguration
+            addtag(284, 3, 1, planarconfig.value)  # PlanarConfiguration
             addtag(  # BitsPerSample
-                258, 'H', samplesperpixel, (bitspersample,) * samplesperpixel
+                258, 3, samplesperpixel, (bitspersample,) * samplesperpixel
             )
         else:
-            addtag(258, 'H', 1, bitspersample)
+            addtag(258, 3, 1, bitspersample)
         if extrasamples:
             if extrasamples_ is not None:
                 if extrasamples != len(extrasamples_):
                     raise ValueError('wrong number of extrasamples specified')
-                addtag(338, 'H', extrasamples, extrasamples_)
+                addtag(338, 3, extrasamples, extrasamples_)
             elif photometric == RGB and extrasamples == 1:
                 # Unassociated alpha channel
-                addtag(338, 'H', 1, 2)
+                addtag(338, 3, 1, 2)
             else:
                 # Unspecified alpha channel
-                addtag(338, 'H', extrasamples, (0,) * extrasamples)
+                addtag(338, 3, extrasamples, (0,) * extrasamples)
 
         if compressiontag == 7 and photometric == RGB and planarconfig == 1:
             # JPEG compression with subsampling. Store as YCbCr
@@ -2024,25 +2072,23 @@ class TiffWriter:
                 raise ValueError(f'tile shape not a multiple of {maxsampling}')
             if extrasamples > 1:
                 raise ValueError('JPEG subsampling requires RGB(A) images')
-            addtag(530, 'H', 2, subsampling)  # YCbCrSubSampling
-            addtag(262, 'H', 1, 6)  # PhotometricInterpretation YCBCR
+            addtag(530, 3, 2, subsampling)  # YCbCrSubSampling
+            addtag(262, 3, 1, 6)  # PhotometricInterpretation YCBCR
             # ReferenceBlackWhite is required for YCBCR
-            addtag(
-                532, '2I', 6, (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1)
-            )
+            addtag(532, 5, 6, (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1))
         else:
             if subsampling not in (None, (1, 1)):
                 log_warning('TiffWriter: cannot apply subsampling')
             subsampling = None
             maxsampling = 1
             # PhotometricInterpretation
-            addtag(262, 'H', 1, photometric.value)
+            addtag(262, 3, 1, photometric.value)
             # if compresstag == 7:
-            #     addtag(530, 'H', 2, (1, 1))  # YCbCrSubSampling
+            #     addtag(530, 3, 2, (1, 1))  # YCbCrSubSampling
 
         if resolution is not None:
-            addtag(282, '2I', 1, rational(resolution[0]))  # XResolution
-            addtag(283, '2I', 1, rational(resolution[1]))  # YResolution
+            addtag(282, 5, 1, rational(resolution[0]))  # XResolution
+            addtag(283, 5, 1, rational(resolution[1]))  # YResolution
             if len(resolution) > 2:
                 unit = resolution[2]
                 unit = 1 if unit is None else enumarg(TIFF.RESUNIT, unit)
@@ -2050,11 +2096,11 @@ class TiffWriter:
                 unit = 1
             else:
                 unit = 2
-            addtag(296, 'H', 1, unit)  # ResolutionUnit
+            addtag(296, 3, 1, unit)  # ResolutionUnit
         elif not self._imagej:
-            addtag(282, '2I', 1, (1, 1))  # XResolution
-            addtag(283, '2I', 1, (1, 1))  # YResolution
-            addtag(296, 'H', 1, 1)  # ResolutionUnit
+            addtag(282, 5, 1, (1, 1))  # XResolution
+            addtag(283, 5, 1, (1, 1))  # YResolution
+            addtag(296, 3, 1, 1)  # ResolutionUnit
 
         def bytecount_format(
             bytecounts, compression=compression, size=offsetsize
@@ -2120,7 +2166,7 @@ class TiffWriter:
             bytecountformat = bytecount_format(databytecounts)
             addtag(tagbytecounts, bytecountformat, count, databytecounts)
             addtag(tagoffsets, offsetformat, count, [0] * count)
-            addtag(278, 'I', 1, storedshape[-3])  # RowsPerStrip
+            addtag(278, 4, 1, storedshape[-3])  # RowsPerStrip
             bytecountformat = bytecountformat * storedshape[1]
             if contiguous or dataiter is not None:
                 pass
@@ -2144,7 +2190,7 @@ class TiffWriter:
                 rowsperstrip = (
                     math.ceil(rowsperstrip / maxsampling) * maxsampling
                 )
-            addtag(278, 'I', 1, rowsperstrip)  # RowsPerStrip
+            addtag(278, 4, 1, rowsperstrip)  # RowsPerStrip
 
             numstrips1 = (storedshape[-3] + rowsperstrip - 1) // rowsperstrip
             numstrips = numstrips1 * storedshape[1] * storedshape[2]
@@ -2250,7 +2296,7 @@ class TiffWriter:
 
         fhpos = fh.tell()
         if (
-            not (self._bigtiff or self._imagej or compress)
+            not (offsetsize > 4 or self._imagej or compress)
             and fhpos + datasize > 2 ** 32 - 1
         ):
             raise ValueError('data too large for standard TIFF file')
@@ -2262,7 +2308,7 @@ class TiffWriter:
             ifdpos = fhpos
             if ifdpos % 2:
                 # location of IFD must begin on a word boundary
-                fh.write(b'\0')
+                fh.write(b'\x00')
                 ifdpos += 1
 
             if self._subifdslevel < 0:
@@ -2283,14 +2329,14 @@ class TiffWriter:
                 ifd.write(pack(offsetformat, 0))  # offset to next IFD
                 # write tag values and patch offsets in ifdentries
                 for tagindex, tag in enumerate(tags):
-                    offset = tagoffset + tagindex * tagsize + offsetsize + 4
+                    offset = tagoffset + tagindex * tagsize + 4 + offsetsize
                     code = tag[0]
                     value = tag[2]
                     if value:
                         pos = ifd.tell()
                         if pos % 2:
                             # tag value is expected to begin on word boundary
-                            ifd.write(b'\0')
+                            ifd.write(b'\x00')
                             pos += 1
                         ifd.seek(offset)
                         ifd.write(pack(offsetformat, ifdpos + pos))
@@ -2300,23 +2346,29 @@ class TiffWriter:
                             dataoffsetsoffset = offset, pos
                         elif code == tagbytecounts:
                             databytecountsoffset = offset, pos
-                        elif code == 270 and value.endswith(b'\0\0\0\0'):
-                            # image description buffer
-                            self._descriptionoffset = ifdpos + pos
-                            self._descriptionlenoffset = (
-                                ifdpos + tagoffset + tagindex * tagsize + 4
+                        elif code == 270:
+                            self._descriptiontag.offset = (
+                                ifdpos + tagoffset + tagindex * tagsize
                             )
+                            self._descriptiontag.valueoffset = ifdpos + pos
                         elif code == 330:
                             subifdsoffsets = offset, pos
                     elif code == tagoffsets:
                         dataoffsetsoffset = offset, None
                     elif code == tagbytecounts:
                         databytecountsoffset = offset, None
+                    elif code == 270:
+                        self._descriptiontag.offset = (
+                            ifdpos + tagoffset + tagindex * tagsize
+                        )
+                        self._descriptiontag.valueoffset = (
+                            self._descriptiontag.offset + offsetsize + 4
+                        )
                     elif code == 330:
                         subifdsoffsets = offset, None
                 ifdsize = ifd.tell()
                 if ifdsize % 2:
-                    ifd.write(b'\0')
+                    ifd.write(b'\x00')
                     ifdsize += 1
 
             # write IFD later when strip/tile bytecounts and offsets are known
@@ -2342,9 +2394,13 @@ class TiffWriter:
                 else:
                     fh.write_array(data)
             elif tile:
-                tilesize = product(tile) * storedshape[-1] * datadtype.itemsize
+                if storedshape[-1] == 1:
+                    tileshape = tile
+                else:
+                    tileshape = tile + (storedshape[-1],)
+                tilesize = product(tileshape) * datadtype.itemsize
                 if data is None:
-                    fh.write_empty(numtiles * databytecounts[0])
+                    fh.write_empty(numtiles * tilesize)
                 elif compress:
                     isbytes = True
                     for tileindex in range(storedshape[1] * product(tiles)):
@@ -2355,9 +2411,9 @@ class TiffWriter:
                         if isbytes and isinstance(chunk, bytes):
                             # pre-compressed
                             pass
-                        elif chunk.size * chunk.itemsize != tilesize:
-                            raise ValueError('invalid tile shape or dtype')
                         else:
+                            if chunk.nbytes != tilesize:
+                                chunk = pad_tile(chunk, tileshape, datadtype)
                             isbytes = False
                             chunk = compress(chunk)
                         fh.write(chunk)
@@ -2366,10 +2422,11 @@ class TiffWriter:
                     for tileindex in range(storedshape[1] * product(tiles)):
                         chunk = next(dataiter)
                         if chunk is None:
-                            fh.write_empty(databytecounts[0])
+                            # databytecounts[tileindex] = 0  # not contiguous
+                            fh.write_empty(tilesize)
                             continue
-                        if chunk.size * chunk.itemsize != tilesize:
-                            raise ValueError('invalid tile shape or dtype')
+                        if chunk.nbytes != tilesize:
+                            chunk = pad_tile(chunk, tileshape, datadtype)
                         fh.write_array(chunk)
             elif compress:
                 # write one strip per rowsperstrip
@@ -2439,7 +2496,7 @@ class TiffWriter:
                 # update SubIFDs tag values
                 fh.seek(
                     self._subifdsoffsets[self._ifdindex]
-                    + self._subifdslevel * self._offsetsize
+                    + self._subifdslevel * offsetsize
                 )
                 fh.write(pack(offsetformat, ifdpos))
 
@@ -2473,6 +2530,19 @@ class TiffWriter:
                 return dataoffset, sum(databytecounts)
         return None
 
+    def overwrite_description(self, description):
+        """Overwrite the value of the last ImageDescription tag.
+
+        Can be used to write OME-XML after writing the image data.
+        Ends a contiguous series.
+
+        """
+        if self._descriptiontag is None:
+            raise ValueError('no ImageDescription tag found')
+        self._write_remaining_pages()
+        self._descriptiontag.overwrite(self, description, erase=False)
+        self._descriptiontag = None
+
     def _write_remaining_pages(self):
         """Write outstanding IFDs and tags to file."""
         if not self._tags or self._truncate or self._datashape is None:
@@ -2488,14 +2558,14 @@ class TiffWriter:
         fh = self._fh
         fhpos = fh.tell()
         if fhpos % 2:
-            fh.write(b'\0')
+            fh.write(b'\x00')
             fhpos += 1
 
         pack = struct.pack
-        offsetformat = self._byteorder + self._offsetformat
-        offsetsize = self._offsetsize
-        tagnoformat = self._byteorder + self._tagnoformat
-        tagsize = self._tagsize
+        offsetformat = self.tiff.offsetformat
+        offsetsize = self.tiff.offsetsize
+        tagnoformat = self.tiff.tagnoformat
+        tagsize = self.tiff.tagsize
         dataoffset = self._dataoffset
         pagedatasize = sum(self._databytecounts)
         subifdsoffsets = None
@@ -2517,7 +2587,7 @@ class TiffWriter:
                 pos = ifd.tell()
                 if pos % 2:
                     # tag value is expected to begin on word boundary
-                    ifd.write(b'\0')
+                    ifd.write(b'\x00')
                     pos += 1
                 ifd.seek(offset)
                 try:
@@ -2532,24 +2602,24 @@ class TiffWriter:
                     raise ValueError('data too large for non-BigTIFF file')
                 ifd.seek(pos)
                 ifd.write(value)
-                if code == self._tagoffsets:
+                if code == self._dataoffsetstag:
                     # save strip/tile offsets for later updates
                     dataoffsetsoffset = offset, pos
                 elif code == 330:
                     # save subifds offsets for later updates
                     subifdsoffsets = offset, pos
-            elif code == self._tagoffsets:
+            elif code == self._dataoffsetstag:
                 dataoffsetsoffset = offset, None
             elif code == 330:
                 subifdsoffsets = offset, None
 
         ifdsize = ifd.tell()
         if ifdsize % 2:
-            ifd.write(b'\0')
+            ifd.write(b'\x00')
             ifdsize += 1
 
         # check if all IFDs fit in file
-        if not self._bigtiff and fhpos + ifdsize * pageno > 2 ** 32 - 32:
+        if offsetsize < 8 and fhpos + ifdsize * pageno > 2 ** 32 - 32:
             if self._imagej:
                 warnings.warn(
                     'TiffWriter: truncating ImageJ file', UserWarning
@@ -2599,7 +2669,7 @@ class TiffWriter:
                 # update SubIFDs tag values in file
                 fh.seek(
                     self._subifdsoffsets[self._ifdindex]
-                    + self._subifdslevel * self._offsetsize
+                    + self._subifdslevel * offsetsize
                 )
                 fh.write(pack(offsetformat, ifdpos))
 
@@ -2641,7 +2711,8 @@ class TiffWriter:
 
     def _write_image_description(self):
         """Write metadata to ImageDescription tag."""
-        if self._datashape is None or self._descriptionoffset <= 0:
+        if self._datashape is None or self._descriptiontag is None:
+            self._descriptiontag = None
             return
 
         if self._ome:
@@ -2655,8 +2726,9 @@ class TiffWriter:
             description = self._ome.tostring(declaration=True)
         elif self._datashape[0] == 1:
             # description already up-to-date
+            self._descriptiontag = None
             return
-        # elif self._subifdlevel >= 0:
+        # elif self._subifdslevel >= 0:
         #     # don't write metadata to SubIFDs
         #     return
         elif self._imagej:
@@ -2668,31 +2740,8 @@ class TiffWriter:
         else:
             description = json_description(self._datashape, **self._metadata)
 
-        # (re)write description, its position, and length to file
-        description = description.encode()
-        pos = self._fh.tell()
-        if self._ome:
-            self._descriptionoffset = pos
-            self._descriptionlen = len(description)
-            pos += self._descriptionlen
-        else:
-            description = description[: self._descriptionlen]
-
-        self._fh.seek(self._descriptionoffset)
-        self._fh.write(description)
-        self._fh.seek(self._descriptionlenoffset)
-        self._fh.write(
-            struct.pack(
-                self._byteorder + self._offsetformat + self._offsetformat,
-                self._descriptionlen,
-                self._descriptionoffset,
-            )
-        )
-        self._fh.seek(pos)
-
-        self._descriptionoffset = 0
-        self._descriptionlenoffset = 0
-        self._descriptionlen = 0
+        self._descriptiontag.overwrite(self, description, erase=False)
+        self._descriptiontag = None
 
     def _now(self):
         """Return current date and time."""
@@ -4524,7 +4573,7 @@ class TiffFile:
         result = {}
         result['NumberPlanes'] = page.tags[33629].count  # UIC2tag
         if page.description:
-            result['PlaneDescriptions'] = page.description.split('\0')
+            result['PlaneDescriptions'] = page.description.split('\x00')
             # result['plane_descriptions'] = stk_description_metadata(
             #    page.image_description)
         tag = page.tags.get(33628)  # UIC1tag
@@ -5266,8 +5315,7 @@ class TiffPage:
 
         data = fh.read(tagsize * tagno)
 
-        isndpi = tiff.version == 42 and tiff.offsetsize == 8
-        if isndpi:
+        if tiff.version == 42 and tiff.offsetsize == 8:
             # patch offsets/values for 64-bit NDPI file
             tagsize = 16
             fh.seek(8, 1)
@@ -5282,7 +5330,7 @@ class TiffPage:
             tagindex += tagsize
             tagdata = data[tagindex : tagindex + tagsize]
             try:
-                tag = TiffTag(parent, tagdata, tagoffset + tagindex, isndpi)
+                tag = TiffTag.fromfile(parent, tagoffset + tagindex, tagdata)
             except TiffFileError as exc:
                 log_warning(
                     f'TiffPage {self.index}: {exc.__class__.__name__}: {exc}'
@@ -6927,10 +6975,10 @@ class TiffFrame:
                 if codes and code not in codes:
                     continue
                 try:
-                    tag = TiffTag(
+                    tag = TiffTag.fromfile(
                         self.parent,
-                        tagbytes[tagindex : tagindex + tagsize],
                         tagoffset + tagindex,
+                        tagbytes[tagindex : tagindex + tagsize],
                     )
                 except TiffFileError as exc:
                     log_warning(
@@ -7058,70 +7106,97 @@ class TiffTag:
         Name of tag, TIFF.TAGS[code].
     code : int
         Decimal code of tag.
-    dtype : str
-        Datatype of tag data. One of TIFF DATA_FORMATS.
+    dtype : int
+        Datatype of tag data. One of TIFF.DATATYPES.
     count : int
         Number of values.
     value : various types
         Tag data as Python object.
-    offset : int
-        Location of tag structure in file.
     valueoffset : int
         Location of value in file.
+    offset : int
+        Location of tag structure in file.
 
     All attributes are read-only.
 
     """
 
-    __slots__ = ('code', 'count', 'dtype', 'value', 'offset', 'valueoffset')
+    __slots__ = ('offset', 'code', 'dtype', 'count', 'value', 'valueoffset')
 
-    def __init__(self, parent, tagheader, tagoffset, isndpi=False):
-        """Initialize instance from tag header."""
+    def __init__(self, code, dtype, count, value, offset, valueoffset):
+        """ """
+        self.code = code
+        self.dtype = TIFF.DATATYPES(dtype)
+        self.count = count
+        self.value = value
+        self.offset = offset
+        self.valueoffset = valueoffset
+
+    @classmethod
+    def fromfile(cls, parent, offset=None, header=None):
+        """Return TiffTag instance read from file."""
         fh = parent.filehandle
         tiff = parent.tiff
-        byteorder = tiff.byteorder
-        offsetsize = tiff.offsetsize
         unpack = struct.unpack
 
-        self.offset = tagoffset
-        self.valueoffset = tagoffset + offsetsize + 4
-        code, type_ = unpack(tiff.tagformat1, tagheader[:4])
-        count, value = unpack(tiff.tagformat2, tagheader[4:])
+        if header is None:
+            if offset is None:
+                offset = fh.tell()
+            else:
+                fh.seek(offset)
+            header = fh.read(tiff.tagsize)
+        elif offset is None:
+            offset = fh.tell()
+
+        valueoffset = offset + tiff.offsetsize + 4
+        code, dtype = unpack(tiff.tagformat1, header[:4])
+        count, value = unpack(tiff.tagformat2, header[4:])
 
         try:
-            dtype = TIFF.DATA_FORMATS[type_]
+            dataformat = TIFF.DATA_FORMATS[dtype]
         except KeyError:
-            raise TiffFileError(f'unknown tag data type {type_!r}')
+            raise TiffFileError(f'unknown tag data type {dtype!r}')
 
-        fmt = '{}{}{}'.format(byteorder, count * int(dtype[0]), dtype[1])
+        fmt = '{}{}{}'.format(
+            tiff.byteorder, count * int(dataformat[0]), dataformat[1]
+        )
         size = struct.calcsize(fmt)
         if size > tiff.tagoffsetthreshold or code in TIFF.TAG_READERS:
-            self.valueoffset = offset = unpack(tiff.offsetformat, value)[0]
-            if offset < 8 or offset > fh.size - size:
+            valueoffset = unpack(tiff.offsetformat, value)[0]
+            if valueoffset < 8 or valueoffset > fh.size - size:
                 raise TiffFileError('invalid tag value offset')
-            # if offset % 2:
+            # if valueoffset % 2:
             #     log_warning('TiffTag: value does not begin on word boundary')
-            fh.seek(offset)
+            fh.seek(valueoffset)
             if code in TIFF.TAG_READERS:
                 readfunc = TIFF.TAG_READERS[code]
-                value = readfunc(fh, byteorder, dtype, count, offsetsize)
-            elif type_ == 7 or (count > 1 and dtype[-1] == 'B'):
-                value = read_bytes(fh, byteorder, dtype, count, offsetsize)
-            # elif code in TIFF.TAGS or dtype[-1] == 's':
+                value = readfunc(
+                    fh, tiff.byteorder, dtype, count, tiff.offsetsize
+                )
+            elif dtype == 7 or (count > 1 and dtype == 1):
+                value = read_bytes(
+                    fh, tiff.byteorder, dtype, count, tiff.offsetsize
+                )
+            # elif code in TIFF.TAGS or dtype == 2:
             else:
                 value = unpack(fmt, fh.read(size))
             # else:
-            #     value = read_numpy(fh, byteorder, dtype, count, offsetsize)
-        elif dtype[-1] == 'B' or type_ == 7:
+            #     value = read_numpy(
+            #         fh, tiff.byteorder, dtype, count, tiff.offsetsize
+            #     )
+        elif dtype in (1, 7):
+            # BYTES, UNDEFINED
             value = value[:size]
         elif (
-            isndpi
+            tiff.version == 42
+            and tiff.offsetsize == 8
             and count == 1
-            and dtype == '1I'
+            and dtype in (4, 13)
             and value[4:] != b'\x00\x00\x00\x00'
         ):
-            # patch NDPI offsets and sizes
-            dtype = '1Q'
+            # NDPI LONG or IFD
+            # dtype = 16 if dtype == 4 else 18
+            # dataformat = '1Q'
             value = unpack('<Q', value)
         else:
             value = unpack(fmt, value[:size])
@@ -7129,9 +7204,9 @@ class TiffTag:
         process = (
             code not in TIFF.TAG_READERS
             and code not in TIFF.TAG_TUPLE
-            and type_ != 7
+            and dtype != 7  # UNDEFINED
         )
-        if process and dtype[-1] == 's' and isinstance(value[0], bytes):
+        if process and dtype == 2 and isinstance(value[0], bytes):
             # TIFF ASCII fields can contain multiple strings,
             #   each terminated with a NUL
             value = value[0]
@@ -7139,7 +7214,8 @@ class TiffTag:
                 value = bytes2str(stripnull(value, first=False).strip())
             except UnicodeDecodeError:
                 log_warning(f'TiffTag {code}: coercing invalid ASCII to bytes')
-                dtype = '1B'
+                # dtype = 1
+                # dataformat = '1B'
         else:
             if code in TIFF.TAG_ENUM:
                 t = TIFF.TAG_ENUM[code]
@@ -7150,16 +7226,175 @@ class TiffTag:
             if process:
                 if len(value) == 1:
                     value = value[0]
-
-        self.code = code
-        self.dtype = dtype
-        self.count = count
-        self.value = value
+        return cls(code, dtype, count, value, offset, valueoffset)
 
     @property
     def name(self):
         """Return name of tag from TIFF.TAGS registry."""
         return TIFF.TAGS.get(self.code, str(self.code))
+
+    @property
+    def dataformat(self):
+        """Return data type as Python struct format."""
+        return TIFF.DATA_FORMATS[self.dtype]
+
+    @property
+    def valuebytecount(self):
+        """Return size of value in file."""
+        return self.count * struct.calcsize(TIFF.DATA_FORMATS[self.dtype])
+
+    def overwrite(self, tifffile, value, dtype=None, erase=True):
+        """Write new tag value to file and return new TiffTag instance.
+
+        The value must be compatible with the struct.pack formats in
+        TIFF.DATA_FORMATS.
+
+        The new packed value is appended to the file if it is longer than the
+        old value. The old value is zeroed.
+
+        """
+        if self.offset < 8 or self.valueoffset < 8:
+            raise ValueError('cannot rewrite tag at offset < 8')
+
+        fh = tifffile.filehandle
+        tiff = tifffile.tiff
+
+        if tiff.version == 42 and tiff.offsetsize == 8:
+            # TODO: support patching NDPI files
+            raise NotImplementedError('cannot patch NDPI files')
+
+        if value is None:
+            value = b''
+        if dtype is None:
+            dtype = self.dtype
+
+        try:
+            dataformat = TIFF.DATA_FORMATS[dtype]
+        except KeyError as exc:
+            try:
+                dataformat = dtype[-1:]
+                if dataformat[0] in '<>':
+                    dataformat = dataformat[1:]
+                dtype = TIFF.DATA_DTYPES[dataformat]
+            except (KeyError, TypeError):
+                raise ValueError(f'unknown dtype {dtype}') from exc
+
+        if dtype == 2:
+            # strings
+            if isinstance(value, str):
+                # enforce 7-bit ASCII on Unicode strings
+                try:
+                    value = value.encode('ascii')
+                except UnicodeEncodeError as exc:
+                    raise ValueError(
+                        'TIFF strings must be 7-bit ASCII'
+                    ) from exc
+            elif not isinstance(value, bytes):
+                raise ValueError('TIFF strings must be 7-bit ASCII')
+            if len(value) == 0 or value[-1] != b'\x00':
+                value += b'\x00'
+            count = len(value)
+            value = (value,)
+        elif isinstance(value, bytes):
+            # pre-packed binary data
+            dtsize = struct.calcsize(dataformat)
+            if len(value) % dtsize:
+                raise ValueError('invalid packed binary data')
+            count = len(value) // dtsize
+            value = (value,)
+        else:
+            try:
+                count = len(value)
+            except TypeError:
+                value = (value,)
+                count = 1
+
+        if dtype in (5, 10):
+            if count < 2 or count % 2:
+                raise ValueError('invalid RATIONAL value')
+            count //= 2  # rational
+
+        packedvalue = struct.pack(
+            '{}{}{}'.format(
+                tiff.byteorder, count * int(dataformat[0]), dataformat[1]
+            ),
+            *value,
+        )
+        newsize = len(packedvalue)
+        oldsize = self.count * struct.calcsize(TIFF.DATA_FORMATS[self.dtype])
+        valueoffset = self.valueoffset
+
+        pos = fh.tell()
+        try:
+            if dtype != self.dtype:
+                # rewrite data type
+                fh.seek(self.offset + 2)
+                fh.write(struct.pack(tiff.byteorder + 'H', dtype))
+
+            if oldsize <= tiff.tagoffsetthreshold:
+                if newsize <= tiff.tagoffsetthreshold:
+                    # inline -> inline: overwrite
+                    fh.seek(self.offset + 4)
+                    fh.write(struct.pack(tiff.tagformat2, count, packedvalue))
+                else:
+                    # inline -> separate: append to file
+                    fh.seek(0, 2)
+                    valueoffset = fh.tell()
+                    if valueoffset % 2:
+                        # value offset must begin on a word boundary
+                        fh.write(b'\x00')
+                        valueoffset += 1
+                    fh.write(packedvalue)
+                    fh.seek(self.offset + 4)
+                    fh.write(
+                        struct.pack(
+                            tiff.tagformat2,
+                            count,
+                            struct.pack(tiff.offsetformat, valueoffset),
+                        )
+                    )
+            elif newsize <= tiff.tagoffsetthreshold:
+                # separate -> inline: erase old value
+                valueoffset = self.offset + 4 + tiff.offsetsize
+                fh.seek(self.offset + 4)
+                fh.write(struct.pack(tiff.tagformat2, count, packedvalue))
+                if erase:
+                    fh.seek(self.valueoffset)
+                    fh.write(b'\x00' * oldsize)
+            elif newsize <= oldsize or self.valueoffset + oldsize == fh.size:
+                # separate -> separate smaller: overwrite, erase remaining
+                fh.seek(self.offset + 4)
+                fh.write(struct.pack(tiff.offsetformat, count))
+                fh.seek(self.valueoffset)
+                fh.write(packedvalue)
+                if erase and oldsize - newsize > 0:
+                    fh.write(b'\x00' * (oldsize - newsize))
+            else:
+                # separate -> separate larger: erase old value, append to file
+                if erase:
+                    fh.seek(self.valueoffset)
+                    fh.write(b'\x00' * oldsize)
+                fh.seek(0, 2)
+                valueoffset = fh.tell()
+                if valueoffset % 2:
+                    # value offset must begin on a word boundary
+                    fh.write(b'\x00')
+                    valueoffset += 1
+                fh.write(packedvalue)
+                fh.seek(self.offset + 4)
+                fh.write(
+                    struct.pack(
+                        tiff.tagformat2,
+                        count,
+                        struct.pack(tiff.offsetformat, valueoffset),
+                    )
+                )
+        finally:
+            fh.seek(pos)  # must restore file position
+
+        return TiffTag(
+            self.code, dtype, count, value, self.offset, valueoffset
+        )
 
     def _fix_lsm_bitspersample(self, parent):
         """Correct LSM bitspersample tag.
@@ -7180,13 +7415,15 @@ class TiffTag:
     def __str__(self, detail=0, width=79):
         """Return string containing information about TiffTag."""
         height = 1 if detail <= 0 else 8 * detail
-        tcode = '{}{}'.format(self.count * int(self.dtype[0]), self.dtype[1])
+        dtype = self.dtype.name
+        if self.count > 1:
+            dtype += f'[{self.count}]'
         name = '|'.join(TIFF.TAGS.getall(self.code, ()))
         if name:
             name = f'{self.code} {name} @{self.offset}'
         else:
             name = f'{self.code} @{self.offset}'
-        line = f'TiffTag {name} {tcode} @{self.valueoffset}  '
+        line = f'TiffTag {name} {dtype} @{self.valueoffset} '
         line = line[:width]
         try:
             if self.count == 1:
@@ -8426,19 +8663,19 @@ class FileHandle:
         dtype = numpy.dtype(dtype)
 
         if count < 0:
-            size = self._size if out is None else out.nbytes
-            count = size // dtype.itemsize
+            nbytes = self._size if out is None else out.nbytes
+            count = nbytes // dtype.itemsize
         else:
-            size = count * dtype.itemsize
+            nbytes = count * dtype.itemsize
 
         result = numpy.empty(count, dtype) if out is None else out
 
-        if result.nbytes != size:
+        if result.nbytes != nbytes:
             raise ValueError('size mismatch')
 
         n = self._fh.readinto(result)
-        if n != size:
-            raise ValueError(f'failed to read {size} bytes')
+        if n != nbytes:
+            raise ValueError(f'failed to read {nbytes} bytes')
 
         if not result.dtype.isnative:
             if not dtype.isnative:
@@ -10525,55 +10762,52 @@ class TIFF:
 
     def DATATYPES():
         class DATATYPES(enum.IntEnum):
-            NOTYPE = 0
-            BYTE = 1
-            ASCII = 2
-            SHORT = 3
-            LONG = 4
-            RATIONAL = 5
-            SBYTE = 6
-            UNDEFINED = 7
-            SSHORT = 8
-            SLONG = 9
-            SRATIONAL = 10
-            FLOAT = 11
-            DOUBLE = 12
-            IFD = 13
+            BYTE = 1  # 8-bit unsigned integer
+            ASCII = 2  # 8-bit byte that contains a 7-bit ASCII code;
+            #           the last byte must be NULL (binary zero)
+            SHORT = 3  # 16-bit (2-byte) unsigned integer
+            LONG = 4  # 32-bit (4-byte) unsigned integer
+            RATIONAL = 5  # two LONGs: the first represents the numerator
+            #               of a fraction; the second, the denominator
+            SBYTE = 6  # an 8-bit signed (twos-complement) integer
+            UNDEFINED = 7  # an 8-bit byte that may contain anything,
+            #                depending on the definition of the field
+            SSHORT = 8  # A 16-bit (2-byte) signed (twos-complement) integer
+            SLONG = 9  # a 32-bit (4-byte) signed (twos-complement) integer
+            SRATIONAL = 10  # two SLONGs: the first represents the numerator
+            #                 of a fraction, the second the denominator
+            FLOAT = 11  # single precision (4-byte) IEEE format
+            DOUBLE = 12  # double precision (8-byte) IEEE format
+            IFD = 13  # unsigned 4 byte IFD offset
             UNICODE = 14
             COMPLEX = 15
-            LONG8 = 16
-            SLONG8 = 17
-            IFD8 = 18
+            LONG8 = 16  # unsigned 8 byte integer (BigTiff)
+            SLONG8 = 17  # signed 8 byte integer (BigTiff)
+            IFD8 = 18  # unsigned 8 byte IFD offset (BigTiff)
 
         return DATATYPES
 
     def DATA_FORMATS():
         # map TIFF DATATYPES to Python struct formats
         return {
-            1: '1B',  # BYTE 8-bit unsigned integer.
-            2: '1s',  # ASCII 8-bit byte that contains a 7-bit ASCII code;
-            #           the last byte must be NULL (binary zero).
-            3: '1H',  # SHORT 16-bit (2-byte) unsigned integer
-            4: '1I',  # LONG 32-bit (4-byte) unsigned integer.
-            5: '2I',  # RATIONAL Two LONGs: the first represents the numerator
-            #           of a fraction; the second, the denominator.
-            6: '1b',  # SBYTE An 8-bit signed (twos-complement) integer.
-            7: '1B',  # UNDEFINED An 8-bit byte that may contain anything,
-            #           depending on the definition of the field.
-            8: '1h',  # SSHORT A 16-bit (2-byte) signed (twos-complement)
-            #           integer.
-            9: '1i',  # SLONG A 32-bit (4-byte) signed (twos-complement)
-            #           integer.
-            10: '2i',  # SRATIONAL Two SLONGs: the first represents the
-            #            numerator of a fraction, the second the denominator.
-            11: '1f',  # FLOAT Single precision (4-byte) IEEE format.
-            12: '1d',  # DOUBLE Double precision (8-byte) IEEE format.
-            13: '1I',  # IFD unsigned 4 byte IFD offset.
-            # 14: '',  # UNICODE
-            # 15: '',  # COMPLEX
-            16: '1Q',  # LONG8 unsigned 8 byte integer (BigTiff)
-            17: '1q',  # SLONG8 signed 8 byte integer (BigTiff)
-            18: '1Q',  # IFD8 unsigned 8 byte IFD offset (BigTiff)
+            1: '1B',
+            2: '1s',
+            3: '1H',
+            4: '1I',
+            5: '2I',
+            6: '1b',
+            7: '1B',
+            8: '1h',
+            9: '1i',
+            10: '2i',
+            11: '1f',
+            12: '1d',
+            13: '1I',
+            # 14: '',
+            # 15: '',
+            16: '1Q',
+            17: '1q',
+            18: '1Q',
         }
 
     def DATA_DTYPES():
@@ -11965,18 +12199,20 @@ def read_tags(
         pos = fh.tell()
         index = 0
         for _ in range(tagno):
-            code, type_ = unpack(tagformat1, data[index : index + 4])
+            code, dtype = unpack(tagformat1, data[index : index + 4])
             count, value = unpack(
                 tagformat2, data[index + 4 : index + tagsize]
             )
             index += tagsize
             name = tagnames.get(code, str(code))
             try:
-                dtype = TIFF.DATA_FORMATS[type_]
+                dataformat = TIFF.DATA_FORMATS[dtype]
             except KeyError:
-                raise TiffFileError(f'unknown tag data type {type_}')
+                raise TiffFileError(f'unknown tag data type {dtype}')
 
-            fmt = '{}{}{}'.format(byteorder, count * int(dtype[0]), dtype[1])
+            fmt = '{}{}{}'.format(
+                byteorder, count * int(dataformat[0]), dataformat[1]
+            )
             size = struct.calcsize(fmt)
             if size > offsetsize or code in customtags:
                 offset = unpack(offsetformat, value)[0]
@@ -11986,13 +12222,14 @@ def read_tags(
                 if code in customtags:
                     readfunc = customtags[code][1]
                     value = readfunc(fh, byteorder, dtype, count, offsetsize)
-                elif type_ == 7 or (count > 1 and dtype[-1] == 'B'):
+                elif dtype == 7 or (count > 1 and dtype == 1):
                     value = read_bytes(fh, byteorder, dtype, count, offsetsize)
-                elif code in tagnames or dtype[-1] == 's':
+                elif code in tagnames or dtype == 2:
                     value = unpack(fmt, fh.read(size))
                 else:
                     value = read_numpy(fh, byteorder, dtype, count, offsetsize)
-            elif dtype[-1] == 'B' or type_ == 7:
+            elif dtype in (1, 7):
+                # BYTES, UNDEFINED
                 value = value[:size]
             else:
                 value = unpack(fmt, value[:size])
@@ -12000,7 +12237,7 @@ def read_tags(
             if code not in customtags and code not in TIFF.TAG_TUPLE:
                 if len(value) == 1:
                     value = value[0]
-            if type_ != 7 and dtype[-1] == 's' and isinstance(value, bytes):
+            if dtype == 2 and isinstance(value, bytes):
                 # TIFF ASCII fields can contain multiple strings,
                 #   each terminated with a NUL
                 try:
@@ -12061,7 +12298,7 @@ def read_interoperability_ifd(fh, byteorder, dtype, count, offsetsize):
 
 def read_bytes(fh, byteorder, dtype, count, offsetsize):
     """Read tag data from file and return as bytes."""
-    dtype = 'B' if dtype[-1] == 's' else byteorder + dtype[-1]
+    dtype = 'B' if dtype == 2 else byteorder + TIFF.DATA_FORMATS[dtype][-1]
     count *= numpy.dtype(dtype).itemsize
     data = fh.read(count)
     if len(data) != count:
@@ -12078,13 +12315,13 @@ def read_utf8(fh, byteorder, dtype, count, offsetsize):
 
 def read_numpy(fh, byteorder, dtype, count, offsetsize):
     """Read tag data from file and return as numpy array."""
-    dtype = 'b' if dtype[-1] == 's' else byteorder + dtype[-1]
+    dtype = 'b' if dtype == 2 else byteorder + TIFF.DATA_FORMATS[dtype][-1]
     return fh.read_array(dtype, count)
 
 
 def read_colormap(fh, byteorder, dtype, count, offsetsize):
     """Read ColorMap data from file and return as numpy array."""
-    cmap = fh.read_array(byteorder + dtype[-1], count)
+    cmap = fh.read_array(byteorder + TIFF.DATA_FORMATS[dtype][-1], count)
     cmap.shape = (3, -1)
     return cmap
 
@@ -12128,10 +12365,10 @@ def read_uic1tag(fh, byteorder, dtype, count, offsetsize, planecount=None):
     Return empty dictionary if planecount is unknown.
 
     """
-    if dtype not in ('2I', '1I') or byteorder != '<':
-        raise ValueError('invalid UIC1Tag')
+    if dtype not in (4, 5) or byteorder != '<':
+        raise ValueError(f'invalid UIC1Tag {byteorder}{dtype}')
     result = {}
-    if dtype == '2I':
+    if dtype == 5:
         # pre MetaMorph 2.5 (not tested)
         values = fh.read_array('<u4', 2 * count).reshape(count, 2)
         result = {'ZDistance': values[:, 0] / values[:, 1]}
@@ -12149,7 +12386,7 @@ def read_uic1tag(fh, byteorder, dtype, count, offsetsize, planecount=None):
 
 def read_uic2tag(fh, byteorder, dtype, planecount, offsetsize):
     """Read MetaMorph STK UIC2Tag from file and return as dict."""
-    if dtype != '2I' or byteorder != '<':
+    if dtype != 5 or byteorder != '<':
         raise ValueError('invalid UIC2Tag')
     values = fh.read_array('<u4', 6 * planecount).reshape(planecount, 6)
     return {
@@ -12163,7 +12400,7 @@ def read_uic2tag(fh, byteorder, dtype, planecount, offsetsize):
 
 def read_uic3tag(fh, byteorder, dtype, planecount, offsetsize):
     """Read MetaMorph STK UIC3Tag from file and return as dict."""
-    if dtype != '2I' or byteorder != '<':
+    if dtype != 5 or byteorder != '<':
         raise ValueError('invalid UIC3Tag')
     values = fh.read_array('<u4', 2 * planecount).reshape(planecount, 2)
     return {'Wavelengths': values[:, 0] / values[:, 1]}
@@ -12171,7 +12408,7 @@ def read_uic3tag(fh, byteorder, dtype, planecount, offsetsize):
 
 def read_uic4tag(fh, byteorder, dtype, planecount, offsetsize):
     """Read MetaMorph STK UIC4Tag from file and return as dict."""
-    if dtype != '1I' or byteorder != '<':
+    if dtype != 4 or byteorder != '<':
         raise ValueError('invalid UIC4Tag')
     result = {}
     while True:
@@ -12582,7 +12819,7 @@ def read_tvips_header(fh, byteorder, dtype, count, offsetsize):
         for name, typestr in TIFF.TVIPS_HEADER_V2:
             if typestr.startswith('V'):
                 s = header[name].tobytes().decode('utf-16', errors='ignore')
-                result[name] = stripnull(s, null='\0')
+                result[name] = stripnull(s, null='\x00')
             else:
                 result[name] = header[name].tolist()
         # convert nm to m
@@ -12862,8 +13099,8 @@ def imagej_metadata_tag(metadata, byteorder):
     bytecounts[0] = len(header)
     bytecounts = struct.pack(byteorder + ('I' * len(bytecounts)), *bytecounts)
     return (
-        (50839, 'B', len(data), data, True),
-        (50838, 'I', len(bytecounts) // 4, bytecounts, True),
+        (50839, 1, len(data), data, True),
+        (50838, 4, len(bytecounts) // 4, bytecounts, True),
     )
 
 
@@ -12996,7 +13233,8 @@ def imagej_description(
         raise NotImplementedError('ImageJ colormapping not supported')
     if version is None:
         version = kwargs.pop('ImageJ', '1.11a')
-    shape = imagej_shape(shape, rgb=rgb)
+    axes = kwargs.pop('axes', None)
+    shape = imagej_shape(shape, rgb=rgb, axes=axes)
     rgb = shape[-1] in (3, 4)
 
     append = []
@@ -13029,10 +13267,10 @@ def imagej_description(
     return '\n'.join(result + append + [''])
 
 
-def imagej_shape(shape, rgb=None):
+def imagej_shape(shape, rgb=None, axes=None):
     """Return shape normalized to 6D ImageJ hyperstack TZCYXS.
 
-    Raise ValueError if not a valid ImageJ hyperstack shape.
+    Raise ValueError if not a valid ImageJ hyperstack shape or axes order.
 
     >>> imagej_shape((2, 3, 4, 5, 3), False)
     (2, 3, 4, 5, 3, 1)
@@ -13041,13 +13279,41 @@ def imagej_shape(shape, rgb=None):
     shape = tuple(int(i) for i in shape)
     ndim = len(shape)
     if 1 > ndim > 6:
-        raise ValueError('invalid ImageJ hyperstack: not 2 to 6 dimensional')
+        raise ValueError('ImageJ hyperstack must be 2-6 dimensional')
+
+    if axes:
+        if len(axes) != ndim:
+            raise ValueError('ImageJ hyperstack shape and axes do not match')
+        i = 0
+        axes = axes.upper()
+        for ax in axes:
+            j = 'TZCYXS'.find(ax)
+            if j < i:
+                raise ValueError(
+                    'ImageJ hyperstack axes must be in TZCYXS order'
+                )
+            i = j
+        ndims = len(axes)
+        newshape = []
+        i = 0
+        for ax in 'TZCYXS':
+            if i < ndims and ax == axes[i]:
+                newshape.append(shape[i])
+                i += 1
+            else:
+                newshape.append(1)
+        if newshape[-1] not in (1, 3, 4):
+            raise ValueError(
+                'ImageJ hyperstack must contain 1, 3, or 4 samples'
+            )
+        return tuple(newshape)
+
     if rgb is None:
         rgb = shape[-1] in (3, 4) and ndim > 2
     if rgb and shape[-1] not in (3, 4):
-        raise ValueError('invalid ImageJ hyperstack: not a RGB image')
+        raise ValueError('ImageJ hyperstack is not a RGB image')
     if not rgb and ndim == 6 and shape[-1] != 1:
-        raise ValueError('invalid ImageJ hyperstack: not a non-RGB image')
+        raise ValueError('ImageJ hyperstack is not a grayscale image')
     if rgb or shape[-1] == 1:
         return (1,) * (6 - ndim) + shape
     return (1,) * (5 - ndim) + shape + (1,)
@@ -13821,6 +14087,14 @@ def iter_tiles(data, tile, tiles):
                                 yield chunk[0]
                             else:
                                 yield chunk
+
+
+def pad_tile(tile, shape, dtype):
+    """Return tile padded to tile shape."""
+    if tile.dtype != dtype or tile.nbytes > product(shape) * dtype.itemsize:
+        raise ValueError('invalid tile shape or dtype')
+    pad = tuple((0, i - j) for i, j in zip(shape, tile.shape))
+    return numpy.pad(tile, pad)
 
 
 def reorient(image, orientation):
@@ -15051,6 +15325,22 @@ def validate_jhove(filename, jhove=None, ignore=None):
                 else:
                     raise ValueError(error)
                 break
+
+
+def tiffcomment(arg, comment=None, index=None, code=None):
+    """Return or replace ImageDescription value in first page of TIFF file."""
+    if index is None:
+        index = 0
+    if code is None:
+        code = 270
+    mode = None if comment is None else 'r+b'
+    with TiffFile(arg, mode=mode) as tif:
+        tag = tif.pages[index].tags.get(code, None)
+        if tag is None:
+            raise ValueError(f'no {TIFF.TAGS[code]} tag found')
+        if comment is None:
+            return tag.value
+        tag.overwrite(tif, comment)
 
 
 def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
