@@ -1,9 +1,17 @@
 Revisions
 ---------
+2020.11.26
+    Pass 4372 tests.
+    Add option to pass axes metadata to ImageJ writer.
+    Pad incomplete tiles passed to TiffWriter.write (#38).
+    Split TiffTag constructor (breaking).
+    Change TiffTag.dtype to TIFF.DATATYPES (breaking).
+    Add TiffTag.overwrite method.
+    Add script to change ImageDescription in files.
+    Add TiffWriter.overwrite_description method (WIP).
 2020.11.18
-    Pass 4363 tests.
-    Support writing SEPARATED colorspace (#37).
-    Use imagecodecs.deflate if available.
+    Support writing SEPARATED color space (#37).
+    Use imagecodecs.deflate codec if available.
     Fix SCN and NDPI series with Z dimensions.
     Add TiffReader alias for TiffFile.
     TiffPage.is_volumetric returns True if ImageDepth > 1.
@@ -12,7 +20,7 @@ Revisions
     Formally deprecate unused TiffFile parameters (scikit-image #4996).
 2020.9.30
     Allow to pass additional arguments to compression codecs.
-    Deprecate TiffWriter.save function (use TiffWriter.write).
+    Deprecate TiffWriter.save method (use TiffWriter.write).
     Deprecate TiffWriter.save compress parameter (use compression).
     Remove multifile parameter from TiffFile (breaking).
     Pass all is_flag arguments from imread to TiffFile.
@@ -40,7 +48,7 @@ Revisions
     Return full size tiles from Tiffpage.segments.
     Rename TiffPage.is_sgi property to is_volumetric (breaking).
     Rename TiffPageSeries.is_pyramid to is_pyramidal (breaking).
-    Fix TypeError when passing jpegtables to non-JPEG decode function (#25).
+    Fix TypeError when passing jpegtables to non-JPEG decode method (#25).
 2020.9.3
     Do not write contiguous series by default (breaking).
     Allow to write to SubIFDs (WIP).
@@ -89,7 +97,7 @@ Revisions
 2020.5.25
     Make imagecodecs an optional dependency again.
     Disable multi-threaded decoding of small LZW compressed segments.
-    Fix caching of TiffPage.decode function.
+    Fix caching of TiffPage.decode method.
     Fix xml.etree.cElementTree ImportError on Python 3.9.
     Fix tostring DeprecationWarning.
 2020.5.11
@@ -101,7 +109,7 @@ Revisions
     Always store ExtraSamples values in tuple (breaking).
 2020.5.5
     Allow to write tiled TIFF from iterable of tiles (WIP).
-    Add function to iterate over decoded segments of TiffPage (WIP).
+    Add method to iterate over decoded segments of TiffPage (WIP).
     Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
     Fix reading invalid files with too many strips.
     Fix writing over-aligned image data.
@@ -111,7 +119,7 @@ Revisions
     Remove maxsize parameter from asarray (breaking).
     Deprecate ijmetadata parameter from TiffWriter.save (use metadata).
 2020.2.16
-    Add function to decode individual strips or tiles.
+    Add method to decode individual strips or tiles.
     Read strips and tiles in order of their offsets.
     Enable multi-threading when decompressing multiple strips.
     Replace TiffPage.tags dictionary with TiffTags (breaking).
@@ -126,7 +134,7 @@ Revisions
     Fix xml2dict.
     Require imagecodecs >= 2020.1.31.
     Remove support for imagecodecs-lite (breaking).
-    Remove verify parameter to asarray function (breaking).
+    Remove verify parameter to asarray method (breaking).
     Remove deprecated lzw_decode functions (breaking).
     Remove support for Python 2.7 and 3.5 (breaking).
 2019.7.26
