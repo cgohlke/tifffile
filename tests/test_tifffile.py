@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.11.18
+:Version: 2020.11.26
 
 """
 
@@ -59,15 +59,14 @@ import sys
 import tempfile
 from io import BytesIO
 
-import pytest
 import numpy
+import pytest
+import tifffile
 from numpy.testing import (
     assert_allclose,
     assert_array_almost_equal,
     assert_array_equal,
 )
-
-import tifffile
 
 try:
     from tifffile import *
@@ -111,16 +110,16 @@ from tifffile.tifffile import (
     FileSequence,
     OmeXml,
     OmeXmlError,
-    TiffWriter,
-    TiffReader,
     TiffFile,
     TiffFileError,
     TiffFrame,
     TiffPage,
     TiffPageSeries,
+    TiffReader,
     TiffSequence,
     TiffTag,
     TiffTags,
+    TiffWriter,
     apply_colormap,
     asbool,
     byteorder_compare,
@@ -166,6 +165,7 @@ from tifffile.tifffile import (
     stripnull,
     subresolution,
     svs_description_metadata,
+    tiffcomment,
     transpose_axes,
     unpack_rgb,
     validate_jhove,
@@ -854,6 +854,41 @@ def test_issue_tile_partial():
             assert__str__(tif)
 
 
+@pytest.mark.parametrize('samples', [1, 3])
+def test_issue_tiles_pad(samples):
+    """Test tiles from iterator get padded."""
+    # https://github.com/cgohlke/tifffile/issues/38
+    if samples == 3:
+        data = numpy.random.randint(0, 2 ** 12, (31, 33, 3), 'uint16')
+    else:
+        data = numpy.random.randint(0, 2 ** 12, (31, 33), 'uint16')
+
+    def tiles(data, tileshape, pad=False):
+        for y in range(0, data.shape[0], tileshape[0]):
+            for x in range(0, data.shape[1], tileshape[1]):
+                tile = data[y : y + tileshape[0], x : x + tileshape[1]]
+                if pad and tile.shape != tileshape:
+                    tile = numpy.pad(
+                        tile,
+                        (
+                            (0, tileshape[0] - tile.shape[0]),
+                            (0, tileshape[1] - tile.shape[1]),
+                        ),
+                    )
+                yield tile
+
+    with TempFileName(f'issue_tiles_pad_{samples}') as fname:
+        imwrite(
+            fname,
+            tiles(data, (16, 16)),
+            dtype=data.dtype,
+            shape=data.shape,
+            tile=(16, 16),
+        )
+        assert_array_equal(imread(fname), data)
+        assert_valid_tiff(fname)
+
+
 def test_issue_fcontiguous():
     """Test writing F-contiguous arrays."""
     # https://github.com/cgohlke/tifffile/issues/24
@@ -954,7 +989,7 @@ def test_issue_write_separated():
     contig = random_data('uint8', (63, 95, 4))
     separate = random_data('uint8', (4, 63, 95))
     extrasample = random_data('uint8', (63, 95, 5))
-    with TempFileName(f'issue_write_separated') as fname:
+    with TempFileName('issue_write_separated') as fname:
         with TiffWriter(fname) as tif:
             tif.write(contig, photometric='SEPARATED')
             tif.write(separate, photometric=SEPARATED)
@@ -1073,6 +1108,103 @@ def test_class_filecache():
         # close all files
         cache.clear()
         handles[0].close()
+
+
+@pytest.mark.parametrize('bigtiff', [False, True])
+@pytest.mark.parametrize('byteorder', ['<', '>'])
+def test_class_tifftag_overwrite(bigtiff, byteorder):
+    """Test TiffTag.overwrite method."""
+    data = numpy.ones((16, 16, 3), dtype=byteorder + 'i2')
+    bt = '_bigtiff' if bigtiff else ''
+    bo = 'be' if byteorder == '>' else 'le'
+
+    with TempFileName(f'class_tifftag_overwrite_{bo}{bt}') as fname:
+        imwrite(fname, data, bigtiff=bigtiff, software='in')
+
+        with TiffFile(fname, mode='r+b') as tif:
+            tags = tif.pages[0].tags
+            # inline -> inline
+            tag = tags[305]
+            t305 = tags[305].overwrite(tif, 'inl')
+            assert tag.valueoffset == t305.valueoffset
+            valueoffset = tag.valueoffset
+            # xresolution
+            tag = tags[282]
+            t282 = tags[282].overwrite(tif, (2000, 1000))
+            assert tag.valueoffset == t282.valueoffset
+            # sampleformat, int -> uint
+            tag = tags[339]
+            t339 = tags[339].overwrite(tif, (1, 1, 1))
+            assert tag.valueoffset == t339.valueoffset
+
+        with TiffFile(fname) as tif:
+            tags = tif.pages[0].tags
+            tag = tags[305]
+            assert tag.value == 'inl'
+            assert tag.count == t305.count
+            tag = tags[282]
+            assert tag.value == (2000, 1000)
+            assert tag.count == t282.count
+            tag = tags[339]
+            assert tag.value == (1, 1, 1)
+            assert tag.count == t339.count
+
+        # inline -> separate
+        with TiffFile(fname, mode='r+b') as tif:
+            tag = tif.pages[0].tags[305]
+            t305 = tag.overwrite(tif, 'separate')
+            assert tag.valueoffset != t305.valueoffset
+
+        # separate at end -> separate longer
+        with TiffFile(fname, mode='r+b') as tif:
+            tag = tif.pages[0].tags[305]
+            assert tag.value == 'separate'
+            assert tag.valueoffset == t305.valueoffset
+            t305 = tag.overwrite(tif, 'separate longer')
+            assert tag.valueoffset == t305.valueoffset  # overwrite, not append
+
+        # separate -> separate shorter
+        with TiffFile(fname, mode='r+b') as tif:
+            tag = tif.pages[0].tags[305]
+            assert tag.value == 'separate longer'
+            assert tag.valueoffset == t305.valueoffset
+            t305 = tag.overwrite(tif, 'separate short')
+            assert tag.valueoffset == t305.valueoffset
+
+        # separate -> separate longer
+        with TiffFile(fname, mode='r+b') as tif:
+            tag = tif.pages[0].tags[305]
+            assert tag.value == 'separate short'
+            assert tag.valueoffset == t305.valueoffset
+            filesize = tif.filehandle.size
+            t305 = tag.overwrite(tif, 'separate longer')
+            assert tag.valueoffset != t305.valueoffset
+            assert t305.valueoffset == filesize  # append to end
+
+        # separate -> inline
+        with TiffFile(fname, mode='r+b') as tif:
+            tag = tif.pages[0].tags[305]
+            assert tag.value == 'separate longer'
+            assert tag.valueoffset == t305.valueoffset
+            t305 = tag.overwrite(tif, 'inl')
+            assert tag.valueoffset != t305.valueoffset
+            assert t305.valueoffset == valueoffset
+
+        # inline - > erase
+        with TiffFile(fname, mode='r+b') as tif:
+            tag = tif.pages[0].tags[305]
+            assert tag.value == 'inl'
+            assert tag.valueoffset == t305.valueoffset
+            t305 = tag.overwrite(tif, '')
+            assert tag.valueoffset == t305.valueoffset
+
+        with TiffFile(fname) as tif:
+            tag = tif.pages[0].tags[305]
+            assert tag.value == ''
+            assert tag.valueoffset == t305.valueoffset
+
+        if not bigtiff:
+            assert_valid_tiff(fname)
 
 
 def test_class_tifftags():
@@ -1871,15 +2003,30 @@ def test_func_imagej_shape():
 
 def test_func_imagej_description():
     """Test imagej_description function."""
-    imagej_str = (
+    expected = (
         'ImageJ=1.11a\nimages=510\nchannels=2\nslices=5\n'
         'frames=51\nhyperstack=true\nmode=grayscale\nloop=false\n'
     )
-    assert imagej_description((51, 5, 2, 196, 171)) == imagej_str
+    assert imagej_description((51, 5, 2, 196, 171)) == expected
+    assert imagej_description((51, 5, 2, 196, 171), axes='TZCYX') == expected
+    expected = (
+        'ImageJ=1.11a\nimages=2\nslices=2\nhyperstack=true\nmode=grayscale\n'
+    )
+    assert imagej_description((1, 2, 1, 196, 171)) == expected
+    assert imagej_description((2, 196, 171), axes='ZYX') == expected
     expected = 'ImageJ=1.11a\nimages=1\nhyperstack=true\nmode=grayscale\n'
     assert imagej_description((196, 171)) == expected
+    assert imagej_description((196, 171), axes='YX') == expected
     expected = 'ImageJ=1.11a\nimages=1\nhyperstack=true\n'
     assert imagej_description((196, 171, 3)) == expected
+    assert imagej_description((196, 171, 3), axes='YXS') == expected
+
+    with pytest.raises(ValueError):
+        imagej_description((196, 171, 3), axes='TYXS')
+    with pytest.raises(ValueError):
+        imagej_description((196, 171, 2), axes='TYXS')
+    with pytest.raises(ValueError):
+        imagej_description((3, 196, 171, 3), axes='ZTYX')
 
 
 def test_func_imagej_description_metadata():
@@ -2351,13 +2498,26 @@ def test_func_pformat_xml():
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_32BIT or SKIP_HUGE, reason=REASON)
 def test_func_lsm2bin():
     """Test lsm2bin function."""
-    # Converst LSM to BIN
+    # Convert LSM to BIN
     fname = private_file(
         'lsm/Twoareas_Zstacks54slices_3umintervals_5cycles.lsm'
     )
     # fname = private_file(
     #     'LSM/fish01-wt-t01-10_ForTest-20zplanes10timepoints.lsm')
     lsm2bin(fname, '', verbose=True)
+
+
+def test_func_tiffcomment():
+    """Test tiffcomment function."""
+    data = random_data('uint8', (33, 31, 3))
+    with TempFileName('func_tiffcomment') as fname:
+        comment = 'A comment'
+        imwrite(fname, data, description=comment, metadata=None)
+        assert comment == tiffcomment(fname)
+        comment = 'changed comment'
+        tiffcomment(fname, comment)
+        assert comment == tiffcomment(fname)
+        assert_valid_tiff(fname)
 
 
 def test_func_create_output():
@@ -8220,11 +8380,11 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
     data = random_data('uint8', shape)
 
     if count == 1:
-        dtype = 'Q' if bigtiff else 'I'
+        dtype = TIFF.DATATYPES.LONG8 if bigtiff else TIFF.DATATYPES.LONG
     elif bytecount == 256:
-        dtype = 'I'
+        dtype = TIFF.DATATYPES.LONG
     else:
-        dtype = 'H'
+        dtype = TIFF.DATATYPES.SHORT
 
     with TempFileName(
         'bytecounts_{}{}{}{}{}'.format(
@@ -8245,7 +8405,7 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
             assert len(tif.pages) == 1
             page = tif.pages[0]
             assert page.tags[tag].count == count
-            assert page.tags[tag].dtype[-1] == dtype
+            assert page.tags[tag].dtype == dtype
             assert page.is_contiguous != bool(compression)
             assert page.planarconfig == CONTIG
             assert page.photometric == MINISBLACK
@@ -10373,7 +10533,7 @@ def test_write_tileiter():
         with pytest.raises(ValueError):
             # shape mismatch
             imwrite(
-                fname, tiles(), shape=(43, 61), tile=(32, 32), dtype='uint16'
+                fname, tiles(), shape=(43, 61), tile=(8, 8), dtype='uint16'
             )
 
         imwrite(fname, tiles(), shape=(43, 61), tile=(16, 16), dtype='uint16')
@@ -10391,9 +10551,8 @@ def test_write_tileiter():
 
 def test_write_tileiter_separate():
     """Test write separate tiles from iterator."""
-    data = numpy.arange(2 * 3 * 4 * 16 * 16, dtype='uint16').reshape(
-        (2 * 3 * 4, 16, 16)
-    )
+    data = numpy.arange(2 * 3 * 4 * 16 * 16, dtype='uint16')
+    data = data.reshape((2 * 3 * 4, 16, 16))
 
     def tiles():
         for i in range(data.shape[0]):
@@ -11505,7 +11664,6 @@ def test_write_ome_methods(method):
             imwrite(
                 fname,
                 data,
-                bigtiff=True,
                 byteorder='>',
                 photometric='minisblack',
                 metadata=metadata,
@@ -11523,7 +11681,7 @@ def test_write_ome_methods(method):
             # make sure storage options (compression, byteorder, photometric)
             #   match OME-XML
             # write OME-XML to first page only
-            with TiffWriter(fname, bigtiff=True, byteorder='>') as tif:
+            with TiffWriter(fname, byteorder='>') as tif:
                 for i, image in enumerate(pages()):
                     description = omexml if i == 0 else None
                     tif.write(
@@ -11541,7 +11699,6 @@ def test_write_ome_methods(method):
                 pages(),
                 shape=shape,
                 dtype=dtype,
-                bigtiff=True,
                 byteorder='>',
                 photometric='minisblack',
                 metadata={'axes': axes},
@@ -11555,7 +11712,6 @@ def test_write_ome_methods(method):
                 shape=shape,
                 dtype=dtype,
                 compression='zlib',
-                bigtiff=True,
                 byteorder='>',
                 photometric='minisblack',
                 metadata={'axes': axes},
@@ -11566,7 +11722,6 @@ def test_write_ome_methods(method):
             imwrite(
                 fname,
                 data,
-                bigtiff=True,
                 byteorder='>',
                 photometric='minisblack',
                 metadata={'axes': axes},
@@ -11595,6 +11750,56 @@ def test_write_ome_methods(method):
             assert_array_equal(data, tif.asarray())
             assert_valid_omexml(tif.ome_metadata)
             assert__str__(tif)
+
+        assert_valid_tiff(fname)
+
+
+@pytest.mark.parametrize('contiguous', [True, False])
+def test_write_ome_manual(contiguous):
+    """Test writing OME-TIFF manually."""
+    data = numpy.random.randint(0, 255, (19, 31, 21), 'uint8')
+
+    with TempFileName(f'write_ome__manual{int(contiguous)}.ome') as fname:
+
+        with TiffWriter(fname) as tif:
+            # sucessively write image data to TIFF pages
+            # disable tifffile from writing any metadata
+            # add empty ImageDescription tag to first page
+            for i, frame in enumerate(data):
+                tif.write(
+                    frame,
+                    contiguous=contiguous,
+                    metadata=None,
+                    description=None if i else b'',
+                )
+            # update ImageDescription tag with custom OME-XML
+            xml = OmeXml()
+            xml.addimage(
+                'uint8', (16, 31, 21), (16, 1, 1, 31, 21, 1), axes='ZYX'
+            )
+            xml.addimage(
+                'uint8', (3, 31, 21), (3, 1, 1, 31, 21, 1), axes='CYX'
+            )
+            tif.overwrite_description(xml.tostring())
+
+        with TiffFile(fname) as tif:
+            assert tif.is_ome
+            assert len(tif.pages) == 19
+            assert len(tif.series) == 2
+            # assert series properties
+            series = tif.series[0]
+            assert series.axes == 'ZYX'
+            assert bool(series.offset) == contiguous
+            assert_array_equal(data[:16], series.asarray())
+            series = tif.series[1]
+            assert series.axes == 'CYX'
+            assert bool(series.offset) == contiguous
+            assert_array_equal(data[16:], series.asarray())
+            #
+            assert_valid_omexml(tif.ome_metadata)
+            assert__str__(tif)
+
+        assert_valid_tiff(fname)
 
 
 ###############################################################################
