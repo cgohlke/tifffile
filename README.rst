@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.11.18
+:Version: 2020.11.26
 
 Requirements
 ------------
@@ -61,10 +61,18 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.11.26
+    Pass 4372 tests.
+    Add option to pass axes metadata to ImageJ writer.
+    Pad incomplete tiles passed to TiffWriter.write (#38).
+    Split TiffTag constructor (breaking).
+    Change TiffTag.dtype to TIFF.DATATYPES (breaking).
+    Add TiffTag.overwrite method.
+    Add script to change ImageDescription in files.
+    Add TiffWriter.overwrite_description method (WIP).
 2020.11.18
-    Pass 4363 tests.
-    Support writing SEPARATED colorspace (#37).
-    Use imagecodecs.deflate if available.
+    Support writing SEPARATED color space (#37).
+    Use imagecodecs.deflate codec if available.
     Fix SCN and NDPI series with Z dimensions.
     Add TiffReader alias for TiffFile.
     TiffPage.is_volumetric returns True if ImageDepth > 1.
@@ -73,7 +81,7 @@ Revisions
     Formally deprecate unused TiffFile parameters (scikit-image #4996).
 2020.9.30
     Allow to pass additional arguments to compression codecs.
-    Deprecate TiffWriter.save function (use TiffWriter.write).
+    Deprecate TiffWriter.save method (use TiffWriter.write).
     Deprecate TiffWriter.save compress parameter (use compression).
     Remove multifile parameter from TiffFile (breaking).
     Pass all is_flag arguments from imread to TiffFile.
@@ -101,7 +109,7 @@ Revisions
     Return full size tiles from Tiffpage.segments.
     Rename TiffPage.is_sgi property to is_volumetric (breaking).
     Rename TiffPageSeries.is_pyramid to is_pyramidal (breaking).
-    Fix TypeError when passing jpegtables to non-JPEG decode function (#25).
+    Fix TypeError when passing jpegtables to non-JPEG decode method (#25).
 2020.9.3
     Do not write contiguous series by default (breaking).
     Allow to write to SubIFDs (WIP).
@@ -150,7 +158,7 @@ Revisions
 2020.5.25
     Make imagecodecs an optional dependency again.
     Disable multi-threaded decoding of small LZW compressed segments.
-    Fix caching of TiffPage.decode function.
+    Fix caching of TiffPage.decode method.
     Fix xml.etree.cElementTree ImportError on Python 3.9.
     Fix tostring DeprecationWarning.
 2020.5.11
@@ -162,7 +170,7 @@ Revisions
     Always store ExtraSamples values in tuple (breaking).
 2020.5.5
     Allow to write tiled TIFF from iterable of tiles (WIP).
-    Add function to iterate over decoded segments of TiffPage (WIP).
+    Add method to iterate over decoded segments of TiffPage (WIP).
     Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
     Fix reading invalid files with too many strips.
     Fix writing over-aligned image data.
@@ -172,7 +180,7 @@ Revisions
     Remove maxsize parameter from asarray (breaking).
     Deprecate ijmetadata parameter from TiffWriter.save (use metadata).
 2020.2.16
-    Add function to decode individual strips or tiles.
+    Add method to decode individual strips or tiles.
     Read strips and tiles in order of their offsets.
     Enable multi-threading when decompressing multiple strips.
     Replace TiffPage.tags dictionary with TiffTags (breaking).
@@ -187,7 +195,7 @@ Revisions
     Fix xml2dict.
     Require imagecodecs >= 2020.1.31.
     Remove support for imagecodecs-lite (breaking).
-    Remove verify parameter to asarray function (breaking).
+    Remove verify parameter to asarray method (breaking).
     Remove deprecated lzw_decode functions (breaking).
     Remove support for Python 2.7 and 3.5 (breaking).
 2019.7.26
@@ -313,16 +321,27 @@ References
 
 Examples
 --------
-Save a 3D numpy array to a multi-page, 16-bit grayscale TIFF file:
+Write a numpy array to a single-page RGB TIFF file:
 
->>> data = numpy.random.randint(0, 2**12, (4, 301, 219), 'uint16')
+>>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
+>>> imwrite('temp.tif', data, photometric='rgb')
+
+Read the image from the TIFF file as numpy array:
+
+>>> image = imread('temp.tif')
+>>> image.shape
+(256, 256, 3)
+
+Write a 3D numpy array to a multi-page, 16-bit grayscale TIFF file:
+
+>>> data = numpy.random.randint(0, 2**12, (64, 301, 219), 'uint16')
 >>> imwrite('temp.tif', data, photometric='minisblack')
 
 Read the whole image stack from the TIFF file as numpy array:
 
 >>> image_stack = imread('temp.tif')
 >>> image_stack.shape
-(4, 301, 219)
+(64, 301, 219)
 >>> image_stack.dtype
 dtype('uint16')
 
@@ -332,67 +351,46 @@ Read the image from the first page in the TIFF file as numpy array:
 >>> image.shape
 (301, 219)
 
-Read images from a sequence of TIFF files as numpy array:
+Read images from a selected range of pages:
 
->>> image_sequence = imread(['temp.tif', 'temp.tif'])
->>> image_sequence.shape
-(2, 4, 301, 219)
+>>> image = imread('temp.tif', key=range(4, 40, 2))
+>>> image.shape
+(18, 301, 219)
 
-Save a numpy array to a single-page RGB TIFF file:
+Iterate over all pages in the TIFF file and successively read images:
 
->>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
->>> imwrite('temp.tif', data, photometric='rgb')
+>>> with TiffFile('temp.tif') as tif:
+...     for page in tif.pages:
+...         image = page.asarray()
 
-Save a floating-point array and metadata, using zlib compression:
-
->>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
->>> imwrite('temp.tif', data, compression='zlib', metadata={'axes': 'TZCYX'})
-
-Save a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an ImageJ
-formatted TIFF file:
-
->>> volume = numpy.random.randn(57*256*256).astype('float32')
->>> volume.shape = 1, 57, 1, 256, 256, 1  # dimensions in TZCYXS order
->>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
-...         metadata={'spacing': 3.947368, 'unit': 'um'})
-
-Get the shape and dtype of the volume stored in the TIFF file:
+Get information about the image stack in the TIFF file without reading
+the image data:
 
 >>> tif = TiffFile('temp.tif')
 >>> len(tif.pages)  # number of pages in the file
-57
+64
 >>> page = tif.pages[0]  # get shape and dtype of the image in the first page
 >>> page.shape
-(256, 256)
+(301, 219)
 >>> page.dtype
-dtype('float32')
+dtype('uint16')
 >>> page.axes
 'YX'
 >>> series = tif.series[0]  # get shape and dtype of the first image series
 >>> series.shape
-(57, 256, 256)
+(64, 301, 219)
 >>> series.dtype
-dtype('float32')
+dtype('uint16')
 >>> series.axes
-'ZYX'
+'QYX'
 >>> tif.close()
 
-Read hyperstack and metadata from the ImageJ file:
-
->>> with TiffFile('temp.tif') as tif:
-...     imagej_hyperstack = tif.asarray()
-...     imagej_metadata = tif.imagej_metadata
->>> imagej_hyperstack.shape
-(57, 256, 256)
->>> imagej_metadata['slices']
-57
-
-Read the "XResolution" tag from the first page in the TIFF file:
+Inspect the "XResolution" tag from the first page in the TIFF file:
 
 >>> with TiffFile('temp.tif') as tif:
 ...     tag = tif.pages[0].tags['XResolution']
 >>> tag.value
-(2000, 5351)
+(1, 1)
 >>> tag.name
 'XResolution'
 >>> tag.code
@@ -400,27 +398,70 @@ Read the "XResolution" tag from the first page in the TIFF file:
 >>> tag.count
 1
 >>> tag.dtype
-'2I'
+<DATATYPES.RATIONAL: 5>
 
-Read images from a selected range of pages:
+Iterate over all tags in the TIFF file:
 
->>> image = imread('temp.tif', key=range(4, 40, 2))
->>> image.shape
-(18, 256, 256)
+>>> with TiffFile('temp.tif') as tif:
+...     for page in tif.pages:
+...         for tag in page.tags:
+...             tag_name, tag_value = tag.name, tag.value
+
+Write a floating-point ndarray and metadata using BigTIFF format, tiling,
+compression, and planar storage:
+
+>>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
+>>> imwrite('temp.tif', data, bigtiff=True, photometric='minisblack',
+...         compression='deflate', planarconfig='separate', tile=(32, 32),
+...         metadata={'axes': 'TZCYX'})
+
+Write a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an
+ImageJ hyperstack formatted TIFF file:
+
+>>> volume = numpy.random.randn(57, 256, 256).astype('float32')
+>>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
+...         metadata={'spacing': 3.947368, 'unit': 'um', 'axes': 'ZYX'})
+
+Read the volume and metadata from the ImageJ file:
+
+>>> with TiffFile('temp.tif') as tif:
+...     volume = tif.asarray()
+...     axes = tif.series[0].axes
+...     imagej_metadata = tif.imagej_metadata
+>>> volume.shape
+(57, 256, 256)
+>>> axes
+'ZYX'
+>>> imagej_metadata['slices']
+57
 
 Create an empty TIFF file and write to the memory-mapped numpy array:
 
->>> memmap_image = memmap('temp.tif', shape=(256, 256), dtype='float32')
->>> memmap_image[255, 255] = 1.0
+>>> memmap_image = memmap('temp.tif', shape=(3, 256, 256), dtype='float32')
+>>> memmap_image[1, 255, 255] = 1.0
 >>> memmap_image.flush()
 >>> del memmap_image
 
 Memory-map image data of the first page in the TIFF file:
 
 >>> memmap_image = memmap('temp.tif', page=0)
->>> memmap_image[255, 255]
+>>> memmap_image[1, 255, 255]
 1.0
 >>> del memmap_image
+
+Write two numpy arrays to a multi-series TIFF file:
+
+>>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
+>>> series1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
+>>> with TiffWriter('temp.tif') as tif:
+...     tif.write(series0, photometric='rgb')
+...     tif.write(series1, photometric='minisblack')
+
+Read the second image series from the TIFF file:
+
+>>> series1 = imread('temp.tif', series=1)
+>>> series1.shape
+(4, 256, 256)
 
 Successively write the frames of one contiguous series to a TIFF file:
 
@@ -429,58 +470,40 @@ Successively write the frames of one contiguous series to a TIFF file:
 ...     for frame in data:
 ...         tif.write(frame, contiguous=True)
 
-Successively append image series to a BigTIFF file, which can exceed 4 GB:
-
->>> data = numpy.random.randint(0, 255, (5, 2, 3, 301, 219), 'uint8')
->>> with TiffWriter('temp.tif', bigtiff=True) as tif:
-...     for i in range(data.shape[0]):
-...         tif.write(data[i], photometric='minisblack')
-
-Append an image to the existing TIFF file:
+Append an image series to the existing TIFF file:
 
 >>> data = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
 >>> imwrite('temp.tif', data, append=True)
 
-Iterate over pages and tags in the TIFF file and successively read images:
+Create a TIFF file from a generator of tiles:
 
->>> with TiffFile('temp.tif') as tif:
-...     for page in tif.pages:
-...         for tag in page.tags:
-...             tag_name, tag_value = tag.name, tag.value
-...         image = page.asarray()
+>>> data = numpy.random.randint(0, 2**12, (31, 33, 3), 'uint16')
+>>> def tiles(data, tileshape):
+...     for y in range(0, data.shape[0], tileshape[0]):
+...         for x in range(0, data.shape[1], tileshape[1]):
+...             yield data[y : y + tileshape[0], x : x + tileshape[1]]
+>>> imwrite('temp.tif', tiles(data, (16, 16)), tile=(16, 16),
+...         shape=data.shape, dtype=data.dtype)
 
 Write two numpy arrays to a multi-series OME-TIFF file:
 
->>> data0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
->>> data1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
+>>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
+>>> series1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.ome.tif') as tif:
-...     tif.write(data0, photometric='rgb')
-...     tif.write(data1, photometric='minisblack',
+...     tif.write(series0, photometric='rgb')
+...     tif.write(series1, photometric='minisblack',
 ...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
-Read the second image series from the OME-TIFF file:
-
->>> series1 = imread('temp.ome.tif', series=1)
->>> series1.shape
-(4, 256, 256)
-
-Create a TIFF file from a generator of tiles:
-
->>> def tiles():
-...     data = numpy.arange(3*4*16*16, dtype='uint16').reshape((3*4, 16, 16))
-...     for i in range(data.shape[0]): yield data[i]
->>> imwrite('temp.tif', tiles(), dtype='uint16', shape=(48, 64), tile=(16, 16))
-
-Write a tiled, multi-resolution, pyramidal OME-TIFF file using JPEG
-compression. Sub-resolution images are written to SubIFDs:
+Write a tiled, multi-resolution, pyramidal, OME-TIFF file using
+JPEG compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
->>> with TiffWriter('temp.ome.tif') as tif:
+>>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
 ...     options = dict(tile=(256, 256), compression='jpeg')
 ...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
-...     # in production use resampling to generate sub-resolutions!
+...     # in production use resampling to generate sub-resolutions
 ...     tif.write(data[::2, ::2], subfiletype=1, **options)
 ...     tif.write(data[::4, ::4], subfiletype=1, **options)
 
@@ -517,10 +540,17 @@ Use zarr to access the tiled, pyramidal images in the TIFF file:
 <zarr.core.Array '/0' (1024, 1024, 3) uint8 read-only>
 >>> store.close()
 
-Read an image stack from a series of TIFF files with a file name pattern:
+Read images from a sequence of TIFF files as numpy array:
 
 >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
 >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
+>>> image_sequence = imread(['temp_C001T001.tif', 'temp_C001T002.tif'])
+>>> image_sequence.shape
+(2, 64, 64)
+
+Read an image stack from a series of TIFF files with a file name pattern
+as numpy or zarr arrays:
+
 >>> image_sequence = TiffSequence('temp_C001*.tif', pattern='axes')
 >>> image_sequence.shape
 (1, 2)
