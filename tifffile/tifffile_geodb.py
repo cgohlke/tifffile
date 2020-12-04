@@ -1839,12 +1839,14 @@ class Datum(enum.IntEnum):
     Reseau_National_Belge_1972 = 6313
     Deutsche_Hauptdreiecksnetz = 6314
     Conakry_1905 = 6315
+    Dealul_Piscului_1930 = 6316
+    Dealul_Piscului_1970 = 6317
+
     WGS72 = 6322
     WGS72_Transit_Broadcast_Ephemeris = 6324
     WGS84 = 6326
     Ancienne_Triangulation_Francaise = 6901
     Nord_de_Guerre = 6902
-    Dealul_Piscului_1970 = 6317
 
 
 class ModelType(enum.IntEnum):
