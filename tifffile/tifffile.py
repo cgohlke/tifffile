@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.11.26
+:Version: 2020.12.4
 
 Requirements
 ------------
@@ -84,15 +84,20 @@ This release has been tested with the following requirements and dependencies
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
-* `Lxml 4.6.1 <https://pypi.org/project/lxml/>`_
+* `Lxml 4.6.2 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.5.0 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.6.1 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2020.12.4
+    Pass 4374 tests.
+    Fix reading some JPEG compressed CFA images.
+    Make index of SubIFDs a tuple.
+    Pass through FileSequence.imread arguments in imread.
+    Do not apply regex flags to FileSequence axes patterns (breaking).
 2020.11.26
-    Pass 4372 tests.
     Add option to pass axes metadata to ImageJ writer.
     Pad incomplete tiles passed to TiffWriter.write (#38).
     Split TiffTag constructor (breaking).
@@ -318,6 +323,7 @@ Some libraries are using tifffile to write OME-TIFF files:
 Other tools for inspecting and manipulating TIFF files:
 
 * `tifftools <https://github.com/DigitalSlideArchive/tifftools>`_
+* `Tyf <https://github.com/Moustikitos/tyf>`_
 
 References
 ----------
@@ -596,7 +602,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2020.11.26'
+__version__ = '2020.12.4'
 
 __all__ = (
     'imwrite',
@@ -688,7 +694,7 @@ def imread(files=None, aszarr=False, **kwargs):
         zarr storage instead of numpy array (experimental).
     kwargs : dict
         Parameters 'name', 'offset', 'size', and 'is_' flags are passed to
-        TiffFile().
+        TiffFile or TiffSequence.imread.
         The 'pattern', 'sort', 'container', and 'axesorder' parameters are
         passed to TiffSequence().
         Other parameters are passed to the asarray or aszarr functions.
@@ -734,8 +740,8 @@ def imread(files=None, aszarr=False, **kwargs):
         )
         kwargs['key'] = kwargs.pop('pages')
 
-    if not kwargs_seq:
-        if isinstance(files, str) and any(i in files for i in '?*'):
+    if kwargs_seq.get('container', None) is None:
+        if isinstance(files, str) and ('*' in files or '?' in files):
             files = glob.glob(files)
         if not files:
             raise ValueError('no files found')
@@ -754,8 +760,8 @@ def imread(files=None, aszarr=False, **kwargs):
 
     with TiffSequence(files, **kwargs_seq) as imseq:
         if aszarr:
-            return imseq.aszarr(**kwargs)
-        return imseq.asarray(**kwargs)
+            return imseq.aszarr(**kwargs, **kwargs_file)
+        return imseq.asarray(**kwargs, **kwargs_file)
 
 
 def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
@@ -4433,11 +4439,14 @@ class TiffFile:
         info = [info]
         info.append('\n'.join(str(s) for s in self.series))
         if detail >= 3:
-            info.extend(
-                TiffPage.__str__(p, detail=detail, width=width)
-                for p in self.pages
-                if p is not None
-            )
+            for p in self.pages:
+                if p is None:
+                    continue
+                info.append(TiffPage.__str__(p, detail=detail, width=width))
+                for s in p.pages:
+                    info.append(
+                        TiffPage.__str__(s, detail=detail, width=width)
+                    )
         elif self.series:
             info.extend(
                 TiffPage.__str__(s.pages[0], detail=detail, width=width)
@@ -4742,13 +4751,11 @@ class TiffFile:
 
     @lazyattr
     def micromanager_metadata(self):
-        """Return consolidated MicroManager metadata as dict."""
+        """Return MicroManager non-TIFF settings from file as dict."""
         if not self.is_micromanager:
             return None
         # from file header
         return read_micromanager_metadata(self._fh)
-        # from MicroManagerMetadata tag
-        # result.update(self.pages[0].tags[51123].value)
 
     @lazyattr
     def scanimage_metadata(self):
@@ -4787,7 +4794,7 @@ class TiffPages:
 
     """
 
-    def __init__(self, parent):
+    def __init__(self, parent, index=None):
         """Initialize instance and read first TiffPage from file.
 
         If parent is a TiffFile, the file position must be at an offset to an
@@ -4803,6 +4810,7 @@ class TiffPages:
         self._keyframe = None  # page that is currently used as keyframe
         self._cache = False  # do not cache frames or pages (if not keyframe)
         self._nextpageoffset = None
+        self._index = (index,) if isinstance(index, int) else index
 
         if isinstance(parent, TiffFile):
             # read offset to first page from current file position
@@ -4835,9 +4843,11 @@ class TiffPages:
             self._indexed = True
             return
 
+        pageindex = 0 if self._index is None else self._index + (0,)
+
         # read and cache first page
         fh.seek(offset)
-        page = TiffPage(self.parent, index=0)
+        page = TiffPage(self.parent, index=pageindex)
         self.pages.append(page)
         self._keyframe = page
         if self._nextpageoffset is None:
@@ -4937,8 +4947,11 @@ class TiffPages:
             keyframe = self._keyframe
         for i, page in enumerate(pages):
             if isinstance(page, (int, numpy.integer)):
+                pageindex = i if self._index is None else self._index + (i,)
                 fh.seek(page)
-                page = self._tiffpage(self.parent, index=i, keyframe=keyframe)
+                page = self._tiffpage(
+                    self.parent, index=pageindex, keyframe=keyframe
+                )
                 pages[i] = page
         self._cached = True
 
@@ -4965,13 +4978,16 @@ class TiffPages:
             for index, offset in enumerate(
                 range(page1.offset + delta, filesize, delta)
             ):
-                d = (index + 2) * delta
+                pageindex = index + 2
+                d = pageindex * delta
                 offsets = tuple(i + d for i in page.dataoffsets)
                 offset = offset if offset < 2 ** 31 - 1 else None
+                if self._index is not None:
+                    pageindex = self._index + (pageindex,)
                 pages.append(
                     TiffFrame(
                         parent=page.parent,
-                        index=index + 2,
+                        index=pageindex,
                         offset=offset,
                         offsets=offsets,
                         bytecounts=page.databytecounts,
@@ -5153,8 +5169,9 @@ class TiffPages:
                     raise RuntimeError('page hash mismatch')
                 return page
 
+        pageindex = key if self._index is None else self._index + (key,)
         self._seek(key)
-        page = tiffpage(self.parent, index=key, keyframe=self._keyframe)
+        page = tiffpage(self.parent, index=pageindex, keyframe=self._keyframe)
         if validate and validate != page.hash:
             raise RuntimeError('page hash mismatch')
         if self._cache or cache:
@@ -5596,7 +5613,8 @@ class TiffPage:
             def decode(*args, **kwargs):
                 raise ValueError(
                     f'TiffPage {self.index}: data type not supported: '
-                    f'{self.sampleformat}{self.bitspersample}'
+                    f'SampleFormat {self.sampleformat}, '
+                    f'{self.bitspersample}-bit'
                 )
 
             return cache(decode)
@@ -5690,16 +5708,19 @@ class TiffPage:
                     data = data[:size]
                 if data.size == size:
                     # complete tile
-                    data.shape = shape
+                    # data might be non-contiguous; cannot reshape inplace
+                    data = data.reshape(shape)
                 else:
                     # data fills remaining space
                     # found in some JPEG/PNG compressed tiles
                     try:
-                        data.shape = (
-                            min(imdepth - indices[1], shape[0]),
-                            min(imlength - indices[2], shape[1]),
-                            min(imwidth - indices[3], shape[2]),
-                            samples,
+                        data = data.reshape(
+                            (
+                                min(imdepth - indices[1], shape[0]),
+                                min(imlength - indices[2], shape[1]),
+                                min(imwidth - indices[3], shape[2]),
+                                samples,
+                            )
                         )
                     except ValueError:
                         # incomplete tile; see gdal issue #1179
@@ -6292,21 +6313,40 @@ class TiffPage:
         """Return sequence of sub-pages (SubIFDs)."""
         if 330 not in self.tags:
             return ()
-        return TiffPages(self)
+        return TiffPages(self, index=self.index)
 
     @lazyattr
     def maxworkers(self):
-        """Return maximum number of threads for decoding strips or tiles."""
-        if self.is_contiguous:
-            return 1
+        """Return maximum number of threads for decoding segments.
+
+        Return 0 to disable multi-threading also for stacking pages.
+
+        """
+        if self.is_contiguous or self.dtype is None:
+            return 0
+        if self.compression in (
+            6,
+            7,
+            33003,
+            33005,
+            34712,
+            34933,
+            34934,
+            50001,
+        ):
+            # image codecs
+            return min(TIFF.MAXWORKERS, len(self.dataoffsets))
+        bytecount = product(self.chunks) * self.dtype.itemsize
+        if bytecount < 2048:
+            # disable multi-threading for small segments
+            return 0
+        if self.compression != 1 or self.fillorder != 1 or self.predictor != 1:
+            if self.compression == 5 and bytecount < 16384:
+                # disable multi-threading for small LZW compressed segments
+                return 0
         if len(self.dataoffsets) < 4:
             return 1
-        if 0 < self.databytecounts[0] < 512:
-            return 1
         if self.compression != 1 or self.fillorder != 1 or self.predictor != 1:
-            if self.compression == 5 and self.databytecounts[0] < 8192:
-                # disable multi-threading for small LZW compressed segments
-                return 1
             if imagecodecs is not None:
                 return min(TIFF.MAXWORKERS, len(self.dataoffsets))
         return 2  # optimum for large number of uncompressed tiles
@@ -6875,7 +6915,7 @@ class TiffFrame:
     )
 
     is_mdgel = False
-    pages = None
+    pages = ()
     # tags = {}
 
     def __init__(
@@ -9469,13 +9509,15 @@ class OmeXml:
             from lxml import etree  # noqa: delayed import
 
             parser = etree.XMLParser(remove_blank_text=True)
-            xml = etree.fromstring(xml, parser)
+            tree = etree.fromstring(xml, parser)
             xml = etree.tostring(
-                xml, encoding='utf-8', pretty_print=True, xml_declaration=True
-            )
-            return xml.decode()
-        except Exception:
-            return xml
+                tree, encoding='utf-8', pretty_print=True, xml_declaration=True
+            ).decode()
+        except Exception as exc:
+            warnings.warn(f'OmeXml.__str__: {exc}', UserWarning)
+        except ImportError:
+            pass
+        return xml
 
     @staticmethod
     def _escape(value):
@@ -9586,11 +9628,11 @@ class OmeXml:
         if _schema and _schema[0] is not None:
             if omexml.startswith('<?xml'):
                 omexml = omexml.split('>', 1)[-1]
-            xml = etree.fromstring(omexml)
+            tree = etree.fromstring(omexml)
             if assert_:
-                _schema[0].assert_(xml)
+                _schema[0].assert_(tree)
                 return True
-            return _schema[0].validate(xml)
+            return _schema[0].validate(tree)
         return None
 
 
@@ -10684,7 +10726,7 @@ class TIFF:
 
     def PLANARCONFIG():
         class PLANARCONFIG(enum.IntEnum):
-            CONTIG = 1
+            CONTIG = 1  # CHUNKY
             SEPARATE = 2
 
         return PLANARCONFIG
@@ -11127,7 +11169,7 @@ class TIFF:
     def FILE_PATTERNS():
         # predefined FileSequence patterns
         return {
-            'axes': r"""
+            'axes': r"""(?ix)
                 # matches Olympus OIF and Leica TIFF series
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
@@ -13966,7 +14008,8 @@ def parse_filenames(files, pattern, axesorder=None):
     """
     if not pattern:
         raise ValueError('invalid pattern')
-    pattern = re.compile(pattern, re.IGNORECASE | re.VERBOSE)
+    if isinstance(pattern, str):
+        pattern = re.compile(pattern)
 
     def parse(fname, pattern=pattern):
         # return axes and indices from file name
@@ -14377,7 +14420,7 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
         # auto-detect
         page_maxworkers = page0.maxworkers
         maxworkers = min(npages, TIFF.MAXWORKERS)
-        if maxworkers == 1 or page0.is_contiguous:
+        if maxworkers == 1 or page_maxworkers < 1:
             maxworkers = page_maxworkers = 1
         elif npages < 3:
             maxworkers = 1
@@ -14388,9 +14431,6 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
             and page0.predictor == 1
         ):
             maxworkers = 1
-        elif page0.compression == 5 and page0.databytecounts[0] < 8192:
-            # disable for small LZW compressed segments
-            maxworkers = page_maxworkers = 1
         else:
             page_maxworkers = 1
     elif maxworkers == 1:
@@ -15099,12 +15139,12 @@ def pformat_xml(xml):
 
         if not isinstance(xml, bytes):
             xml = xml.encode()
-        xml = etree.parse(io.BytesIO(xml))
+        tree = etree.parse(io.BytesIO(xml))
         xml = etree.tostring(
-            xml,
+            tree,
             pretty_print=True,
             xml_declaration=True,
-            encoding=xml.docinfo.encoding,
+            encoding=tree.docinfo.encoding,
         )
         xml = bytes2str(xml)
     except Exception:
