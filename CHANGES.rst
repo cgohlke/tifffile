@@ -1,7 +1,12 @@
 Revisions
 ---------
+2020.12.4
+    Pass 4374 tests.
+    Fix reading some JPEG compressed CFA images.
+    Make index of SubIFDs a tuple.
+    Pass through FileSequence.imread arguments in imread.
+    Do not apply regex flags to FileSequence axes patterns (breaking).
 2020.11.26
-    Pass 4372 tests.
     Add option to pass axes metadata to ImageJ writer.
     Pad incomplete tiles passed to TiffWriter.write (#38).
     Split TiffTag constructor (breaking).
