@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.11.26
+:Version: 2020.12.4
 
 Requirements
 ------------
@@ -54,15 +54,20 @@ This release has been tested with the following requirements and dependencies
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
-* `Lxml 4.6.1 <https://pypi.org/project/lxml/>`_
+* `Lxml 4.6.2 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.5.0 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.6.1 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2020.12.4
+    Pass 4374 tests.
+    Fix reading some JPEG compressed CFA images.
+    Make index of SubIFDs a tuple.
+    Pass through FileSequence.imread arguments in imread.
+    Do not apply regex flags to FileSequence axes patterns (breaking).
 2020.11.26
-    Pass 4372 tests.
     Add option to pass axes metadata to ImageJ writer.
     Pad incomplete tiles passed to TiffWriter.write (#38).
     Split TiffTag constructor (breaking).
@@ -288,6 +293,7 @@ Some libraries are using tifffile to write OME-TIFF files:
 Other tools for inspecting and manipulating TIFF files:
 
 * `tifftools <https://github.com/DigitalSlideArchive/tifftools>`_
+* `Tyf <https://github.com/Moustikitos/tyf>`_
 
 References
 ----------
