@@ -71,14 +71,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.12.4
+:Version: 2020.12.8
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.6, 3.9.0 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.6, 3.9.1 64-bit <https://www.python.org>`_
 * `Numpy 1.19.4 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -91,8 +91,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.12.8
+    Pass 4376 tests.
+    Fix corrupted ImageDescription in multi shaped series if buffer too small.
+    Fix libtiff warning that ImageDescription contains null byte in value.
+    Fix reading invalid files using JPEG compression with palette colorspace.
 2020.12.4
-    Pass 4374 tests.
     Fix reading some JPEG compressed CFA images.
     Make index of SubIFDs a tuple.
     Pass through FileSequence.imread arguments in imread.
@@ -602,7 +606,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2020.12.4'
+__version__ = '2020.12.8'
 
 __all__ = (
     'imwrite',
@@ -1060,7 +1064,7 @@ class TiffWriter:
 
         if append:
             self._fh = FileHandle(file, mode='r+b', size=0)
-            self._fh.seek(0, 2)
+            self._fh.seek(0, os.SEEK_END)
         else:
             self._fh = FileHandle(file, mode='wb', size=0)
             self._fh.write({'<': b'II', '>': b'MM'}[byteorder])
@@ -1434,6 +1438,8 @@ class TiffWriter:
                         )
                 elif metadata is not None:
                     self._write_image_description()
+                    # description might have been appended to file
+                    fh.seek(0, os.SEEK_END)
 
                 if self._subifds:
                     if self._truncate or truncate:
@@ -1867,7 +1873,7 @@ class TiffWriter:
                 count = len(value)
                 if code == 270:
                     self._descriptiontag = TiffTag(270, 2, count, None, 0, 0)
-                    rawcount = value.rfind(b'\x00\x00')
+                    rawcount = value.find(b'\x00\x00')
                     if rawcount < 0:
                         rawcount = count
                     else:
@@ -1980,21 +1986,19 @@ class TiffWriter:
                 self._colormap is not None,
                 **self._metadata,
             )
+            description += '\x00' * 64  # add buffer for in-place update
         elif metadata or metadata == {}:
             if self._truncate:
                 self._metadata.update(truncated=True)
             description = json_description(inputshape, **self._metadata)
+            description += '\x00' * 16  # add buffer for in-place update
         # elif metadata is None and self._truncate:
         #     raise ValueError('cannot truncate without writing metadata')
         else:
             description = None
+
         if description is not None:
             description = description.encode('ascii')
-            if not self._ome:
-                # add 64 bytes buffer
-                # the description might be updated later inplace with the
-                # final shape
-                description += b'\x00' * 64
             addtag(270, 2, 0, description, writeonce=True)
         del description
 
@@ -2378,14 +2382,14 @@ class TiffWriter:
                     ifdsize += 1
 
             # write IFD later when strip/tile bytecounts and offsets are known
-            fh.seek(ifdsize, 1)
+            fh.seek(ifdsize, os.SEEK_CUR)
 
             # write image data
             dataoffset = fh.tell()
             if align is None:
                 align = 16
             skip = (align - (dataoffset % align)) % align
-            fh.seek(skip, 1)
+            fh.seek(skip, os.SEEK_CUR)
             dataoffset += skip
             if contiguous:
                 if data is None:
@@ -5335,7 +5339,7 @@ class TiffPage:
         if tiff.version == 42 and tiff.offsetsize == 8:
             # patch offsets/values for 64-bit NDPI file
             tagsize = 16
-            fh.seek(8, 1)
+            fh.seek(8, os.SEEK_CUR)
             ext = fh.read(4 * tagno)  # high bits
             data = b''.join(
                 data[i * 12 : i * 12 + 12] + ext[i * 4 : i * 4 + 4]
@@ -5818,7 +5822,7 @@ class TiffPage:
             elif self.photometric == 2:
                 if self.planarconfig == 1:
                     colorspace = outcolorspace = 2  # RGB
-            elif self.photometric > 2:
+            elif self.photometric > 3:
                 outcolorspace = TIFF.PHOTOMETRIC(self.photometric).value
 
             def decode(
@@ -7290,7 +7294,8 @@ class TiffTag:
         TIFF.DATA_FORMATS.
 
         The new packed value is appended to the file if it is longer than the
-        old value. The old value is zeroed.
+        old value. The old value is zeroed. The file position is left where it
+        was.
 
         """
         if self.offset < 8 or self.valueoffset < 8:
@@ -7378,7 +7383,7 @@ class TiffTag:
                     fh.write(struct.pack(tiff.tagformat2, count, packedvalue))
                 else:
                     # inline -> separate: append to file
-                    fh.seek(0, 2)
+                    fh.seek(0, os.SEEK_END)
                     valueoffset = fh.tell()
                     if valueoffset % 2:
                         # value offset must begin on a word boundary
@@ -7414,7 +7419,7 @@ class TiffTag:
                 if erase:
                     fh.seek(self.valueoffset)
                     fh.write(b'\x00' * oldsize)
-                fh.seek(0, 2)
+                fh.seek(0, os.SEEK_END)
                 valueoffset = fh.tell()
                 if valueoffset % 2:
                     # value offset must begin on a word boundary
@@ -8635,7 +8640,7 @@ class FileHandle:
 
         if self._size is None:
             pos = self._fh.tell()
-            self._fh.seek(self._offset, 2)
+            self._fh.seek(self._offset, os.SEEK_END)
             self._size = self._fh.tell()
             self._fh.seek(pos)
 
@@ -8752,7 +8757,7 @@ class FileHandle:
         """Append size bytes to file. Position must be at end of file."""
         if size < 1:
             return
-        self._fh.seek(size - 1, 1)
+        self._fh.seek(size - 1, os.SEEK_CUR)
         self._fh.write(b'\x00')
 
     def write_array(self, data):
@@ -12580,7 +12585,7 @@ def read_cz_lsminfo(fh, byteorder, dtype, count, offsetsize):
     magic_number, structure_size = struct.unpack('<II', fh.read(8))
     if magic_number not in (50350412, 67127628):
         raise ValueError('invalid CZ_LSMINFO structure')
-    fh.seek(-8, 1)
+    fh.seek(-8, os.SEEK_CUR)
 
     if structure_size < numpy.dtype(TIFF.CZ_LSMINFO).itemsize:
         # adjust structure according to structure_size
