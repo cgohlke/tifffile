@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.12.4
+:Version: 2020.12.8
 
 """
 
@@ -466,6 +466,23 @@ def test_issue_jpeg_ia():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_issue_jpeg_palette():
+    """Test invalid JPEG compressed intensity image with palette."""
+    # https://forum.image.sc/t/viv-and-avivator/45999/24
+    fname = private_file('issues/FL_cells.ome.tif')
+    with TiffFile(fname) as tif:
+        page = tif.pages[0]
+        assert page.compression == JPEG
+        assert page.colormap is not None
+        data = tif.asarray()
+        assert data.shape == (4, 1024, 1024)
+        assert data.dtype == 'uint8'
+        assert data[2, 512, 512] == 10
+        assert_aszarr_method(tif, data)
+        assert__str__(tif)
+
+
 def test_issue_specific_pages():
     """Test read second page."""
     data = random_data('uint8', (3, 21, 31))
@@ -713,13 +730,21 @@ def test_issue_imagej_grascalemode():
         assert__str__(tif)
 
 
-def test_issue_valueoffset():
+@pytest.mark.parametrize('byteorder', ['>', '<'])
+def test_issue_valueoffset(byteorder):
     """Test read TiffTag.valueoffsets."""
     unpack = struct.unpack
-    data = random_data('uint16', (2, 19, 31))
+    data = random_data(byteorder + 'u2', (2, 19, 31))
     software = 'test_tifffile'
-    with TempFileName('valueoffset') as fname:
-        imwrite(fname, data, software=software, photometric='minisblack')
+    bo = {'>': 'be', '<': 'le'}[byteorder]
+    with TempFileName(f'valueoffset_{bo}') as fname:
+        imwrite(
+            fname,
+            data,
+            software=software,
+            photometric='minisblack',
+            extratags=[(65535, 3, 2, (21, 22), True)],
+        )
         with TiffFile(fname, _useframes=True) as tif:
             with open(fname, 'rb') as fh:
                 page = tif.pages[0]
@@ -727,8 +752,11 @@ def test_issue_valueoffset():
                 fh.seek(page.tags['ImageLength'].valueoffset)
                 assert (
                     page.imagelength
-                    == unpack(tif.byteorder + 'H', fh.read(2))[0]
+                    == unpack(tif.byteorder + 'I', fh.read(4))[0]
                 )
+                # two inline values
+                fh.seek(page.tags[65535].valueoffset)
+                assert unpack(tif.byteorder + 'H', fh.read(2))[0] == 21
                 # separate value
                 fh.seek(page.tags['Software'].valueoffset)
                 assert page.software == bytes2str(fh.read(13))
@@ -11006,10 +11034,10 @@ def test_write_volumetric_striped_contig_rgb_empty():
             assert__str__(tif)
 
 
-def test_write_multiple_save():
-    """Test append pages."""
+def test_write_contiguous():
+    """Test contiguous mode."""
     data = random_data('uint8', (5, 4, 219, 301, 3))
-    with TempFileName('append') as fname:
+    with TempFileName('write_contiguous') as fname:
         with TiffWriter(fname, bigtiff=True) as tif:
             for i in range(data.shape[0]):
                 tif.write(data[i], contiguous=True)
@@ -11017,6 +11045,8 @@ def test_write_multiple_save():
         with TiffFile(fname) as tif:
             assert tif.is_bigtiff
             assert len(tif.pages) == 20
+            # check metadata is updated in-place
+            assert tif.pages[0].tags[270].valueoffset < tif.pages[1].offset
             for page in tif.pages:
                 assert page.is_contiguous
                 assert page.planarconfig == CONTIG
