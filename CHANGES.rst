@@ -1,7 +1,11 @@
 Revisions
 ---------
+2020.12.8
+    Pass 4376 tests.
+    Fix corrupted ImageDescription in multi shaped series if buffer too small.
+    Fix libtiff warning that ImageDescription contains null byte in value.
+    Fix reading invalid files using JPEG compression with palette colorspace.
 2020.12.4
-    Pass 4374 tests.
     Fix reading some JPEG compressed CFA images.
     Make index of SubIFDs a tuple.
     Pass through FileSequence.imread arguments in imread.
