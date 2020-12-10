@@ -41,14 +41,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.12.4
+:Version: 2020.12.8
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.6, 3.9.0 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.6, 3.9.1 64-bit <https://www.python.org>`_
 * `Numpy 1.19.4 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -61,8 +61,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2020.12.8
+    Pass 4376 tests.
+    Fix corrupted ImageDescription in multi shaped series if buffer too small.
+    Fix libtiff warning that ImageDescription contains null byte in value.
+    Fix reading invalid files using JPEG compression with palette colorspace.
 2020.12.4
-    Pass 4374 tests.
     Fix reading some JPEG compressed CFA images.
     Make index of SubIFDs a tuple.
     Pass through FileSequence.imread arguments in imread.
