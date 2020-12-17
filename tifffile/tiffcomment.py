@@ -45,7 +45,7 @@ def main(argv=None):
         try:
             comment = comment.encode('ascii')
         except UnicodeEncodeError as exc:
-            print(f'{file}: {exc}')
+            print(f'{exc}')
             comment = comment.encode()
 
     for file in files:
