@@ -2005,24 +2005,6 @@ class VertCS(enum.IntEnum):
     Caspian_Sea = 5106
 
 
-GEO_CODES = {
-    'GTModelTypeGeoKey': ModelType,
-    'GTRasterTypeGeoKey': RasterPixel,
-    'GeographicTypeGeoKey': GCS,
-    'GeogEllipsoidGeoKey': Ellipse,
-    'ProjectedCSTypeGeoKey': PCS,
-    'ProjectionGeoKey': Proj,
-    'VerticalCSTypeGeoKey': VertCS,
-    # 'VerticalDatumGeoKey': VertCS,
-    'GeogLinearUnitsGeoKey': Linear,
-    'ProjLinearUnitsGeoKey': Linear,
-    'VerticalUnitsGeoKey': Linear,
-    'GeogAngularUnitsGeoKey': Angular,
-    'GeogAzimuthUnitsGeoKey': Angular,
-    'ProjCoordTransGeoKey': CT,
-    'GeogPrimeMeridianGeoKey': PM,
-}
-
 GEO_KEYS = {
     1024: 'GTModelTypeGeoKey',
     1025: 'GTRasterTypeGeoKey',
@@ -2072,4 +2054,22 @@ GEO_KEYS = {
     4097: 'VerticalCitationGeoKey',
     4098: 'VerticalDatumGeoKey',
     4099: 'VerticalUnitsGeoKey',
+}
+
+GEO_CODES = {
+    GEO_KEYS[1024]: ModelType,  # GTModelTypeGeoKey
+    GEO_KEYS[1025]: RasterPixel,  # GTRasterTypeGeoKey
+    GEO_KEYS[2048]: GCS,  # GeographicTypeGeoKey
+    GEO_KEYS[2051]: PM,  # GeogPrimeMeridianGeoKey
+    GEO_KEYS[2052]: Linear,  # GeogLinearUnitsGeoKey
+    GEO_KEYS[2054]: Angular,  # GeogAngularUnitsGeoKey
+    GEO_KEYS[2056]: Ellipse,  # GeogEllipsoidGeoKey
+    GEO_KEYS[2060]: Angular,  # GeogAzimuthUnitsGeoKey
+    GEO_KEYS[3072]: PCS,  # ProjectedCSTypeGeoKey
+    GEO_KEYS[3074]: Proj,  # ProjectionGeoKey
+    GEO_KEYS[3075]: CT,  # ProjCoordTransGeoKey
+    GEO_KEYS[3076]: Linear,  # ProjLinearUnitsGeoKey
+    GEO_KEYS[4096]: VertCS,  # VerticalCSTypeGeoKey
+    # GEO_KEYS[4098]: VertCS,  # VerticalDatumGeoKey
+    GEO_KEYS[4099]: Linear,  # VerticalUnitsGeoKey
 }
