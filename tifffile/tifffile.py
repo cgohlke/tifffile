@@ -1,6 +1,6 @@
 # tifffile.py
 
-# Copyright (c) 2008-2020, Christoph Gohlke
+# Copyright (c) 2008-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -71,16 +71,16 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2020.12.8
+:Version: 2021.1.8
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.6, 3.9.1 64-bit <https://www.python.org>`_
-* `Numpy 1.19.4 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2020.5.30 <https://pypi.org/project/imagecodecs/>`_
+* `CPython 3.7.9, 3.8.7, 3.9.1 64-bit <https://www.python.org>`_
+* `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
+* `Imagecodecs 2021.1.8 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -91,8 +91,11 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2020.12.8
+2021.1.8
     Pass 4376 tests.
+    Decode float24 using imagecodecs >= 2021.1.8.
+    Consolidate reading of segments if possible.
+2020.12.8
     Fix corrupted ImageDescription in multi shaped series if buffer too small.
     Fix libtiff warning that ImageDescription contains null byte in value.
     Fix reading invalid files using JPEG compression with palette colorspace.
@@ -447,6 +450,11 @@ Iterate over all tags in the TIFF file:
 ...         for tag in page.tags:
 ...             tag_name, tag_value = tag.name, tag.value
 
+Overwrite the value of an existing tag, e.g. XResolution:
+
+>>> with TiffFile('temp.tif', mode='r+b') as tif:
+...     _ = tif.pages[0].tags['XResolution'].overwrite(tif, (96000, 1000))
+
 Write a floating-point ndarray and metadata using BigTIFF format, tiling,
 compression, and planar storage:
 
@@ -606,7 +614,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2020.12.8'
+__version__ = '2021.1.8'
 
 __all__ = (
     'imwrite',
@@ -5915,6 +5923,12 @@ class TiffPage:
                 # return numpy array from packed integers
                 return unpack_rgb(data, dtype, self.bitspersample)
 
+        elif self.bitspersample == 24 and dtype.char == 'f':
+            # float24
+            def unpack(data, byteorder=self.parent.byteorder):
+                # return numpy.float32 array from float24
+                return float24_decode(data, byteorder)
+
         else:
             # bilevel and packed integers
             def unpack(data):
@@ -8813,6 +8827,7 @@ class FileHandle:
             Iterator over individual or lists of (segment, index) tuples.
 
         """
+        # TODO: Cythonize this?
         length = len(offsets)
         if length < 1:
             return
@@ -8832,7 +8847,7 @@ class FileHandle:
         if lock is None:
             lock = self._lock
         if buffersize is None:
-            buffersize = 2 ** 26  # 64 MB
+            buffersize = 67108864  # 2 ** 26, 64 MB
 
         if indices is None:
             segments = [(i, offsets[i], bytecounts[i]) for i in range(length)]
@@ -8843,15 +8858,64 @@ class FileHandle:
         if sort:
             segments = sorted(segments, key=lambda x: x[1])
 
+        iscontig = True
+        for i in range(length - 1):
+            _, offset, bytecount = segments[i]
+            nextoffset = segments[i + 1][1]
+            if offset == 0 or bytecount == 0 or nextoffset == 0:
+                continue
+            if offset + bytecount != nextoffset:
+                iscontig = False
+                break
+
         seek = self.seek
         read = self._fh.read
+
+        if iscontig:
+            # consolidate reads
+            i = 0
+            while i < length:
+                j = i
+                offset = None
+                bytecount = 0
+                while bytecount < buffersize and i < length:
+                    _, o, b = segments[i]
+                    if o > 0 and b > 0:
+                        if offset is None:
+                            offset = o
+                        bytecount += b
+                    i += 1
+
+                if offset is None:
+                    data = None
+                else:
+                    with lock:
+                        seek(offset)
+                        data = read(bytecount)
+                start = 0
+                stop = 0
+                result = []
+                while j < i:
+                    index, offset, bytecount = segments[j]
+                    if offset > 0 and bytecount > 0:
+                        stop += bytecount
+                        result.append((data[start:stop], index))
+                        start = stop
+                    else:
+                        result.append((None, index))
+                    j += 1
+                if flat:
+                    yield from result
+                else:
+                    yield result
+            return
+
         i = 0
         while i < length:
             result = []
             size = 0
             with lock:
                 while size < buffersize and i < length:
-                    # TODO: consolidate reads?
                     index, offset, bytecount = segments[i]
                     if offset > 0 and bytecount > 0:
                         seek(offset)
@@ -10158,7 +10222,8 @@ class TIFF:
                 (34853, 'GPSTag'),  # GPSIFD  also OlympusSIS2
                 (34853, 'OlympusSIS2'),
                 (34855, 'ISOSpeedRatings'),
-                (34856, 'OECF'),
+                (34855, 'PhotographicSensitivity'),
+                (34856, 'OECF'),  # optoelectric conversion factor
                 (34857, 'Interlace'),
                 (34858, 'TimeZoneOffset'),
                 (34859, 'SelfTimerMode'),
@@ -10311,6 +10376,9 @@ class TIFF:
                 (42035, 'LensMake'),
                 (42036, 'LensModel'),
                 (42037, 'LensSerialNumber'),
+                (42080, 'CompositeImage'),
+                (42081, 'SourceImageNumberCompositeImage'),
+                (42082, 'SourceExposureTimesCompositeImage'),
                 (42112, 'GDAL_METADATA'),
                 (42113, 'GDAL_NODATA'),
                 (42240, 'Gamma'),
@@ -10420,7 +10488,7 @@ class TIFF:
                 (50909, 'GEO_METADATA'),  # DGIWG XML
                 (50931, 'CameraCalibrationSignature'),
                 (50932, 'ProfileCalibrationSignature'),
-                (50933, 'ProfileIFD'),
+                (50933, 'ProfileIFD'),  # EXTRACAMERAPROFILES
                 (50934, 'AsShotProfileName'),
                 (50935, 'NoiseReductionApplied'),
                 (50936, 'ProfileName'),
@@ -10953,7 +11021,7 @@ class TIFF:
             (2, 64): 'q',
             # IEEEFP
             (3, 16): 'e',
-            # (3, 24): '',  # 24 bit not supported by numpy
+            (3, 24): 'f',  # float24 bit not supported by numpy
             (3, 32): 'f',
             (3, 64): 'd',
             # COMPLEXIEEEFP
@@ -13790,6 +13858,11 @@ def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
     return result.reshape(-1)
 
 
+def float24_decode(data, byteorder):
+    """Return float32 array from float24."""
+    raise NotImplementedError('float24_decode')
+
+
 if imagecodecs is None:
     import lzma
     import zlib
@@ -13971,6 +14044,10 @@ else:
     bitorder_decode = imagecodecs.bitorder_decode  # noqa
     packints_decode = imagecodecs.packints_decode  # noqa
     packints_encode = imagecodecs.packints_encode  # noqa
+    try:
+        float24_decode = imagecodecs.float24_decode  # noqa
+    except AttributeError:
+        pass
 
 
 def apply_colormap(image, colormap, contig=True):
