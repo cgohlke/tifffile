@@ -1,7 +1,10 @@
 Revisions
 ---------
-2020.12.8
+2021.1.8
     Pass 4376 tests.
+    Decode float24 using imagecodecs >= 2021.1.8.
+    Consolidate reading of segments if possible.
+2020.12.8
     Fix corrupted ImageDescription in multi shaped series if buffer too small.
     Fix libtiff warning that ImageDescription contains null byte in value.
     Fix reading invalid files using JPEG compression with palette colorspace.
