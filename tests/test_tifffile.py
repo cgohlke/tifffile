@@ -1,6 +1,6 @@
 # test_tifffile.py
 
-# Copyright (c) 2008-2020, Christoph Gohlke
+# Copyright (c) 2008-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2020.12.8
+:Version: 2021.1.8
 
 """
 
@@ -396,7 +396,7 @@ def test_issue_deprecated_import():
 def test_issue_imread_kwargs():
     """Test that is_flags are handled by imread."""
     data = random_data('uint16', (5, 63, 95))
-    with TempFileName(f'issue_imread_kwargs') as fname:
+    with TempFileName('issue_imread_kwargs') as fname:
         with TiffWriter(fname) as tif:
             for image in data:
                 tif.write(image)  # create 5 series
@@ -1306,13 +1306,13 @@ def test_class_tifftags():
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
     tags = TIFF.TAGS
-    assert len(tags) == 620
+    assert len(tags) == 624
     assert tags[11] == 'ProcessingSoftware'
     assert tags['ProcessingSoftware'] == 11
     assert tags.getall(11) == ['ProcessingSoftware']
     assert tags.getall('ProcessingSoftware') == [11]
     tags.add(11, 'ProcessingSoftware')
-    assert len(tags) == 620
+    assert len(tags) == 624
 
     # one code with two names
     assert 34853 in tags
@@ -1325,7 +1325,7 @@ def test_class_tifftagregistry():
     assert tags.getall('GPSTag') == [34853]
 
     del tags[34853]
-    assert len(tags) == 618
+    assert len(tags) == 622
     assert 34853 not in tags
     assert 'GPSTag' not in tags
     assert 'OlympusSIS2' not in tags
@@ -1351,7 +1351,7 @@ def test_class_tifftagregistry():
     assert tags.getall(41483) == ['FlashEnergy']
 
     del tags['FlashEnergy']
-    assert len(tags) == 618
+    assert len(tags) == 622
     assert 37387 not in tags
     assert 41483 not in tags
     assert 'FlashEnergy' not in tags
@@ -2947,10 +2947,10 @@ def test_read_tigers(fname):
             assert page.photometric == MINISBLACK
 
         # float24 not supported
-        if 'float' in fname and databits == 24:
-            with pytest.raises(ValueError):
-                data = tif.asarray()
-            return
+        # if 'float' in fname and databits == 24:
+        #     with pytest.raises(ValueError):
+        #         data = tif.asarray()
+        #     return
 
         # assert data shapes
         data = tif.asarray()
@@ -2974,7 +2974,10 @@ def test_read_tigers(fname):
 
         # assert data types
         if 'float' in fname:
-            dtype = f'float{databits}'
+            if databits == 24:
+                dtype = 'float32'
+            else:
+                dtype = f'float{databits}'
         # elif 'palette' in fname:
         #     dtype = 'uint16'
         elif databits == 1:
