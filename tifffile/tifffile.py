@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.1.8
+:Version: 2021.1.11
 
 Requirements
 ------------
@@ -80,7 +80,7 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.7, 3.9.1 64-bit <https://www.python.org>`_
 * `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.1.8 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.1.11 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -91,8 +91,11 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2021.1.8
+2021.1.11
     Pass 4376 tests.
+    Fix test errors on PyPy.
+    Fix decoding bitorder with imagecodecs >= 2021.1.11.
+2021.1.8
     Decode float24 using imagecodecs >= 2021.1.8.
     Consolidate reading of segments if possible.
 2020.12.8
@@ -614,7 +617,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.1.8'
+__version__ = '2021.1.11'
 
 __all__ = (
     'imwrite',
@@ -5945,7 +5948,7 @@ class TiffPage:
                     data, shape = pad(data, shape)
                 return data, index, shape
             if self.fillorder == 2:
-                data = bitorder_decode(data, out=data)
+                data = bitorder_decode(data)
             if decompress is not None:
                 # TODO: calculate correct size for packed integers
                 size = shape[0] * shape[1] * shape[2] * shape[3]
