@@ -82,11 +82,11 @@ setup(
     python_requires='>=3.7',
     install_requires=[
         'numpy>=1.15.1',
-        # 'imagecodecs>=2021.1.8',
+        # 'imagecodecs>=2021.1.11',
     ],
     extras_require={
         'all': [
-            'imagecodecs>=2021.1.8',
+            'imagecodecs>=2021.1.11',
             'matplotlib>=3.2',
             'lxml',
             # 'zarr>=2.5.0'
