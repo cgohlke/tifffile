@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2021.1.8
+:Version: 2021.1.11
 
 """
 
@@ -181,8 +181,9 @@ SKIP_PRIVATE = False  # skip private files
 SKIP_VALIDATE = True  # skip validate written files with jhove
 SKIP_CODECS = False
 SKIP_ZARR = False
+SKIP_PYPY = 'PyPy' in sys.version
 SKIP_BE = sys.byteorder == 'big'
-REASON = 'just skip it'
+REASON = 'skipped'
 
 if sys.maxsize < 2 ** 32:
     SKIP_LARGE = True
@@ -349,7 +350,9 @@ class TempFileName:
     def __init__(self, name=None, ext='.tif', remove=False):
         self.remove = remove or TEMP_DIR == tempfile.gettempdir()
         if not name:
-            self.name = tempfile.NamedTemporaryFile(prefix='test_').name
+            fh = tempfile.NamedTemporaryFile(prefix='test_')
+            self.name = fh.named
+            fh.close()
         else:
             self.name = os.path.join(TEMP_DIR, f'test_{name}{ext}')
 
@@ -1612,13 +1615,15 @@ def test_class_omexml_attributes():
 
     omexml = OmeXml(**metadata)
     omexml.addimage('uint16', (3, 32, 32, 3), (3, 1, 1, 32, 32, 3), **metadata)
+    xml = omexml.tostring()
+    assert uuid in xml
+    assert 'SignificantBits="12"' in xml
+    assert 'SamplesPerPixel="3" Name="ChannelName"' in xml
+    assert 'TheC="0" TheZ="2" TheT="0" PositionZ="4.0"' in xml
+    if SKIP_PYPY:
+        pytest.xfail('lxml bug?')
+    assert_valid_omexml(xml)
     assert '\n  ' in str(omexml)
-    omexml = omexml.tostring()
-    assert_valid_omexml(omexml)
-    assert uuid in omexml
-    assert 'SignificantBits="12"' in omexml
-    assert 'SamplesPerPixel="3" Name="ChannelName"' in omexml
-    assert 'TheC="0" TheZ="2" TheT="0" PositionZ="4.0"' in omexml
 
 
 def test_class_omexml_multiimage():
@@ -2581,7 +2586,7 @@ def test_func_create_output_asarray(out, key):
     """Test create_output function in context of asarray."""
     data = random_data('uint16', (5, 219, 301))
 
-    with TempFileName('out') as fname:
+    with TempFileName(f'out_{key}_{out}') as fname:
         imwrite(fname, data)
         # assert file
         with TiffFile(fname) as tif:
@@ -2631,7 +2636,9 @@ def test_func_create_output_asarray(out, key):
                 del image
             elif out == 'name':
                 # memmap in specified file
-                with TempFileName('out', ext='.memmap') as fileout:
+                with TempFileName(
+                    f'out_{key}_{out}', ext='.memmap'
+                ) as fileout:
                     image = obj.asarray(out=fileout)
                     assert isinstance(image, numpy.core.memmap)
                     assert_array_equal(dat, image)
