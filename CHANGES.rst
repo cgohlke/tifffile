@@ -1,7 +1,10 @@
 Revisions
 ---------
-2021.1.8
+2021.1.11
     Pass 4376 tests.
+    Fix test errors on PyPy.
+    Fix decoding bitorder with imagecodecs >= 2021.1.11.
+2021.1.8
     Decode float24 using imagecodecs >= 2021.1.8.
     Consolidate reading of segments if possible.
 2020.12.8
