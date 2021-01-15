@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.1.11
+:Version: 2021.1.14
 
 Requirements
 ------------
@@ -91,8 +91,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.1.14
+    Pass 4378 tests.
+    Try ImageJ series if OME series fails (#54)
+    Add option to use pages as chunks in ZarrFileStore (experimental).
+    Fix reading from file objects with no readinto function.
 2021.1.11
-    Pass 4376 tests.
     Fix test errors on PyPy.
     Fix decoding bitorder with imagecodecs >= 2021.1.11.
 2021.1.8
@@ -617,7 +621,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.1.11'
+__version__ = '2021.1.14'
 
 __all__ = (
     'imwrite',
@@ -3087,12 +3091,12 @@ class TiffFile:
             result.shape = (-1,) + pages[0].shape
         return result
 
-    def aszarr(self, key=None, series=None, level=None):
+    def aszarr(self, key=None, series=None, level=None, **kwargs):
         """Return image data from selected TIFF page(s) as zarr storage."""
         if not self.pages:
             raise NotImplementedError('empty zarr arrays not supported')
         if key is None and series is None:
-            return self.series[0].aszarr(level=level)
+            return self.series[0].aszarr(level=level, **kwargs)
         if series is None:
             pages = self.pages
         else:
@@ -3101,10 +3105,10 @@ class TiffFile:
             except (KeyError, TypeError):
                 pass
             if key is None:
-                return series.aszarr(level=level)
+                return series.aszarr(level=level, **kwargs)
             pages = series.pages
         if isinstance(key, (int, numpy.integer)):
-            return pages[key].aszarr()
+            return pages[key].aszarr(**kwargs)
         raise TypeError('key must be an integer index')
 
     @lazyattr
@@ -3139,6 +3143,12 @@ class TiffFile:
         ):
             if getattr(self, 'is_' + name, False):
                 series = getattr(self, '_series_' + name)()
+                if not series and name == 'ome' and self.is_imagej:
+                    # try ImageJ series if OME series fails.
+                    # clear pages cache since _series_ome() might leave some
+                    # frames without keyframe
+                    self.pages._clear()
+                    continue
                 break
         self.pages.useframes = useframes
         self.pages.keyframe = keyframe
@@ -7875,10 +7885,14 @@ class ZarrStore(MutableMapping):
 
     """
 
-    def __init__(self, fillvalue=None):
+    def __init__(self, fillvalue=None, chunkmode=None):
         """Initialize ZarrStore."""
         self._store = {}
         self._fillvalue = 0 if fillvalue is None else fillvalue
+        if chunkmode is None:
+            self._chunkmode = TIFF.CHUNKMODE(0)
+        else:
+            self._chunkmode = enumarg(TIFF.CHUNKMODE, chunkmode)
 
     def __enter__(self):
         return self
@@ -8000,10 +8014,19 @@ class ZarrTiffStore(ZarrStore):
     """Zarr storage interface to image data in TiffPage or TiffPageSeries."""
 
     def __init__(
-        self, arg, level=None, fillvalue=None, lock=None, _openfiles=None
+        self,
+        arg,
+        level=None,
+        chunkmode=None,
+        fillvalue=None,
+        lock=None,
+        _openfiles=None,
     ):
         """Initialize Zarr storage from TiffPage or TiffPageSeries."""
-        super().__init__(fillvalue=fillvalue)
+        super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
+
+        if self._chunkmode not in (0, 2):
+            raise NotImplementedError(f'{self._chunkmode!r} not implemented')
 
         if lock is None:
             lock = threading.RLock()
@@ -8036,7 +8059,10 @@ class ZarrTiffStore(ZarrStore):
             for level, series in enumerate(self._data):
                 shape = series.shape
                 dtype = series.dtype
-                chunks = series.keyframe.chunks
+                if self._chunkmode:
+                    chunks = series.keyframe.shape
+                else:
+                    chunks = series.keyframe.chunks
                 self._store[f'{level}/.zarray'] = ZarrStore._json(
                     {
                         'zarr_format': 2,
@@ -8053,7 +8079,10 @@ class ZarrTiffStore(ZarrStore):
             series = self._data[0]
             shape = series.shape
             dtype = series.dtype
-            chunks = series.keyframe.chunks
+            if self._chunkmode:
+                chunks = series.keyframe.shape
+            else:
+                chunks = series.keyframe.chunks
             self._store['.zattrs'] = ZarrStore._json({})
             self._store['.zarray'] = ZarrStore._json(
                 {
@@ -8076,10 +8105,24 @@ class ZarrTiffStore(ZarrStore):
         """Return chunk from file."""
         keyframe, page, chunkindex, offset, bytecount = self._parse_key(key)
 
+        if self._chunkmode:
+            chunks = keyframe.shape
+        else:
+            chunks = keyframe.chunks
+
         if page is None or offset == 0 or bytecount == 0:
-            return ZarrStore._empty_chunk(
-                keyframe.chunks, keyframe.dtype, self._fillvalue
+            chunk = ZarrStore._empty_chunk(
+                chunks, keyframe.dtype, self._fillvalue
             )
+            if self._transform is not None:
+                chunk = self._transform(chunk)
+            return chunk
+
+        if self._chunkmode and offset is None:
+            chunk = page.asarray(lock=self._filecache.lock)  # maxworkers=1 ?
+            if self._transform is not None:
+                chunk = self._transform(chunk)
+            return chunk
 
         chunk = self._filecache.read(page.parent.filehandle, offset, bytecount)
 
@@ -8091,7 +8134,7 @@ class ZarrTiffStore(ZarrStore):
         if self._transform is not None:
             chunk = self._transform(chunk)
 
-        if chunk.size != product(keyframe.chunks):
+        if chunk.size != product(chunks):
             raise RuntimeError
         return chunk  # .tobytes()
 
@@ -8104,7 +8147,7 @@ class ZarrTiffStore(ZarrStore):
         else:
             series = self._data[0]
         keyframe = series.keyframe
-        pageindex, chunkindex = ZarrTiffStore._indices(key, series)
+        pageindex, chunkindex = self._indices(key, series)
         if pageindex > 0 and len(series) == 1:
             # truncated ImageJ, STK, or shaped
             if series.offset is None:
@@ -8114,6 +8157,14 @@ class ZarrTiffStore(ZarrStore):
                 return keyframe, None, chunkindex, 0, 0
             offset = pageindex * page.size * page.dtype.itemsize
             offset += page.dataoffsets[chunkindex]
+            if self._chunkmode:
+                bytecount = page.size * page.dtype.itemsize
+                return keyframe, page, chunkindex, offset, bytecount
+        elif self._chunkmode:
+            page = series[pageindex]
+            if page is None:
+                return keyframe, None, None, 0, 0
+            return keyframe, page, None, None, None
         else:
             page = series[pageindex]
             if page is None:
@@ -8121,6 +8172,59 @@ class ZarrTiffStore(ZarrStore):
             offset = page.dataoffsets[chunkindex]
         bytecount = page.databytecounts[chunkindex]
         return keyframe, page, chunkindex, offset, bytecount
+
+    def _indices(self, key, series):
+        """Return page and strile indices from zarr chunk index."""
+        keyframe = series.keyframe
+        indices = [int(i) for i in key.split('.')]
+        assert len(indices) == len(series.shape)
+        if self._chunkmode:
+            chunked = (1,) * len(keyframe.shape)
+        else:
+            chunked = keyframe.chunked
+        p = 1
+        for i, s in enumerate(series.shape[::-1]):
+            p *= s
+            if p == keyframe.size:
+                i = len(indices) - i - 1
+                frames_indices = indices[:i]
+                strile_indices = indices[i:]
+                frames_chunked = series.shape[:i]
+                strile_chunked = list(series.shape[i:])  # updated later
+                break
+        else:
+            raise RuntimeError
+        if len(strile_chunked) == len(keyframe.shape):
+            strile_chunked = chunked
+        else:
+            # get strile_chunked including singleton dimensions
+            i = len(strile_indices) - 1
+            j = len(keyframe.shape) - 1
+            while True:
+                if strile_chunked[i] == keyframe.shape[j]:
+                    strile_chunked[i] = chunked[j]
+                    i -= 1
+                    j -= 1
+                elif strile_chunked[i] == 1:
+                    i -= 1
+                else:
+                    raise RuntimeError('shape does not match page shape')
+                if i < 0 or j < 0:
+                    break
+            assert product(strile_chunked) == product(chunked)
+        if len(frames_indices) > 0:
+            frameindex = int(
+                numpy.ravel_multi_index(frames_indices, frames_chunked)
+            )
+        else:
+            frameindex = 0
+        if len(strile_indices) > 0:
+            strileindex = int(
+                numpy.ravel_multi_index(strile_indices, strile_chunked)
+            )
+        else:
+            strileindex = 0
+        return frameindex, strileindex
 
     @staticmethod
     def _chunks(chunks, shape):
@@ -8158,63 +8262,16 @@ class ZarrTiffStore(ZarrStore):
         # assert ndim == len(newchunks)
         return tuple(newchunks[::-1])
 
-    @staticmethod
-    def _indices(key, series):
-        """Return page and strile indices from zarr chunk index."""
-        keyframe = series.keyframe
-        indices = [int(i) for i in key.split('.')]
-        assert len(indices) == len(series.shape)
-        p = 1
-        for i, s in enumerate(series.shape[::-1]):
-            p *= s
-            if p == keyframe.size:
-                i = len(indices) - i - 1
-                frames_indices = indices[:i]
-                strile_indices = indices[i:]
-                frames_chunked = series.shape[:i]
-                strile_chunked = list(series.shape[i:])  # updated later
-                break
-        else:
-            raise RuntimeError
-        if len(strile_chunked) == len(keyframe.shape):
-            strile_chunked = keyframe.chunked
-        else:
-            # get strile_chunked including singleton dimensions
-            i = len(strile_indices) - 1
-            j = len(keyframe.shape) - 1
-            while True:
-                if strile_chunked[i] == keyframe.shape[j]:
-                    strile_chunked[i] = keyframe.chunked[j]
-                    i -= 1
-                    j -= 1
-                elif strile_chunked[i] == 1:
-                    i -= 1
-                else:
-                    raise RuntimeError('shape does not match page shape')
-                if i < 0 or j < 0:
-                    break
-            assert product(strile_chunked) == product(keyframe.chunked)
-        if len(frames_indices) > 0:
-            frameindex = int(
-                numpy.ravel_multi_index(frames_indices, frames_chunked)
-            )
-        else:
-            frameindex = 0
-        if len(strile_indices) > 0:
-            strileindex = int(
-                numpy.ravel_multi_index(strile_indices, strile_chunked)
-            )
-        else:
-            strileindex = 0
-        return frameindex, strileindex
-
 
 class ZarrFileStore(ZarrStore):
     """Zarr storage interface to image data in TiffSequence."""
 
-    def __init__(self, arg, fillvalue=None, **kwargs):
+    def __init__(self, arg, fillvalue=None, chunkmode=None, **kwargs):
         """Initialize Zarr storage from FileSequence."""
-        super().__init__(fillvalue=fillvalue)
+        super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
+
+        if self._chunkmode not in (0, 3):
+            raise NotImplementedError(f'{self._chunkmode!r} not implemented')
 
         if not isinstance(arg, FileSequence):
             raise TypeError('not a FileSequence')
@@ -8735,7 +8792,14 @@ class FileHandle:
         if result.nbytes != nbytes:
             raise ValueError('size mismatch')
 
-        n = self._fh.readinto(result)
+        try:
+            n = self._fh.readinto(result)
+        except AttributeError:
+            result[:] = numpy.frombuffer(self._fh.read(nbytes), dtype).reshape(
+                result.shape
+            )
+            n = nbytes
+
         if n != nbytes:
             raise ValueError(f'failed to read {nbytes} bytes')
 
@@ -12267,6 +12331,15 @@ class TIFF:
 
         return max(multiprocessing.cpu_count() // 2, 1)
 
+    def CHUNKMODE():
+        class CHUNKMODE(enum.IntEnum):
+            NONE = 0
+            PLANE = 1
+            PAGE = 2
+            FILE = 3
+
+        return CHUNKMODE
+
 
 def read_tags(
     fh, byteorder, offsetsize, tagnames, customtags=None, maxifds=None
@@ -12451,6 +12524,7 @@ def read_json(fh, byteorder, dtype, count, offsetsize):
         return json.loads(stripnull(data).decode())
     except ValueError:
         log_warning('read_json: invalid JSON')
+    return None
 
 
 def read_mm_header(fh, byteorder, dtype, count, offsetsize):
