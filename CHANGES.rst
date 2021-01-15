@@ -1,7 +1,11 @@
 Revisions
 ---------
+2021.1.14
+    Pass 4378 tests.
+    Try ImageJ series if OME series fails (#54)
+    Add option to use pages as chunks in ZarrFileStore (experimental).
+    Fix reading from file objects with no readinto function.
 2021.1.11
-    Pass 4376 tests.
     Fix test errors on PyPy.
     Fix decoding bitorder with imagecodecs >= 2021.1.11.
 2021.1.8
