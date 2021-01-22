@@ -1026,6 +1026,7 @@ class TiffWriter:
             If True, write an Aperio format compatible file. This will
             overwrite the description parameter to add metadata that can be
             read by OpenSlide.
+
         """
         if append:
             # determine if file is an existing TIFF file that can be extended
@@ -2008,6 +2009,9 @@ class TiffWriter:
             )
             description += '\x00' * 64  # add buffer for in-place update
         elif self._svs:
+            # This branch of the if statment is deliberately placed here
+            # to prevent description from being overwritten in the final
+            # "else" branch below.
             pass
         elif metadata or metadata == {}:
             if self._truncate:
