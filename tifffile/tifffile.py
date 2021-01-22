@@ -2756,8 +2756,6 @@ class TiffWriter:
                     **self._metadata,
                 )
             description = self._ome.tostring(declaration=True)
-        elif self._svs:
-            description = "Aperio Image Library v11.0.37"
         elif self._datashape[0] == 1:
             # description already up-to-date
             self._descriptiontag = None
