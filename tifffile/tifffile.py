@@ -983,6 +983,7 @@ class TiffWriter:
         append=False,
         imagej=False,
         ome=None,
+        svs=False,
     ):
         """Open TIFF file for writing.
 
@@ -1021,7 +1022,10 @@ class TiffWriter:
             the 'description' parameter in the first call of the write
             function, and the value of 'imagej'.
             Refer to the OME model for restrictions of this format.
-
+        svs : bool
+            If True, write an Aperio format compatible file. This will
+            overwrite the description parameter to add metadata that can be
+            read by OpenSlide.
         """
         if append:
             # determine if file is an existing TIFF file that can be extended
@@ -1095,6 +1099,7 @@ class TiffWriter:
         self._imagej = False if self._ome else bool(imagej)
         if self._imagej:
             self._ome = False
+        self._svs = svs
 
     @property
     def filehandle(self):
@@ -1959,7 +1964,7 @@ class TiffWriter:
 
         if description is not None:
             # ImageDescription: user provided description
-            addtag(270, 2, 0, description, writeonce=True)
+            addtag(270, 2, 0, description, writeonce=True and not self._svs)
 
         # write shape and metadata to ImageDescription
         self._metadata = {} if not metadata else metadata.copy()
@@ -2002,6 +2007,8 @@ class TiffWriter:
                 **self._metadata,
             )
             description += '\x00' * 64  # add buffer for in-place update
+        elif self._svs:
+            pass
         elif metadata or metadata == {}:
             if self._truncate:
                 self._metadata.update(truncated=True)
@@ -2014,7 +2021,7 @@ class TiffWriter:
 
         if description is not None:
             description = description.encode('ascii')
-            addtag(270, 2, 0, description, writeonce=True)
+            addtag(270, 2, 0, description, writeonce=True and not self._svs)
         del description
 
         if software is None:
@@ -2749,6 +2756,8 @@ class TiffWriter:
                     **self._metadata,
                 )
             description = self._ome.tostring(declaration=True)
+        elif self._svs:
+            description = "Aperio Image Library v11.0.37"
         elif self._datashape[0] == 1:
             # description already up-to-date
             self._descriptiontag = None
