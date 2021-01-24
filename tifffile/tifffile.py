@@ -2008,11 +2008,6 @@ class TiffWriter:
                 **self._metadata,
             )
             description += '\x00' * 64  # add buffer for in-place update
-        elif self._svs:
-            # This branch of the if statment is deliberately placed here
-            # to prevent description from being overwritten in the final
-            # "else" branch below.
-            pass
         elif metadata or metadata == {}:
             if self._truncate:
                 self._metadata.update(truncated=True)
@@ -2025,7 +2020,7 @@ class TiffWriter:
 
         if description is not None:
             description = description.encode('ascii')
-            addtag(270, 2, 0, description, writeonce=True and not self._svs)
+            addtag(270, 2, 0, description, writeonce=True)
         del description
 
         if software is None:
