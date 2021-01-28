@@ -4816,6 +4816,142 @@ class TiffFile:
             return None
         return self.pages[0].geotiff_tags
 
+    @lazyattr
+    def svs_metadata(self):
+        """Return Aperio SVS metadata as a dict.
+            
+        SVS Page Format:
+
+            1. Full resolution image metadata
+            2. Thumbnail image metadata
+            3...N-2. Downsamples images
+            N-1. Label image
+            N. Picture of slide
+
+        This is based on the vague text in the SVS documentation "Aperio_Digital_Slides_and_Third-party_data_interchange.pdf":
+
+        .. note::
+
+            The first image in an SVS file is always the baseline image 
+            (full resolution). This image is always tiled, usually with a 
+            tile size of 240 x 240 pixels. The second image is always a
+            thumbnail, typically with dimensions of about 1024 x 768 pixels. 
+            Unlike the other slide images, the thumbnail image is always 
+            stripped. Following the thumbnail there may be one or more
+            intermediate “pyramid” images. These are always compressed with 
+            the same type of compression as the baseline image, and have a 
+            tiled organization with the same tile size. Optionally at the 
+            end of an SVS file there may be a slide label image, which is a 
+            low resolution picture taken of the slide’s label, and/or a macro
+            camera image, which is a low resolution picture taken of the 
+            entire slide. The label and macro images are always stripped. If 
+            present the label image is compressed with LZW compression, and 
+            the macro image with JPEG compression. By storing the label and 
+            macro images in the same file as the high resolution slide data 
+            there is no chance of an accidental mix-up between the slide 
+            contents and the slide label information.
+
+        Returns
+        -------
+
+        A dictionary of the form:
+
+            {
+                "Image": {
+                    0: {  # Full resolution metadata
+                        "NewSubfileType": str,
+                        "ImageWidth": int,
+                        "ImageLength": int,
+                        "BitsPerSample": (int, int, int),
+                        "Compression": COMPRESSION,
+                        "PhotometricInterpretation": PHOTOMETRIC,
+                        "ImageDescription": str,
+                        "SamplesPerPixel": int,
+                        "PlanarConfiguration": PLANARCONFIG,
+                        "TileWidth": int,
+                        "TileLength": int,
+                        "YCbCrSubSampling": (int, int),
+                        "ImageDepth": int,
+                        "Downsample": int,
+                    },
+                    1: {...}, # First downsampled metadata
+                    ...
+                },
+                "Thumbnail": {...}, # Thumbnail metadata
+                ... # Other image metadata
+            }
+
+        """
+        if not self.is_svs:
+            return None
+
+        # This is the list of tags that are extracted for each image in the 
+        # SVS file. If the tag is not in this list it will not be extracted 
+        # for the image.
+        tags_to_extract = [
+            # Text metadata
+            "NewSubfileType",
+            "ImageDescription",
+            # Image gemetrical attributes
+            "ImageWidth", "ImageLength",
+            "XResolution", "YResolution", "ResolutionUnit",
+            "TileWidth", "TileLength",
+            # Image encoding attributes
+            "BitsPerSample", "SamplesPerPixel","ImageDepth", "RowsPerStrip",
+            "Compression", "PhotometricInterpretation", "YCbCrSubSampling",
+            "PlanarConfiguration",
+            "Predictor",
+        ]
+
+        # Determine the count of recrods in the SVS file
+        #  This counter is used to determine how many downsampled images
+        #  exist in the SVS, that is: img_count - 2
+        img_count = 0
+        for series in self.series:
+            img_count += len(series.levels)
+        if img_count > 0:
+            img_count += 1
+        else:
+            raise RuntimeError("Can't extract metadata from SVS with no images")
+
+        # This function extracts metadata for the specified page
+        def get_page_metadata(page_idx):
+            page = self.pages.get(page_idx)
+            local_md = {}
+            for k, v in page.tags.items():
+                if v.name in tags_to_extract:
+                    local_md[v.name] = v.value
+            return local_md
+
+        # Actually extract metadata
+        curr_img = 0 # This variable is used to access the current image
+        metadata = {} # Metadata records that are returned
+        
+        # Page 1: Full resolution image
+        slide_md = {}
+        metadata["Image"] = slide_md
+        slide_md[0] = get_page_metadata(curr_img)
+        slide_md[0]["Downsample"] = 1
+        curr_img += 1
+
+        # Page 2: Thumbnail
+        metadata["Thumbnail"] = get_page_metadata(curr_img)
+        curr_img += 1
+
+        # Page 3, ... N-2: Downsampled images
+        for i, level in enumerate(self.series[0].levels[1:]):
+            slide_md[i+1] = get_page_metadata(curr_img)
+            slide_md[i+1]["Downsample"] = slide_md[0]["ImageWidth"] //slide_md[i+1]["ImageWidth"]
+            curr_img += 1
+
+        # Any back matter
+        label_img_idx = 0
+        while curr_img < img_count - 1:
+            metadata[f"Label_{label_img_idx}"] = get_page_metadata(curr_img)
+            curr_img += 1
+            label_img_idx += 1
+
+        return metadata
 
 class TiffPages:
     """Sequence of TIFF image file directories (IFD chain).
