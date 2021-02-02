@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2021.1.14
+:Version: 2021.2.1
 
 """
 
@@ -1344,13 +1344,13 @@ def test_class_tifftags():
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
     tags = TIFF.TAGS
-    assert len(tags) == 624
+    assert len(tags) == 632
     assert tags[11] == 'ProcessingSoftware'
     assert tags['ProcessingSoftware'] == 11
     assert tags.getall(11) == ['ProcessingSoftware']
     assert tags.getall('ProcessingSoftware') == [11]
     tags.add(11, 'ProcessingSoftware')
-    assert len(tags) == 624
+    assert len(tags) == 632
 
     # one code with two names
     assert 34853 in tags
@@ -1363,7 +1363,7 @@ def test_class_tifftagregistry():
     assert tags.getall('GPSTag') == [34853]
 
     del tags[34853]
-    assert len(tags) == 622
+    assert len(tags) == 630
     assert 34853 not in tags
     assert 'GPSTag' not in tags
     assert 'OlympusSIS2' not in tags
@@ -1389,7 +1389,7 @@ def test_class_tifftagregistry():
     assert tags.getall(41483) == ['FlashEnergy']
 
     del tags['FlashEnergy']
-    assert len(tags) == 622
+    assert len(tags) == 630
     assert 37387 not in tags
     assert 41483 not in tags
     assert 'FlashEnergy' not in tags
@@ -3276,6 +3276,56 @@ def test_read_gimp_f2():
             (0.35571289, 0.26391602, 0.62792969),
         )
         assert_aszarr_method(tif, image)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_dng_jpeglossy():
+    """Test read JPEG_LOSSY in DNG."""
+    fname = private_file('DNG/Adobe DNG Converter.dng')
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 6
+        for series in tif.series:
+            image = series.asarray()
+            assert_aszarr_method(series, image)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+@pytest.mark.parametrize('fp', ['fp16', 'fp24', 'fp32'])
+def test_read_dng_floatpredx2(fp):
+    """Test read FLOATINGPOINTX2 predictor in DNG."""
+    # <https://raw.pixls.us/data/Canon/EOS%205D%20Mark%20III/>
+    fname = private_file(f'DNG/fpx2/hdrmerge-bayer-{fp}-w-pred-deflate.dng')
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 3
+        page = tif.pages[0].pages[0]
+        assert page.compression == ADOBE_DEFLATE
+        assert page.photometric == CFA
+        assert page.imagewidth == 5920
+        assert page.imagelength == 3950
+        assert page.sampleformat == 3
+        assert page.bitspersample == int(fp[2:])
+        assert page.samplesperpixel == 1
+        assert page.predictor == 34894
+        if fp == 'fp24':
+            with pytest.raises(NotImplementedError):
+                image = page.asarray()
+        else:
+            image = page.asarray()
+            assert_aszarr_method(page, image)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.parametrize('fname', ['sample1.orf', 'sample1.rw2'])
+def test_read_rawformats(fname, caplog):
+    """Test parse unsupported RAW formats."""
+    fname = private_file(f'RAWformats/{fname}')
+    with TiffFile(fname) as tif:
+        assert 'RAW format' in caplog.text
         assert__str__(tif)
 
 
@@ -9670,7 +9720,7 @@ def test_write_rowsperstrip():
     """Test write rowsperstrip without compression."""
     data = WRITE_DATA
     with TempFileName('rowsperstrip') as fname:
-        imwrite(fname, data, rowsperstrip=32, contiguous=False, metadata=False)
+        imwrite(fname, data, rowsperstrip=32, contiguous=False, metadata=None)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
