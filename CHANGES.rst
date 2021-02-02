@@ -1,7 +1,13 @@
 Revisions
 ---------
+2021.2.1
+    Pass 4384 tests.
+    Fix multi-threaded access of ZarrTiffStores using same TiffFile instance.
+    Use fallback zlib and lzma codecs with imagecodecs lite builds.
+    Open Olympus and Panasonic RAW files for parsing, albeit not supported.
+    Support X2 and X4 differencing found in DNG.
+    Support reading JPEG_LOSSY compression found in DNG.
 2021.1.14
-    Pass 4378 tests.
     Try ImageJ series if OME series fails (#54)
     Add option to use pages as chunks in ZarrFileStore (experimental).
     Fix reading from file objects with no readinto function.
