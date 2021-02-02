@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.1.14
+:Version: 2021.2.1
 
 Requirements
 ------------
@@ -50,7 +50,7 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.7, 3.9.1 64-bit <https://www.python.org>`_
 * `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.1.11 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.1.28 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -61,8 +61,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.2.1
+    Pass 4384 tests.
+    Fix multi-threaded access of ZarrTiffStores using same TiffFile instance.
+    Use fallback zlib and lzma codecs with imagecodecs lite builds.
+    Open Olympus and Panasonic RAW files for parsing, albeit not supported.
+    Support X2 and X4 differencing found in DNG.
+    Support reading JPEG_LOSSY compression found in DNG.
 2021.1.14
-    Pass 4378 tests.
     Try ImageJ series if OME series fails (#54)
     Add option to use pages as chunks in ZarrFileStore (experimental).
     Fix reading from file objects with no readinto function.
