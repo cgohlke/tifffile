@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.1.14
+:Version: 2021.2.1
 
 Requirements
 ------------
@@ -80,7 +80,7 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.7, 3.9.1 64-bit <https://www.python.org>`_
 * `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.1.11 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.1.28 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -91,8 +91,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.2.1
+    Pass 4384 tests.
+    Fix multi-threaded access of ZarrTiffStores using same TiffFile instance.
+    Use fallback zlib and lzma codecs with imagecodecs lite builds.
+    Open Olympus and Panasonic RAW files for parsing, albeit not supported.
+    Support X2 and X4 differencing found in DNG.
+    Support reading JPEG_LOSSY compression found in DNG.
 2021.1.14
-    Pass 4378 tests.
     Try ImageJ series if OME series fails (#54)
     Add option to use pages as chunks in ZarrFileStore (experimental).
     Fix reading from file objects with no readinto function.
@@ -621,48 +627,59 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.1.14'
+__version__ = '2021.2.1'
 
 __all__ = (
-    'imwrite',
-    'imread',
-    'imshow',
-    'memmap',
-    'lsm2bin',
-    'TiffFileError',
+    'OmeXml',
+    'OmeXmlError',
+    'TIFF',
     'TiffFile',
-    'TiffWriter',
-    'TiffReader',
-    'TiffSequence',
+    'TiffFileError',
+    'TiffFrame',
     'TiffPage',
     'TiffPageSeries',
-    'TiffFrame',
+    'TiffReader',
+    'TiffSequence',
     'TiffTag',
-    'TIFF',
-    'OmeXmlError',
-    'OmeXml',
+    'TiffTags',
+    'TiffWriter',
+    'ZarrFileStore',
+    'ZarrStore',
+    'ZarrTiffStore',
+    'imread',
+    'imshow',
+    'imwrite',
+    'lsm2bin',
+    'memmap',
     'read_micromanager_metadata',
     'read_scanimage_metadata',
+    'tiffcomment',
     # utility classes and functions used by oiffile, czifile, etc.
+    'FileCache',
     'FileHandle',
     'FileSequence',
     'Timer',
+    'askopenfilename',
+    'astype',
+    'create_output',
+    'enumarg',
+    'enumstr',
+    'format_size',
     'lazyattr',
+    'matlabstr2py',
     'natural_sorted',
+    'nullfunc',
+    'parse_kwargs',
+    'pformat',
+    'product',
+    'repeat_nd',
+    'reshape_axes',
+    'reshape_nd',
+    'squeeze_axes',
     'stripnull',
     'transpose_axes',
-    'squeeze_axes',
-    'create_output',
-    'repeat_nd',
-    'format_size',
-    'astype',
-    'product',
-    'xml2dict',
-    'pformat',
-    'nullfunc',
     'update_kwargs',
-    'parse_kwargs',
-    'askopenfilename',
+    'xml2dict',
     '_app_show',
     # deprecated
     'imsave',
@@ -1135,7 +1152,7 @@ class TiffWriter:
         """Write numpy ndarray to a series of TIFF pages.
 
         The ND image data are written to a series of TIFF pages/IFDs.
-        By default, metadata in JSON, ImageJ or OME-XML format are written
+        By default, metadata in JSON, ImageJ, or OME-XML format are written
         to the ImageDescription tag of the first page to describe the series
         such that the image data can later be read back as a ndarray of same
         shape.
@@ -1148,10 +1165,10 @@ class TiffWriter:
         If 'shape' and 'dtype' are specified instead of 'data', an empty array
         is saved. This option cannot be used with compression, predictors,
         packed integers, bilevel images, or multiple tiles.
-        If 'shape', 'dtype', and 'tile' are specified, 'data' must be a
+        If 'shape', 'dtype', and 'tile' are specified, 'data' must be an
         iterable of all tiles in the image.
-        If 'shape' and 'dtype' are specified but not 'tile', 'data' must be a
-        iterable of all single planes in the image.
+        If 'shape', 'dtype', and 'data' are specified but not 'tile', 'data'
+        must be an iterable of all single planes in the image.
         Image data are written uncompressed in one strip per plane by default.
         Dimensions larger than 2 to 4 (depending on photometric mode, planar
         configuration, and volumetric mode) are flattened and saved as separate
@@ -1565,7 +1582,16 @@ class TiffWriter:
             predictortag = 1
 
         if predictor:
-            if compressiontag in (7, 33003, 33005, 34712, 34933, 34934, 50001):
+            if compressiontag in (
+                7,
+                33003,
+                33005,
+                34712,
+                34892,
+                34933,
+                34934,
+                50001,
+            ):
                 # disable predictor for JPEG, JPEG2000, WEBP, PNG, JPEGXR
                 predictor = False
             elif datadtype.kind in 'iu':
@@ -2897,6 +2923,13 @@ class TiffFile:
                 elif kwargs.get('is_ndpi', False) or fh.name.endswith('ndpi'):
                     # NDPI uses 64 bit IFD offsets
                     self.tiff = TIFF.NDPI_LE
+                else:
+                    self.tiff = TIFF.CLASSIC_LE
+            elif version == 0x55 or version == 0x4F52 or version == 0x5352:
+                # Panasonic or Olympus RAW
+                log_warning(f'RAW format 0x{version:04X} not supported')
+                if byteorder == '>':
+                    self.tiff = TIFF.CLASSIC_BE
                 else:
                     self.tiff = TIFF.CLASSIC_LE
             else:
@@ -5821,8 +5854,8 @@ class TiffPage:
                 data = numpy.pad(data, padwidth, constant_values=nodata)
                 return data, data.shape
 
-        if self.compression in (6, 7):
-            # COMPRESSION.JPEG needs special handling
+        if self.compression in (6, 7, 34892):
+            # JPEG needs special handling
             if self.fillorder == 2:
                 log_warning(
                     f'TiffPage {self.index}: disabling LSB2MSB for JPEG'
@@ -5938,6 +5971,10 @@ class TiffPage:
 
         elif self.bitspersample == 24 and dtype.char == 'f':
             # float24
+            if unpredict is not None:
+                # floatpred_decode requires numpy.float24, which does not exist
+                raise NotImplementedError('unpredicting float24 not supported')
+
             def unpack(data, byteorder=self.parent.byteorder):
                 # return numpy.float32 array from float24
                 return float24_decode(data, byteorder)
@@ -5990,7 +6027,7 @@ class TiffPage:
             _fullsize = keyframe.is_tiled
 
         decodeargs = {'_fullsize': bool(_fullsize)}
-        if keyframe.compression in (6, 7):  # COMPRESSION.JPEG
+        if keyframe.compression in (6, 7, 34892):  # JPEG
             decodeargs['jpegtables'] = self.jpegtables
 
         def decode(args, decodeargs=decodeargs, keyframe=keyframe, func=func):
@@ -6027,7 +6064,7 @@ class TiffPage:
     def asarray(self, out=None, squeeze=True, lock=None, maxworkers=None):
         """Read image data from file and return as numpy array.
 
-        Raise ValueError if format is unsupported.
+        Raise ValueError if format is not supported.
 
         Parameters
         ----------
@@ -6361,6 +6398,7 @@ class TiffPage:
             33003,
             33005,
             34712,
+            34892,
             34933,
             34934,
             50001,
@@ -7701,7 +7739,7 @@ class TiffPageSeries:
     offset : int or None
         Position of image data in file if memory-mappable, else None.
     levels : list of TiffPageSeries
-        Pyramid levels.
+        Pyramid levels. levels[0] is 'self'.
 
     """
 
@@ -8028,14 +8066,16 @@ class ZarrTiffStore(ZarrStore):
         if self._chunkmode not in (0, 2):
             raise NotImplementedError(f'{self._chunkmode!r} not implemented')
 
-        if lock is None:
-            lock = threading.RLock()
-
-        self._filecache = FileCache(size=_openfiles, lock=lock)
         self._transform = getattr(arg, 'transform', None)
         self._data = getattr(arg, 'levels', [TiffPageSeries([arg])])
         if level is not None:
             self._data = [self._data[level]]
+
+        if lock is None:
+            fh = self._data[0].keyframe.parent._master.filehandle
+            fh.lock = True
+            lock = fh.lock
+        self._filecache = FileCache(size=_openfiles, lock=lock)
 
         if len(self._data) > 1:
             # multiscales
@@ -9098,7 +9138,8 @@ class FileCache:
     def read(self, filehandle, offset, bytecount, whence=0):
         """Return bytes read from binary file."""
         with self.lock:
-            if filehandle not in self.files:
+            b = filehandle not in self.files
+            if b:
                 if filehandle.closed:
                     filehandle.open()
                     self.files[filehandle] = 0
@@ -9108,7 +9149,8 @@ class FileCache:
                 self.past.append(filehandle)
             filehandle.seek(offset, whence)
             data = filehandle.read(bytecount)
-            self._trim()
+            if b:
+                self._trim()
         return data
 
     def _trim(self):
@@ -10494,7 +10536,7 @@ class TIFF:
                 (50649, 'CR2Unknown2'),
                 (50656, 'CR2CFAPattern'),
                 (50674, 'LercParameters'),  # ESGI 50674 .. 50677
-                (50706, 'DNGVersion'),  # DNG 50706 .. 51112
+                (50706, 'DNGVersion'),  # DNG 50706 .. 51114
                 (50707, 'DNGBackwardVersion'),
                 (50708, 'UniqueCameraModel'),
                 (50709, 'LocalizedCameraModel'),
@@ -10598,10 +10640,18 @@ class TIFF:
                 (51110, 'DefaultBlackRender'),
                 (51111, 'NewRawImageDigest'),
                 (51112, 'RawToPreviewGain'),
-                (51125, 'DefaultUserCrop'),
+                (51113, 'CacheBlob'),
+                (51114, 'CacheVersion'),
                 (51123, 'MicroManagerMetadata'),
+                (51125, 'DefaultUserCrop'),
                 (51159, 'ZIFmetadata'),  # Objective Pathology Services
                 (51160, 'ZIFannotations'),  # Objective Pathology Services
+                (51177, 'DepthFormat'),
+                (51178, 'DepthNear'),
+                (51179, 'DepthFar'),
+                (51180, 'DepthUnits'),
+                (51181, 'DepthMeasureType'),
+                (51182, 'EnhanceParams'),
                 (59932, 'Padding'),
                 (59933, 'OffsetSchema'),
                 # Reusable Tags 65000-65535
@@ -10610,7 +10660,7 @@ class TIFF:
                 # (65000, 'OwnerName'),
                 # (65001, 'SerialNumber'),
                 # (65002, 'Lens'),
-                # (65024, 'KDC_IFD'),
+                # (65024, 'KodakKDCPrivateIFD'),
                 # (65100, 'RawFile'),
                 # (65101, 'Converter'),
                 # (65102, 'WhiteBalance'),
@@ -10892,6 +10942,8 @@ class TIFF:
             NONE = 1
             INCH = 2
             CENTIMETER = 3
+            MILLIMETER = 4  # DNG
+            MICROMETER = 5  # DNG
 
             def __bool__(self):
                 return self != 1
@@ -11116,6 +11168,34 @@ class TIFF:
                         codec = imagecodecs.delta_encode
                     elif key == 3:
                         codec = imagecodecs.floatpred_encode
+                    elif key == 34892:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.delta_encode(
+                                data, axis=axis, out=out, dist=2
+                            )
+
+                    elif key == 34893:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.delta_encode(
+                                data, axis=axis, out=out, dist=4
+                            )
+
+                    elif key == 34894:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.floatpred_encode(
+                                data, axis=axis, out=out, dist=2
+                            )
+
+                    elif key == 34895:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.floatpred_encode(
+                                data, axis=axis, out=out, dist=4
+                            )
+
                     else:
                         raise KeyError(f'{key} is not a valid PREDICTOR')
                 except AttributeError:
@@ -11145,6 +11225,34 @@ class TIFF:
                         codec = imagecodecs.delta_decode
                     elif key == 3:
                         codec = imagecodecs.floatpred_decode
+                    elif key == 34892:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.delta_decode(
+                                data, axis=axis, out=out, dist=2
+                            )
+
+                    elif key == 34893:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.delta_decode(
+                                data, axis=axis, out=out, dist=4
+                            )
+
+                    elif key == 34894:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.floatpred_decode(
+                                data, axis=axis, out=out, dist=2
+                            )
+
+                    elif key == 34895:
+
+                        def codec(data, axis=-1, out=None):
+                            return imagecodecs.floatpred_decode(
+                                data, axis=axis, out=out, dist=4
+                            )
+
                     else:
                         raise KeyError(f'{key} is not a valid PREDICTOR')
                 except AttributeError:
@@ -11182,16 +11290,23 @@ class TIFF:
                             and imagecodecs.DEFLATE
                         ):
                             codec = imagecodecs.deflate_encode
-                        else:
+                        elif imagecodecs.ZLIB:
                             codec = imagecodecs.zlib_encode
+                        else:
+                            codec = zlib_encode
                     elif key == 32773:
                         codec = imagecodecs.packbits_encode
                     elif key == 33003 or key == 33005 or key == 34712:
                         codec = imagecodecs.jpeg2k_encode
                     elif key == 34887:
                         codec = imagecodecs.lerc_encode
+                    elif key == 34892:
+                        codec = imagecodecs.jpeg8_encode  # DNG lossy
                     elif key == 34925:
-                        codec = imagecodecs.lzma_encode
+                        if imagecodecs.LZMA:
+                            codec = imagecodecs.lzma_encode
+                        else:
+                            codec = lzma_encode
                     elif key == 34933:
                         codec = imagecodecs.png_encode
                     elif key == 34934:
@@ -11242,18 +11357,23 @@ class TIFF:
                             and imagecodecs.DEFLATE
                         ):
                             codec = imagecodecs.deflate_decode
-                        else:
+                        elif imagecodecs.ZLIB:
                             codec = imagecodecs.zlib_decode
+                        else:
+                            codec = zlib_decode
                     elif key == 32773:
                         codec = imagecodecs.packbits_decode
-                    # elif key == 34892:
-                    #     codec = imagecodecs.jpeg_decode  # DNG lossy
                     elif key == 33003 or key == 33005 or key == 34712:
                         codec = imagecodecs.jpeg2k_decode
                     elif key == 34887:
                         codec = imagecodecs.lerc_decode
+                    elif key == 34892:
+                        codec = imagecodecs.jpeg8_decode  # DNG lossy
                     elif key == 34925:
-                        codec = imagecodecs.lzma_decode
+                        if imagecodecs.LZMA:
+                            codec = imagecodecs.lzma_decode
+                        else:
+                            codec = lzma_decode
                     elif key == 34933:
                         codec = imagecodecs.png_decode
                     elif key == 34934:
@@ -13940,28 +14060,40 @@ def float24_decode(data, byteorder):
     raise NotImplementedError('float24_decode')
 
 
-if imagecodecs is None:
-    import lzma
+def zlib_encode(data, level=None, out=None):
+    """Compress Zlib DEFLATE."""
     import zlib
 
-    def zlib_encode(data, level=6, out=None):
-        """Compress Zlib DEFLATE."""
-        return zlib.compress(data, level)
+    return zlib.compress(data, 6 if level is None else level)
 
-    def zlib_decode(data, out=None):
-        """Decompress Zlib DEFLATE."""
-        return zlib.decompress(data)
 
-    def lzma_encode(data, level=None, out=None):
-        """Compress LZMA."""
-        return lzma.compress(data)
+def zlib_decode(data, out=None):
+    """Decompress Zlib DEFLATE."""
+    import zlib
 
-    def lzma_decode(data, out=None):
-        """Decompress LZMA."""
-        return lzma.decompress(data)
+    return zlib.decompress(data)
 
-    def delta_encode(data, axis=-1, out=None):
+
+def lzma_encode(data, level=None, out=None):
+    """Compress LZMA."""
+    import lzma
+
+    return lzma.compress(data)
+
+
+def lzma_decode(data, out=None):
+    """Decompress LZMA."""
+    import lzma
+
+    return lzma.decompress(data)
+
+
+if imagecodecs is None:
+
+    def delta_encode(data, axis=-1, dist=1, out=None):
         """Encode Delta."""
+        if dist != 1:
+            raise NotImplementedError(f'dist {dist} not implemented')
         if isinstance(data, (bytes, bytearray)):
             data = numpy.frombuffer(data, dtype='u1')
             diff = numpy.diff(data, axis=0)
@@ -13980,8 +14112,10 @@ if imagecodecs is None:
             return diff.view(dtype)
         return diff
 
-    def delta_decode(data, axis=-1, out=None):
+    def delta_decode(data, axis=-1, dist=1, out=None):
         """Decode Delta."""
+        if dist != 1:
+            raise NotImplementedError(f'dist {dist} not implemented')
         if out is not None and not out.flags.writeable:
             out = None
         if isinstance(data, (bytes, bytearray)):
