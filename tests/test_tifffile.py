@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2021.2.1
+:Version: 2021.2.26
 
 """
 
@@ -1079,6 +1079,41 @@ def test_issue_micromanager(caplog):
         assert series.shape == (50, 5, 3, 256, 256)
 
 
+def test_issue_pickle():
+    """Test that TIFF constants are picklable."""
+    # https://github.com/cgohlke/tifffile/issues/64
+    from pickle import dumps, loads
+
+    assert loads(dumps(TIFF)).CHUNKMODE.PLANE == TIFF.CHUNKMODE.PLANE
+    assert loads(dumps(TIFF.CHUNKMODE)).PLANE == TIFF.CHUNKMODE.PLANE
+    assert loads(dumps(TIFF.CHUNKMODE.PLANE)) == TIFF.CHUNKMODE.PLANE
+
+
+def test_issue_imagej_singlet_dimensions():
+    """Test that ImageJ files can be read preserving singlet dimensions."""
+    # https://github.com/cgohlke/tifffile/issues/19
+    # https://github.com/cgohlke/tifffile/issues/66
+
+    data = numpy.random.randint(0, 2 ** 8, (1, 10, 1, 248, 260, 1), 'uint8')
+
+    with TempFileName('issue_imagej_singlet_dimensions') as fname:
+        imwrite(fname, data, imagej=True)
+        image = imread(fname, squeeze=False)
+        assert_array_equal(image, data)
+
+        with TiffFile(fname) as tif:
+            assert tif.is_imagej
+            series = tif.series[0]
+            assert series.axes == 'ZYX'
+            assert series.shape == (10, 248, 260)
+            assert series.get_axes(squeeze=False) == 'TZCYXS'
+            assert series.get_shape(squeeze=False) == (1, 10, 1, 248, 260, 1)
+            data = tif.asarray(squeeze=False)
+            assert_array_equal(image, data)
+            assert_aszarr_method(series, data, squeeze=False)
+            assert_aszarr_method(series, data, squeeze=False, chunkmode='page')
+
+
 ###############################################################################
 
 # Test specific functions and classes
@@ -1973,6 +2008,9 @@ def test_func_product():
 def test_func_squeeze_axes():
     """Test squeeze_axes function."""
     assert squeeze_axes((5, 1, 2, 1, 1), 'TZYXC') == ((5, 2, 1), 'TYX')
+    assert squeeze_axes((1,), 'Y') == ((1,), 'Y')
+    assert squeeze_axes((1,), 'Q') == ((1,), 'Q')
+    assert squeeze_axes((1, 1), 'PQ') == ((1,), 'Q')
 
 
 def test_func_transpose_axes():
@@ -4535,10 +4573,11 @@ def test_read_lena_be_f16_contig():
 def test_read_lena_be_f16_lzw_planar():
     """Test read big endian, float16, LZW, horizontal differencing."""
     fname = private_file('PS/lena_be_f16_lzw_planar.tif')
-    with TiffFile(fname) as tif:
+    with TiffFile(fname, is_imagej=False) as tif:
         assert tif.byteorder == '>'
         assert len(tif.pages) == 1
         assert len(tif.series) == 1
+        assert not tif.is_imagej
         # assert page properties
         page = tif.pages[0]
         assert not page.is_reduced
@@ -4571,10 +4610,11 @@ def test_read_lena_be_f16_lzw_planar():
 def test_read_lena_be_f32_deflate_contig():
     """Test read big endian, float32 horizontal differencing, deflate."""
     fname = private_file('PS/lena_be_f32_deflate_contig.tif')
-    with TiffFile(fname) as tif:
+    with TiffFile(fname, is_imagej=False) as tif:
         assert tif.byteorder == '>'
         assert len(tif.pages) == 1
         assert len(tif.series) == 1
+        assert not tif.is_imagej
         # assert page properties
         page = tif.pages[0]
         assert not page.is_reduced
@@ -4606,10 +4646,11 @@ def test_read_lena_be_f32_deflate_contig():
 def test_read_lena_le_f32_lzw_planar():
     """Test read little endian, LZW, float32 horizontal differencing."""
     fname = private_file('PS/lena_le_f32_lzw_planar.tif')
-    with TiffFile(fname) as tif:
+    with TiffFile(fname, is_imagej=False) as tif:
         assert tif.byteorder == '<'
         assert len(tif.pages) == 1
         assert len(tif.series) == 1
+        assert not tif.is_imagej
         # assert page properties
         page = tif.pages[0]
         assert not page.is_reduced
@@ -4832,8 +4873,8 @@ def test_read_chart_bl():
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (18710, 13228)
         assert data.dtype.name == 'bool'
-        assert data[0, 0] is numpy.bool_(True)
-        assert data[5000, 5000] is numpy.bool_(False)
+        assert data[0, 0] is numpy.bool8(True)
+        assert data[5000, 5000] is numpy.bool8(False)
         if not SKIP_LARGE:
             assert_aszarr_method(tif, data)
         assert__str__(tif)
@@ -5126,7 +5167,7 @@ def test_read_lsm_mosaic():
             series = tif.series[1]
             assert series.shape == (2, 5, 54, 3, 128, 128)
             assert series.dtype.name == 'uint8'
-            assert series.axes == 'PTZCYX'
+            assert series.axes == 'PTZSYX'
         # assert lsm_info tags
         tags = tif.lsm_metadata
         assert tags['DimensionX'] == 512
@@ -5164,14 +5205,18 @@ def test_read_lsm_carpet():
         assert page.samplesperpixel == 1
         # assert series properties
         series = tif.series[0]
-        assert series.shape == (1, 1, 36000, 10, 32)
         assert series.dtype.name == 'uint8'
-        assert series.axes == 'ZCTYX'
+        assert series.shape == (36000, 10, 32)
+        assert series.axes == 'TYX'
+        assert series.get_shape(False) == (1, 1, 36000, 10, 32)
+        assert series.get_axes(False) == 'ZCTYX'
         if 1:
             series = tif.series[1]
-            assert series.shape == (1, 1, 36000, 3, 40, 128)
             assert series.dtype.name == 'uint8'
-            assert series.axes == 'ZCTCYX'
+            assert series.shape == (36000, 3, 40, 128)
+            assert series.axes == 'TSYX'
+            assert series.get_shape(False) == (1, 1, 36000, 3, 40, 128)
+            assert series.get_axes(False) == 'ZCTSYX'
         # assert lsm_info tags
         tags = tif.lsm_metadata
         assert tags['DimensionX'] == 32
@@ -5216,19 +5261,21 @@ def test_read_lsm_take1():
         assert page.bitspersample == 8
         # assert series properties
         series = tif.series[0]
-        assert series.shape == (1, 1, 1, 512, 512)  # (512, 512)?
         assert series.dtype.name == 'uint8'
-        assert series.axes == 'TCZYX'
+        assert series.shape == (512, 512)
+        assert series.axes == 'YX'
+        assert series.get_shape(False) == (1, 1, 1, 512, 512)
+        assert series.get_axes(False) == 'TCZYX'
         if 1:
             series = tif.series[1]
             assert series.shape == (3, 128, 128)
             assert series.dtype.name == 'uint8'
-            assert series.axes == 'CYX'
+            assert series.axes == 'SYX'
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
         assert data.flags['C_CONTIGUOUS']
-        assert data.shape == (1, 1, 1, 512, 512)  # (512, 512)?
+        assert data.shape == (512, 512)
         assert data.dtype.name == 'uint8'
         assert data[..., 256, 256] == 101
         if 1:
@@ -5302,7 +5349,7 @@ def test_read_lsm_2chzt():
             series = tif.series[1]
             assert series.shape == (19, 21, 3, 96, 128)
             assert series.dtype.name == 'uint8'
-            assert series.axes == 'TZCYX'
+            assert series.axes == 'TZSYX'
         # assert data
         data = tif.asarray(out='memmap')
         assert isinstance(data, numpy.core.memmap)
@@ -5374,28 +5421,32 @@ def test_read_lsm_earpax2isl11():
         assert page.bitspersample == 8
         # assert series properties
         series = tif.series[0]
-        assert series.shape == (1, 19, 3, 512, 512)
+        assert series.shape == (19, 3, 512, 512)
+        assert series.get_shape(False) == (1, 19, 3, 512, 512)
         assert series.dtype.name == 'uint8'
-        assert series.axes == 'TZCYX'
+        assert series.axes == 'ZCYX'
+        assert series.get_axes(False) == 'TZCYX'
         if 1:
             series = tif.series[1]
-            assert series.shape == (1, 19, 3, 128, 128)
+            assert series.shape == (19, 3, 128, 128)
+            assert series.get_shape(False) == (1, 19, 3, 128, 128)
             assert series.dtype.name == 'uint8'
-            assert series.axes == 'TZCYX'
+            assert series.axes == 'ZSYX'
+            assert series.get_axes(False) == 'TZSYX'
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
         assert data.flags['C_CONTIGUOUS']
-        assert data.shape == (1, 19, 3, 512, 512)
+        assert data.shape == (19, 3, 512, 512)
         assert data.dtype.name == 'uint8'
-        assert tuple(data[0, 18, :, 200, 320]) == (17, 22, 21)
+        assert tuple(data[18, :, 200, 320]) == (17, 22, 21)
         assert_aszarr_method(tif, data)
         if 1:
             data = tif.asarray(series=1)
             assert isinstance(data, numpy.ndarray)
-            assert data.shape == (1, 19, 3, 128, 128)
+            assert data.shape == (19, 3, 128, 128)
             assert data.dtype.name == 'uint8'
-            assert tuple(data[0, 18, :, 64, 64]) == (25, 5, 33)
+            assert tuple(data[18, :, 64, 64]) == (25, 5, 33)
             assert_aszarr_method(tif, series=1)
         # assert lsm_info tags
         tags = tif.lsm_metadata
@@ -5441,14 +5492,16 @@ def test_read_lsm_mb231paxgfp_060214():
         assert page.bitspersample == 8
         # assert series properties
         series = tif.series[0]
-        assert series.shape == (60, 31, 2, 512, 512)
         assert series.dtype.name == 'uint16'
+        assert series.shape == (60, 31, 2, 512, 512)
+        assert series.get_shape(False) == (60, 31, 2, 512, 512)
         assert series.axes == 'TZCYX'
+        assert series.get_axes(False) == 'TZCYX'
         if 1:
             series = tif.series[1]
-            assert series.shape == (60, 31, 3, 128, 128)
             assert series.dtype.name == 'uint8'
-            assert series.axes == 'TZCYX'
+            assert series.shape == (60, 31, 3, 128, 128)
+            assert series.axes == 'TZSYX'
         # assert data
         data = tif.asarray(out='memmap', maxworkers=None)
         assert isinstance(data, numpy.core.memmap)
@@ -5787,6 +5840,49 @@ def test_read_stk_112508h100():
         assert data.shape == (2048, 128, 512)
         assert data.dtype.name == 'uint16'
         assert data[2047, 64, 128] == 7132
+        assert_aszarr_method(tif, data)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+def test_read_stk_noname():
+    """Test read MetaMorph STK with no name in metadata."""
+    # https://forum.image.sc/t/metamorph-stack-issue-with-ome-metadata-
+    # bioformats-and-omero/48416
+    fname = private_file('stk/60x_2well_diffexpos1_w1sdcGFP_s1_t1.stk')
+    with TiffFile(fname) as tif:
+        assert tif.is_stk
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.is_contiguous
+        assert page.photometric == MINISBLACK
+        assert page.compression == NONE
+        assert page.imagewidth == 1148
+        assert page.imagelength == 1112
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        assert page.tags['Software'].value == 'VisiView 4.5.0'
+        assert page.tags['DateTime'].value == '2021:01:27 13:29:51'
+        # assert uic tags
+        tags = tif.stk_metadata
+        assert 'Name' not in tags
+        assert tags['NumberPlanes'] == 5
+        assert len(tags['PlaneDescriptions']) == 5
+        assert tags['PlaneDescriptions'][0].startswith('Exposure: 50 ms\r\n')
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (5, 1112, 1148)
+        assert series.dtype.name == 'uint16'
+        assert series.axes == 'ZYX'
+        # assert data
+        data = tif.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.shape == (5, 1112, 1148)
+        assert data.dtype.name == 'uint16'
+        assert data[4, 64, 128] == 98
         assert_aszarr_method(tif, data)
         assert__str__(tif)
 
@@ -6149,10 +6245,12 @@ def test_read_ome_single_channel():
         assert page.samplesperpixel == 1
         # assert series properties
         series = tif.series[0]
-        assert series.shape == (167, 439)
-        assert series.dtype.name == 'int8'
-        assert series.axes == 'YX'
         assert not series.is_multifile
+        assert series.dtype.name == 'int8'
+        assert series.shape == (167, 439)
+        assert series.axes == 'YX'
+        assert series.get_shape(False) == (1, 1, 1, 167, 439, 1)
+        assert series.get_axes(False) == 'TCZYXS'
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -6187,6 +6285,8 @@ def test_read_ome_multi_channel():
         assert series.shape == (3, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'CYX'
+        assert series.get_shape(False) == (1, 3, 1, 167, 439, 1)
+        assert series.get_axes(False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -6195,6 +6295,9 @@ def test_read_ome_multi_channel():
         assert data.dtype.name == 'int8'
         assert data[2, 158, 428] == 91
         assert_aszarr_method(tif, data)
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert_aszarr_method(tif, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -6222,6 +6325,8 @@ def test_read_ome_z_series():
         assert series.shape == (5, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'ZYX'
+        assert series.get_shape(False) == (1, 1, 5, 167, 439, 1)
+        assert series.get_axes(False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -6259,6 +6364,8 @@ def test_read_ome_multi_channel_z_series():
         assert series.shape == (3, 5, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'CZYX'
+        assert series.get_shape(False) == (1, 3, 5, 167, 439, 1)
+        assert series.get_axes(False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -6294,6 +6401,8 @@ def test_read_ome_time_series():
         assert series.shape == (7, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'TYX'
+        assert series.get_shape(False) == (7, 1, 1, 167, 439, 1)
+        assert series.get_axes(False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -6331,6 +6440,8 @@ def test_read_ome_multi_channel_time_series():
         assert series.shape == (7, 3, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'TCYX'
+        assert series.get_shape(False) == (7, 3, 1, 167, 439, 1)
+        assert series.get_axes(False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -6339,6 +6450,9 @@ def test_read_ome_multi_channel_time_series():
         assert data.dtype.name == 'int8'
         assert data[6, 2, 158, 428] == 91
         assert_aszarr_method(tif, data)
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert_aszarr_method(tif, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -6403,6 +6517,8 @@ def test_read_ome_multi_channel_4d_series():
         assert series.shape == (7, 3, 5, 167, 439)
         assert series.dtype.name == 'int8'
         assert series.axes == 'TCZYX'
+        assert series.get_shape(False) == (7, 3, 5, 167, 439, 1)
+        assert series.get_axes(False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -6411,6 +6527,9 @@ def test_read_ome_multi_channel_4d_series():
         assert data.dtype.name == 'int8'
         assert data[6, 0, 4, 158, 428] == 91
         assert_aszarr_method(tif, data)
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert_aszarr_method(tif, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -6437,6 +6556,8 @@ def test_read_ome_modulo_flim():
         assert series.shape == (2, 8, 150, 180)
         assert series.dtype.name == 'int8'
         assert series.axes == 'CHYX'
+        assert series.get_shape(False) == (1, 2, 8, 1, 150, 180, 1)
+        assert series.get_axes(False) == 'TCHZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -6445,6 +6566,9 @@ def test_read_ome_modulo_flim():
         assert data.dtype.name == 'int8'
         assert data[1, 7, 143, 172] == 92
         assert_aszarr_method(tif, data)
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert_aszarr_method(tif, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -6983,6 +7107,7 @@ def test_read_ome_nikon(caplog):
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_ome_shape_mismatch(caplog):
     """Test read OME with page shape mismatch."""
+    # TCX (20000, 2, 500) is stored in 2 pages of (20000, 500)
     # probably exported by ZEN Software
     fname = private_file('OME/Image 7.ome_h00.tiff')
     with TiffFile(fname) as tif:
@@ -6990,7 +7115,7 @@ def test_read_ome_shape_mismatch(caplog):
         assert tif.byteorder == '<'
         assert len(tif.pages) == 2
         assert len(tif.series) == 2
-        assert 'incompatible page shape' in caplog.text
+        assert 'OME series: cannot handle discontiguous storage' in caplog.text
         # assert page properties
         page = tif.pages[0]
         assert page.is_contiguous
@@ -7046,6 +7171,39 @@ def test_read_ome_jpeg2000_be():
         assert data[0, 0] == 1904
         assert_aszarr_method(page, data)
         assert_aszarr_method(page, data, chunkmode='page')
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_ome_samplesperpixel_mismatch(caplog):
+    """Test read OME with SamplesPerPixel mismatch: OME=1, TIFF=4."""
+    # https://forum.image.sc/t/ilastik-refuses-to-load-image-file/48541/1
+    fname = private_file('OME/MismatchSamplesPerPixel.ome.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_ome
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.photometric == RGB
+        assert page.compression == LZW
+        assert page.imagewidth == 2080
+        assert page.imagelength == 1552
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 4
+        # assert series properties
+        series = tif.series[0]
+        assert 'OME series: cannot handle discontiguous storage' in caplog.text
+        assert series.kind == 'Generic'
+        assert series.shape == (1552, 2080, 4)
+        assert series.dtype.name == 'uint8'
+        assert series.axes == 'YXS'
+        assert not series.is_multifile
+        # assert data
+        data = tif.asarray()
+        assert data.shape == (1552, 2080, 4)
+        assert_aszarr_method(tif, data)
         assert__str__(tif)
 
 
@@ -7217,9 +7375,11 @@ def test_read_imagej_rrggbb():
         assert page.bitspersample == 16
         # assert series properties
         series = tif.series[0]
-        assert series.shape == (3, 32, 31)
         assert series.dtype.name == 'uint16'
+        assert series.shape == (3, 32, 31)
         assert series.axes == 'CYX'
+        assert series.get_shape(False) == (1, 1, 3, 32, 31, 1)
+        assert series.get_axes(False) == 'TZCYXS'
         assert len(series._pages) == 1
         assert len(series.pages) == 1
         # assert ImageJ tags
@@ -7239,6 +7399,10 @@ def test_read_imagej_rrggbb():
         assert_decode_method(page)
         assert_aszarr_method(series, data)
         assert_aszarr_method(series, data, chunkmode='page')
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert data.shape == (1, 1, 3, 32, 31, 1)
+        assert_aszarr_method(series, data, squeeze=False)
         assert__str__(tif, 0)
 
 
@@ -7264,6 +7428,8 @@ def test_read_imagej_focal1():
         assert series.shape == (205, 434, 425)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'IYX'
+        assert series.get_shape(False) == (205, 1, 1, 1, 434, 425, 1)
+        assert series.get_axes(False) == 'ITZCYXS'
         assert len(series._pages) == 1
         assert len(series.pages) == 205
         # assert ImageJ tags
@@ -7302,6 +7468,8 @@ def test_read_imagej_hela_cells():
         assert series.shape == (512, 672, 3)
         assert series.dtype.name == 'uint16'
         assert series.axes == 'YXS'
+        assert series.get_shape(False) == (1, 1, 1, 512, 672, 3)
+        assert series.get_axes(False) == 'TZCYXS'
         # assert ImageJ tags
         ijtags = tif.imagej_metadata
         assert ijtags['ImageJ'] == '1.46i'
@@ -7314,6 +7482,10 @@ def test_read_imagej_hela_cells():
         assert tuple(data[255, 336]) == (440, 378, 298)
         assert_aszarr_method(series, data)
         assert_aszarr_method(series, data, chunkmode='page')
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert data.shape == (1, 1, 1, 512, 672, 3)
+        assert_aszarr_method(series, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -7337,6 +7509,8 @@ def test_read_imagej_flybrain():
         assert series.shape == (57, 256, 256, 3)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'ZYXS'
+        assert series.get_shape(False) == (1, 57, 1, 256, 256, 3)
+        assert series.get_axes(False) == 'TZCYXS'
         # assert ImageJ tags
         ijtags = tif.imagej_metadata
         assert ijtags['ImageJ'] == '1.43d'
@@ -7349,6 +7523,10 @@ def test_read_imagej_flybrain():
         assert tuple(data[18, 108, 97]) == (165, 157, 0)
         assert_aszarr_method(series, data)
         assert_aszarr_method(series, data, chunkmode='page')
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert data.shape == (1, 57, 1, 256, 256, 3)
+        assert_aszarr_method(series, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -7397,6 +7575,10 @@ def test_read_imagej_confocal_series():
         assert tif.pages.pages[-1] == 8008687
         assert_aszarr_method(series, data)
         assert_aszarr_method(series, data, chunkmode='page')
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert data.shape == (1, 25, 2, 400, 400, 1)
+        assert_aszarr_method(series, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -7434,6 +7616,10 @@ def test_read_imagej_graphite():
         assert data.dtype.name == 'float32'
         assert round(abs(data[443, 656] - 2203.040771484375), 7) == 0
         assert_aszarr_method(series, data)
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert data.shape == (1, 1, 1, 593, 1024, 1)
+        assert_aszarr_method(series, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -7471,6 +7657,10 @@ def test_read_imagej_bat_cochlea_volume():
         assert data.dtype.name == 'uint8'
         assert data[113, 97, 61] == 255
         assert_aszarr_method(series, data)
+        # don't squeeze
+        data = tif.asarray(squeeze=False)
+        assert data.shape == (114, 1, 1, 1, 154, 121, 1)
+        assert_aszarr_method(series, data, squeeze=False)
         assert__str__(tif)
 
 
@@ -11474,6 +11664,8 @@ def test_write_imagej_voxel_size():
             series = tif.series[0]
             assert series.axes == 'ZYX'
             assert series.shape == (4, 256, 256)
+            assert series.get_axes(False) == 'TZCYXS'
+            assert series.get_shape(False) == (1, 4, 1, 256, 256, 1)
             assert__str__(tif)
         assert_valid_tiff(fname)
 
@@ -11643,6 +11835,8 @@ def test_write_imagej_hyperstack(truncate, mmap):
             assert len(series.pages) == 1 if truncate else 210
             assert series.dtype.name == 'uint8'
             assert series.axes == 'TZCYXS'
+            assert series.get_axes(False) == 'TZCYXS'
+            assert series.get_shape(False) == shape
             # assert data
             image = tif.asarray(out='memmap')
             assert_array_equal(data.squeeze(), image.squeeze())
@@ -11686,6 +11880,8 @@ def test_write_imagej_append():
             assert series.shape == (256, 256, 256)
             assert series.dtype.name == 'uint8'
             assert series.axes == 'ZYX'
+            assert series.get_axes(False) == 'TZCYXS'
+            assert series.get_shape(False) == (1, 256, 1, 256, 256, 1)
             # assert data
             image = tif.asarray(out='memmap')
             assert_array_equal(data.squeeze(), image)
@@ -11723,6 +11919,8 @@ def test_write_imagej_raw():
             assert series.shape == (1280, 1024, 1024)
             assert series.dtype.name == 'float32'
             assert series.axes == 'ZYX'
+            assert series.get_axes(False) == 'TZCYXS'
+            assert series.get_shape(False) == (1, 1280, 1, 1024, 1024, 1)
             # assert data
             image = tif.asarray(out='memmap')
             assert_array_equal(data.squeeze(), image.squeeze())
@@ -12520,4 +12718,4 @@ if __name__ == '__main__':
     argv = sys.argv
     argv.append('--cov=tifffile')
     argv.append('--verbose')
-    pytest.main(argv)
+    sys.exit(pytest.main(argv))
