@@ -1,7 +1,15 @@
 Revisions
 ---------
+2021.2.26
+    Pass 4388 tests.
+    Squeeze axes of LSM series by default (breaking).
+    Add option to preserve single dimensions when reading from series (WIP).
+    Do not allow appending to OME-TIFF files.
+    Fix reading STK files without name attribute in metadata.
+    Make TIFF constants multi-thread safe and pickleable (#64).
+    Add detection of NDTiffStorage MajorVersion to read_micromanager_metadata.
+    Support ScanImage v4 files in read_scanimage_metadata (not tested).
 2021.2.1
-    Pass 4384 tests.
     Fix multi-threaded access of ZarrTiffStores using same TiffFile instance.
     Use fallback zlib and lzma codecs with imagecodecs lite builds.
     Open Olympus and Panasonic RAW files for parsing, albeit not supported.
