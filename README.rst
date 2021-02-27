@@ -41,16 +41,16 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.2.1
+:Version: 2021.2.26
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.7, 3.9.1 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.8, 3.9.2 64-bit <https://www.python.org>`_
 * `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.1.28 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.2.26 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -61,8 +61,16 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.2.26
+    Pass 4388 tests.
+    Squeeze axes of LSM series by default (breaking).
+    Add option to preserve single dimensions when reading from series (WIP).
+    Do not allow appending to OME-TIFF files.
+    Fix reading STK files without name attribute in metadata.
+    Make TIFF constants multi-thread safe and pickleable (#64).
+    Add detection of NDTiffStorage MajorVersion to read_micromanager_metadata.
+    Support ScanImage v4 files in read_scanimage_metadata (not tested).
 2021.2.1
-    Pass 4384 tests.
     Fix multi-threaded access of ZarrTiffStores using same TiffFile instance.
     Use fallback zlib and lzma codecs with imagecodecs lite builds.
     Open Olympus and Panasonic RAW files for parsing, albeit not supported.
@@ -332,8 +340,8 @@ References
   http://www.ultralum.com/images%20ultralum/pdf/UQStart%20Up%20Guide.pdf
 * Micro-Manager File Formats.
   https://micro-manager.org/wiki/Micro-Manager_File_Formats
-* ScanImage BigTiff Specification - ScanImage 2016.
-  http://scanimage.vidriotechnologies.com/display/SI2016/
+* ScanImage BigTiff Specification - ScanImage 2019.
+  http://scanimage.vidriotechnologies.com/display/SI2019/
   ScanImage+BigTiff+Specification
 * ZIF, the Zoomable Image File format. http://zif.photo/
 * GeoTIFF File Format https://gdal.org/drivers/raster/gtiff.html
