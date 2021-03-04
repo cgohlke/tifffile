@@ -5,7 +5,8 @@ include ACKNOWLEDGEMENTS.rst
 
 # include tiffile.py
 # include setup_tiffile.py
-include tests/*.py
+include tests/conftest.py
+include tests/test_tifffile.py
 
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
