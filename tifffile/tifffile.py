@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.2.26
+:Version: 2021.3.4
 
 Requirements
 ------------
@@ -91,15 +91,22 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.3.4
+    Pass 4389 tests.
+    Fix reading multi-file, multi-series OME-TIFF (#67).
+    Detect ScanImage 2021 files (#46).
+    Shape new version ScanImage series according to metadata (breaking).
+    Remove Description key from TiffFile.scanimage_metadata dict (breaking).
+    Return ScanImage version from read_scanimage_metadata (breaking).
+    Fix docstrings.
 2021.2.26
-    Pass 4388 tests.
     Squeeze axes of LSM series by default (breaking).
     Add option to preserve single dimensions when reading from series (WIP).
     Do not allow appending to OME-TIFF files.
     Fix reading STK files without name attribute in metadata.
     Make TIFF constants multi-thread safe and pickleable (#64).
     Add detection of NDTiffStorage MajorVersion to read_micromanager_metadata.
-    Support ScanImage v4 files in read_scanimage_metadata (not tested).
+    Support ScanImage v4 files in read_scanimage_metadata.
 2021.2.1
     Fix multi-threaded access of ZarrTiffStores using same TiffFile instance.
     Use fallback zlib and lzma codecs with imagecodecs lite builds.
@@ -635,7 +642,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.2.26'
+__version__ = '2021.3.4'
 
 __all__ = (
     'OmeXml',
@@ -842,6 +849,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
     offset, bytecount : tuple or None
         If the 'returnoffset' argument is True and the image data are written
         contiguously, return offset and bytecount of image data in the file.
+
     """
     tifargs = parse_kwargs(
         kwargs, 'append', 'bigtiff', 'byteorder', 'imagej', 'ome'
@@ -968,6 +976,7 @@ class lazyattr:
     __slots__ = ('func', '__dict__')
 
     def __init__(self, func):
+        """Initialize instance from decorated function."""
         self.func = func
         self.__doc__ = func.__doc__
         self.__module__ = func.__module__
@@ -3556,9 +3565,50 @@ class TiffFile:
         """Return image series in ScanImage file."""
         pages = self.pages._getlist(validate=False)
         page = pages[0]
-        shape = (len(pages),) + page.shape
-        axes = 'I' + page.axes
         dtype = page.dtype
+        shape = None
+
+        framedata = self.scanimage_metadata.get('FrameData', {})
+        if 'SI.hChannels.channelSave' in framedata:
+            try:
+                channels = framedata['SI.hChannels.channelSave']
+                try:
+                    # channelSave is a list
+                    channels = len(channels)
+                except TypeError:
+                    # channelSave is an int
+                    channels = int(channels)
+                # slices = framedata.get(
+                #    'SI.hStackManager.actualNumSlices',
+                #     framedata.get('SI.hStackManager.numSlices', None),
+                # )
+                # if slices is None:
+                #     raise ValueError('unable to determine numSlices')
+                slices = None
+                try:
+                    frames = int(framedata['SI.hStackManager.framesPerSlice'])
+                except Exception:
+                    # framesPerSlice is inf
+                    slices = 1
+                    if len(pages) % channels:
+                        raise ValueError('unable to determine framesPerSlice')
+                    frames = len(pages) // channels
+                if slices is None:
+                    slices = max(len(pages) // (frames * channels), 1)
+                shape = (slices, frames, channels) + page.shape
+                axes = 'ZTC' + page.axes
+            except Exception as exc:
+                log_warning(f'ScanImage series: {exc}')
+
+        # TODO: older versions of ScanImage store non-varying frame data in
+        # the ImageDescription tag. Candidates are scanimage.SI5.channelsSave,
+        # scanimage.SI5.stackNumSlices, scanimage.SI5.acqNumFrames
+        # scanimage.SI4., state.acq.numberOfFrames, state.acq.numberOfFrames...
+
+        if shape is None:
+            shape = (len(pages),) + page.shape
+            axes = 'I' + page.axes
+
         return [TiffPageSeries(pages, shape, dtype, axes, kind='ScanImage')]
 
     def _series_fluoview(self):
@@ -4089,9 +4139,14 @@ class TiffFile:
                     # reload a TiffPage from file
                     for i, keyframe in enumerate(ifds):
                         if keyframe:
+                            isclosed = keyframe.parent.filehandle.closed
+                            if isclosed:
+                                keyframe.parent.filehandle.open()
                             keyframe.parent.pages.keyframe = keyframe.index
                             keyframe = keyframe.parent.pages[keyframe.index]
                             ifds[i] = keyframe
+                            if isclosed:
+                                keyframe.parent.filehandle.close()
                             break
 
                 # does the series spawn multiple files
@@ -4558,7 +4613,7 @@ class TiffFile:
 
     @lazyattr
     def flags(self):
-        """Return set of file flags."""
+        """Return set of file flags, a potentially expensive operation."""
         return {
             name.lower()
             for name in sorted(TIFF.FILE_FLAGS)
@@ -4567,11 +4622,12 @@ class TiffFile:
 
     @property
     def is_bigtiff(self):
+        """Return if file has BigTIFF format."""
         return self.tiff.version == 43
 
     @lazyattr
     def is_mdgel(self):
-        """File has MD Gel format."""
+        """Return if file has MD Gel format."""
         # side effect: add second page, if exists, to cache
         try:
             ismdgel = (
@@ -4843,23 +4899,24 @@ class TiffFile:
 
     @lazyattr
     def scanimage_metadata(self):
-        """Return ScanImage non-varying frame and ROI metadata as dict."""
+        """Return ScanImage non-varying frame and ROI metadata as dict.
+
+        The returned dict may be empty or contain 'FrameData', 'RoiGroups',
+        and 'version' keys.
+
+        The varying frame data can be found in the ImageDescription tags.
+
+        """
         if not self.is_scanimage:
             return None
         result = {}
         try:
-            framedata, roidata = read_scanimage_metadata(self._fh)
+            framedata, roidata, version = read_scanimage_metadata(self._fh)
+            result['version'] = version
             result['FrameData'] = framedata
             result.update(roidata)
         except ValueError:
             pass
-        # TODO: scanimage_artist_metadata
-        try:
-            result['Description'] = scanimage_description_metadata(
-                self.pages[0].description
-            )
-        except Exception as exc:
-            log_warning(f'ScanImage metadata: {exc.__class__.__name__}: {exc}')
         return result
 
     @property
@@ -5083,7 +5140,8 @@ class TiffPages:
             self._cached = True
             self._indexed = True
         except Exception as exc:
-            log_warning(f'TiffPages: failed to load virtual frames: {exc}')
+            if self.parent.filehandle.size >= 2147483648:
+                log_warning(f'TiffPages: failed to load virtual frames: {exc}')
 
     def _clear(self, fully=True):
         """Delete all but first page from cache. Set keyframe to first page."""
@@ -6399,7 +6457,7 @@ class TiffPage:
 
     @lazyattr
     def pages(self):
-        """Return sequence of sub-pages (SubIFDs)."""
+        """Return sequence of sub-pages, SubIFDs."""
         if 330 not in self.tags:
             return ()
         return TiffPages(self, index=self.index)
@@ -6940,8 +6998,8 @@ class TiffPage:
     def is_scanimage(self):
         """Page contains ScanImage metadata."""
         return (
-            self.description[:12] == 'state.config'
-            or self.software[:22] == 'SI.LINE_FORMAT_VERSION'
+            self.software[:3] == 'SI.'
+            or self.description[:6] == 'state.'
             or 'scanimage.SI' in self.description[-256:]
         )
 
@@ -7254,7 +7312,7 @@ class TiffTag:
     __slots__ = ('offset', 'code', 'dtype', 'count', 'value', 'valueoffset')
 
     def __init__(self, code, dtype, count, value, offset, valueoffset):
-        """ """
+        """Initialize TiffTag instance from values."""
         self.code = code
         self.dtype = TIFF.DATATYPES(dtype)
         self.count = count
@@ -8451,7 +8509,7 @@ class FileSequence:
         pattern=None,
         axesorder=None,
     ):
-        """Initialize instance from multiple files.
+        r"""Initialize instance from multiple files.
 
         Parameters
         ----------
@@ -8459,7 +8517,7 @@ class FileSequence:
             Array read function or class with asarray function returning numpy
             array from single file.
         files : str, path-like, or sequence thereof
-            Glob filename pattern or sequence of file names. Default: \\*.
+            Glob filename pattern or sequence of file names. Default: \*.
             Binary streams are not supported.
         container : str or container instance
             Name or open instance of ZIP file in which files are stored.
@@ -9134,6 +9192,7 @@ class FileHandle:
 
     @property
     def lock(self):
+        """Return current lock instance."""
         return self._lock
 
     @lock.setter
@@ -9143,6 +9202,7 @@ class FileHandle:
 
     @property
     def has_lock(self):
+        """Return if a RLock is used."""
         return not isinstance(self._lock, NullContext)
 
 
@@ -13302,12 +13362,16 @@ def read_nih_image_header(fh, byteorder, dtype, count, offsetsize):
 def read_scanimage_metadata(fh):
     """Read ScanImage BigTIFF v3 or v4 static and ROI metadata from open file.
 
-    Return non-varying frame data as dict and ROI group data as JSON.
+    Return non-varying frame data, ROI group data, and version as
+    tuple(dict, dict, int).
 
     The settings can be used to read image data and metadata without parsing
     the TIFF file.
 
     Raise ValueError if file does not contain valid ScanImage metadata.
+
+    Frame data and ROI groups can alternatively be obtained from the Software
+    and Artist tags of any TIFF page.
 
     """
     fh.seek(0)
@@ -13321,13 +13385,14 @@ def read_scanimage_metadata(fh):
             raise ValueError(
                 f'invalid magic {magic} or version {version} number'
             )
+    except UnicodeDecodeError as exc:
+        raise ValueError('file must be opened in binary mode') from exc
     except Exception as exc:
         raise ValueError('not a ScanImage BigTIFF v3 or v4 file') from exc
 
     frame_data = matlabstr2py(bytes2str(fh.read(size0)[:-1]))
-    frame_data['version'] = version
     roi_data = read_json(fh, '<', None, size1, None) if size1 > 1 else {}
-    return frame_data, roi_data
+    return frame_data, roi_data, version
 
 
 def read_micromanager_metadata(fh):
@@ -13570,11 +13635,11 @@ def imagej_metadata(data, bytecounts, byteorder):
 
 
 def imagej_description_metadata(description):
-    """Return metatata from ImageJ image description as dict.
+    r"""Return metatata from ImageJ image description as dict.
 
     Raise ValueError if not a valid ImageJ description.
 
-    >>> description = 'ImageJ=1.11a\\nimages=510\\nhyperstack=true\\n'
+    >>> description = 'ImageJ=1.11a\nimages=510\nhyperstack=true\n'
     >>> imagej_description_metadata(description)  # doctest: +SKIP
     {'ImageJ': '1.11a', 'images': 510, 'hyperstack': True}
 
@@ -13755,11 +13820,11 @@ def json_description_metadata(description):
 
 
 def fluoview_description_metadata(description, ignoresections=None):
-    """Return metatata from FluoView image description as dict.
+    r"""Return metatata from FluoView image description as dict.
 
     The FluoView image description format is unspecified. Expect failures.
 
-    >>> descr = ('[Intensity Mapping]\\nMap Ch0: Range=00000 to 02047\\n'
+    >>> descr = ('[Intensity Mapping]\nMap Ch0: Range=00000 to 02047\n'
     ...          '[Intensity Mapping End]')
     >>> fluoview_description_metadata(descr)
     {'Intensity Mapping': {'Map Ch0: Range': '00000 to 02047'}}
@@ -13975,6 +14040,7 @@ def scanimage_artist_metadata(artist):
         log_warning(
             f'scanimage_artist_metadata: {exc.__class__.__name__}: {exc}'
         )
+    return None
 
 
 def olympusini_metadata(inistr):
@@ -14216,7 +14282,7 @@ if imagecodecs is None:
         return numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
 
     def bitorder_decode(data, out=None, _bitorder=[]):
-        """Reverse bits in each byte of bytes or numpy array.
+        r"""Reverse bits in each byte of bytes or numpy array.
 
         Decode data where pixels with lower column values are stored in the
         lower-order bits of the bytes (TIFF FillOrder is LSB2MSB).
@@ -14229,8 +14295,8 @@ if imagecodecs is None:
 
         Examples
         --------
-        >>> bitorder_decode(b'\\x01\\x64')
-        b'\\x80&'
+        >>> bitorder_decode(b'\x01\x64')
+        b'\x80&'
         >>> data = numpy.array([1, 666], dtype='uint16')
         >>> bitorder_decode(data)
         >>> data
@@ -14380,10 +14446,11 @@ def apply_colormap(image, colormap, contig=True):
 
 
 def parse_filenames(files, pattern, axesorder=None):
-    """Return shape and axes from sequence of file names matching pattern.
+    r"""Return shape and axes from sequence of file names matching pattern.
 
-    >>> parse_filenames(['c1001.ext', 'c2002.ext'],
-    ...                 r'([^\\d])(\\d)(?P<t>\\d+)\\.ext')
+    >>> parse_filenames(
+    ...     ['c1001.ext', 'c2002.ext'], r'([^\d])(\d)(?P<t>\d+)\.ext'
+    ... )
     ('ct', (2, 2), [(0, 0), (1, 1)], (1, 1))
 
     """
@@ -14899,7 +14966,7 @@ def create_output(out, shape, dtype, mode='w+', suffix=None):
 
 
 def matlabstr2py(string):
-    """Return Python object from Matlab string representation.
+    r"""Return Python object from Matlab string representation.
 
     Return str, bool, int, float, list (Matlab arrays or cells), or
     dict (Matlab structures) types.
@@ -14910,8 +14977,10 @@ def matlabstr2py(string):
     1
     >>> matlabstr2py("['x y z' true false; 1 2.0 -3e4; NaN Inf @class]")
     [['x y z', True, False], [1, 2.0, -30000.0], [nan, inf, '@class']]
-    >>> d = matlabstr2py("SI.hChannels.channelType = {'stripe' 'stripe'}\\n"
-    ...                  "SI.hChannels.channelsActive = 2")
+    >>> d = matlabstr2py(
+    ...     "SI.hChannels.channelType = {'stripe' 'stripe'}\n"
+    ...     "SI.hChannels.channelsActive = 2"
+    ... )
     >>> d['SI.hChannels.channelType']
     ['stripe', 'stripe']
 
@@ -15055,15 +15124,15 @@ def matlabstr2py(string):
 
 
 def stripnull(string, null=b'\x00', first=True):
-    """Return string truncated at first null character.
+    r"""Return string truncated at first null character.
 
-    Clean NULL terminated C strings. For Unicode strings use null='\\0'.
+    Clean NULL terminated C strings. For Unicode strings use null='\0'.
 
-    >>> stripnull(b'string\\x00\\x00')
+    >>> stripnull(b'string\x00\x00')
     b'string'
-    >>> stripnull(b'string\\x00string\\x00\\x00', first=False)
-    b'string\\x00string'
-    >>> stripnull('string\\x00', null='\\0')
+    >>> stripnull(b'string\x00string\x00\x00', first=False)
+    b'string\x00string'
+    >>> stripnull('string\x00', null='\0')
     'string'
 
     """
@@ -15082,13 +15151,13 @@ def stripnull(string, null=b'\x00', first=True):
 
 
 def stripascii(string):
-    """Return string truncated at last byte that is 7-bit ASCII.
+    r"""Return string truncated at last byte that is 7-bit ASCII.
 
     Clean NULL separated and terminated TIFF strings.
 
-    >>> stripascii(b'string\\x00string\\n\\x01\\x00')
-    b'string\\x00string\\n'
-    >>> stripascii(b'\\x00')
+    >>> stripascii(b'string\x00string\n\x01\x00')
+    b'string\x00string\n'
+    >>> stripascii(b'\x00')
     b''
 
     """
@@ -15478,7 +15547,7 @@ def hexdump(bytestr, width=75, height=24, snipat=-2, modulo=2, ellipsis=None):
 
 
 def isprintable(string):
-    """Return if all characters in string are printable.
+    r"""Return if all characters in string are printable.
 
     >>> isprintable('abc')
     True
@@ -16426,10 +16495,11 @@ def main():
             for img, page, series in images:
                 if img is None:
                     continue
+                keyframe = page.keyframe
                 vmin, vmax = settings.vmin, settings.vmax
-                if page.keyframe.nodata:
+                if keyframe.nodata:
                     try:
-                        vmin = numpy.min(img[img > page.keyframe.nodata])
+                        vmin = numpy.min(img[img > keyframe.nodata])
                     except ValueError:
                         pass
                 if tif.is_stk:
@@ -16446,15 +16516,15 @@ def main():
                 else:
                     title = f'{tif}\n {page}'
                 photometric = 'MINISBLACK'
-                if page.photometric not in (3,):
-                    photometric = TIFF.PHOTOMETRIC(page.photometric).name
+                if keyframe.photometric not in (3,):
+                    photometric = TIFF.PHOTOMETRIC(keyframe.photometric).name
                 imshow(
                     img,
                     title=title,
                     vmin=vmin,
                     vmax=vmax,
-                    bitspersample=page.bitspersample,
-                    nodata=page.nodata,
+                    bitspersample=keyframe.bitspersample,
+                    nodata=keyframe.nodata,
                     photometric=photometric,
                     interpolation=settings.interpol,
                     dpi=settings.dpi,
