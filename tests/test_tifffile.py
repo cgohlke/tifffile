@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2021.2.26
+:Version: 2021.3.4
 
 """
 
@@ -6111,9 +6111,52 @@ def test_read_scanimage_metadata():
     """Test read ScanImage metadata."""
     fname = private_file('ScanImage/TS_UnitTestImage_BigTIFF.tif')
     with open(fname, 'rb') as fh:
-        frame_data, roi_data = read_scanimage_metadata(fh)
+        frame_data, roi_data, version = read_scanimage_metadata(fh)
+    assert version == 3
     assert frame_data['SI.hChannels.channelType'] == ['stripe', 'stripe']
     assert roi_data['RoiGroups']['imagingRoiGroup']['ver'] == 1
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_scanimage_2021():
+    """Test read ScanImage metadata."""
+    # https://github.com/cgohlke/tifffile/issues/46
+    fname = private_file('ScanImage/ScanImage2021_3frames.tif')
+    with open(fname, 'rb') as fh:
+        frame_data, roi_data, version = read_scanimage_metadata(fh)
+    assert frame_data['SI.hChannels.channelType'] == [
+        'stripe',
+        'stripe',
+        'stripe',
+        'stripe',
+    ]
+    assert version == 4
+    assert roi_data['RoiGroups']['imagingRoiGroup']['ver'] == 1
+
+    with TiffFile(fname) as tif:
+        assert tif.is_scanimage
+        assert len(tif.pages) == 3
+        assert len(tif.series) == 1
+        assert tif.series[0].shape == (3, 256, 256)
+        assert tif.series[0].axes == 'TYX'
+        # non-varying scanimage_metadata
+        assert tif.scanimage_metadata['version'] == 4
+        assert 'FrameData' in tif.scanimage_metadata
+        assert 'RoiGroups' in tif.scanimage_metadata
+        # assert page properties
+        page = tif.pages[0]
+        assert page.is_scanimage
+        assert page.is_contiguous
+        assert page.compression == NONE
+        assert page.imagewidth == 256
+        assert page.imagelength == 256
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        # description tags
+        metadata = scanimage_description_metadata(page.description)
+        assert metadata['epoch'] == [2021, 3, 1, 17, 31, 28.047]
+        assert_aszarr_method(tif)
+        assert__str__(tif)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -6125,7 +6168,7 @@ def test_read_scanimage_no_framedata():
         assert len(tif.pages) == 100
         assert len(tif.series) == 1
         # no non-tiff scanimage_metadata
-        assert 'FrameData' not in tif.scanimage_metadata
+        assert not tif.scanimage_metadata
         # assert page properties
         page = tif.pages[0]
         assert page.is_scanimage
@@ -6155,7 +6198,9 @@ def test_read_scanimage_2gb():
         assert len(tif.pages) == 5980
         assert len(tif.series) == 1
         # no non-tiff scanimage_metadata
+        assert 'version' not in tif.scanimage_metadata
         assert 'FrameData' not in tif.scanimage_metadata
+        assert 'RoiGroups' not in tif.scanimage_metadata
         # assert page properties
         page = tif.pages[0]
         assert page.is_scanimage
@@ -6212,9 +6257,10 @@ def test_read_scanimage_bigtiff():
         metadata = scanimage_artist_metadata(page.tags['Artist'].value)
         assert metadata['RoiGroups']['imagingRoiGroup']['ver'] == 1
         metadata = tif.scanimage_metadata
+        assert metadata['version'] == 3
         assert metadata['FrameData']['SI.TIFF_FORMAT_VERSION'] == 3
         assert metadata['RoiGroups']['imagingRoiGroup']['ver'] == 1
-        assert metadata['Description']['frameNumbers'] == 1
+        assert 'Description' not in metadata
         # assert page offsets are correct
         assert tif.pages[-1].offset == 84527590  # not 84526526 (calculated)
         # read image data
@@ -7174,7 +7220,7 @@ def test_read_ome_jpeg2000_be():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_ome_samplesperpixel_mismatch(caplog):
     """Test read OME with SamplesPerPixel mismatch: OME=1, TIFF=4."""
     # https://forum.image.sc/t/ilastik-refuses-to-load-image-file/48541/1
