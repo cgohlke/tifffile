@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.2.26
+:Version: 2021.3.4
 
 Requirements
 ------------
@@ -61,15 +61,22 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.3.4
+    Pass 4389 tests.
+    Fix reading multi-file, multi-series OME-TIFF (#67).
+    Detect ScanImage 2021 files (#46).
+    Shape new version ScanImage series according to metadata (breaking).
+    Remove Description key from TiffFile.scanimage_metadata dict (breaking).
+    Return ScanImage version from read_scanimage_metadata (breaking).
+    Fix docstrings.
 2021.2.26
-    Pass 4388 tests.
     Squeeze axes of LSM series by default (breaking).
     Add option to preserve single dimensions when reading from series (WIP).
     Do not allow appending to OME-TIFF files.
     Fix reading STK files without name attribute in metadata.
     Make TIFF constants multi-thread safe and pickleable (#64).
     Add detection of NDTiffStorage MajorVersion to read_micromanager_metadata.
-    Support ScanImage v4 files in read_scanimage_metadata (not tested).
+    Support ScanImage v4 files in read_scanimage_metadata.
 2021.2.1
     Fix multi-threaded access of ZarrTiffStores using same TiffFile instance.
     Use fallback zlib and lzma codecs with imagecodecs lite builds.
