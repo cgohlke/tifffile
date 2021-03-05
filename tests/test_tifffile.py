@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.4
+:Version: 2021.3.5
 
 """
 
@@ -8613,6 +8613,35 @@ def test_read_zarr_multifile():
         del data
     finally:
         store.close()
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_eer(caplog):
+    """Test read EER metadata."""
+    # https://github.com/fei-company/EerReaderLib/issues/1
+    fname = private_file('EER/Example_1.eer')
+    with TiffFile(fname) as tif:
+        assert not caplog.text  # no warning
+        assert tif.is_bigtiff
+        assert tif.is_eer
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 238
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert not page.is_contiguous
+        assert page.photometric == MINISBLACK
+        assert page.compression == 65001
+        assert page.imagewidth == 4096
+        assert page.imagelength == 4096
+        assert page.bitspersample == 1
+        assert page.samplesperpixel == 1
+        # assert data and metadata
+        with pytest.raises(ValueError):
+            page.asarray()
+        meta = tif.eer_metadata
+        assert meta.startswith('<metadata>')
+        assert__str__(tif)
 
 
 ###############################################################################
