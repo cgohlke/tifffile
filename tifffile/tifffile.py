@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.4
+:Version: 2021.3.5
 
 Requirements
 ------------
@@ -91,13 +91,16 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.3.5
+    Pass 4390 tests.
+    Preliminary support for EER format (#68).
+    Do not warn about unknown compression (#68).
 2021.3.4
-    Pass 4389 tests.
     Fix reading multi-file, multi-series OME-TIFF (#67).
     Detect ScanImage 2021 files (#46).
     Shape new version ScanImage series according to metadata (breaking).
     Remove Description key from TiffFile.scanimage_metadata dict (breaking).
-    Return ScanImage version from read_scanimage_metadata (breaking).
+    Also return ScanImage version from read_scanimage_metadata (breaking).
     Fix docstrings.
 2021.2.26
     Squeeze axes of LSM series by default (breaking).
@@ -389,6 +392,8 @@ References
 * CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
   Exif Version 2.31.
   http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
+* The EER (Electron Event Representation) file format.
+  https://github.com/fei-company/EerReaderLib
 
 Examples
 --------
@@ -642,7 +647,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.3.4'
+__version__ = '2021.3.5'
 
 __all__ = (
     'OmeXml',
@@ -4926,6 +4931,13 @@ class TiffFile:
             return None
         return self.pages[0].geotiff_tags
 
+    @property
+    def eer_metadata(self):
+        """Return EER metadata from first page as XML."""
+        if not self.is_eer:
+            return None
+        return self.pages[0].tags[65001].value.decode()
+
 
 class TiffPages:
     """Sequence of TIFF image file directories (IFD chain).
@@ -7038,6 +7050,15 @@ class TiffPage:
             and self.description[-13:] == '</DataObject>'
         )
 
+    @property
+    def is_eer(self):
+        """Page contains EER metadata."""
+        return (
+            self.parent.is_bigtiff
+            and self.compression in (65000, 65001)
+            and 65001 in self.tags
+        )
+
 
 class TiffFrame:
     """Lightweight TIFF image file directory (IFD).
@@ -7410,7 +7431,8 @@ class TiffTag:
                 try:
                     value = tuple(t(v) for v in value)
                 except ValueError as exc:
-                    log_warning(f'TiffTag {code}: {exc}')
+                    if code not in (259, 317):  # ignore compression/predictor
+                        log_warning(f'TiffTag {code}: {exc}')
             if process:
                 if len(value) == 1:
                     value = value[0]
@@ -10794,8 +10816,9 @@ class TIFF:
                 (59932, 'Padding'),
                 (59933, 'OffsetSchema'),
                 # Reusable Tags 65000-65535
-                # (65000,  Dimap_Document XML
-                # (65000-65112,  Photoshop Camera RAW EXIF tags
+                # (65000,  DimapDocumentXML'),
+                # (65001, 'EER_XML'),
+                # 65000-65112,  Photoshop Camera RAW EXIF tags
                 # (65000, 'OwnerName'),
                 # (65001, 'SerialNumber'),
                 # (65002, 'Lens'),
@@ -10980,8 +11003,10 @@ class TIFF:
             ZSTD = 50000
             WEBP = 50001
             PIXTIFF = 50013
-            KODAK_DCR = 65000
-            PENTAX_PEF = 65535
+            # EER_V0 = 65000
+            # EER_V1 = 65001
+            # KODAK_DCR = 65000
+            # PENTAX_PEF = 65535
 
             def __bool__(self):
                 return self != 1
@@ -11336,7 +11361,7 @@ class TIFF:
                             )
 
                     else:
-                        raise KeyError(f'{key} is not a valid PREDICTOR')
+                        raise KeyError(f'{key} is not a known PREDICTOR')
                 except AttributeError:
                     raise KeyError(
                         f'{TIFF.PREDICTOR(key)!r}'
@@ -11393,7 +11418,7 @@ class TIFF:
                             )
 
                     else:
-                        raise KeyError(f'{key} is not a valid PREDICTOR')
+                        raise KeyError(f'{key} is not a known PREDICTOR')
                 except AttributeError:
                     raise KeyError(
                         f'{TIFF.PREDICTOR(key)!r}'
@@ -11458,7 +11483,7 @@ class TIFF:
                         try:
                             msg = f'{TIFF.COMPRESSION(key)!r} not supported'
                         except ValueError:
-                            msg = f'{key} is not a valid COMPRESSION'
+                            msg = f'{key} is not a known COMPRESSION'
                         raise KeyError(msg)
                 except AttributeError:
                     raise KeyError(
@@ -11525,7 +11550,7 @@ class TIFF:
                         try:
                             msg = f'{TIFF.COMPRESSION(key)!r} not supported'
                         except ValueError:
-                            msg = f'{key} is not a valid COMPRESSION'
+                            msg = f'{key} is not a known COMPRESSION'
                         raise KeyError(msg)
                 except AttributeError:
                     raise KeyError(
@@ -11601,6 +11626,7 @@ class TIFF:
             'tf8',
             'tf2',
             'btf',
+            'eer',
         )
 
     def FILEOPEN_FILTER():
