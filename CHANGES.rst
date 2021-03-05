@@ -1,12 +1,15 @@
 Revisions
 ---------
+2021.3.5
+    Pass 4390 tests.
+    Preliminary support for EER format (#68).
+    Do not warn about unknown compression (#68).
 2021.3.4
-    Pass 4389 tests.
     Fix reading multi-file, multi-series OME-TIFF (#67).
     Detect ScanImage 2021 files (#46).
     Shape new version ScanImage series according to metadata (breaking).
     Remove Description key from TiffFile.scanimage_metadata dict (breaking).
-    Return ScanImage version from read_scanimage_metadata (breaking).
+    Also return ScanImage version from read_scanimage_metadata (breaking).
     Fix docstrings.
 2021.2.26
     Squeeze axes of LSM series by default (breaking).
