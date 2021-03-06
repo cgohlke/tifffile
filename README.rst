@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.4
+:Version: 2021.3.5
 
 Requirements
 ------------
@@ -61,13 +61,16 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.3.5
+    Pass 4390 tests.
+    Preliminary support for EER format (#68).
+    Do not warn about unknown compression (#68).
 2021.3.4
-    Pass 4389 tests.
     Fix reading multi-file, multi-series OME-TIFF (#67).
     Detect ScanImage 2021 files (#46).
     Shape new version ScanImage series according to metadata (breaking).
     Remove Description key from TiffFile.scanimage_metadata dict (breaking).
-    Return ScanImage version from read_scanimage_metadata (breaking).
+    Also return ScanImage version from read_scanimage_metadata (breaking).
     Fix docstrings.
 2021.2.26
     Squeeze axes of LSM series by default (breaking).
@@ -359,6 +362,8 @@ References
 * CIPA DC-008-2016: Exchangeable image file format for digital still cameras:
   Exif Version 2.31.
   http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
+* The EER (Electron Event Representation) file format.
+  https://github.com/fei-company/EerReaderLib
 
 Examples
 --------
