@@ -102,11 +102,13 @@ setup(
         'roifile',
         'lxml',
         'zarr>=2.5.0',
+        'fsspec',
     ],
     entry_points={
         'console_scripts': [
             'tifffile = tifffile:main',
             'tiffcomment = tifffile.tiffcomment:main',
+            'tiff2fsspec = tifffile.tiff2fsspec:main',
             'lsm2bin = tifffile.lsm2bin:main',
         ],
         # 'napari.plugin': ['tifffile = tifffile.napari_tifffile'],
