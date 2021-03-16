@@ -1,7 +1,10 @@
 Revisions
 ---------
+2021.3.16
+    Pass 4391 tests.
+    TIFF is no longer a defended trademark.
+    Add method to export fsspec ReferenceFileSystem from ZarrTiffStore (#56).
 2021.3.5
-    Pass 4390 tests.
     Preliminary support for EER format (#68).
     Do not warn about unknown compression (#68).
 2021.3.4
