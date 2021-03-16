@@ -29,7 +29,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-"""Read and write TIFF(r) files.
+"""Read and write TIFF files.
 
 Tifffile is a Python library to
 
@@ -53,7 +53,7 @@ Specifically, CCITT and OJPEG compression, chroma subsampling without JPEG
 compression, color space transformations, samples with differing types, or
 IPTC and XMP metadata are not implemented.
 
-TIFF(r), the Tagged Image File Format, is a trademark and under control of
+TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
 STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, and OME-TIFF, are custom
 extensions defined by Molecular Devices (Universal Imaging Corporation),
@@ -71,7 +71,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.5
+:Version: 2021.3.16
 
 Requirements
 ------------
@@ -91,8 +91,11 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.3.16
+    Pass 4391 tests.
+    TIFF is no longer a defended trademark.
+    Add method to export fsspec ReferenceFileSystem from ZarrTiffStore (#56).
 2021.3.5
-    Pass 4390 tests.
     Preliminary support for EER format (#68).
     Do not warn about unknown compression (#68).
 2021.3.4
@@ -647,7 +650,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.3.5'
+__version__ = '2021.3.16'
 
 __all__ = (
     'OmeXml',
@@ -4200,13 +4203,26 @@ class TiffFile:
                     del ifds
                     continue
 
-                # set a keyframe on all IFDs
-                for i in ifds:
-                    if i is not None:
-                        try:
-                            i.keyframe = keyframe
-                        except RuntimeError as exc:
-                            log_warning(f'OME series: {exc}')
+                # set keyframe on all IFDs
+                keyframes = {keyframe.parent.filehandle.name: keyframe}
+                for i, page in enumerate(ifds):
+                    if page is None:
+                        continue
+                    fh = page.parent.filehandle
+                    if fh.name not in keyframes:
+                        if page.keyframe != page:
+                            # reload TiffPage from file
+                            isclosed = fh.closed
+                            if isclosed:
+                                fh.open()
+                            page.parent.pages.keyframe = page.index
+                            page = page.parent.pages[page.index]
+                            ifds[i] = page
+                            if isclosed:
+                                fh.close()
+                        keyframes[fh.name] = page
+                    if page.keyframe != page:
+                        page.keyframe = keyframes[fh.name]
 
                 moduloref.append(annotationref)
                 series.append(
@@ -6399,6 +6415,11 @@ class TiffPage:
         """Return number of elements in array."""
         return product(self.shape)
 
+    @property
+    def nbytes(self):
+        """Return number of bytes in array."""
+        return product(self.shape) * self.dtype.itemsize
+
     @lazyattr
     def chunks(self):
         """Return shape of tiles or stripes."""
@@ -8144,7 +8165,7 @@ class ZarrStore(MutableMapping):
         """Serialize obj to a JSON formatted string."""
         return json.dumps(
             obj,
-            indent=4,
+            indent=1,
             sort_keys=True,
             ensure_ascii=True,
             separators=(',', ': '),
@@ -8235,6 +8256,8 @@ class ZarrTiffStore(ZarrStore):
                 series.keyframe.decode  # cache decode function
                 shape = series.get_shape(squeeze)
                 dtype = series.dtype
+                if fillvalue is None:
+                    self._fillvalue = fillvalue = series.keyframe.nodata
                 if self._chunkmode:
                     chunks = series.keyframe.shape
                 else:
@@ -8256,6 +8279,8 @@ class ZarrTiffStore(ZarrStore):
             series.keyframe.decode  # cache decode function
             shape = series.get_shape(squeeze)
             dtype = series.dtype
+            if fillvalue is None:
+                self._fillvalue = fillvalue = series.keyframe.nodata
             if self._chunkmode:
                 chunks = series.keyframe.shape
             else:
@@ -8276,7 +8301,128 @@ class ZarrTiffStore(ZarrStore):
 
     def close(self):
         """Close ZarrTiffStore."""
-        self._filecache.clear()
+        if hasattr(self, '_filecache'):
+            self._filecache.clear()
+
+    def write_fsspec(self, arg, url, _version=0):
+        """Write fsspec ReferenceFileSystem as JSON to file.
+
+        Url is the remote location of the TIFF file without the file name(s).
+
+        Raise ValueError if TIFF store can not be represented as
+        ReferenceFileSystem due to features that are not supported by zarr
+        or numcodecs:
+
+        * compressors, e.g. PackBits, LZW, JPEG, JPEG2000
+        * filters, e.g. predictors, bitorder reversal, packed integers
+        * dtypes, e.g. float24
+        * JPEGTables in multi-page files
+        * incomplete chunks, e.g. if imagelength % rowsperstrip != 0
+
+        Files containing incomplete tiles may fail at runtime.
+
+        https://github.com/intake/fsspec-reference-maker
+
+        """
+        compressors = {
+            1: None,
+            8: 'zlib',
+            32946: 'zlib',
+            34925: 'lzma',
+            50000: 'zstd',
+            # 5: 'lzw',
+            # 7: 'jpeg',
+            # 34712: 'jpeg2000',
+            # 50001: 'webp',
+        }
+
+        for series in self._data:
+            errormsg = ' not supported by fsspec ReferenceFileSystem'
+            keyframe = series.keyframe
+            if keyframe.compression not in compressors:
+                raise ValueError(f'{keyframe.compression!r}' + errormsg)
+            if keyframe.jpegtables is not None:
+                # TODO: should work for single-page series
+                raise ValueError('JPEGTables' + errormsg)
+            if keyframe.predictor != 1:
+                raise ValueError(f'{keyframe.predictor!r}' + errormsg)
+            if keyframe.sampleformat not in (1, 2, 3, 6):
+                raise ValueError(f'{keyframe.sampleformat!r}' + errormsg)
+            if keyframe.bitspersample not in (8, 16, 32, 64, 128):
+                raise ValueError(
+                    f'BitsPerSample {keyframe.bitspersample}' + errormsg
+                )
+            if (
+                not self._chunkmode
+                and not keyframe.is_tiled
+                and keyframe.imagelength % keyframe.rowsperstrip
+            ):
+                raise ValueError('incomplete chunks' + errormsg)
+            if self._chunkmode and not keyframe.is_final:
+                raise ValueError(f'{self._chunkmode!r}' + errormsg)
+
+        if url is None:
+            url = ''
+        elif url and url[-1] != '/':
+            url += '/'
+
+        refs = dict()
+        if _version == 1:
+            refs['version'] = 1
+
+        for key, value in self._store.items():
+            if '.zarray' in key:
+                level = int(key.split('/')[0]) if '/' in key else 0
+                keyframe = self._data[level].keyframe
+                if keyframe.compression != 1:
+                    value = json.loads(value)
+                    value['compressor'] = {
+                        'id': compressors[keyframe.compression]
+                    }
+                    value = ZarrTiffStore._json(value)
+            refs[key] = value.decode()
+
+        if hasattr(arg, 'write'):
+            fh = arg
+        else:
+            fh = open(arg, 'w')
+
+        fh.write(json.dumps(refs, indent=1)[:-2])
+
+        if _version == 1:
+            fh.write(',\n "refs": {')
+            comma = False
+            indent = '  '
+        else:
+            comma = True
+            indent = ' '
+
+        for key, value in self._store.items():
+            if '.zarray' in key:
+                value = json.loads(value)
+                shape = value['shape']
+                chunks = value['chunks']
+                level = (key.split('/')[0] + '/') if '/' in key else ''
+                for chunkindex in ZarrTiffStore._ndindex(shape, chunks):
+                    key = level + chunkindex
+                    keyframe, page, _, offset, bytecount = self._parse_key(key)
+                    if page and self._chunkmode and offset is None:
+                        offset = page.dataoffsets[0]
+                        bytecount = keyframe.nbytes
+                    if offset and bytecount:
+                        fname = keyframe.parent.filehandle.name
+                        fh.write(
+                            (',' if comma else '') + f'\n{indent}"{key}": '
+                            f'["{url}{fname}", {offset}, {bytecount}]'
+                        )
+                        comma = True
+
+        if _version == 1:
+            fh.write('\n }')
+        fh.write('\n}')
+
+        if not hasattr(arg, 'write'):
+            fh.close()
 
     def _getitem(self, key):
         """Return chunk from file."""
@@ -8336,19 +8482,19 @@ class ZarrTiffStore(ZarrStore):
             offset += page.dataoffsets[chunkindex]
             if self._chunkmode:
                 bytecount = page.size * page.dtype.itemsize
-                return keyframe, page, chunkindex, offset, bytecount
+                return page.keyframe, page, chunkindex, offset, bytecount
         elif self._chunkmode:
             page = series[pageindex]
             if page is None:
                 return keyframe, None, None, 0, 0
-            return keyframe, page, None, None, None
+            return page.keyframe, page, None, None, None
         else:
             page = series[pageindex]
             if page is None:
                 return keyframe, None, chunkindex, 0, 0
             offset = page.dataoffsets[chunkindex]
         bytecount = page.databytecounts[chunkindex]
-        return keyframe, page, chunkindex, offset, bytecount
+        return page.keyframe, page, chunkindex, offset, bytecount
 
     def _indices(self, key, series):
         """Return page and strile indices from zarr chunk index."""
@@ -8439,6 +8585,16 @@ class ZarrTiffStore(ZarrStore):
                 break
         # assert ndim == len(newchunks)
         return tuple(newchunks[::-1])
+
+    @staticmethod
+    def _ndindex(shape, chunks):
+        """Return iterator over all chunk index strings."""
+        assert len(shape) == len(chunks)
+        chunked = tuple(
+            i // j + (1 if i % j else 0) for i, j in zip(shape, chunks)
+        )
+        for indices in numpy.ndindex(chunked):
+            yield '.'.join(str(index) for index in indices)
 
 
 class ZarrFileStore(ZarrStore):
@@ -15865,6 +16021,19 @@ def tiffcomment(arg, comment=None, index=None, code=None):
         if comment is None:
             return tag.value
         tag.overwrite(tif, comment)
+
+
+def tiff2fsspec(
+    filename, url, out=None, key=None, series=None, level=None, chunkmode=None
+):
+    """Write fsspec ReferenceFileSystem JSON from TIFF file."""
+    if out is None:
+        out = filename + '.json'
+    with TiffFile(filename) as tif:
+        with tif.aszarr(
+            key=key, series=series, level=level, chunkmode=chunkmode
+        ) as store:
+            store.write_fsspec(out, url)
 
 
 def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
