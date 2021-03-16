@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.5
+:Version: 2021.3.16
 
 """
 
@@ -59,8 +59,11 @@ import re
 import struct
 import sys
 import tempfile
+import urllib.request
+import urllib.error
 from io import BytesIO
 
+import fsspec
 import numpy
 import pytest
 import tifffile
@@ -182,6 +185,7 @@ SKIP_PRIVATE = False  # skip private files
 SKIP_VALIDATE = True  # skip validate written files with jhove
 SKIP_CODECS = False
 SKIP_ZARR = False
+SKIP_HTTP = False
 SKIP_PYPY = 'PyPy' in sys.version
 SKIP_BE = sys.byteorder == 'big'
 REASON = 'skipped'
@@ -224,6 +228,14 @@ HERE = os.path.dirname(__file__)
 TEMP_DIR = os.path.join(HERE, '_tmp')
 PRIVATE_DIR = os.path.join(HERE, 'data', 'private')
 PUBLIC_DIR = os.path.join(HERE, 'data', 'public')
+
+URL = 'http://localhost:8080/'  # TEMP_DIR
+
+if not SKIP_HTTP:
+    try:
+        urllib.request.urlopen(URL, timeout=0.2)
+    except urllib.error.URLError:
+        SKIP_HTTP = False
 
 if not os.path.exists(TEMP_DIR):
     TEMP_DIR = tempfile.gettempdir()
@@ -2810,21 +2822,17 @@ def assert_filehandle(fh, offset=0):
         )
 
 
+@pytest.mark.skipif(SKIP_HTTP, reason=REASON)
 def test_filehandle_seekable():
     """Test FileHandle must be seekable."""
-    import ssl
-    from urllib.request import HTTPSHandler, build_opener
+    from urllib.request import HTTPHandler, build_opener
 
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-
-    opener = build_opener(HTTPSHandler(context=context))
+    opener = build_opener(HTTPHandler())
     opener.addheaders = [('User-Agent', 'test_tifffile.py')]
     try:
-        fh = opener.open('https://localhost/tests/test.tif')
+        fh = opener.open(URL + 'data/test_http.tif')
     except OSError:
-        pytest.skip('https://localhost/tests/test.tif')
+        pytest.skip(URL + 'data/test_http.tif')
 
     with pytest.raises(ValueError):
         FileHandle(fh)
@@ -8615,6 +8623,20 @@ def test_read_zarr_multifile():
         store.close()
 
 
+def assert_fsspec(url, data):
+    """Assert fsspec ReferenceFileSystem from local http server """
+    mapper = fsspec.get_mapper(
+        'reference://', references=url, target_protocol=url.split(':')[0]
+    )
+    zobj = zarr.open(mapper, mode='r')
+    if isinstance(zobj, zarr.Group):
+        assert_array_equal(zobj[0][:], data)
+        assert_array_equal(zobj[1][:], data[:, ::2, ::2])
+        assert_array_equal(zobj[2][:], data[:, ::4, ::4])
+    else:
+        assert_array_equal(zobj[:], data)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_eer(caplog):
     """Test read EER metadata."""
@@ -11459,6 +11481,7 @@ def test_write_3gb():
     data = numpy.empty((4096 - 32, 1024, 1024), dtype='uint8')
     with TempFileName('3gb', remove=False) as fname:
         imwrite(fname, data)
+        del data
         assert_valid_tiff(fname)
         # assert file
         with TiffFile(fname) as tif:
@@ -11492,6 +11515,7 @@ def test_write_bigtiff():
             image = tif.asarray(out='memmap')
             assert_array_equal(data, image)
             del image
+            del data
             assert__str__(tif)
 
 
@@ -11667,6 +11691,67 @@ def test_write_multiple_series():
             data1[0],
             imread(fname, key=slice(107, 122)).reshape(data1[0].shape),
         )
+
+
+@pytest.mark.skipif(SKIP_HTTP or SKIP_ZARR, reason=REASON)
+def test_write_fsspec():
+    """Test write fsspec for multi-series OME-TIFF."""
+    data0 = random_data('uint8', (3, 252, 244))
+    data1 = random_data('uint8', (219, 301, 3))
+    data2 = random_data('uint8', (3, 219, 301))
+
+    with TempFileName('write_fsspec', ext='.ome.tif') as fname:
+        filename = os.path.split(fname)[-1]
+        with TiffWriter(fname, ome=True) as tif:
+            # series 0
+            options = dict(
+                tile=(64, 64), photometric=MINISBLACK, compression=DEFLATE
+            )
+            tif.write(data0, subifds=2, **options)
+            tif.write(data0[:, ::2, ::2], subfiletype=1, **options)
+            tif.write(data0[:, ::4, ::4], subfiletype=1, **options)
+            # series 1
+            tif.write(data1, rowsperstrip=data1.shape[0])
+            # series 2
+            tif.write(
+                data2, rowsperstrip=data1.shape[1], planarconfig=SEPARATE
+            )
+            # series 3
+            tif.write(data1, rowsperstrip=5)
+            # series 4
+            tif.write(data1, compression=JPEG)
+
+        with TiffFile(fname) as tif:
+            assert tif.is_ome
+            assert len(tif.series) == 5
+
+            with tif.series[0].aszarr() as store:
+                assert store.is_multiscales
+                store.write_fsspec(fname + '.s0.json', URL)
+                assert_fsspec(URL + filename + '.s0.json', data0)
+
+            with tif.series[1].aszarr() as store:
+                assert not store.is_multiscales
+                store.write_fsspec(fname + '.s1.json', URL)
+                assert_fsspec(URL + filename + '.s1.json', data1)
+
+            with tif.series[2].aszarr() as store:
+                store.write_fsspec(fname + '.s2.json', URL)
+                assert_fsspec(URL + filename + '.s2.json', data2)
+
+            with tif.series[3].aszarr(chunkmode=2) as store:
+                store.write_fsspec(fname + '.s3.json', URL)
+                assert_fsspec(URL + filename + '.s3.json', data1)
+
+            with tif.series[3].aszarr() as store:
+                with pytest.raises(ValueError):
+                    # imagelength % rowsperstrip != 0
+                    store.write_fsspec(fname + '.s3fail.json', URL)
+
+            with tif.series[4].aszarr() as store:
+                with pytest.raises(ValueError):
+                    # JPEG not supported by numcodecs
+                    store.write_fsspec(fname + '.s4fail.json', URL)
 
 
 ###############################################################################
