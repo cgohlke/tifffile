@@ -1,5 +1,5 @@
-Read and write TIFF(r) files
-============================
+Read and write TIFF files
+=========================
 
 Tifffile is a Python library to
 
@@ -23,7 +23,7 @@ Specifically, CCITT and OJPEG compression, chroma subsampling without JPEG
 compression, color space transformations, samples with differing types, or
 IPTC and XMP metadata are not implemented.
 
-TIFF(r), the Tagged Image File Format, is a trademark and under control of
+TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
 STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, and OME-TIFF, are custom
 extensions defined by Molecular Devices (Universal Imaging Corporation),
@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.5
+:Version: 2021.3.16
 
 Requirements
 ------------
@@ -61,8 +61,11 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.3.16
+    Pass 4391 tests.
+    TIFF is no longer a defended trademark.
+    Add method to export fsspec ReferenceFileSystem from ZarrTiffStore (#56).
 2021.3.5
-    Pass 4390 tests.
     Preliminary support for EER format (#68).
     Do not warn about unknown compression (#68).
 2021.3.4
