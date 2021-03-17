@@ -42,7 +42,7 @@ Private data files are not available due to size and copyright restrictions.
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.16
+:Version: 2021.3.17
 
 """
 
@@ -6902,7 +6902,7 @@ def test_read_ome_multifile():
 def test_read_ome_multifile_missing(caplog):
     """Test read OME referencing missing files."""
     # (2, 43, 10, 512, 512) CTZYX uint8, 85 files missing
-    fname = private_file('OME/tubhiswt_C1_TP42.ome.tif')
+    fname = private_file('OME/tubhiswt_C0_TP34.ome.tif')
     with TiffFile(fname) as tif:
         assert tif.is_ome
         assert tif.byteorder == '<'
@@ -6927,13 +6927,14 @@ def test_read_ome_multifile_missing(caplog):
         assert series.shape == (2, 43, 10, 512, 512)
         assert series.dtype.name == 'uint8'
         assert series.axes == 'CTZYX'
-        assert not series.is_multifile
+        assert series.is_multifile
         # assert data
         data = tif.asarray(out='memmap')
         assert isinstance(data, numpy.core.memmap)
         assert data.shape == (2, 43, 10, 512, 512)
         assert data.dtype.name == 'uint8'
-        assert data[1, 42, 9, 426, 272] == 123
+        assert data[0, 34, 4, 303, 206] == 82
+        assert data[1, 25, 2, 425, 272] == 196
         assert_aszarr_method(tif, data)
         assert_aszarr_method(tif, data, chunkmode='page')
         del data
@@ -8621,20 +8622,6 @@ def test_read_zarr_multifile():
         del data
     finally:
         store.close()
-
-
-def assert_fsspec(url, data):
-    """Assert fsspec ReferenceFileSystem from local http server """
-    mapper = fsspec.get_mapper(
-        'reference://', references=url, target_protocol=url.split(':')[0]
-    )
-    zobj = zarr.open(mapper, mode='r')
-    if isinstance(zobj, zarr.Group):
-        assert_array_equal(zobj[0][:], data)
-        assert_array_equal(zobj[1][:], data[:, ::2, ::2])
-        assert_array_equal(zobj[2][:], data[:, ::4, ::4])
-    else:
-        assert_array_equal(zobj[:], data)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -11693,16 +11680,30 @@ def test_write_multiple_series():
         )
 
 
+def assert_fsspec(url, data):
+    """Assert fsspec ReferenceFileSystem from local http server """
+    mapper = fsspec.get_mapper(
+        'reference://', references=url, target_protocol=url.split(':')[0]
+    )
+    zobj = zarr.open(mapper, mode='r')
+    if isinstance(zobj, zarr.Group):
+        assert_array_equal(zobj[0][:], data)
+        assert_array_equal(zobj[1][:], data[:, ::2, ::2])
+        assert_array_equal(zobj[2][:], data[:, ::4, ::4])
+    else:
+        assert_array_equal(zobj[:], data)
+
+
 @pytest.mark.skipif(SKIP_HTTP or SKIP_ZARR, reason=REASON)
 def test_write_fsspec():
     """Test write fsspec for multi-series OME-TIFF."""
     data0 = random_data('uint8', (3, 252, 244))
     data1 = random_data('uint8', (219, 301, 3))
-    data2 = random_data('uint8', (3, 219, 301))
+    data2 = random_data('uint16', (3, 219, 301))
 
     with TempFileName('write_fsspec', ext='.ome.tif') as fname:
         filename = os.path.split(fname)[-1]
-        with TiffWriter(fname, ome=True) as tif:
+        with TiffWriter(fname, ome=True, byteorder='>') as tif:
             # series 0
             options = dict(
                 tile=(64, 64), photometric=MINISBLACK, compression=DEFLATE
