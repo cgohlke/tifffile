@@ -1,7 +1,10 @@
 Revisions
 ---------
-2021.3.16
+2021.3.17
     Pass 4391 tests.
+    Fix regression reading multi-file OME-TIFF with missing files (#72).
+    Fix fsspec ReferenceFileSystem with non-native byte order (#56).
+2021.3.16
     TIFF is no longer a defended trademark.
     Add method to export fsspec ReferenceFileSystem from ZarrTiffStore (#56).
 2021.3.5
