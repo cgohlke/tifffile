@@ -41,7 +41,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.16
+:Version: 2021.3.17
 
 Requirements
 ------------
@@ -61,8 +61,11 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2021.3.16
+2021.3.17
     Pass 4391 tests.
+    Fix regression reading multi-file OME-TIFF with missing files (#72).
+    Fix fsspec ReferenceFileSystem with non-native byte order (#56).
+2021.3.16
     TIFF is no longer a defended trademark.
     Add method to export fsspec ReferenceFileSystem from ZarrTiffStore (#56).
 2021.3.5
@@ -198,53 +201,6 @@ Revisions
     Fix missing ReferenceBlackWhite tag for YCbCr photometrics.
     Fix reading lossless JPEG compressed DNG files.
 2020.6.3
-    Support os.PathLike file names (#9).
-2020.5.30
-    Re-add pure Python PackBits decoder.
-2020.5.25
-    Make imagecodecs an optional dependency again.
-    Disable multi-threaded decoding of small LZW compressed segments.
-    Fix caching of TiffPage.decode method.
-    Fix xml.etree.cElementTree ImportError on Python 3.9.
-    Fix tostring DeprecationWarning.
-2020.5.11
-    Fix reading ImageJ grayscale mode RGB images (#6).
-    Remove napari reader plugin.
-2020.5.7
-    Add napari reader plugin (tentative).
-    Fix writing single tiles larger than image data (#3).
-    Always store ExtraSamples values in tuple (breaking).
-2020.5.5
-    Allow to write tiled TIFF from iterable of tiles (WIP).
-    Add method to iterate over decoded segments of TiffPage (WIP).
-    Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
-    Fix reading invalid files with too many strips.
-    Fix writing over-aligned image data.
-    Detect OME-XML without declaration (#2).
-    Support LERC compression (WIP).
-    Delay load imagecodecs functions.
-    Remove maxsize parameter from asarray (breaking).
-    Deprecate ijmetadata parameter from TiffWriter.save (use metadata).
-2020.2.16
-    Add method to decode individual strips or tiles.
-    Read strips and tiles in order of their offsets.
-    Enable multi-threading when decompressing multiple strips.
-    Replace TiffPage.tags dictionary with TiffTags (breaking).
-    Replace TIFF.TAGS dictionary with TiffTagRegistry.
-    Remove TIFF.TAG_NAMES (breaking).
-    Improve handling of TiffSequence parameters in imread.
-    Match last uncommon parts of file paths to FileSequence pattern (breaking).
-    Allow letters in FileSequence pattern for indexing well plate rows.
-    Allow to reorder axes in FileSequence.
-    Allow to write > 4 GB arrays to plain TIFF when using compression.
-    Allow to write zero size numpy arrays to nonconformant TIFF (tentative).
-    Fix xml2dict.
-    Require imagecodecs >= 2020.1.31.
-    Remove support for imagecodecs-lite (breaking).
-    Remove verify parameter to asarray method (breaking).
-    Remove deprecated lzw_decode functions (breaking).
-    Remove support for Python 2.7 and 3.5 (breaking).
-2019.7.26
     ...
 
 Refer to the CHANGES file for older revisions.
