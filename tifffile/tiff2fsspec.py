@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# tiff2fsspec.py
+# tifffile/tiff2fsspec.py
 
 """Write fsspec ReferenceFileSystem for TIFF file.
 
@@ -63,6 +63,9 @@ def main():
         default=None,
         help='mode used for chunking {None, pages}',
     )
+    parser.add_argument(
+        '--ver', type=int, default=None, help='version of ReferenceFileSystem'
+    )
     args = parser.parse_args()
 
     tiff2fsspec(
@@ -73,6 +76,7 @@ def main():
         series=args.series,
         level=args.level,
         chunkmode=args.chunkmode,
+        version=args.ver,
     )
 
 
