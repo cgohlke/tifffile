@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# tiffcomment.py
+# tifffile/tiffcomment.py
 
 """Print or replace ImageDescription in first page of TIFF file.
 
