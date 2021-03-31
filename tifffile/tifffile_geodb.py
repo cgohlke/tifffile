@@ -1,4 +1,4 @@
-# tifffile_geodb.py
+# tifffile/tifffile_geodb.py
 
 """GeoTIFF GeoKey Database.
 
