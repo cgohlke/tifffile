@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# lsm2bin.py
+# tifffile/lsm2bin.py
 
 """Convert TZCYX LSM file to series of BIN files.
 
