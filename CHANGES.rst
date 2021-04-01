@@ -1,7 +1,10 @@
 Revisions
 ---------
-2021.3.17
+2021.3.31
     Pass 4391 tests.
+    Use JPEG restart markers as tile offsets in NDPI.
+    Support version 1 and more codecs in fsspec ReferenceFileSystem (untested).
+2021.3.17
     Fix regression reading multi-file OME-TIFF with missing files (#72).
     Fix fsspec ReferenceFileSystem with non-native byte order (#56).
 2021.3.16
