@@ -55,11 +55,12 @@ IPTC and XMP metadata are not implemented.
 
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, and OME-TIFF, are custom
-extensions defined by Molecular Devices (Universal Imaging Corporation),
-Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
-Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica, and the
-Open Microscopy Environment consortium, respectively.
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, ZIF, and OME-TIFF,
+are custom extensions defined by Molecular Devices (Universal Imaging
+Corporation), Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
+Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica,
+ObjectivePathology, and the Open Microscopy Environment consortium,
+respectively.
 
 For command line usage run ``python -m tifffile --help``
 
@@ -71,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.17
+:Version: 2021.3.31
 
 Requirements
 ------------
@@ -80,19 +81,22 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.8, 3.9.2 64-bit <https://www.python.org>`_
 * `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.2.26 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.3.31 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
-* `Lxml 4.6.2 <https://pypi.org/project/lxml/>`_
+* `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.6.1 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.7.0 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
-2021.3.17
+2021.3.31
     Pass 4391 tests.
+    Use JPEG restart markers as tile offsets in NDPI.
+    Support version 1 and more codecs in fsspec ReferenceFileSystem (untested).
+2021.3.17
     Fix regression reading multi-file OME-TIFF with missing files (#72).
     Fix fsspec ReferenceFileSystem with non-native byte order (#56).
 2021.3.16
@@ -273,10 +277,10 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   is equal to the counts of the UIC2tag. Tifffile can read STK files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
-  structures. JPEG compressed segments with dimensions >65536 or missing
-  restart markers are not readable with libjpeg. Tifffile can read NDPI
-  files > 4 GB. JPEG segments with restart markers and dimensions >65536 can
-  be decoded with the imagecodecs library on Windows.
+  structures. Tifffile can read NDPI files > 4 GB. JPEG compressed segments
+  with dimensions >65530 or missing restart markers are not readable with
+  libjpeg. Tifffile works around this limitation by separately decoding the
+  MCUs between restart markers.
 * *Philips* TIFF slides store wrong ImageWidth and ImageLength tag values for
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
@@ -606,7 +610,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.3.17'
+__version__ = '2021.3.31'
 
 __all__ = (
     'OmeXml',
@@ -2828,10 +2832,10 @@ class TiffFile:
     def __init__(
         self,
         arg,
+        mode=None,
         name=None,
         offset=None,
         size=None,
-        mode=None,
         _multifile=True,
         _useframes=None,
         _master=None,
@@ -2844,6 +2848,9 @@ class TiffFile:
         arg : str or open file
             Name of file or open file object.
             The file objects are closed in TiffFile.close().
+        mode : str
+            File open mode in case 'arg' is a file name. Must be 'rb' or 'r+b'.
+            Default is 'rb'.
         name : str
             Optional name of file in case 'arg' is a file handle.
         offset : int
@@ -2852,9 +2859,6 @@ class TiffFile:
         size : int
             Optional size of embedded file. By default, this is the number
             of bytes from the 'offset' to the end of the file.
-        mode : str
-            File open mode in case 'arg' is a file name. Must be 'rb' or 'wb'.
-            Default is 'rb'.
         kwargs : bool
             'is_ome': If False, disable processing of OME-XML metadata.
 
@@ -2880,6 +2884,9 @@ class TiffFile:
                         setattr(self, key, bool(value))
                 else:
                     raise TypeError(f'unexpected keyword argument: {key}')
+
+        if mode not in (None, 'rb', 'r+b'):
+            raise ValueError(f'invalid mode {mode!r}')
 
         fh = FileHandle(arg, mode=mode, name=name, offset=offset, size=size)
         self._fh = fh
@@ -5405,6 +5412,7 @@ class TiffPage:
     extrasamples = ()
     subifds = None
     jpegtables = None
+    jpegheader = None  # NDPI only
     colormap = None
     software = ''
     description = ''
@@ -5688,6 +5696,33 @@ class TiffPage:
             except Exception:
                 pass
 
+        if 65426 in tags and self.is_ndpi:
+            # use NDPI JPEG McuStarts as tile offsets
+            mcustarts = tags[65426].value
+            if 65432 in tags:
+                # McuStartsHighBytes
+                high = tags[65432].value.astype('uint64')
+                high <<= 32
+                mcustarts = mcustarts.astype('uint64')
+                mcustarts += high
+            fh.seek(self.dataoffsets[0])
+            jpegheader = fh.read(mcustarts[0])
+            try:
+                (
+                    self.tilelength,
+                    self.tilewidth,
+                    self.jpegheader,
+                ) = ndpi_jpeg_tile(jpegheader)
+            except ValueError as exc:
+                log_warning(
+                    f'TiffPage {self.index}: ndpi_jpeg_tile failed ({exc})'
+                )
+            else:
+                self.databytecounts = (
+                    mcustarts[1:] - mcustarts[:-1]
+                ).tolist() + [self.databytecounts[0] - int(mcustarts[-1])]
+                self.dataoffsets = (mcustarts + self.dataoffsets[0]).tolist()
+
     @lazyattr
     def decode(self):
         """Return decoded segment, its shape, and indices in image.
@@ -5950,6 +5985,7 @@ class TiffPage:
                 data,
                 segmentindex,
                 jpegtables=None,
+                jpegheader=None,
                 _fullsize=False,
                 bitspersample=self.bitspersample,
                 colorspace=colorspace,
@@ -5965,6 +6001,7 @@ class TiffPage:
                     data,
                     bitspersample=bitspersample,
                     tables=jpegtables,
+                    header=jpegheader,
                     colorspace=colorspace,
                     outcolorspace=outcolorspace,
                     shape=shape[1:3],
@@ -6096,6 +6133,7 @@ class TiffPage:
         decodeargs = {'_fullsize': bool(_fullsize)}
         if keyframe.compression in (6, 7, 34892):  # JPEG
             decodeargs['jpegtables'] = self.jpegtables
+            decodeargs['jpegheader'] = keyframe.jpegheader
 
         def decode(args, decodeargs=decodeargs, keyframe=keyframe, func=func):
             result = keyframe.decode(*args, **decodeargs)
@@ -6221,6 +6259,22 @@ class TiffPage:
                     # floatpred cannot decode in-place
                     out = unpredict(result, axis=-2, out=result)
                     result[:] = out
+
+        elif (
+            keyframe.jpegheader is not None
+            and keyframe is self
+            and self.imagewidth <= 65500
+            and self.imagelength <= 65500
+        ):
+            # decode the whole NDPI JPEG strip
+            with lock:
+                fh.seek(self.tags[273].value[0])  # StripOffsets
+                data = fh.read(self.tags[279].value[0])  # StripByteCounts
+            decompress = TIFF.DECOMPESSORS[self.compression]
+            result = decompress(
+                data, bitspersample=self.bitspersample, out=out
+            )
+            del data
 
         else:
             # decode individual strips or tiles
@@ -6845,7 +6899,7 @@ class TiffPage:
     @property
     def is_tiled(self):
         """Page contains tiled image."""
-        return 322 in self.tags  # TileWidth
+        return self.tilewidth > 0  # return 322 in self.tags  # TileWidth
 
     @property
     def is_subsampled(self):
@@ -8264,7 +8318,7 @@ class ZarrTiffStore(ZarrStore):
         if hasattr(self, '_filecache'):
             self._filecache.clear()
 
-    def write_fsspec(self, arg, url, compressors=None, _version=0):
+    def write_fsspec(self, arg, url, compressors=None, version=None):
         """Write fsspec ReferenceFileSystem as JSON to file.
 
         Url is the remote location of the TIFF file without the file name(s).
@@ -8273,7 +8327,7 @@ class ZarrTiffStore(ZarrStore):
         ReferenceFileSystem due to features that are not supported by zarr
         or numcodecs:
 
-        * compressors, e.g. PackBits, LZW, JPEG, JPEG2000
+        * compressors, e.g. CCITT
         * filters, e.g. predictors, bitorder reversal, packed integers
         * dtypes, e.g. float24
         * JPEGTables in multi-page files
@@ -8290,44 +8344,63 @@ class ZarrTiffStore(ZarrStore):
             32946: 'zlib',
             34925: 'lzma',
             50000: 'zstd',
-            # 5: 'lzw',
-            # 7: 'jpeg',
-            # 34712: 'jpeg2000',
-            # 50001: 'webp',
+            5: 'imagecodecs_lzw',
+            7: 'imagecodecs_jpeg',
+            32773: 'imagecodecs_packbits',
+            33003: 'imagecodecs_jpeg2k',
+            33005: 'imagecodecs_jpeg2k',
+            34712: 'imagecodecs_jpeg2k',
+            34887: 'imagecodecs_lerc',
+            34892: 'imagecodecs_jpeg',  # DNG lossy
+            34933: 'imagecodecs_png',
+            34934: 'imagecodecs_jpegxr',
+            50001: 'imagecodecs_webp',
             **({} if compressors is None else compressors),
         }
 
         for series in self._data:
-            errormsg = ' not supported by fsspec ReferenceFileSystem'
+            errormsg = ' not supported by the fsspec ReferenceFileSystem'
             keyframe = series.keyframe
             if keyframe.compression not in compressors:
-                raise ValueError(f'{keyframe.compression!r}' + errormsg)
-            if keyframe.jpegtables is not None:
-                # TODO: should work for single-page series
-                raise ValueError('JPEGTables' + errormsg)
+                raise ValueError(f'{keyframe.compression!r} is' + errormsg)
             if keyframe.predictor != 1:
-                raise ValueError(f'{keyframe.predictor!r}' + errormsg)
+                raise ValueError(f'{keyframe.predictor!r} is' + errormsg)
+            if keyframe.fillorder != 1:
+                raise ValueError(f'{keyframe.fillorder!r} is' + errormsg)
             if keyframe.sampleformat not in (1, 2, 3, 6):
-                raise ValueError(f'{keyframe.sampleformat!r}' + errormsg)
-            if keyframe.bitspersample not in (8, 16, 32, 64, 128):
+                raise ValueError(f'{keyframe.sampleformat!r} is' + errormsg)
+            if keyframe.bitspersample not in (
+                8,
+                16,
+                32,
+                64,
+                128,
+            ) and keyframe.compression not in (
+                7,
+                34892,
+            ):  # JPEG
                 raise ValueError(
-                    f'BitsPerSample {keyframe.bitspersample}' + errormsg
+                    f'BitsPerSample {keyframe.bitspersample} is' + errormsg
                 )
             if (
                 not self._chunkmode
                 and not keyframe.is_tiled
                 and keyframe.imagelength % keyframe.rowsperstrip
             ):
-                raise ValueError('incomplete chunks' + errormsg)
+                raise ValueError('incomplete chunks are' + errormsg)
             if self._chunkmode and not keyframe.is_final:
-                raise ValueError(f'{self._chunkmode!r}' + errormsg)
+                raise ValueError(f'{self._chunkmode!r} is' + errormsg)
+            if keyframe.jpegtables is not None and len(series.pages) > 1:
+                raise ValueError(
+                    'JPEGTables in multi-page files are' + errormsg
+                )
 
         if url is None:
             url = ''
         elif url and url[-1] != '/':
             url += '/'
 
-        byteorder = {'big': '<', 'little': '>'}[sys.byteorder]
+        byteorder = '<' if sys.byteorder == 'big' else '>'
         if (
             self._data[0].keyframe.parent.byteorder != byteorder
             or self._data[0].keyframe.dtype.itemsize == 1
@@ -8335,18 +8408,54 @@ class ZarrTiffStore(ZarrStore):
             byteorder = None
 
         refs = dict()
-        if _version == 1:
+        if version == 1:
             refs['version'] = 1
+            refs['templates'] = {}
+            templates = {}
+            if self._data[0].is_multifile:
+                i = 0
+                for page in self._data[0].pages:
+                    if page is None:
+                        continue
+                    fname = keyframe.parent.filehandle.name
+                    if fname in templates:
+                        continue
+                    key = f'u{i}'
+                    templates[fname] = '{{%s}}' % key
+                    refs['templates'][key] = url + fname
+                    i += 1
+            else:
+                fname = self._data[0].keyframe.parent.filehandle.name
+                key = 'u'
+                templates[fname] = '{{%s}}' % key
+                refs['templates'][key] = url + fname
 
         for key, value in self._store.items():
             if '.zarray' in key:
                 level = int(key.split('/')[0]) if '/' in key else 0
                 keyframe = self._data[level].keyframe
                 value = json.loads(value)
-                if keyframe.compression != 1:
+                codec_id = compressors[keyframe.compression]
+                if codec_id == 'jpeg':
+                    # TODO: handle JPEG colorspaces
+                    tables = keyframe.jpegtables
+                    if tables is not None:
+                        import base64
+
+                        tables = base64.b64encode(tables).decode()
+                    header = keyframe.jpegheader
+                    if header is not None:
+                        import base64
+
+                        header = base64.b64encode(header).decode()
                     value['compressor'] = {
-                        'id': compressors[keyframe.compression]
+                        'id': codec_id,
+                        'tables': tables,
+                        'header': header,
+                        'bitspersample': keyframe.bitspersample,
                     }
+                elif codec_id is not None:
+                    value['compressor'] = {'id': codec_id}
                 if byteorder is not None:
                     value['dtype'] = byteorder + value['dtype'][1:]
                 value = ZarrTiffStore._json(value)
@@ -8360,7 +8469,7 @@ class ZarrTiffStore(ZarrStore):
 
         fh.write(json.dumps(refs, indent=1)[:-2])
 
-        if _version == 1:
+        if version == 1:
             fh.write(',\n "refs": {')
             comma = False
             indent = '  '
@@ -8382,13 +8491,17 @@ class ZarrTiffStore(ZarrStore):
                         bytecount = keyframe.nbytes
                     if offset and bytecount:
                         fname = keyframe.parent.filehandle.name
+                        if version == 1:
+                            fname = templates[fname]
+                        else:
+                            fname = f'{url}{fname}'
                         fh.write(
                             (',' if comma else '') + f'\n{indent}"{key}": '
-                            f'["{url}{fname}", {offset}, {bytecount}]'
+                            f'["{fname}", {offset}, {bytecount}]'
                         )
                         comma = True
 
-        if _version == 1:
+        if version == 1:
             fh.write('\n }')
         fh.write('\n}')
 
@@ -8423,6 +8536,8 @@ class ZarrTiffStore(ZarrStore):
         decodeargs = {'_fullsize': True}
         if page.jpegtables is not None:
             decodeargs['jpegtables'] = page.jpegtables
+        if keyframe.jpegheader is not None:
+            decodeargs['jpegheader'] = keyframe.jpegheader
 
         chunk = keyframe.decode(chunk, chunkindex, **decodeargs)[0]
         if self._transform is not None:
@@ -8631,6 +8746,10 @@ class ZarrFileStore(ZarrStore):
     def close(self):
         """Clear chunk cache."""
         self._cache.clear()
+
+    def write_fsspec(self, arg, url, compressors=None, version=None):
+        """Write fsspec ReferenceFileSystem as JSON to file."""
+        raise NotImplementedError
 
 
 class FileSequence:
@@ -8891,8 +9010,8 @@ class FileHandle:
     * re-open closed files (for multi-file formats, such as OME-TIFF)
     * read and write numpy arrays and records from file like objects
 
-    Only 'rb' and 'wb' modes are supported. Concurrently reading and writing
-    of the same stream is untested.
+    Only 'rb', 'r+b', and 'wb' modes are supported. Concurrently reading and
+    writing of the same stream is untested.
 
     When initialized from another file handle, do not use it unless this
     FileHandle is closed.
@@ -8934,7 +9053,8 @@ class FileHandle:
             File name or seekable binary stream, such as an open file
             or BytesIO.
         mode : str
-            File open mode in case 'file' is a file name. Must be 'rb' or 'wb'.
+            File open mode in case 'file' is a file name. Must be 'rb', 'r+b',
+            or 'wb'. Default is 'rb'.
         name : str
             Optional name of file in case 'file' is a binary stream.
         offset : int
@@ -13937,6 +14057,78 @@ def imagej_shape(shape, rgb=None, axes=None):
     return (1,) * (5 - ndim) + shape + (1,)
 
 
+def ndpi_jpeg_tile(jpeg):
+    """Return tile shape and JPEG header from JPEG with restart markers."""
+    restartinterval = 0
+    sofoffset = 0
+    sosoffset = 0
+    i = 0
+    while True and i < len(jpeg):
+        marker = struct.unpack('>H', jpeg[i : i + 2])[0]
+        i += 2
+
+        if marker == 0xFFD8:
+            # start of image
+            continue
+        if marker == 0xFFD9:
+            # end of image
+            break
+        if marker >= 0xFFD0 and marker <= 0xFFD7:
+            # restart marker
+            continue
+        if marker == 0xFF01:
+            # private marker
+            continue
+
+        length = struct.unpack('>H', jpeg[i : i + 2])[0]
+        i += 2
+
+        if marker == 0xFFDD:
+            # define restart interval
+            restartinterval = struct.unpack('>H', jpeg[i : i + 2])[0]
+
+        elif marker == 0xFFC0:
+            # start of frame
+            sofoffset = i + 1
+            precision, imlength, imwidth, ncomponents = struct.unpack(
+                '>BHHB', jpeg[i : i + 6]
+            )
+            i += 6
+            mcuwidth = 1
+            mcuheight = 1
+            for _ in range(ncomponents):
+                cid, factor, table = struct.unpack('>BBB', jpeg[i : i + 3])
+                i += 3
+                if factor >> 4 > mcuwidth:
+                    mcuwidth = factor >> 4
+                if factor & 0b00001111 > mcuheight:
+                    mcuheight = factor & 0b00001111
+            mcuwidth *= 8
+            mcuheight *= 8
+            i = sofoffset - 1
+
+        elif marker == 0xFFDA:
+            # start of scan
+            sosoffset = i + length - 2
+            break
+
+        # skip to next marker
+        i += length - 2
+
+    if restartinterval == 0 or sofoffset == 0 or sosoffset == 0:
+        raise ValueError('missing required JPEG markers')
+
+    # patch jpeg header for tile size
+    tilelength = mcuheight
+    tilewidth = restartinterval * mcuwidth
+    jpegheader = (
+        jpeg[:sofoffset]
+        + struct.pack('>HH', tilelength, tilewidth)
+        + jpeg[sofoffset + 4 : sosoffset]
+    )
+    return tilelength, tilewidth, jpegheader
+
+
 def json_description(shape, **metadata):
     """Return JSON image description from data shape and other metadata.
 
@@ -15995,7 +16187,14 @@ def tiffcomment(arg, comment=None, index=None, code=None):
 
 
 def tiff2fsspec(
-    filename, url, out=None, key=None, series=None, level=None, chunkmode=None
+    filename,
+    url,
+    out=None,
+    key=None,
+    series=None,
+    level=None,
+    chunkmode=None,
+    version=None,
 ):
     """Write fsspec ReferenceFileSystem JSON from TIFF file."""
     if out is None:
@@ -16004,7 +16203,7 @@ def tiff2fsspec(
         with tif.aszarr(
             key=key, series=series, level=level, chunkmode=chunkmode
         ) as store:
-            store.write_fsspec(out, url)
+            store.write_fsspec(out, url, version=version)
 
 
 def lsm2bin(lsmfile, binfile=None, tile=None, verbose=True):
