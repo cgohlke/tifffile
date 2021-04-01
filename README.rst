@@ -25,11 +25,12 @@ IPTC and XMP metadata are not implemented.
 
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, and OME-TIFF, are custom
-extensions defined by Molecular Devices (Universal Imaging Corporation),
-Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
-Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica, and the
-Open Microscopy Environment consortium, respectively.
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, ZIF, and OME-TIFF,
+are custom extensions defined by Molecular Devices (Universal Imaging
+Corporation), Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
+Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica,
+ObjectivePathology, and the Open Microscopy Environment consortium,
+respectively.
 
 For command line usage run ``python -m tifffile --help``
 
@@ -41,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.17
+:Version: 2021.3.31
 
 Requirements
 ------------
@@ -50,19 +51,22 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.8, 3.9.2 64-bit <https://www.python.org>`_
 * `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.2.26 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.3.31 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
-* `Lxml 4.6.2 <https://pypi.org/project/lxml/>`_
+* `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.6.1 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.7.0 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
-2021.3.17
+2021.3.31
     Pass 4391 tests.
+    Use JPEG restart markers as tile offsets in NDPI.
+    Support version 1 and more codecs in fsspec ReferenceFileSystem (untested).
+2021.3.17
     Fix regression reading multi-file OME-TIFF with missing files (#72).
     Fix fsspec ReferenceFileSystem with non-native byte order (#56).
 2021.3.16
@@ -243,10 +247,10 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   is equal to the counts of the UIC2tag. Tifffile can read STK files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
-  structures. JPEG compressed segments with dimensions >65536 or missing
-  restart markers are not readable with libjpeg. Tifffile can read NDPI
-  files > 4 GB. JPEG segments with restart markers and dimensions >65536 can
-  be decoded with the imagecodecs library on Windows.
+  structures. Tifffile can read NDPI files > 4 GB. JPEG compressed segments
+  with dimensions >65530 or missing restart markers are not readable with
+  libjpeg. Tifffile works around this limitation by separately decoding the
+  MCUs between restart markers.
 * *Philips* TIFF slides store wrong ImageWidth and ImageLength tag values for
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
