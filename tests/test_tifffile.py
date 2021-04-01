@@ -34,15 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Author:
-  `Christoph Gohlke <https://www.lfd.uci.edu/~gohlke/>`_
-
-:Organization:
-  Laboratory for Fluorescence Dynamics. University of California, Irvine
-
-:License: BSD 3-Clause
-
-:Version: 2021.3.17
+:Version: 2021.3.31
 
 """
 
@@ -5973,12 +5965,17 @@ def test_read_ndpi_4gb():
         # first page
         page = tif.pages[0]
         assert page.is_ndpi
-        assert page.databytecounts == (4461521316,)
+        assert page.databytecounts[0] == 5105  # not 4461521316
         assert page.photometric == YCBCR
         assert page.compression == JPEG
         assert page.shape == (103680, 188160, 3)
         assert page.ndpi_tags['Magnification'] == 40.0
         assert page.ndpi_tags['McuStarts'][-1] == 4461516507  # corrected
+        if not SKIP_ZARR:
+            # data = page.asarray()  # 55 GB
+            with page.aszarr() as store:
+                data = zarr.open(store, mode='r')
+                assert data[38061, 121978].tolist() == [220, 167, 187]
         # page 7
         page = tif.pages[7]
         assert page.is_ndpi
@@ -11681,7 +11678,7 @@ def test_write_multiple_series():
 
 
 def assert_fsspec(url, data):
-    """Assert fsspec ReferenceFileSystem from local http server """
+    """Assert fsspec ReferenceFileSystem from local http server."""
     mapper = fsspec.get_mapper(
         'reference://', references=url, target_protocol=url.split(':')[0]
     )
@@ -11720,7 +11717,7 @@ def test_write_fsspec():
             # series 3
             tif.write(data1, rowsperstrip=5)
             # series 4
-            tif.write(data1, compression=JPEG)
+            tif.write(data1, tile=(32, 32), compression=JPEG)
 
         with TiffFile(fname) as tif:
             assert tif.is_ome
@@ -11750,9 +11747,19 @@ def test_write_fsspec():
                     store.write_fsspec(fname + '.s3fail.json', URL)
 
             with tif.series[4].aszarr() as store:
+                store.write_fsspec(fname + '.s4.json', URL)
                 with pytest.raises(ValueError):
-                    # JPEG not supported by numcodecs
-                    store.write_fsspec(fname + '.s4fail.json', URL)
+                    # codec not available: 'imagecodecs_jpeg'
+                    assert_fsspec(URL + filename + '.s4.json', data1)
+                try:
+                    from imagecodecs.numcodecs import register_codecs
+                except ImportError:
+                    pass
+                else:
+                    register_codecs('imagecodecs_jpeg')
+                    assert_fsspec(
+                        URL + filename + '.s4.json', tif.series[4].asarray()
+                    )
 
 
 ###############################################################################
