@@ -103,7 +103,7 @@ setup(
         'roifile',
         'lxml',
         'zarr',
-        'fsspec',
+        'fsspec>=0.9.0',
     ],
     entry_points={
         'console_scripts': [
