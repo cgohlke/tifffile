@@ -2005,71 +2005,73 @@ class VertCS(enum.IntEnum):
     Caspian_Sea = 5106
 
 
-GEO_KEYS = {
-    1024: 'GTModelTypeGeoKey',
-    1025: 'GTRasterTypeGeoKey',
-    1026: 'GTCitationGeoKey',
-    2048: 'GeographicTypeGeoKey',
-    2049: 'GeogCitationGeoKey',
-    2050: 'GeogGeodeticDatumGeoKey',
-    2051: 'GeogPrimeMeridianGeoKey',
-    2052: 'GeogLinearUnitsGeoKey',
-    2053: 'GeogLinearUnitSizeGeoKey',
-    2054: 'GeogAngularUnitsGeoKey',
-    2055: 'GeogAngularUnitsSizeGeoKey',
-    2056: 'GeogEllipsoidGeoKey',
-    2057: 'GeogSemiMajorAxisGeoKey',
-    2058: 'GeogSemiMinorAxisGeoKey',
-    2059: 'GeogInvFlatteningGeoKey',
-    2060: 'GeogAzimuthUnitsGeoKey',
-    2061: 'GeogPrimeMeridianLongGeoKey',
-    2062: 'GeogTOWGS84GeoKey',
-    3059: 'ProjLinearUnitsInterpCorrectGeoKey',  # GDAL
-    3072: 'ProjectedCSTypeGeoKey',
-    3073: 'PCSCitationGeoKey',
-    3074: 'ProjectionGeoKey',
-    3075: 'ProjCoordTransGeoKey',
-    3076: 'ProjLinearUnitsGeoKey',
-    3077: 'ProjLinearUnitSizeGeoKey',
-    3078: 'ProjStdParallel1GeoKey',
-    3079: 'ProjStdParallel2GeoKey',
-    3080: 'ProjNatOriginLongGeoKey',
-    3081: 'ProjNatOriginLatGeoKey',
-    3082: 'ProjFalseEastingGeoKey',
-    3083: 'ProjFalseNorthingGeoKey',
-    3084: 'ProjFalseOriginLongGeoKey',
-    3085: 'ProjFalseOriginLatGeoKey',
-    3086: 'ProjFalseOriginEastingGeoKey',
-    3087: 'ProjFalseOriginNorthingGeoKey',
-    3088: 'ProjCenterLongGeoKey',
-    3089: 'ProjCenterLatGeoKey',
-    3090: 'ProjCenterEastingGeoKey',
-    3091: 'ProjFalseOriginNorthingGeoKey',
-    3092: 'ProjScaleAtNatOriginGeoKey',
-    3093: 'ProjScaleAtCenterGeoKey',
-    3094: 'ProjAzimuthAngleGeoKey',
-    3095: 'ProjStraightVertPoleLongGeoKey',
-    3096: 'ProjRectifiedGridAngleGeoKey',
-    4096: 'VerticalCSTypeGeoKey',
-    4097: 'VerticalCitationGeoKey',
-    4098: 'VerticalDatumGeoKey',
-    4099: 'VerticalUnitsGeoKey',
-}
+class GeoKeys(enum.IntEnum):
+    """Geo keys."""
+
+    GTModelTypeGeoKey = 1024
+    GTRasterTypeGeoKey = 1025
+    GTCitationGeoKey = 1026
+    GeographicTypeGeoKey = 2048
+    GeogCitationGeoKey = 2049
+    GeogGeodeticDatumGeoKey = 2050
+    GeogPrimeMeridianGeoKey = 2051
+    GeogLinearUnitsGeoKey = 2052
+    GeogLinearUnitSizeGeoKey = 2053
+    GeogAngularUnitsGeoKey = 2054
+    GeogAngularUnitsSizeGeoKey = 2055
+    GeogEllipsoidGeoKey = 2056
+    GeogSemiMajorAxisGeoKey = 2057
+    GeogSemiMinorAxisGeoKey = 2058
+    GeogInvFlatteningGeoKey = 2059
+    GeogAzimuthUnitsGeoKey = 2060
+    GeogPrimeMeridianLongGeoKey = 2061
+    GeogTOWGS84GeoKey = 2062
+    ProjLinearUnitsInterpCorrectGeoKey = 3059  # GDAL
+    ProjectedCSTypeGeoKey = 3072
+    PCSCitationGeoKey = 3073
+    ProjectionGeoKey = 3074
+    ProjCoordTransGeoKey = 3075
+    ProjLinearUnitsGeoKey = 3076
+    ProjLinearUnitSizeGeoKey = 3077
+    ProjStdParallel1GeoKey = 3078
+    ProjStdParallel2GeoKey = 3079
+    ProjNatOriginLongGeoKey = 3080
+    ProjNatOriginLatGeoKey = 3081
+    ProjFalseEastingGeoKey = 3082
+    ProjFalseNorthingGeoKey = 3083
+    ProjFalseOriginLongGeoKey = 3084
+    ProjFalseOriginLatGeoKey = 3085
+    ProjFalseOriginEastingGeoKey = 3086
+    ProjFalseOriginNorthingGeoKey = 3087
+    ProjCenterLongGeoKey = 3088
+    ProjCenterLatGeoKey = 3089
+    ProjCenterEastingGeoKey = 3090
+    ProjCenterNorthingGeoKey = 3091
+    ProjScaleAtNatOriginGeoKey = 3092
+    ProjScaleAtCenterGeoKey = 3093
+    ProjAzimuthAngleGeoKey = 3094
+    ProjStraightVertPoleLongGeoKey = 3095
+    ProjRectifiedGridAngleGeoKey = 3096
+    VerticalCSTypeGeoKey = 4096
+    VerticalCitationGeoKey = 4097
+    VerticalDatumGeoKey = 4098
+    VerticalUnitsGeoKey = 4099
+
 
 GEO_CODES = {
-    GEO_KEYS[1024]: ModelType,  # GTModelTypeGeoKey
-    GEO_KEYS[1025]: RasterPixel,  # GTRasterTypeGeoKey
-    GEO_KEYS[2048]: GCS,  # GeographicTypeGeoKey
-    GEO_KEYS[2051]: PM,  # GeogPrimeMeridianGeoKey
-    GEO_KEYS[2052]: Linear,  # GeogLinearUnitsGeoKey
-    GEO_KEYS[2054]: Angular,  # GeogAngularUnitsGeoKey
-    GEO_KEYS[2056]: Ellipse,  # GeogEllipsoidGeoKey
-    GEO_KEYS[2060]: Angular,  # GeogAzimuthUnitsGeoKey
-    GEO_KEYS[3072]: PCS,  # ProjectedCSTypeGeoKey
-    GEO_KEYS[3074]: Proj,  # ProjectionGeoKey
-    GEO_KEYS[3075]: CT,  # ProjCoordTransGeoKey
-    GEO_KEYS[3076]: Linear,  # ProjLinearUnitsGeoKey
-    GEO_KEYS[4096]: VertCS,  # VerticalCSTypeGeoKey
-    # GEO_KEYS[4098]: VertCS,  # VerticalDatumGeoKey
-    GEO_KEYS[4099]: Linear,  # VerticalUnitsGeoKey
+    GeoKeys.GTModelTypeGeoKey: ModelType,
+    GeoKeys.GTRasterTypeGeoKey: RasterPixel,
+    GeoKeys.GeographicTypeGeoKey: GCS,
+    GeoKeys.GeogPrimeMeridianGeoKey: PM,
+    GeoKeys.GeogLinearUnitsGeoKey: Linear,
+    GeoKeys.GeogAngularUnitsGeoKey: Angular,
+    GeoKeys.GeogEllipsoidGeoKey: Ellipse,
+    GeoKeys.GeogAzimuthUnitsGeoKey: Angular,
+    GeoKeys.ProjectedCSTypeGeoKey: PCS,
+    GeoKeys.ProjectionGeoKey: Proj,
+    GeoKeys.ProjCoordTransGeoKey: CT,
+    GeoKeys.ProjLinearUnitsGeoKey: Linear,
+    GeoKeys.VerticalCSTypeGeoKey: VertCS,
+    # GeoKeys.VerticalDatumGeoKey: VertCS,
+    GeoKeys.VerticalUnitsGeoKey: Linear,
 }
