@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.31
+:Version: 2021.4.8
 
 Requirements
 ------------
@@ -92,8 +92,13 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.4.8
+    Pass 4393 tests.
+    Fix reading OJPEG with wrong photometric or samplesperpixel tags (#75).
+    Fix fsspec ReferenceFileSystem v1 and JPEG compression.
+    Use TiffTagRegistry for NDPI_TAGS, EXIF_TAGS, GPS_TAGS, IOP_TAGS constants.
+    Make TIFF.GEO_KEYS an Enum (breaking).
 2021.3.31
-    Pass 4391 tests.
     Use JPEG restart markers as tile offsets in NDPI.
     Support version 1 and more codecs in fsspec ReferenceFileSystem (untested).
 2021.3.17
@@ -610,7 +615,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.3.31'
+__version__ = '2021.4.8'
 
 __all__ = (
     'OmeXml',
@@ -625,6 +630,7 @@ __all__ = (
     'TiffSequence',
     'TiffTag',
     'TiffTags',
+    'TiffTagRegistry',
     'TiffWriter',
     'ZarrFileStore',
     'ZarrStore',
@@ -5514,7 +5520,25 @@ class TiffPage:
         #     # TODO: can't change tag.name
         #     tags[34853].name = 'OlympusSIS2'
 
-        if self.is_lsm or (self.index != 0 and self.parent.is_lsm):
+        if self.compression == 6:
+            # OJPEG hack. See libtiff v4.2.0 tif_dirread.c#L4082
+            if 262 not in tags:
+                # PhotometricInterpretation missing
+                self.photometric = 6  # YCbCr
+            elif self.photometric == 2:
+                # RGB -> YCbCr
+                self.photometric = 6
+            if 258 not in tags:
+                # BitsPerSample missing
+                self.bitspersample = 8
+            if 277 not in tags:
+                # SamplesPerPixel missing
+                if self.photometric in (2, 6):
+                    self.samplesperpixel = 3
+                elif self.photometric in (0, 1):
+                    self.samplesperpixel = 3
+
+        elif self.is_lsm or (self.index != 0 and self.parent.is_lsm):
             # correct non standard LSM bitspersample tags
             tags[258]._fix_lsm_bitspersample(self)
             if self.compression == 1 and self.predictor != 1:
@@ -5555,7 +5579,9 @@ class TiffPage:
         # BitsPerSample
         tag = tags.get(258)
         if tag is not None:
-            if tag.count == 1:
+            if self.bitspersample != 1:
+                pass  # bitspersample was set by ojpeg hack
+            elif tag.count == 1:
                 self.bitspersample = tag.value
             else:
                 # LSM might list more items than samplesperpixel
@@ -5967,19 +5993,9 @@ class TiffPage:
                     f'TiffPage {self.index}: disabling predictor for JPEG'
                 )
 
-            colorspace = None
-            outcolorspace = None
-            if 338 in self.tags:
-                # ExtraSamples
-                pass
-            elif self.photometric == 6:
-                # YCBCR -> RGB
-                outcolorspace = 2  # RGB
-            elif self.photometric == 2:
-                if self.planarconfig == 1:
-                    colorspace = outcolorspace = 2  # RGB
-            elif self.photometric > 3:
-                outcolorspace = TIFF.PHOTOMETRIC(self.photometric).value
+            colorspace, outcolorspace = jpeg_decode_colorspace(
+                self.photometric, self.planarconfig, self.extrasamples
+            )
 
             def decode(
                 data,
@@ -6795,7 +6811,6 @@ class TiffPage:
             except Exception as exc:
                 log_warning(f'GeoTIFF tags: {exc}')
                 continue
-            keyid = geokeys.get(keyid, keyid)
             if tagid == 0:
                 value = offset
             else:
@@ -6812,7 +6827,11 @@ class TiffPage:
                     value = geocodes[keyid](value)
                 except Exception:
                     pass
-            result[keyid] = value
+            try:
+                key = geokeys(keyid).name
+            except ValueError:
+                key = keyid
+            result[key] = value
 
         tag = tags.get(33920)  # IntergraphMatrixTag
         if tag is not None:
@@ -7859,6 +7878,110 @@ class TiffTags:
         return '\n'.join(info)
 
 
+class TiffTagRegistry:
+    """Registry of TIFF tag codes and names.
+
+    The registry allows to look up tag codes and names by indexing with names
+    and codes respectively.
+    One tag code may be registered with several names, e.g. 34853 is used for
+    GPSTag or OlympusSIS2.
+    Different tag codes may be registered with the same name, e.g. 37387 and
+    41483 are both named FlashEnergy.
+
+    """
+
+    __slots__ = ('_dict', '_list')
+
+    def __init__(self, arg):
+        self._dict = {}
+        self._list = [self._dict]
+        self.update(arg)
+
+    def update(self, arg):
+        """Add codes and names from sequence or dict to registry."""
+        if isinstance(arg, TiffTagRegistry):
+            self._list.extend(arg._list)
+            return
+        if isinstance(arg, dict):
+            arg = arg.items()
+        for code, name in arg:
+            self.add(code, name)
+
+    def add(self, code, name):
+        """Add code and name to registry."""
+        for d in self._list:
+            if code in d and d[code] == name:
+                break
+            if code not in d and name not in d:
+                d[code] = name
+                d[name] = code
+                break
+        else:
+            self._list.append({code: name, name: code})
+
+    def items(self):
+        """Return all registry items as (code, name)."""
+        items = (
+            i for d in self._list for i in d.items() if isinstance(i[0], int)
+        )
+        return sorted(items, key=lambda i: i[0])
+
+    def get(self, key, default=None):
+        """Return first code/name if exists, else default."""
+        for d in self._list:
+            if key in d:
+                return d[key]
+        return default
+
+    def getall(self, key, default=None):
+        """Return list of all codes/names if exists, else default."""
+        result = [d[key] for d in self._list if key in d]
+        return result if result else default
+
+    def __getitem__(self, key):
+        """Return first code/name. Raise KeyError if not found."""
+        for d in self._list:
+            if key in d:
+                return d[key]
+        raise KeyError(key)
+
+    def __delitem__(self, key):
+        """Delete all tags of code or name."""
+        found = False
+        for d in self._list:
+            if key in d:
+                found = True
+                value = d[key]
+                del d[key]
+                del d[value]
+        if not found:
+            raise KeyError(key)
+
+    def __contains__(self, item):
+        """Return if code or name is in registry."""
+        for d in self._list:
+            if item in d:
+                return True
+        return False
+
+    def __iter__(self):
+        """Return iterator over all items in registry."""
+        return iter(self.items())
+
+    def __len__(self):
+        """Return number of registered tags."""
+        size = 0
+        for d in self._list:
+            size += len(d)
+        return size // 2
+
+    def __str__(self):
+        """Return string with information about TiffTags."""
+        return 'TiffTagRegistry(((\n  {}\n))'.format(
+            ',\n  '.join(f'({code}, {name!r})' for code, name in self.items())
+        )
+
+
 class TiffPageSeries:
     """Series of TIFF pages with compatible shape and data type.
 
@@ -8411,6 +8534,7 @@ class ZarrTiffStore(ZarrStore):
         if version == 1:
             refs['version'] = 1
             refs['templates'] = {}
+            refs['gen'] = []
             templates = {}
             if self._data[0].is_multifile:
                 i = 0
@@ -8430,13 +8554,17 @@ class ZarrTiffStore(ZarrStore):
                 templates[fname] = '{{%s}}' % key
                 refs['templates'][key] = url + fname
 
+            refs['refs'] = refzarr = dict()
+        else:
+            refzarr = refs
+
         for key, value in self._store.items():
             if '.zarray' in key:
                 level = int(key.split('/')[0]) if '/' in key else 0
                 keyframe = self._data[level].keyframe
                 value = json.loads(value)
                 codec_id = compressors[keyframe.compression]
-                if codec_id == 'jpeg':
+                if codec_id == 'imagecodecs_jpeg':
                     # TODO: handle JPEG colorspaces
                     tables = keyframe.jpegtables
                     if tables is not None:
@@ -8448,11 +8576,18 @@ class ZarrTiffStore(ZarrStore):
                         import base64
 
                         header = base64.b64encode(header).decode()
+                    colorspace_jpeg, colorspace_data = jpeg_decode_colorspace(
+                        keyframe.photometric,
+                        keyframe.planarconfig,
+                        keyframe.extrasamples,
+                    )
                     value['compressor'] = {
                         'id': codec_id,
                         'tables': tables,
                         'header': header,
                         'bitspersample': keyframe.bitspersample,
+                        'colorspace_jpeg': colorspace_jpeg,
+                        'colorspace_data': colorspace_data,
                     }
                 elif codec_id is not None:
                     value['compressor'] = {'id': codec_id}
@@ -8460,21 +8595,18 @@ class ZarrTiffStore(ZarrStore):
                     value['dtype'] = byteorder + value['dtype'][1:]
                 value = ZarrTiffStore._json(value)
 
-            refs[key] = value.decode()
+            refzarr[key] = value.decode()
 
         if hasattr(arg, 'write'):
             fh = arg
         else:
             fh = open(arg, 'w')
 
-        fh.write(json.dumps(refs, indent=1)[:-2])
-
         if version == 1:
-            fh.write(',\n "refs": {')
-            comma = False
+            fh.write(json.dumps(refs, indent=1).rsplit('}"', 1)[0] + '}"')
             indent = '  '
         else:
-            comma = True
+            fh.write(json.dumps(refs, indent=1)[:-2])
             indent = ' '
 
         for key, value in self._store.items():
@@ -8496,10 +8628,9 @@ class ZarrTiffStore(ZarrStore):
                         else:
                             fname = f'{url}{fname}'
                         fh.write(
-                            (',' if comma else '') + f'\n{indent}"{key}": '
+                            f',\n{indent}"{key}": '
                             f'["{fname}", {offset}, {bytecount}]'
                         )
-                        comma = True
 
         if version == 1:
             fh.write('\n }')
@@ -10324,109 +10455,7 @@ class TIFF:
 
     def TAGS():
         # TIFF tag codes and names from TIFF6, TIFF/EP, EXIF, and other specs
-        class TiffTagRegistry:
-            """Registry of TIFF tag codes and names.
-
-            The registry allows to look up tag codes and names by indexing
-            with names and codes respectively.
-            One tag code may be registered with several names,
-            e.g. 34853 is used for GPSTag or OlympusSIS2.
-            Different tag codes may be registered with the same name,
-            e.g. 37387 and 41483 are both named FlashEnergy.
-
-            """
-
-            def __init__(self, arg):
-                self._dict = {}
-                self._list = [self._dict]
-                self.update(arg)
-
-            def update(self, arg):
-                """Add codes and names from sequence or dict to registry."""
-                if isinstance(arg, dict):
-                    arg = arg.items()
-                for code, name in arg:
-                    self.add(code, name)
-
-            def add(self, code, name):
-                """Add code and name to registry."""
-                for d in self._list:
-                    if code in d and d[code] == name:
-                        break
-                    if code not in d and name not in d:
-                        d[code] = name
-                        d[name] = code
-                        break
-                else:
-                    self._list.append({code: name, name: code})
-
-            def items(self):
-                """Return all registry items as (code, name)."""
-                items = (
-                    i
-                    for d in self._list
-                    for i in d.items()
-                    if isinstance(i[0], int)
-                )
-                return sorted(items, key=lambda i: i[0])
-
-            def get(self, key, default=None):
-                """Return first code/name if exists, else default."""
-                for d in self._list:
-                    if key in d:
-                        return d[key]
-                return default
-
-            def getall(self, key, default=None):
-                """Return list of all codes/names if exists, else default."""
-                result = [d[key] for d in self._list if key in d]
-                return result if result else default
-
-            def __getitem__(self, key):
-                """Return first code/name. Raise KeyError if not found."""
-                for d in self._list:
-                    if key in d:
-                        return d[key]
-                raise KeyError(key)
-
-            def __delitem__(self, key):
-                """Delete all tags of code or name."""
-                found = False
-                for d in self._list:
-                    if key in d:
-                        found = True
-                        value = d[key]
-                        del d[key]
-                        del d[value]
-                if not found:
-                    raise KeyError(key)
-
-            def __contains__(self, item):
-                """Return if code or name is in registry."""
-                for d in self._list:
-                    if item in d:
-                        return True
-                return False
-
-            def __iter__(self):
-                """Return iterator over all items in registry."""
-                return iter(self.items())
-
-            def __len__(self):
-                """Return number of registered tags."""
-                size = 0
-                for d in self._list:
-                    size += len(d)
-                return size // 2
-
-            def __str__(self):
-                """Return string with information about TiffTags."""
-                return 'TiffTagRegistry(((\n  {}\n))'.format(
-                    ',\n  '.join(
-                        f'({code}, {name!r})' for code, name in self.items()
-                    )
-                )
-
+        # TODO: divide into baseline, exif, private, ... tags
         return TiffTagRegistry(
             (
                 (11, 'ProcessingSoftware'),
@@ -11136,7 +11165,7 @@ class TIFF:
             254: 'subfiletype',
             256: 'imagewidth',
             257: 'imagelength',
-            258: 'bitspersample',
+            # 258: 'bitspersample',  # set manually
             259: 'compression',
             262: 'photometric',
             266: 'fillorder',
@@ -11151,7 +11180,7 @@ class TIFF:
             323: 'tilelength',
             330: 'subifds',
             338: 'extrasamples',
-            339: 'sampleformat',
+            # 339: 'sampleformat',  # set manually
             347: 'jpegtables',
             32997: 'imagedepth',
             32998: 'tiledepth',
@@ -11159,26 +11188,69 @@ class TIFF:
 
     def TAG_ENUM():
         # map tag codes to Enums
-        return {
-            254: TIFF.FILETYPE,
-            255: TIFF.OFILETYPE,
-            259: TIFF.COMPRESSION,
-            262: TIFF.PHOTOMETRIC,
-            263: TIFF.THRESHHOLD,
-            266: TIFF.FILLORDER,
-            274: TIFF.ORIENTATION,
-            284: TIFF.PLANARCONFIG,
-            290: TIFF.GRAYRESPONSEUNIT,
-            # 292: TIFF.GROUP3OPT,
-            # 293: TIFF.GROUP4OPT,
-            296: TIFF.RESUNIT,
-            300: TIFF.COLORRESPONSEUNIT,
-            317: TIFF.PREDICTOR,
-            338: TIFF.EXTRASAMPLE,
-            339: TIFF.SAMPLEFORMAT,
-            # 512: TIFF.JPEGPROC,
-            # 531: TIFF.YCBCRPOSITION,
-        }
+        class TAG_ENUM:
+
+            __slots__ = ('_codes',)
+
+            def __init__(self):
+                self._codes = {
+                    254: None,
+                    255: None,
+                    259: TIFF.COMPRESSION,
+                    262: TIFF.PHOTOMETRIC,
+                    263: None,
+                    266: None,
+                    274: None,
+                    284: TIFF.PLANARCONFIG,
+                    290: None,
+                    296: None,
+                    300: None,
+                    317: None,
+                    338: None,
+                    339: TIFF.SAMPLEFORMAT,
+                }
+
+            def __contains__(self, key):
+                return key in self._codes
+
+            def __getitem__(self, key):
+                value = self._codes[key]
+                if value is not None:
+                    return value
+                if key == 254:
+                    value = TIFF.FILETYPE
+                elif key == 255:
+                    value = TIFF.OFILETYPE
+                elif key == 263:
+                    value = TIFF.THRESHHOLD
+                elif key == 266:
+                    value = TIFF.FILLORDER
+                elif key == 274:
+                    value = TIFF.ORIENTATION
+                elif key == 290:
+                    value = TIFF.GRAYRESPONSEUNIT
+                # elif key == 292:
+                #     value = TIFF.GROUP3OPT
+                # elif key == 293:
+                #     value = TIFF.GROUP4OPT
+                elif key == 296:
+                    value = TIFF.RESUNIT
+                elif key == 300:
+                    value = TIFF.COLORRESPONSEUNIT
+                elif key == 317:
+                    value = TIFF.PREDICTOR
+                elif key == 338:
+                    value = TIFF.EXTRASAMPLE
+                # elif key == 512:
+                #     TIFF.JPEGPROC
+                # elif key == 531:
+                #     TIFF.YCBCRPOSITION
+                else:
+                    raise KeyError(key)
+                self._codes[key] = value
+                return value
+
+        return TAG_ENUM()
 
     def FILETYPE():
         class FILETYPE(enum.IntFlag):
@@ -11910,166 +11982,137 @@ class TIFF:
     def NDPI_TAGS():
         # 65420 - 65458  Private Hamamatsu NDPI tags
         # TODO: obtain specification
-        tags = {code: str(code) for code in range(65420, 65459)}
-        tags.update(
-            {
-                65324: 'OffsetHighBytes',
-                65325: 'ByteCountHighBytes',
-                65420: 'FileFormat',
-                65421: 'Magnification',  # SourceLens
-                65422: 'XOffsetFromSlideCenter',
-                65423: 'YOffsetFromSlideCenter',
-                65424: 'ZOffsetFromSlideCenter',  # FocalPlane
-                65425: 'TissueIndex',
-                65426: 'McuStarts',
-                65427: 'SlideLabel',
-                65428: 'AuthCode',  # ?
-                65432: 'McuStartsHighBytes',
-                65434: 'Fluorescence',  # FilterSetName
-                65435: 'ExposureRatio',
-                65436: 'RedMultiplier',
-                65437: 'GreenMultiplier',
-                65438: 'BlueMultiplier',
-                65439: 'FocusPoints',
-                65440: 'FocusPointRegions',
-                65441: 'CaptureMode',
-                65442: 'ScannerSerialNumber',
-                65444: 'JpegQuality',
-                65445: 'RefocusInterval',
-                65446: 'FocusOffset',
-                65447: 'BlankLines',
-                65448: 'FirmwareVersion',
-                65449: 'Comments',  # PropertyMap, CalibrationInfo
-                65450: 'LabelObscured',
-                65451: 'Wavelength',
-                65453: 'LampAge',
-                65454: 'ExposureTime',
-                65455: 'FocusTime',
-                65456: 'ScanTime',
-                65457: 'WriteTime',
-                65458: 'FullyAutoFocus',
-                65500: 'DefaultGamma',
-            }
+        return TiffTagRegistry(
+            (
+                (65324, 'OffsetHighBytes'),
+                (65325, 'ByteCountHighBytes'),
+                (65420, 'FileFormat'),
+                (65421, 'Magnification'),  # SourceLens
+                (65422, 'XOffsetFromSlideCenter'),
+                (65423, 'YOffsetFromSlideCenter'),
+                (65424, 'ZOffsetFromSlideCenter'),  # FocalPlane
+                (65425, 'TissueIndex'),
+                (65426, 'McuStarts'),
+                (65427, 'SlideLabel'),
+                (65428, 'AuthCode'),  # ?
+                (65429, '65429'),
+                (65430, '65430'),
+                (65431, '65431'),
+                (65432, 'McuStartsHighBytes'),
+                (65433, '65433'),
+                (65434, 'Fluorescence'),  # FilterSetName
+                (65435, 'ExposureRatio'),
+                (65436, 'RedMultiplier'),
+                (65437, 'GreenMultiplier'),
+                (65438, 'BlueMultiplier'),
+                (65439, 'FocusPoints'),
+                (65440, 'FocusPointRegions'),
+                (65441, 'CaptureMode'),
+                (65442, 'ScannerSerialNumber'),
+                (65443, '65443'),
+                (65444, 'JpegQuality'),
+                (65445, 'RefocusInterval'),
+                (65446, 'FocusOffset'),
+                (65447, 'BlankLines'),
+                (65448, 'FirmwareVersion'),
+                (65449, 'Comments'),  # PropertyMap, CalibrationInfo
+                (65450, 'LabelObscured'),
+                (65451, 'Wavelength'),
+                (65452, '65452'),
+                (65453, 'LampAge'),
+                (65454, 'ExposureTime'),
+                (65455, 'FocusTime'),
+                (65456, 'ScanTime'),
+                (65457, 'WriteTime'),
+                (65458, 'FullyAutoFocus'),
+                (65500, 'DefaultGamma'),
+            )
         )
-        return tags
 
     def EXIF_TAGS():
         # 65000 - 65112  Photoshop Camera RAW EXIF tags
-        tags = {
-            65000: 'OwnerName',
-            65001: 'SerialNumber',
-            65002: 'Lens',
-            65100: 'RawFile',
-            65101: 'Converter',
-            65102: 'WhiteBalance',
-            65105: 'Exposure',
-            65106: 'Shadows',
-            65107: 'Brightness',
-            65108: 'Contrast',
-            65109: 'Saturation',
-            65110: 'Sharpness',
-            65111: 'Smoothness',
-            65112: 'MoireFilter',
-        }
-        tags.update(reversed(TIFF.TAGS.items()))  # TODO: rework this
+        tags = TiffTagRegistry(
+            (
+                (65000, 'OwnerName'),
+                (65001, 'SerialNumber'),
+                (65002, 'Lens'),
+                (65100, 'RawFile'),
+                (65101, 'Converter'),
+                (65102, 'WhiteBalance'),
+                (65105, 'Exposure'),
+                (65106, 'Shadows'),
+                (65107, 'Brightness'),
+                (65108, 'Contrast'),
+                (65109, 'Saturation'),
+                (65110, 'Sharpness'),
+                (65111, 'Smoothness'),
+                (65112, 'MoireFilter'),
+            )
+        )
+        tags.update(TIFF.TAGS)
         return tags
 
     def GPS_TAGS():
-        return {
-            0: 'GPSVersionID',
-            1: 'GPSLatitudeRef',
-            2: 'GPSLatitude',
-            3: 'GPSLongitudeRef',
-            4: 'GPSLongitude',
-            5: 'GPSAltitudeRef',
-            6: 'GPSAltitude',
-            7: 'GPSTimeStamp',
-            8: 'GPSSatellites',
-            9: 'GPSStatus',
-            10: 'GPSMeasureMode',
-            11: 'GPSDOP',
-            12: 'GPSSpeedRef',
-            13: 'GPSSpeed',
-            14: 'GPSTrackRef',
-            15: 'GPSTrack',
-            16: 'GPSImgDirectionRef',
-            17: 'GPSImgDirection',
-            18: 'GPSMapDatum',
-            19: 'GPSDestLatitudeRef',
-            20: 'GPSDestLatitude',
-            21: 'GPSDestLongitudeRef',
-            22: 'GPSDestLongitude',
-            23: 'GPSDestBearingRef',
-            24: 'GPSDestBearing',
-            25: 'GPSDestDistanceRef',
-            26: 'GPSDestDistance',
-            27: 'GPSProcessingMethod',
-            28: 'GPSAreaInformation',
-            29: 'GPSDateStamp',
-            30: 'GPSDifferential',
-            31: 'GPSHPositioningError',
-        }
+        return TiffTagRegistry(
+            (
+                (0, 'GPSVersionID'),
+                (1, 'GPSLatitudeRef'),
+                (2, 'GPSLatitude'),
+                (3, 'GPSLongitudeRef'),
+                (4, 'GPSLongitude'),
+                (5, 'GPSAltitudeRef'),
+                (6, 'GPSAltitude'),
+                (7, 'GPSTimeStamp'),
+                (8, 'GPSSatellites'),
+                (9, 'GPSStatus'),
+                (10, 'GPSMeasureMode'),
+                (11, 'GPSDOP'),
+                (12, 'GPSSpeedRef'),
+                (13, 'GPSSpeed'),
+                (14, 'GPSTrackRef'),
+                (15, 'GPSTrack'),
+                (16, 'GPSImgDirectionRef'),
+                (17, 'GPSImgDirection'),
+                (18, 'GPSMapDatum'),
+                (19, 'GPSDestLatitudeRef'),
+                (20, 'GPSDestLatitude'),
+                (21, 'GPSDestLongitudeRef'),
+                (22, 'GPSDestLongitude'),
+                (23, 'GPSDestBearingRef'),
+                (24, 'GPSDestBearing'),
+                (25, 'GPSDestDistanceRef'),
+                (26, 'GPSDestDistance'),
+                (27, 'GPSProcessingMethod'),
+                (28, 'GPSAreaInformation'),
+                (29, 'GPSDateStamp'),
+                (30, 'GPSDifferential'),
+                (31, 'GPSHPositioningError'),
+            )
+        )
 
     def IOP_TAGS():
-        return {
-            1: 'InteroperabilityIndex',
-            2: 'InteroperabilityVersion',
-            4096: 'RelatedImageFileFormat',
-            4097: 'RelatedImageWidth',
-            4098: 'RelatedImageLength',
-        }
+        return TiffTagRegistry(
+            (
+                (1, 'InteroperabilityIndex'),
+                (2, 'InteroperabilityVersion'),
+                (4096, 'RelatedImageFileFormat'),
+                (4097, 'RelatedImageWidth'),
+                (4098, 'RelatedImageLength'),
+            )
+        )
 
     def GEO_KEYS():
-        return {
-            1024: 'GTModelTypeGeoKey',
-            1025: 'GTRasterTypeGeoKey',
-            1026: 'GTCitationGeoKey',
-            2048: 'GeographicTypeGeoKey',
-            2049: 'GeogCitationGeoKey',
-            2050: 'GeogGeodeticDatumGeoKey',
-            2051: 'GeogPrimeMeridianGeoKey',
-            2052: 'GeogLinearUnitsGeoKey',
-            2053: 'GeogLinearUnitSizeGeoKey',
-            2054: 'GeogAngularUnitsGeoKey',
-            2055: 'GeogAngularUnitsSizeGeoKey',
-            2056: 'GeogEllipsoidGeoKey',
-            2057: 'GeogSemiMajorAxisGeoKey',
-            2058: 'GeogSemiMinorAxisGeoKey',
-            2059: 'GeogInvFlatteningGeoKey',
-            2060: 'GeogAzimuthUnitsGeoKey',
-            2061: 'GeogPrimeMeridianLongGeoKey',
-            2062: 'GeogTOWGS84GeoKey',
-            3059: 'ProjLinearUnitsInterpCorrectGeoKey',  # GDAL
-            3072: 'ProjectedCSTypeGeoKey',
-            3073: 'PCSCitationGeoKey',
-            3074: 'ProjectionGeoKey',
-            3075: 'ProjCoordTransGeoKey',
-            3076: 'ProjLinearUnitsGeoKey',
-            3077: 'ProjLinearUnitSizeGeoKey',
-            3078: 'ProjStdParallel1GeoKey',
-            3079: 'ProjStdParallel2GeoKey',
-            3080: 'ProjNatOriginLongGeoKey',
-            3081: 'ProjNatOriginLatGeoKey',
-            3082: 'ProjFalseEastingGeoKey',
-            3083: 'ProjFalseNorthingGeoKey',
-            3084: 'ProjFalseOriginLongGeoKey',
-            3085: 'ProjFalseOriginLatGeoKey',
-            3086: 'ProjFalseOriginEastingGeoKey',
-            3087: 'ProjFalseOriginNorthingGeoKey',
-            3088: 'ProjCenterLongGeoKey',
-            3089: 'ProjCenterLatGeoKey',
-            3090: 'ProjCenterEastingGeoKey',
-            3091: 'ProjFalseOriginNorthingGeoKey',
-            3092: 'ProjScaleAtNatOriginGeoKey',
-            3093: 'ProjScaleAtCenterGeoKey',
-            3094: 'ProjAzimuthAngleGeoKey',
-            3095: 'ProjStraightVertPoleLongGeoKey',
-            3096: 'ProjRectifiedGridAngleGeoKey',
-            4096: 'VerticalCSTypeGeoKey',
-            4097: 'VerticalCitationGeoKey',
-            4098: 'VerticalDatumGeoKey',
-            4099: 'VerticalUnitsGeoKey',
-        }
+        try:
+            from .tifffile_geodb import GeoKeys  # delayed import
+        except ImportError:
+            try:
+                from tifffile_geodb import GeoKeys  # delayed import
+            except ImportError:
+
+                class GeoKeys(enum.IntEnum):
+                    pass
+
+        return GeoKeys
 
     def GEO_CODES():
         try:
@@ -13016,8 +13059,7 @@ def read_gps_ifd(fh, byteorder, dtype, count, offsetsize):
 
 def read_interoperability_ifd(fh, byteorder, dtype, count, offsetsize):
     """Read Interoperability tags from file and return as dict."""
-    tag_names = {1: 'InteroperabilityIndex'}
-    return read_tags(fh, byteorder, offsetsize, tag_names, maxifds=1)
+    return read_tags(fh, byteorder, offsetsize, TIFF.IOP_TAGS, maxifds=1)
 
 
 def read_bytes(fh, byteorder, dtype, count, offsetsize):
@@ -14055,6 +14097,23 @@ def imagej_shape(shape, rgb=None, axes=None):
     if rgb or shape[-1] == 1:
         return (1,) * (6 - ndim) + shape
     return (1,) * (5 - ndim) + shape + (1,)
+
+
+def jpeg_decode_colorspace(photometric, planarconfig, extrasamples):
+    """Return JPEG and output colorspace for jpeg_decode function."""
+    colorspace = None
+    outcolorspace = None
+    if extrasamples:
+        pass
+    elif photometric == 6:
+        # YCBCR -> RGB
+        outcolorspace = 2  # RGB
+    elif photometric == 2:
+        if planarconfig == 1:
+            colorspace = outcolorspace = 2  # RGB
+    elif photometric > 3:
+        outcolorspace = TIFF.PHOTOMETRIC(photometric).value
+    return colorspace, outcolorspace
 
 
 def ndpi_jpeg_tile(jpeg):
