@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.3.31
+:Version: 2021.4.8
 
 """
 
@@ -1116,6 +1116,38 @@ def test_issue_imagej_singlet_dimensions():
             assert_array_equal(image, data)
             assert_aszarr_method(series, data, squeeze=False)
             assert_aszarr_method(series, data, squeeze=False, chunkmode='page')
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_cr2_ojpeg():
+    """Test read OJPEG image from CR2."""
+    # https://github.com/cgohlke/tifffile/issues/75
+
+    fname = private_file('CanonCR2/Canon - EOS M6 - RAW (3 2).cr2')
+
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 4
+        page = tif.pages[0]
+        assert page.compression == 6
+        assert page.shape == (4000, 6000, 3)
+        assert page.dtype == 'uint8'
+        assert page.photometric == YCBCR
+        data = page.asarray()
+        assert data.shape == (4000, 6000, 3)
+        assert data.dtype == 'uint8'
+        assert tuple(data[1640, 2372]) == (71, 75, 58)
+        assert_aszarr_method(page, data)
+
+        page = tif.pages[1]
+        assert page.shape == (0, 0)
+        assert page.dtype == numpy.dtype('bool')
+
+        page = tif.pages[2]
+        assert page.shape == (400, 600, 3)
+
+        page = tif.pages[3]
+        assert page.shape == (0, 0, 3)
+        assert page.dtype == 'uint8'
 
 
 ###############################################################################
@@ -11680,7 +11712,7 @@ def test_write_multiple_series():
 def assert_fsspec(url, data):
     """Assert fsspec ReferenceFileSystem from local http server."""
     mapper = fsspec.get_mapper(
-        'reference://', references=url, target_protocol=url.split(':')[0]
+        'reference://', fo=url, target_protocol=url.split(':')[0]
     )
     zobj = zarr.open(mapper, mode='r')
     if isinstance(zobj, zarr.Group):
@@ -11692,7 +11724,8 @@ def assert_fsspec(url, data):
 
 
 @pytest.mark.skipif(SKIP_HTTP or SKIP_ZARR, reason=REASON)
-def test_write_fsspec():
+@pytest.mark.parametrize('version', [0, 1])
+def test_write_fsspec(version):
     """Test write fsspec for multi-series OME-TIFF."""
     data0 = random_data('uint8', (3, 252, 244))
     data1 = random_data('uint8', (219, 301, 3))
@@ -11725,32 +11758,49 @@ def test_write_fsspec():
 
             with tif.series[0].aszarr() as store:
                 assert store.is_multiscales
-                store.write_fsspec(fname + '.s0.json', URL)
-                assert_fsspec(URL + filename + '.s0.json', data0)
+                store.write_fsspec(
+                    fname + f'.v{version}.s0.json', URL, version=version
+                )
+                assert_fsspec(URL + filename + f'.v{version}.s0.json', data0)
 
             with tif.series[1].aszarr() as store:
                 assert not store.is_multiscales
-                store.write_fsspec(fname + '.s1.json', URL)
-                assert_fsspec(URL + filename + '.s1.json', data1)
+                store.write_fsspec(
+                    fname + f'.v{version}.s1.json', URL, version=version
+                )
+                assert_fsspec(URL + filename + f'.v{version}.s1.json', data1)
 
             with tif.series[2].aszarr() as store:
-                store.write_fsspec(fname + '.s2.json', URL)
-                assert_fsspec(URL + filename + '.s2.json', data2)
+                store.write_fsspec(
+                    fname + f'.v{version}.s2.json', URL, version=version
+                )
+                assert_fsspec(URL + filename + f'.v{version}.s2.json', data2)
 
             with tif.series[3].aszarr(chunkmode=2) as store:
-                store.write_fsspec(fname + '.s3.json', URL)
-                assert_fsspec(URL + filename + '.s3.json', data1)
+                store.write_fsspec(
+                    fname + f'.v{version}.s3.json', URL, version=version
+                )
+                assert_fsspec(URL + filename + f'.v{version}.s3.json', data1)
 
             with tif.series[3].aszarr() as store:
                 with pytest.raises(ValueError):
                     # imagelength % rowsperstrip != 0
-                    store.write_fsspec(fname + '.s3fail.json', URL)
+                    store.write_fsspec(
+                        fname + f'.v{version}.s3fail.json',
+                        URL,
+                        version=version,
+                    )
 
             with tif.series[4].aszarr() as store:
-                store.write_fsspec(fname + '.s4.json', URL)
-                with pytest.raises(ValueError):
-                    # codec not available: 'imagecodecs_jpeg'
-                    assert_fsspec(URL + filename + '.s4.json', data1)
+                store.write_fsspec(
+                    fname + f'.v{version}.s4.json', URL, version=version
+                )
+                if version == 0:
+                    with pytest.raises(ValueError):
+                        # codec not available: 'imagecodecs_jpeg'
+                        assert_fsspec(
+                            URL + filename + f'.v{version}.s4.json', data1
+                        )
                 try:
                     from imagecodecs.numcodecs import register_codecs
                 except ImportError:
@@ -11758,7 +11808,8 @@ def test_write_fsspec():
                 else:
                     register_codecs('imagecodecs_jpeg')
                     assert_fsspec(
-                        URL + filename + '.s4.json', tif.series[4].asarray()
+                        URL + filename + f'.v{version}.s4.json',
+                        tif.series[4].asarray(),
                     )
 
 
