@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.3.31
+:Version: 2021.4.8
 
 Requirements
 ------------
@@ -62,8 +62,13 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.4.8
+    Pass 4393 tests.
+    Fix reading OJPEG with wrong photometric or samplesperpixel tags (#75).
+    Fix fsspec ReferenceFileSystem v1 and JPEG compression.
+    Use TiffTagRegistry for NDPI_TAGS, EXIF_TAGS, GPS_TAGS, IOP_TAGS constants.
+    Make TIFF.GEO_KEYS an Enum (breaking).
 2021.3.31
-    Pass 4391 tests.
     Use JPEG restart markers as tile offsets in NDPI.
     Support version 1 and more codecs in fsspec ReferenceFileSystem (untested).
 2021.3.17
