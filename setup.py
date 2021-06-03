@@ -82,11 +82,11 @@ setup(
     python_requires='>=3.7',
     install_requires=[
         'numpy>=1.15.1',
-        # 'imagecodecs>=2021.3.31',
+        # 'imagecodecs>=2021.4.28',
     ],
     extras_require={
         'all': [
-            'imagecodecs>=2021.3.31',
+            'imagecodecs>=2021.4.28',
             'matplotlib>=3.2',
             'lxml',
             # 'zarr',
@@ -103,7 +103,7 @@ setup(
         'roifile',
         'lxml',
         'zarr',
-        'fsspec>=0.9.0',
+        'fsspec>=2021.5.0',
     ],
     entry_points={
         'console_scripts': [
@@ -125,5 +125,6 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
     ],
 )
