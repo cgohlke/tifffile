@@ -72,28 +72,37 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.4.8
+:Version: 2021.6.6
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.8, 3.9.2 64-bit <https://www.python.org>`_
-* `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.3.31 <https://pypi.org/project/imagecodecs/>`_
+* `CPython 3.7.9, 3.8.10, 3.9.5 64-bit <https://www.python.org>`_
+* `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
+* `Imagecodecs 2021.5.20 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
-* `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
+* `Matplotlib 3.4.2 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
 * `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.7.0 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.8.3 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2021.6.6
+    Pass 4405 tests.
+    Fix TIFF.COMPESSOR typo (#85).
+    Round resolution numbers that do not fit in 64-bit rationals (#81).
+    Add support for JPEG XL compression.
+    Add numcodecs compatible TIFF codec.
+    Rename ZarrFileStore to ZarrFileSequenceStore (breaking).
+    Add method to export fsspec ReferenceFileSystem from ZarrFileStore.
+    Fix fsspec ReferenceFileSystem v1 for multifile series.
+    Fix creating OME-TIFF with micron character in OME-XML.
 2021.4.8
-    Pass 4393 tests.
     Fix reading OJPEG with wrong photometric or samplesperpixel tags (#75).
     Fix fsspec ReferenceFileSystem v1 and JPEG compression.
     Use TiffTagRegistry for NDPI_TAGS, EXIF_TAGS, GPS_TAGS, IOP_TAGS constants.
@@ -305,6 +314,7 @@ Other libraries for reading scientific TIFF files from Python:
 * `Imread <https://github.com/luispedro/imread>`_
 * `GDAL <https://github.com/OSGeo/gdal/tree/master/gdal/swig/python>`_
 * `OpenSlide-python <https://github.com/openslide/openslide-python>`_
+* `Slideio <https://gitlab.com/bioslide/slideio>`_
 * `PyLibTiff <https://github.com/pearu/pylibtiff>`_
 * `SimpleITK <https://github.com/SimpleITK/SimpleITK>`_
 * `PyLSM <https://launchpad.net/pylsm>`_
@@ -464,12 +474,13 @@ compression, and planar storage:
 ...         compression='deflate', planarconfig='separate', tile=(32, 32),
 ...         metadata={'axes': 'TZCYX'})
 
-Write a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an
-ImageJ hyperstack formatted TIFF file:
+Write a 10 fps time series of volumes with xyz voxel size 2.6755x2.6755x3.9474
+micron^3 to an ImageJ hyperstack formatted TIFF file:
 
->>> volume = numpy.random.randn(57, 256, 256).astype('float32')
+>>> volume = numpy.random.randn(6, 57, 256, 256).astype('float32')
 >>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
-...         metadata={'spacing': 3.947368, 'unit': 'um', 'axes': 'ZYX'})
+...         metadata={'spacing': 3.947368, 'unit': 'um', 'finterval': 1/10,
+...                   'axes': 'TZYX'})
 
 Read the volume and metadata from the ImageJ file:
 
@@ -478,11 +489,13 @@ Read the volume and metadata from the ImageJ file:
 ...     axes = tif.series[0].axes
 ...     imagej_metadata = tif.imagej_metadata
 >>> volume.shape
-(57, 256, 256)
+(6, 57, 256, 256)
 >>> axes
-'ZYX'
+'TZYX'
 >>> imagej_metadata['slices']
 57
+>>> imagej_metadata['frames']
+6
 
 Create an empty TIFF file and write to the memory-mapped numpy array:
 
@@ -578,7 +591,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 ...                 data, index, jpegtables=page.jpegtables
 ...             )
 
-Use zarr to access the tiled, pyramidal images in the TIFF file:
+Use zarr to read parts of the tiled, pyramidal images in the TIFF file:
 
 >>> import zarr
 >>> store = imread('temp.ome.tif', aszarr=True)
@@ -587,6 +600,8 @@ Use zarr to access the tiled, pyramidal images in the TIFF file:
 <zarr.hierarchy.Group '/' read-only>
 >>> z[0]  # base layer
 <zarr.core.Array '/0' (1024, 1024, 3) uint8 read-only>
+>>> z[0][256:512, 512:768].shape  # read a tile from the base layer
+(256, 256, 3)
 >>> store.close()
 
 Read images from a sequence of TIFF files as numpy array:
@@ -615,7 +630,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.4.8'
+__version__ = '2021.6.6'
 
 __all__ = (
     'OmeXml',
@@ -632,7 +647,7 @@ __all__ = (
     'TiffTags',
     'TiffTagRegistry',
     'TiffWriter',
-    'ZarrFileStore',
+    'ZarrFileSequenceStore',
     'ZarrStore',
     'ZarrTiffStore',
     'imread',
@@ -642,6 +657,7 @@ __all__ = (
     'memmap',
     'read_micromanager_metadata',
     'read_scanimage_metadata',
+    'tiff2fsspec',
     'tiffcomment',
     # utility classes and functions used by oiffile, czifile, etc.
     'FileCache',
@@ -1133,6 +1149,7 @@ class TiffWriter:
         compression=None,
         predictor=None,
         subsampling=None,
+        jpegtables=None,
         colormap=None,
         description=None,
         datetime=None,
@@ -1252,8 +1269,8 @@ class TiffWriter:
             contiguous series, or empty files.
         compression : str, (str, int), (str, int, dict)
             If None (default), data are written uncompressed.
-            If a str, one of TIFF.COMPESSORS, e.g. 'JPEG' or 'ZSTD'.
-            If a tuple, the first item is one of TIFF.COMPESSORS, the
+            If a str, one of TIFF.COMPRESSION, e.g. 'JPEG' or 'ZSTD'.
+            If a tuple, the first item is one of TIFF.COMPRESSION, the
             second item is the compression level, and the third item is a dict
             of arguments passed to the compression codec.
             Compression cannot be used to write contiguous series.
@@ -1261,6 +1278,7 @@ class TiffWriter:
             For example, JPEG requires grayscale or RGB(A), uint8 or 12-bit
             uint16. JPEG compression is experimental. JPEG markers and TIFF
             tags may not match.
+            Only a limited set of compression shemes are implemented.
         predictor : bool or TIFF.PREDICTOR
             If True, apply horizontal differencing or floating-point predictor
             before compression. Predictors are disabled for 64-bit integers.
@@ -1272,6 +1290,9 @@ class TiffWriter:
             Segment widths must be a multiple of 8 times the horizontal factor.
             Segment lengths and rowsperstrip must be a multiple of 8 times the
             vertical factor.
+        jpegtables : bytes
+            JPEG quantization and/or Huffman tables. Use for copying
+            pre-compressed JPEG segments.
         colormap : numpy.ndarray
             RGB color values for the corresponding data value.
             Must be of shape (3, 2**(data.itemsize*8)) and dtype uint16.
@@ -1399,10 +1420,10 @@ class TiffWriter:
 
         if compression is None and compress is not None:
             # TODO: activate DeprecationWarning and update tests
-            # warnings.warn(
-            #     "TiffWriter: the 'compress' parameter is deprecated",
-            #     DeprecationWarning
-            # )
+            warnings.warn(
+                "TiffWriter: the 'compress' parameter is deprecated",
+                DeprecationWarning,
+            )
             if isinstance(compress, (int, numpy.integer)) and compress > 0:
                 # ADOBE_DEFLATE
                 compression = 8, int(compress)
@@ -1535,6 +1556,7 @@ class TiffWriter:
         MINISBLACK = TIFF.PHOTOMETRIC.MINISBLACK
         MINISWHITE = TIFF.PHOTOMETRIC.MINISWHITE
         RGB = TIFF.PHOTOMETRIC.RGB
+        YCBCR = TIFF.PHOTOMETRIC.YCBCR
         PALETTE = TIFF.PHOTOMETRIC.PALETTE
         CONTIG = TIFF.PLANARCONFIG.CONTIG
         SEPARATE = TIFF.PLANARCONFIG.SEPARATE
@@ -1570,10 +1592,12 @@ class TiffWriter:
                 if compression == 'ZLIB':
                     compression = 8  # ADOBE_DEFLATE
             compressiontag = enumarg(TIFF.COMPRESSION, compression)
-            compression = True
+            compression = compressiontag > 1
         else:
             compression = False
             compressiontag = 1
+
+        if not compression:
             compressionargs = {}
             predictor = False  # TODO: support predictors without compression?
             predictortag = 1
@@ -1588,6 +1612,7 @@ class TiffWriter:
                 34933,
                 34934,
                 50001,
+                50002,
             ):
                 # disable predictor for JPEG, JPEG2000, WEBP, PNG, JPEGXR
                 predictor = False
@@ -1682,7 +1707,9 @@ class TiffWriter:
 
         # normalize data shape to 5D or 6D, depending on volume:
         #   (pages, separate_samples, [depth,] length, width, contig_samples)
-        storedshape = reshape_nd(datashape, 3 if photometric == RGB else 2)
+        storedshape = reshape_nd(
+            datashape, TIFF.PHOTOMETRIC_SAMPLES.get(photometric, 2)
+        )
         del datashape
         shape = storedshape
         ndim = len(storedshape)
@@ -1767,7 +1794,7 @@ class TiffWriter:
             volumetric = False
             planarconfig = None
             storedshape = (-1, 1) + shape[-2:] + (1,)
-            # if 50706 not in (et[0] for et in extratags):
+            # if all(et[0] != 50706 for et in extratags):
             #     raise ValueError('must specify DNG tags for CFA image')
 
         elif planarconfig and len(shape) > (3 if volumetric else 2):
@@ -1969,16 +1996,25 @@ class TiffWriter:
                     ifdvalue = pack(dataformat, value)
             tags.append((code, b''.join(ifdentry), ifdvalue, writeonce))
 
-        def rational(arg, max_denominator=1000000):
-            # return nominator and denominator from float or two integers
+        def rational(arg):
+            # return numerator and denominator from float or two integers
             from fractions import Fraction  # delayed import
 
             try:
                 f = Fraction.from_float(arg)
             except TypeError:
                 f = Fraction(arg[0], arg[1])
-            f = f.limit_denominator(max_denominator)
-            return f.numerator, f.denominator
+            try:
+                numerator, denominator = f.as_integer_ratio()
+            except AttributeError:
+                # Python 3.7
+                f = f.limit_denominator(4294967294)
+                numerator, denominator = f.numerator, f.denominator
+            if numerator > 4294967295 or denominator > 4294967295:
+                s = 4294967295 / max(numerator, denominator)
+                numerator = round(numerator * s)
+                denominator = round(denominator * s)
+            return numerator, denominator
 
         if description is not None:
             # ImageDescription: user provided description
@@ -2108,8 +2144,15 @@ class TiffWriter:
                 # Unspecified alpha channel
                 addtag(338, 3, extrasamples, (0,) * extrasamples)
 
-        if compressiontag == 7 and photometric == RGB and planarconfig == 1:
-            # JPEG compression with subsampling. Store as YCbCr
+        if jpegtables is not None:
+            addtag(347, 7, len(jpegtables), jpegtables)
+
+        if (
+            compressiontag == 7
+            and planarconfig == 1
+            and photometric in (RGB, YCBCR)
+        ):
+            # JPEG compression with subsampling
             # TODO: use JPEGTables for multiple tiles or strips
             if subsampling is None:
                 subsampling = (2, 2)
@@ -2121,9 +2164,19 @@ class TiffWriter:
             if extrasamples > 1:
                 raise ValueError('JPEG subsampling requires RGB(A) images')
             addtag(530, 3, 2, subsampling)  # YCbCrSubSampling
-            addtag(262, 3, 1, 6)  # PhotometricInterpretation YCBCR
+            # use PhotometricInterpretation YCBCR by default
+            outcolorspace = enumarg(
+                TIFF.PHOTOMETRIC, compressionargs.get('outcolorspace', 6)
+            )
+            compressionargs['subsampling'] = subsampling
+            compressionargs['colorspace'] = photometric.name
+            compressionargs['outcolorspace'] = outcolorspace.name
+            addtag(262, 3, 1, outcolorspace)
             # ReferenceBlackWhite is required for YCBCR
-            addtag(532, 5, 6, (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1))
+            if all(et[0] != 532 for et in extratags):
+                addtag(
+                    532, 5, 6, (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1)
+                )
         else:
             if subsampling not in (None, (1, 1)):
                 log_warning('TiffWriter: cannot apply subsampling')
@@ -2283,7 +2336,7 @@ class TiffWriter:
                 # LZW, PackBits
                 def compress(
                     data,
-                    compressor=TIFF.COMPESSORS[compressiontag],
+                    compressor=TIFF.COMPRESSORS[compressiontag],
                     kwargs=compressionargs,
                 ):
                     data = numpy.packbits(data, axis=-2).tobytes()
@@ -2293,23 +2346,14 @@ class TiffWriter:
                 raise ValueError('cannot compress bilevel image')
 
         elif compression:
-            compressor = TIFF.COMPESSORS[compressiontag]
+            compressor = TIFF.COMPRESSORS[compressiontag]
 
             if subsampling:
-                # JPEG with subsampling. Store RGB as YCbCr
+                # JPEG with subsampling
                 def compress(
-                    data,
-                    compressor=compressor,
-                    subsampling=subsampling,
-                    kwargs=compressionargs,
+                    data, compressor=compressor, kwargs=compressionargs
                 ):
-                    return compressor(
-                        data,
-                        subsampling=subsampling,
-                        colorspace=2,
-                        outcolorspace=3,
-                        **kwargs,
-                    )
+                    return compressor(data, **kwargs)
 
             elif predictor:
 
@@ -2771,7 +2815,7 @@ class TiffWriter:
                     self._storedshape,
                     **self._metadata,
                 )
-            description = self._ome.tostring(declaration=True)
+            description = self._ome.tostring(declaration=True).encode()
         elif self._datashape[0] == 1:
             # description already up-to-date
             self._descriptiontag = None
@@ -5416,6 +5460,7 @@ class TiffPage:
     photometric = 0
     predictor = 1
     extrasamples = ()
+    subsampling = None
     subifds = None
     jpegtables = None
     jpegheader = None  # NDPI only
@@ -5502,12 +5547,13 @@ class TiffPage:
         if tag:
             self.description1 = tag.value
 
-        tag = tags.get(255)  # SubfileType
-        if tag and self.subfiletype == 0:
-            if tag.value == 2:
-                self.subfiletype = 0b1  # reduced image
-            elif tag.value == 3:
-                self.subfiletype = 0b10  # multi-page
+        if self.subfiletype == 0:
+            tag = tags.get(255)  # SubfileType
+            if tag:
+                if tag.value == 2:
+                    self.subfiletype = 0b1  # reduced image
+                elif tag.value == 3:
+                    self.subfiletype = 0b10  # multi-page
 
         # consolidate private tags; remove them from self.tags
         # if self.is_andor:
@@ -5614,8 +5660,9 @@ class TiffPage:
             #    self.rowsperstrip))
 
         # determine dtype
-        dtype = self.sampleformat, self.bitspersample
-        dtype = TIFF.SAMPLE_DTYPES.get(dtype, None)
+        dtype = TIFF.SAMPLE_DTYPES.get(
+            (self.sampleformat, self.bitspersample), None
+        )
         if dtype is not None:
             dtype = numpy.dtype(dtype)
         self.dtype = self._dtype = dtype
@@ -5809,7 +5856,7 @@ class TiffPage:
             if self.compression == 1:
                 decompress = None
             else:
-                decompress = TIFF.DECOMPESSORS[self.compression]
+                decompress = TIFF.DECOMPRESSORS[self.compression]
         except KeyError as exc:
 
             def decode(*args, exc=str(exc)[1:-1], **kwargs):
@@ -6029,7 +6076,15 @@ class TiffPage:
 
             return cache(decode)
 
-        if self.compression in (33003, 33005, 34712, 34933, 34934, 50001):
+        if self.compression in (
+            33003,
+            33005,
+            34712,
+            34933,
+            34934,
+            50001,
+            50002,
+        ):
             # JPEG2000, WEBP, PNG, JPEGXR
             # presume codecs always return correct dtype, native byte order...
             if self.fillorder == 2:
@@ -6286,7 +6341,7 @@ class TiffPage:
             with lock:
                 fh.seek(self.tags[273].value[0])  # StripOffsets
                 data = fh.read(self.tags[279].value[0])  # StripByteCounts
-            decompress = TIFF.DECOMPESSORS[self.compression]
+            decompress = TIFF.DECOMPRESSORS[self.compression]
             result = decompress(
                 data, bitspersample=self.bitspersample, out=out
             )
@@ -6544,6 +6599,7 @@ class TiffPage:
             34933,
             34934,
             50001,
+            50002,
         ):
             # image codecs
             return min(TIFF.MAXWORKERS, len(self.dataoffsets))
@@ -7507,6 +7563,33 @@ class TiffTag:
         """Return size of value in file."""
         return self.count * struct.calcsize(TIFF.DATA_FORMATS[self.dtype])
 
+    def astuple(self, tifffile):
+        """Return tag code, dtype, count, and encoded value.
+
+        The encoded value is read from file if necessary.
+
+        """
+        if isinstance(self.value, bytes):
+            value = self.value
+        else:
+            dataformat = TIFF.DATA_FORMATS[self.dtype]
+            count = self.count * int(dataformat[0])
+            fmt = '{}{}{}'.format(
+                tifffile.tiff.byteorder, count, dataformat[1]
+            )
+            try:
+                if count == 1:
+                    value = struct.pack(fmt, self.value)
+                else:
+                    value = struct.pack(fmt, *self.value)
+            except Exception:
+                fh = tifffile.filehandle
+                pos = fh.tell()
+                fh.seek(self.valueoffset)
+                value = fh.read(struct.calcsize(fmt))
+                fh.seek(pos)
+        return self.code, self.dtype.value, self.count, value
+
     def overwrite(self, tifffile, value, dtype=None, erase=True):
         """Write new tag value to file and return new TiffTag instance.
 
@@ -8333,6 +8416,16 @@ class ZarrStore(MutableMapping):
             )
         return value
 
+    @staticmethod
+    def _ndindex(shape, chunks):
+        """Return iterator over all chunk index strings."""
+        assert len(shape) == len(chunks)
+        chunked = tuple(
+            i // j + (1 if i % j else 0) for i, j in zip(shape, chunks)
+        )
+        for indices in numpy.ndindex(chunked):
+            yield '.'.join(str(index) for index in indices)
+
 
 class ZarrTiffStore(ZarrStore):
     """Zarr storage interface to image data in TiffPage or TiffPageSeries.
@@ -8478,6 +8571,7 @@ class ZarrTiffStore(ZarrStore):
             34933: 'imagecodecs_png',
             34934: 'imagecodecs_jpegxr',
             50001: 'imagecodecs_webp',
+            50002: 'imagecodecs_jpegxl',
             **({} if compressors is None else compressors),
         }
 
@@ -8541,7 +8635,7 @@ class ZarrTiffStore(ZarrStore):
                 for page in self._data[0].pages:
                     if page is None:
                         continue
-                    fname = keyframe.parent.filehandle.name
+                    fname = page.keyframe.parent.filehandle.name
                     if fname in templates:
                         continue
                     key = f'u{i}'
@@ -8593,7 +8687,7 @@ class ZarrTiffStore(ZarrStore):
                     value['compressor'] = {'id': codec_id}
                 if byteorder is not None:
                     value['dtype'] = byteorder + value['dtype'][1:]
-                value = ZarrTiffStore._json(value)
+                value = ZarrStore._json(value)
 
             refzarr[key] = value.decode()
 
@@ -8615,7 +8709,7 @@ class ZarrTiffStore(ZarrStore):
                 shape = value['shape']
                 chunks = value['chunks']
                 level = (key.split('/')[0] + '/') if '/' in key else ''
-                for chunkindex in ZarrTiffStore._ndindex(shape, chunks):
+                for chunkindex in ZarrStore._ndindex(shape, chunks):
                     key = level + chunkindex
                     keyframe, page, _, offset, bytecount = self._parse_key(key)
                     if page and self._chunkmode and offset is None:
@@ -8803,19 +8897,9 @@ class ZarrTiffStore(ZarrStore):
         # assert ndim == len(newchunks)
         return tuple(newchunks[::-1])
 
-    @staticmethod
-    def _ndindex(shape, chunks):
-        """Return iterator over all chunk index strings."""
-        assert len(shape) == len(chunks)
-        chunked = tuple(
-            i // j + (1 if i % j else 0) for i, j in zip(shape, chunks)
-        )
-        for indices in numpy.ndindex(chunked):
-            yield '.'.join(str(index) for index in indices)
 
-
-class ZarrFileStore(ZarrStore):
-    """Zarr storage interface to image data in TiffSequence."""
+class ZarrFileSequenceStore(ZarrStore):
+    """Zarr storage interface to image data in FileSequence."""
 
     def __init__(self, arg, fillvalue=None, chunkmode=None, **kwargs):
         """Initialize Zarr storage from FileSequence."""
@@ -8856,6 +8940,7 @@ class ZarrFileStore(ZarrStore):
         self._chunks = image.shape
         self._dtype = image.dtype
         self._cache = {arg.indices[0]: image}  # TODO: cache MRU number chunks
+        self._commonpath = arg.commonpath()
 
     def _getitem(self, key):
         """Return chunk from file."""
@@ -8878,9 +8963,109 @@ class ZarrFileStore(ZarrStore):
         """Clear chunk cache."""
         self._cache.clear()
 
-    def write_fsspec(self, arg, url, compressors=None, version=None):
-        """Write fsspec ReferenceFileSystem as JSON to file."""
-        raise NotImplementedError
+    def write_fsspec(self, arg, url, codec_id=None, version=None):
+        """Write fsspec ReferenceFileSystem as JSON to file.
+
+        Url is the remote location of the files without the file names.
+
+        """
+        from urllib.parse import quote
+
+        kwargs = self._kwargs.copy()
+
+        if codec_id is not None:
+            pass
+        elif self._imread == imread:
+            codec_id = 'tifffile'
+        elif 'imagecodecs.' in self._imread.__module__:
+            if (
+                self._imread.__name__ != 'imread'
+                or 'codec' not in self._kwargs
+            ):
+                raise ValueError('can not determine codec_id')
+            codec = kwargs.pop('codec')
+            if isinstance(codec, (list, tuple)):
+                codec = codec[0]
+            if callable(codec):
+                codec = codec.__name__.split('_')[0]
+            codec_id = {
+                'avif': 'imagecodecs_avif',
+                'gif': 'imagecodecs_gif',
+                'jpeg': 'imagecodecs_jpeg',
+                'jpeg8': 'imagecodecs_jpeg',
+                'jpeg12': 'imagecodecs_jpeg',
+                'jpeg2k': 'imagecodecs_jpeg2k',
+                'jpegls': 'imagecodecs_jpegls',
+                'jpegxl': 'imagecodecs_jpegxl',
+                'jpegxr': 'imagecodecs_jpegxr',
+                'ljpeg': 'imagecodecs_ljpeg',
+                # 'npy': 'imagecodecs_npy',
+                'png': 'imagecodecs_png',
+                'tiff': 'imagecodecs_tiff',
+                'webp': 'imagecodecs_webp',
+                'zfp': 'imagecodecs_zfp',
+            }[codec]
+        else:
+            raise ValueError('can not determine codec_id')
+
+        if url is None:
+            url = ''
+        elif url and url[-1] != '/':
+            url += '/'
+
+        refs = dict()
+        if version == 1:
+            refs['version'] = 1
+            refs['templates'] = {'u': url}
+            refs['gen'] = []
+            refs['refs'] = refzarr = dict()
+            url = '{{u}}'
+        else:
+            refzarr = refs
+
+        for key, value in self._store.items():
+            if '.zarray' in key:
+                value = json.loads(value)
+                # TODO: make kwargs serializable
+                value['compressor'] = {'id': codec_id, **kwargs}
+                value = ZarrStore._json(value)
+            refzarr[key] = value.decode()
+
+        if hasattr(arg, 'write'):
+            fh = arg
+        else:
+            fh = open(arg, 'w')
+
+        if version == 1:
+            fh.write(json.dumps(refs, indent=1).rsplit('}"', 1)[0] + '}"')
+            indent = '  '
+        else:
+            fh.write(json.dumps(refs, indent=1)[:-2])
+            indent = ' '
+
+        prefix = len(self._commonpath)
+
+        for key, value in self._store.items():
+            if '.zarray' in key:
+                value = json.loads(value)
+                shape = value['shape']
+                chunks = value['chunks']
+                for key in ZarrStore._ndindex(shape, chunks):
+                    indices = tuple(int(i) for i in key.split('.'))
+                    indices = indices[: -len(self._chunks)]
+                    filename = self._lookup.get(indices, None)
+                    if filename is not None:
+                        filename = quote(filename[prefix:].replace('\\', '/'))
+                        if filename[0] == '/':
+                            filename = filename[1:]
+                        fh.write(f',\n{indent}"{key}": ["{url}{filename}"]')
+
+        if version == 1:
+            fh.write('\n }')
+        fh.write('\n}')
+
+        if not hasattr(arg, 'write'):
+            fh.close()
 
 
 class FileSequence:
@@ -9106,7 +9291,15 @@ class FileSequence:
 
     def aszarr(self, **kwargs):
         """Return image data from files as zarr storage."""
-        return ZarrFileStore(self, **kwargs)
+        return ZarrFileSequenceStore(self, **kwargs)
+
+    def commonpath(self):
+        """Return longest common sub-path of each file in sequence."""
+        if len(self.files) == 1:
+            commonpath = os.path.dirname(self.files[0])
+        else:
+            commonpath = os.path.commonpath(self.files)
+        return commonpath
 
 
 class TiffSequence(FileSequence):
@@ -11182,6 +11375,7 @@ class TIFF:
             338: 'extrasamples',
             # 339: 'sampleformat',  # set manually
             347: 'jpegtables',
+            530: 'subsampling',
             32997: 'imagedepth',
             32998: 'tiledepth',
         }
@@ -11321,6 +11515,7 @@ class TIFF:
             JPEGXR = 34934  # Objective Pathology Services
             ZSTD = 50000
             WEBP = 50001
+            JPEGXL = 50002  # JXL
             PIXTIFF = 50013
             # EER_V0 = 65000
             # EER_V1 = 65001
@@ -11748,10 +11943,10 @@ class TIFF:
 
         return UNPREDICTORS()
 
-    def COMPESSORS():
+    def COMPRESSORS():
         # map COMPRESSION to compress functions
 
-        class COMPESSORS:
+        class COMPRESSORS:
             def __init__(self):
                 self._codecs = {None: identityfunc, 1: identityfunc}
                 if imagecodecs is None:
@@ -11798,6 +11993,8 @@ class TIFF:
                         codec = imagecodecs.zstd_encode
                     elif key == 50001:
                         codec = imagecodecs.webp_encode
+                    elif key == 50002:
+                        codec = imagecodecs.jpegxl_encode
                     else:
                         try:
                             msg = f'{TIFF.COMPRESSION(key)!r} not supported'
@@ -11812,12 +12009,12 @@ class TIFF:
                 self._codecs[key] = codec
                 return codec
 
-        return COMPESSORS()
+        return COMPRESSORS()
 
-    def DECOMPESSORS():
+    def DECOMPRESSORS():
         # map COMPRESSION to decompress functions
 
-        class DECOMPESSORS:
+        class DECOMPRESSORS:
             def __init__(self):
                 self._codecs = {None: identityfunc, 1: identityfunc}
                 if imagecodecs is None:
@@ -11865,6 +12062,8 @@ class TIFF:
                         codec = imagecodecs.zstd_decode
                     elif key == 50001 or key == 34927:  # 34927 deprecated
                         codec = imagecodecs.webp_decode
+                    elif key == 50002:
+                        codec = imagecodecs.jpegxl_decode
                     else:
                         try:
                             msg = f'{TIFF.COMPRESSION(key)!r} not supported'
@@ -11886,7 +12085,7 @@ class TIFF:
                     return False
                 return True
 
-        return DECOMPESSORS()
+        return DECOMPRESSORS()
 
     def FRAME_ATTRS():
         # attributes that a TiffFrame shares with its keyframe
@@ -16840,7 +17039,11 @@ def main():
         try:
             if settings.page >= 0:
                 images = [
-                    (tif.asarray(key=settings.page), tif[settings.page], None)
+                    (
+                        tif.asarray(key=settings.page),
+                        tif.pages[settings.page],
+                        None,
+                    )
                 ]
             elif settings.series >= 0:
                 series = tif.series[settings.series]
