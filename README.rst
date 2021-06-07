@@ -42,28 +42,37 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.4.8
+:Version: 2021.6.6
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.8, 3.9.2 64-bit <https://www.python.org>`_
-* `Numpy 1.19.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.3.31 <https://pypi.org/project/imagecodecs/>`_
+* `CPython 3.7.9, 3.8.10, 3.9.5 64-bit <https://www.python.org>`_
+* `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
+* `Imagecodecs 2021.5.20 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
-* `Matplotlib 3.3.3 <https://pypi.org/project/matplotlib/>`_
+* `Matplotlib 3.4.2 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
 * `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.7.0 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.8.3 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2021.6.6
+    Pass 4405 tests.
+    Fix TIFF.COMPESSOR typo (#85).
+    Round resolution numbers that do not fit in 64-bit rationals (#81).
+    Add support for JPEG XL compression.
+    Add numcodecs compatible TIFF codec.
+    Rename ZarrFileStore to ZarrFileSequenceStore (breaking).
+    Add method to export fsspec ReferenceFileSystem from ZarrFileStore.
+    Fix fsspec ReferenceFileSystem v1 for multifile series.
+    Fix creating OME-TIFF with micron character in OME-XML.
 2021.4.8
-    Pass 4393 tests.
     Fix reading OJPEG with wrong photometric or samplesperpixel tags (#75).
     Fix fsspec ReferenceFileSystem v1 and JPEG compression.
     Use TiffTagRegistry for NDPI_TAGS, EXIF_TAGS, GPS_TAGS, IOP_TAGS constants.
@@ -275,6 +284,7 @@ Other libraries for reading scientific TIFF files from Python:
 * `Imread <https://github.com/luispedro/imread>`_
 * `GDAL <https://github.com/OSGeo/gdal/tree/master/gdal/swig/python>`_
 * `OpenSlide-python <https://github.com/openslide/openslide-python>`_
+* `Slideio <https://gitlab.com/bioslide/slideio>`_
 * `PyLibTiff <https://github.com/pearu/pylibtiff>`_
 * `SimpleITK <https://github.com/SimpleITK/SimpleITK>`_
 * `PyLSM <https://launchpad.net/pylsm>`_
@@ -434,12 +444,13 @@ compression, and planar storage:
 ...         compression='deflate', planarconfig='separate', tile=(32, 32),
 ...         metadata={'axes': 'TZCYX'})
 
-Write a volume with xyz voxel size 2.6755x2.6755x3.9474 micron^3 to an
-ImageJ hyperstack formatted TIFF file:
+Write a 10 fps time series of volumes with xyz voxel size 2.6755x2.6755x3.9474
+micron^3 to an ImageJ hyperstack formatted TIFF file:
 
->>> volume = numpy.random.randn(57, 256, 256).astype('float32')
+>>> volume = numpy.random.randn(6, 57, 256, 256).astype('float32')
 >>> imwrite('temp.tif', volume, imagej=True, resolution=(1./2.6755, 1./2.6755),
-...         metadata={'spacing': 3.947368, 'unit': 'um', 'axes': 'ZYX'})
+...         metadata={'spacing': 3.947368, 'unit': 'um', 'finterval': 1/10,
+...                   'axes': 'TZYX'})
 
 Read the volume and metadata from the ImageJ file:
 
@@ -448,11 +459,13 @@ Read the volume and metadata from the ImageJ file:
 ...     axes = tif.series[0].axes
 ...     imagej_metadata = tif.imagej_metadata
 >>> volume.shape
-(57, 256, 256)
+(6, 57, 256, 256)
 >>> axes
-'ZYX'
+'TZYX'
 >>> imagej_metadata['slices']
 57
+>>> imagej_metadata['frames']
+6
 
 Create an empty TIFF file and write to the memory-mapped numpy array:
 
@@ -548,7 +561,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 ...                 data, index, jpegtables=page.jpegtables
 ...             )
 
-Use zarr to access the tiled, pyramidal images in the TIFF file:
+Use zarr to read parts of the tiled, pyramidal images in the TIFF file:
 
 >>> import zarr
 >>> store = imread('temp.ome.tif', aszarr=True)
@@ -557,6 +570,8 @@ Use zarr to access the tiled, pyramidal images in the TIFF file:
 <zarr.hierarchy.Group '/' read-only>
 >>> z[0]  # base layer
 <zarr.core.Array '/0' (1024, 1024, 3) uint8 read-only>
+>>> z[0][256:512, 512:768].shape  # read a tile from the base layer
+(256, 256, 3)
 >>> store.close()
 
 Read images from a sequence of TIFF files as numpy array:
