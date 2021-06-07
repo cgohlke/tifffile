@@ -1,7 +1,16 @@
 Revisions
 ---------
+2021.6.6
+    Pass 4405 tests.
+    Fix TIFF.COMPESSOR typo (#85).
+    Round resolution numbers that do not fit in 64-bit rationals (#81).
+    Add support for JPEG XL compression.
+    Add numcodecs compatible TIFF codec.
+    Rename ZarrFileStore to ZarrFileSequenceStore (breaking).
+    Add method to export fsspec ReferenceFileSystem from ZarrFileStore.
+    Fix fsspec ReferenceFileSystem v1 for multifile series.
+    Fix creating OME-TIFF with micron character in OME-XML.
 2021.4.8
-    Pass 4393 tests.
     Fix reading OJPEG with wrong photometric or samplesperpixel tags (#75).
     Fix fsspec ReferenceFileSystem v1 and JPEG compression.
     Use TiffTagRegistry for NDPI_TAGS, EXIF_TAGS, GPS_TAGS, IOP_TAGS constants.
