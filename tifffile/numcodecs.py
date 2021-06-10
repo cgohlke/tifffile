@@ -37,7 +37,7 @@ __all__ = ('register_codec', 'Tiff')
 
 from io import BytesIO
 
-import numcodecs.registry
+from numcodecs import registry
 from numcodecs.abc import Codec
 
 import tifffile
@@ -138,4 +138,4 @@ class Tiff(Codec):
 
 def register_codec(cls=Tiff, codec_id=None):
     """Register Tiff codec with numcodecs."""
-    numcodecs.registry.register_codec(cls, codec_id=codec_id)
+    registry.register_codec(cls, codec_id=codec_id)
