@@ -14545,7 +14545,7 @@ def svs_description_metadata(description):
     if not description.startswith('Aperio '):
         raise ValueError('invalid Aperio image description')
     result = {}
-    lines = description.split('\n')
+    lines = description.split('\n', 1)
     key, value = lines[0].strip().rsplit(None, 1)  # 'Aperio Image Library'
     result[key.strip()] = value.strip()
     if len(lines) == 1:
