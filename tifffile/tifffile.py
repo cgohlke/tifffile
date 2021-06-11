@@ -777,7 +777,7 @@ def imread(files=None, aszarr=False, **kwargs):
                 "the 'pages' and 'key' parameters cannot be used together"
             )
         warnings.warn(
-            "imread: the 'pages' parameter is deprecated", DeprecationWarning
+            "imread: the 'pages' parameter is deprecated", DeprecationWarning, stacklevel=2
         )
         kwargs['key'] = kwargs.pop('pages')
 
@@ -867,6 +867,10 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
         tifargs['bigtiff'] = True
     if 'byteorder' not in tifargs:
         tifargs['byteorder'] = byteorder
+
+    if 'compress' in kwargs:
+        kwargs['compression'] = _compress_to_compression(kwargs['compress'], kwargs.get('compression', None))
+        del kwargs['compress']
 
     with TiffWriter(file, **tifargs) as tif:
         result = tif.write(data, shape, dtype, **kwargs)
@@ -990,6 +994,28 @@ class lazyattr:
 
 class TiffFileError(Exception):
     """Exception to indicate invalid TIFF structure."""
+
+
+def _compress_to_compression(compress, compression):
+    """
+    compress is deprecated in vavor to compressions
+    """
+    if compression is None and compress is not None:
+        # TODO: activate DeprecationWarning and update tests
+        warnings.warn(
+            "TiffWriter: the 'compress' parameter is deprecated since version 2021.6.6 use 'compression'",
+            DeprecationWarning,
+            stacklevel=3
+        )
+        if isinstance(compress, (int, numpy.integer)) and compress > 0:
+            # ADOBE_DEFLATE
+            compression = 8, int(compress)
+            if not 0 < compress <= 9:
+                raise ValueError(f'invalid compression level {compress}')
+        else:
+            compression = compress
+        del compress
+    return compression
 
 
 class TiffWriter:
@@ -1417,21 +1443,8 @@ class TiffWriter:
             datadtypechar = data.dtype.char
 
         returnoffset = returnoffset and datadtype.isnative
-
-        if compression is None and compress is not None:
-            # TODO: activate DeprecationWarning and update tests
-            warnings.warn(
-                "TiffWriter: the 'compress' parameter is deprecated",
-                DeprecationWarning,
-            )
-            if isinstance(compress, (int, numpy.integer)) and compress > 0:
-                # ADOBE_DEFLATE
-                compression = 8, int(compress)
-                if not 0 < compress <= 9:
-                    raise ValueError(f'invalid compression level {compress}')
-            else:
-                compression = compress
-            del compress
+        compress = _compress_to_compression(compress, compression)
+        del compress
 
         bilevel = datadtypechar == '?'
         if bilevel:
@@ -2051,6 +2064,7 @@ class TiffWriter:
                 warnings.warn(
                     "TiffWriter: the 'ijmetadata' parameter is deprecated",
                     DeprecationWarning,
+                    stacklevel=2
                 )
             for t in imagej_metadata_tag(ijmetadata, byteorder):
                 addtag(*t)
@@ -2920,6 +2934,7 @@ class TiffFile:
                     warnings.warn(
                         f'TiffFile: the {key!r} argument is ignored',
                         DeprecationWarning,
+                        stacklevel=2
                     )
             if 'pages' in kwargs:
                 raise TypeError(
