@@ -1,7 +1,13 @@
 Revisions
 ---------
+2021.6.14
+    Pass 4408 tests.
+    Set stacklevel for deprecation warnings (#89).
+    Fix svs_description_metadata for SVS with double header (#88, breaking).
+    Fix reading JPEG compressed CMYK images.
+    Support ALT_JPEG and JPEG_2000_LOSSY compression found in Bio-Formats.
+    Log warning if TiffWriter auto-detects RGB mode (specify photometric).
 2021.6.6
-    Pass 4405 tests.
     Fix TIFF.COMPESSOR typo (#85).
     Round resolution numbers that do not fit in 64-bit rationals (#81).
     Add support for JPEG XL compression.
