@@ -55,7 +55,7 @@ IPTC and XMP metadata are not implemented.
 
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, ZIF, and OME-TIFF,
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, SVS, ZIF, and OME-TIFF,
 are custom extensions defined by Molecular Devices (Universal Imaging
 Corporation), Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
 Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica,
@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.6.6
+:Version: 2021.6.14
 
 Requirements
 ------------
@@ -81,7 +81,7 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.10, 3.9.5 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.5.20 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.6.8 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.4.2 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -92,8 +92,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.6.14
+    Pass 4408 tests.
+    Set stacklevel for deprecation warnings (#89).
+    Fix svs_description_metadata for SVS with double header (#88, breaking).
+    Fix reading JPEG compressed CMYK images.
+    Support ALT_JPEG and JPEG_2000_LOSSY compression found in Bio-Formats.
+    Log warning if TiffWriter auto-detects RGB mode (specify photometric).
 2021.6.6
-    Pass 4405 tests.
     Fix TIFF.COMPESSOR typo (#85).
     Round resolution numbers that do not fit in 64-bit rationals (#81).
     Add support for JPEG XL compression.
@@ -499,7 +505,9 @@ Read the volume and metadata from the ImageJ file:
 
 Create an empty TIFF file and write to the memory-mapped numpy array:
 
->>> memmap_image = memmap('temp.tif', shape=(3, 256, 256), dtype='float32')
+>>> memmap_image = memmap(
+...     'temp.tif', shape=(3, 256, 256), photometric='rgb', dtype='float32'
+... )
 >>> memmap_image[1, 255, 255] = 1.0
 >>> memmap_image.flush()
 >>> del memmap_image
@@ -535,7 +543,7 @@ Successively write the frames of one contiguous series to a TIFF file:
 Append an image series to the existing TIFF file:
 
 >>> data = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
->>> imwrite('temp.tif', data, append=True)
+>>> imwrite('temp.tif', data, photometric='rgb', append=True)
 
 Create a TIFF file from a generator of tiles:
 
@@ -545,7 +553,7 @@ Create a TIFF file from a generator of tiles:
 ...         for x in range(0, data.shape[1], tileshape[1]):
 ...             yield data[y : y + tileshape[0], x : x + tileshape[1]]
 >>> imwrite('temp.tif', tiles(data, (16, 16)), tile=(16, 16),
-...         shape=data.shape, dtype=data.dtype)
+...         shape=data.shape, dtype=data.dtype, photometric='rgb')
 
 Write two numpy arrays to a multi-series OME-TIFF file:
 
@@ -562,7 +570,7 @@ JPEG compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
-...     options = dict(tile=(256, 256), compression='jpeg')
+...     options = dict(tile=(256, 256), photometric='rgb', compression='jpeg')
 ...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolutions
@@ -630,7 +638,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.6.6'
+__version__ = '2021.6.14'
 
 __all__ = (
     'OmeXml',
@@ -760,6 +768,7 @@ def imread(files=None, aszarr=False, **kwargs):
         '_multifile',
         '_useframes',
         # deprecated, ignored
+        # TODO: remove
         'fastij',
         'movie',
         'multifile',
@@ -772,12 +781,16 @@ def imread(files=None, aszarr=False, **kwargs):
     )
 
     if kwargs.get('pages', None) is not None:
+        # TODO: remove
         if kwargs.get('key', None) is not None:
             raise TypeError(
                 "the 'pages' and 'key' parameters cannot be used together"
             )
         warnings.warn(
-            "imread: the 'pages' parameter is deprecated", DeprecationWarning
+            "imread: the 'pages' parameter is deprecated since 2017.9.29. "
+            "Use the 'key' parameter",
+            DeprecationWarning,
+            stacklevel=2,
         )
         kwargs['key'] = kwargs.pop('pages')
 
@@ -1190,6 +1203,9 @@ class TiffWriter:
         If the data size is zero, a single page with shape (0, 0) is saved.
         The SampleFormat tag is derived from the data type or dtype.
 
+        A UserWarning is logged if RGB colorspace is auto-detected. Specify
+        the 'photometric' parameter to avoid the warning.
+
         Parameters
         ----------
         data : numpy.ndarray, iterable of numpy.ndarray, or None
@@ -1393,7 +1409,9 @@ class TiffWriter:
             datadtypechar = datadtype.char
         elif hasattr(data, '__next__'):
             # generator
-            raise TypeError('generators require `shape` and `dtype`')
+            raise TypeError(
+                "generators require 'shape' and 'dtype' parameters"
+            )
         else:
             # whole image data
             # must be C-contiguous numpy array of TIFF byteorder
@@ -1405,11 +1423,11 @@ class TiffWriter:
 
             if dtype is not None and dtype != data.dtype:
                 warnings.warn(
-                    'TiffWriter: ignoring `dtype` argument', UserWarning
+                    "TiffWriter: ignoring 'dtype' argument", UserWarning
                 )
             if shape is not None and shape != data.shape:
                 warnings.warn(
-                    'TiffWriter: ignoring `shape` argument', UserWarning
+                    "TiffWriter: ignoring 'shape' argument", UserWarning
                 )
             dataiter = None
             datashape = data.shape
@@ -1419,10 +1437,12 @@ class TiffWriter:
         returnoffset = returnoffset and datadtype.isnative
 
         if compression is None and compress is not None:
-            # TODO: activate DeprecationWarning and update tests
+            # TODO: remove
             warnings.warn(
-                "TiffWriter: the 'compress' parameter is deprecated",
+                "TiffWriter: the 'compress' parameter is deprecated "
+                "since 2020.9.30. Use the 'compression' parameter",
                 DeprecationWarning,
+                stacklevel=2,
             )
             if isinstance(compress, (int, numpy.integer)) and compress > 0:
                 # ADOBE_DEFLATE
@@ -1606,7 +1626,9 @@ class TiffWriter:
             if compressiontag in (
                 7,
                 33003,
+                33004,
                 33005,
+                33007,
                 34712,
                 34892,
                 34933,
@@ -1743,13 +1765,23 @@ class TiffWriter:
                 photometric = MINISBLACK
                 planarconfig = None
             elif volumetric and ndim > 3 and shape[-4] in (3, 4):
-                # TODO: change this?
                 photometric = RGB
                 planarconfig = SEPARATE
             elif ndim > 2 and shape[-3] in (3, 4):
-                # TODO: change this?
                 photometric = RGB
                 planarconfig = SEPARATE
+
+            if photometric == RGB:
+                # TODO: deprecate RGB autodetection?
+                if planarconfig == CONTIG:
+                    msg = 'contiguous samples'
+                else:
+                    msg = 'separate component planes'
+                # warnings.warn(
+                log_warning(
+                    f"TiffWriter: data are stored as RGB with {msg}. Specify "
+                    "the 'photometric' parameter to silence this warning"
+                )
 
         photometricsamples = TIFF.PHOTOMETRIC_SAMPLES[photometric]
 
@@ -2047,10 +2079,12 @@ class TiffWriter:
                     'overlays',
                 )
             else:
-                # TODO: remove ijmetadata parameter and update tests
+                # TODO: remove
                 warnings.warn(
-                    "TiffWriter: the 'ijmetadata' parameter is deprecated",
+                    "TiffWriter: the 'ijmetadata' parameter is deprecated "
+                    "since 2020.5.5. Use the 'metadata' parameter",
                     DeprecationWarning,
+                    stacklevel=2,
                 )
             for t in imagej_metadata_tag(ijmetadata, byteorder):
                 addtag(*t)
@@ -2914,12 +2948,14 @@ class TiffFile:
 
         """
         if kwargs:
+            # TODO: remove; formally deprecated in 2020.10.1
             for key in ('fastij', 'movie', 'multifile', 'multifile_close'):
                 if key in kwargs:
                     del kwargs[key]
                     warnings.warn(
                         f'TiffFile: the {key!r} argument is ignored',
                         DeprecationWarning,
+                        stacklevel=2,
                     )
             if 'pages' in kwargs:
                 raise TypeError(
@@ -3517,8 +3553,10 @@ class TiffFile:
 
         try:
             isvirtual = is_virtual()
-        except ValueError:
-            log_warning('ImageJ series: invalid metadata or corrupted file')
+        except (ValueError, RuntimeError) as exc:
+            log_warning(
+                f'ImageJ series: invalid metadata or corrupted file ({exc})'
+            )
             return None
         if isvirtual:
             # no need to read other pages
@@ -6029,7 +6067,7 @@ class TiffPage:
                 data = numpy.pad(data, padwidth, constant_values=nodata)
                 return data, data.shape
 
-        if self.compression in (6, 7, 34892):
+        if self.compression in (6, 7, 34892, 33007):
             # JPEG needs special handling
             if self.fillorder == 2:
                 log_warning(
@@ -6078,6 +6116,7 @@ class TiffPage:
 
         if self.compression in (
             33003,
+            33004,
             33005,
             34712,
             34933,
@@ -6202,7 +6241,7 @@ class TiffPage:
             _fullsize = keyframe.is_tiled
 
         decodeargs = {'_fullsize': bool(_fullsize)}
-        if keyframe.compression in (6, 7, 34892):  # JPEG
+        if keyframe.compression in (6, 7, 34892, 33007):  # JPEG
             decodeargs['jpegtables'] = self.jpegtables
             decodeargs['jpegheader'] = keyframe.jpegheader
 
@@ -6593,7 +6632,9 @@ class TiffPage:
             6,
             7,
             33003,
+            33004,
             33005,
+            33007,
             34712,
             34892,
             34933,
@@ -8564,7 +8605,9 @@ class ZarrTiffStore(ZarrStore):
             7: 'imagecodecs_jpeg',
             32773: 'imagecodecs_packbits',
             33003: 'imagecodecs_jpeg2k',
+            33004: 'imagecodecs_jpeg2k',
             33005: 'imagecodecs_jpeg2k',
+            33007: 'imagecodecs_jpeg',  # ALT_JPG
             34712: 'imagecodecs_jpeg2k',
             34887: 'imagecodecs_lerc',
             34892: 'imagecodecs_jpeg',  # DNG lossy
@@ -8594,6 +8637,7 @@ class ZarrTiffStore(ZarrStore):
                 128,
             ) and keyframe.compression not in (
                 7,
+                33007,
                 34892,
             ):  # JPEG
                 raise ValueError(
@@ -11496,7 +11540,9 @@ class TIFF:
             DEFLATE = 32946
             DCS = 32947
             APERIO_JP2000_YCBC = 33003  # Leica Aperio
+            JPEG_2000_LOSSY = 33004  # BioFormats
             APERIO_JP2000_RGB = 33005  # Leica Aperio
+            ALT_JPEG = 33007  # BioFormats
             JBIG = 34661
             SGILOG = 34676
             SGILOG24 = 34677
@@ -11974,7 +12020,12 @@ class TIFF:
                             codec = zlib_encode
                     elif key == 32773:
                         codec = imagecodecs.packbits_encode
-                    elif key == 33003 or key == 33005 or key == 34712:
+                    elif (
+                        key == 33003
+                        or key == 33004
+                        or key == 33005
+                        or key == 34712
+                    ):
                         codec = imagecodecs.jpeg2k_encode
                     elif key == 34887:
                         codec = imagecodecs.lerc_encode
@@ -12029,7 +12080,7 @@ class TIFF:
                 try:
                     if key == 5:
                         codec = imagecodecs.lzw_decode
-                    elif key == 6 or key == 7:
+                    elif key == 6 or key == 7 or key == 33007:
                         codec = imagecodecs.jpeg_decode
                     elif key == 8 or key == 32946:
                         if (
@@ -12043,7 +12094,12 @@ class TIFF:
                             codec = zlib_decode
                     elif key == 32773:
                         codec = imagecodecs.packbits_decode
-                    elif key == 33003 or key == 33005 or key == 34712:
+                    elif (
+                        key == 33003
+                        or key == 33004
+                        or key == 33005
+                        or key == 34712
+                    ):
                         codec = imagecodecs.jpeg2k_decode
                     elif key == 34887:
                         codec = imagecodecs.lerc_decode
@@ -14310,8 +14366,11 @@ def jpeg_decode_colorspace(photometric, planarconfig, extrasamples):
     elif photometric == 2:
         if planarconfig == 1:
             colorspace = outcolorspace = 2  # RGB
+    elif photometric == 5:
+        # CMYK
+        outcolorspace = 4
     elif photometric > 3:
-        outcolorspace = TIFF.PHOTOMETRIC(photometric).value
+        outcolorspace = TIFF.PHOTOMETRIC(photometric).name
     return colorspace, outcolorspace
 
 
@@ -14539,19 +14598,16 @@ def svs_description_metadata(description):
     The Aperio image description format is unspecified. Expect failures.
 
     >>> svs_description_metadata('Aperio Image Library v1.0')
-    {'Aperio Image Library': 'v1.0'}
+    {'Header': 'Aperio Image Library v1.0'}
 
     """
     if not description.startswith('Aperio '):
         raise ValueError('invalid Aperio image description')
     result = {}
-    lines = description.split('\n')
-    key, value = lines[0].strip().rsplit(None, 1)  # 'Aperio Image Library'
-    result[key.strip()] = value.strip()
-    if len(lines) == 1:
+    items = description.split('|')
+    result['Header'] = items[0]
+    if len(items) == 1:
         return result
-    items = lines[1].split('|')
-    result[''] = items[0].strip()  # TODO: parse this?
     for item in items[1:]:
         key, value = item.split(' = ')
         result[key.strip()] = astype(value.strip())
