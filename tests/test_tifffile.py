@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.6.6
+:Version: 2021.6.14
 
 """
 
@@ -1186,6 +1186,51 @@ def test_issue_omexml_micron():
                 'PhysicalSizeXUnit="µm"'
                 in tif.pages[0].tags['ImageDescription'].value
             )
+
+
+def test_issue_svs_doubleheader():
+    """Test svs_description_metadata for SVS with double header."""
+    # https://github.com/cgohlke/tifffile/pull/88
+
+    assert svs_description_metadata(
+        'Aperio Image Library v11.2.1\r\n'
+        '2220x2967 -> 574x768 - ;Aperio Image Library v10.0.51\r\n'
+        '46920x33014 [0,100 46000x32914] (256x256) JPEG/RGB Q=30'
+        '|AppMag = 20|StripeWidth = 2040|ScanScope ID = CPAPERIOCS'
+        '|Filename = CMU-1|Date = 12/29/09|Time = 09:59:15'
+        '|User = b414003d-95c6-48b0-9369-8010ed517ba7|Parmset = USM Filter'
+        '|MPP = 0.4990|Left = 25.691574|Top = 23.449873'
+        '|LineCameraSkew = -0.000424|LineAreaXOffset = 0.019265'
+        '|LineAreaYOffset = -0.000313|Focus Offset = 0.000000'
+        '|ImageID = 1004486|OriginalWidth = 46920|Originalheight = 33014'
+        '|Filtered = 5|OriginalWidth = 46000|OriginalHeight = 32914'
+    ) == {
+        'Header': (
+            'Aperio Image Library v11.2.1\r\n'
+            '2220x2967 -> 574x768 - ;Aperio Image Library v10.0.51\r\n'
+            '46920x33014 [0,100 46000x32914] (256x256) JPEG/RGB Q=30'
+        ),
+        'AppMag': 20,
+        'StripeWidth': 2040,
+        'ScanScope ID': 'CPAPERIOCS',
+        'Filename': 'CMU-1',
+        'Date': '12/29/09',
+        'Time': '09:59:15',
+        'User': 'b414003d-95c6-48b0-9369-8010ed517ba7',
+        'Parmset': 'USM Filter',
+        'MPP': 0.499,
+        'Left': 25.691574,
+        'Top': 23.449873,
+        'LineCameraSkew': -0.000424,
+        'LineAreaXOffset': 0.019265,
+        'LineAreaYOffset': -0.000313,
+        'Focus Offset': 0.0,
+        'ImageID': 1004486,
+        'OriginalWidth': 46000,
+        'Originalheight': 33014,
+        'Filtered': 5,
+        'OriginalHeight': 32914,
+    }
 
 
 ###############################################################################
@@ -4325,6 +4370,28 @@ def test_read_jpeg_ycbcr():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.parametrize(
+    'fname', ['tiff_tiled_cmyk_jpeg.tif', 'tiff_strip_cmyk_jpeg.tif']
+)
+def test_read_jpeg_cmyk(fname):
+    """Test read JPEG compressed CMYK image."""
+    with TiffFile(private_file(f'pillow/{fname}')) as tif:
+        assert len(tif.pages) == 1
+        page = tif.pages[0]
+        assert page.compression == JPEG
+        assert page.photometric == SEPARATED
+        assert page.shape == (100, 100, 4)
+        assert page.dtype == 'uint8'
+        data = page.asarray()
+        assert data.shape == (100, 100, 4)
+        assert data.dtype == 'uint8'
+        assert tuple(data[46, 49]) == (79, 230, 222, 77)
+        assert_aszarr_method(tif, data)
+        # assert_decode_method(page)
+        assert__str__(tif)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_jpeg12_mandril():
     """Test read JPEG 12-bit compression."""
@@ -6100,7 +6167,7 @@ def test_read_svs_cmu1():
         assert page.compression == JPEG
         assert page.shape == (32914, 46000, 3)
         metadata = svs_description_metadata(page.description)
-        assert metadata['Aperio Image Library'] == 'v10.0.51'
+        assert metadata['Header'].startswith('Aperio Image Library')
         assert metadata['Originalheight'] == 33014
         # page 4
         page = tif.pages[4]
@@ -6110,7 +6177,7 @@ def test_read_svs_cmu1():
         assert page.compression == LZW
         assert page.shape == (463, 387, 3)
         metadata = svs_description_metadata(page.description)
-        assert metadata[''] == 'label 387x463'
+        assert 'label 387x463' in metadata['Header']
         assert_aszarr_method(page)
         assert__str__(tif)
 
@@ -6135,7 +6202,7 @@ def test_read_svs_jp2k_33003_1():
         assert page.compression == APERIO_JP2000_YCBC
         assert page.shape == (17497, 15374, 3)
         metadata = svs_description_metadata(page.description)
-        assert metadata['Aperio Image Library'] == 'v10.0.50'
+        assert metadata['Header'].startswith('Aperio Image Library')
         assert metadata['Originalheight'] == 17597
         # page 4
         page = tif.pages[4]
@@ -6145,7 +6212,7 @@ def test_read_svs_jp2k_33003_1():
         assert page.compression == LZW
         assert page.shape == (422, 415, 3)
         metadata = svs_description_metadata(page.description)
-        assert metadata[''] == 'label 415x422'
+        assert 'label 415x422' in metadata['Header']
         assert_aszarr_method(page)
         assert__str__(tif)
 
@@ -8865,7 +8932,7 @@ def test_write_codecs(mode, tile, codec):
             assert page.imagewidth == 31
             assert page.imagelength == 32
             assert page.samplesperpixel == 1 if mode == 'gray' else 3
-            samplesperpixel = page.samplesperpixel
+            # samplesperpixel = page.samplesperpixel
             image = tif.asarray()
             if codec in ('jpeg',):
                 assert_allclose(data, image, atol=10)
@@ -8879,9 +8946,9 @@ def test_write_codecs(mode, tile, codec):
             and mode != 'planar'
         ):
             im = imagecodecs.imread(fname, index=None)
-            if codec == 'jpeg':
-                # tiff_decode returns JPEG compressed TIFF as RGBA
-                im = numpy.squeeze(im[..., :samplesperpixel])
+            # if codec == 'jpeg':
+            #     # tiff_decode returns JPEG compressed TIFF as RGBA
+            #     im = numpy.squeeze(im[..., :samplesperpixel])
             assert_array_equal(im, numpy.squeeze(image))
 
 
