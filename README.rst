@@ -25,7 +25,7 @@ IPTC and XMP metadata are not implemented.
 
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, ZIF, and OME-TIFF,
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, SVS, ZIF, and OME-TIFF,
 are custom extensions defined by Molecular Devices (Universal Imaging
 Corporation), Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
 Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica,
@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.6.6
+:Version: 2021.6.14
 
 Requirements
 ------------
@@ -51,7 +51,7 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.10, 3.9.5 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.5.20 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.6.8 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.4.2 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -62,8 +62,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.6.14
+    Pass 4408 tests.
+    Set stacklevel for deprecation warnings (#89).
+    Fix svs_description_metadata for SVS with double header (#88, breaking).
+    Fix reading JPEG compressed CMYK images.
+    Support ALT_JPEG and JPEG_2000_LOSSY compression found in Bio-Formats.
+    Log warning if TiffWriter auto-detects RGB mode (specify photometric).
 2021.6.6
-    Pass 4405 tests.
     Fix TIFF.COMPESSOR typo (#85).
     Round resolution numbers that do not fit in 64-bit rationals (#81).
     Add support for JPEG XL compression.
@@ -469,7 +475,9 @@ Read the volume and metadata from the ImageJ file:
 
 Create an empty TIFF file and write to the memory-mapped numpy array:
 
->>> memmap_image = memmap('temp.tif', shape=(3, 256, 256), dtype='float32')
+>>> memmap_image = memmap(
+...     'temp.tif', shape=(3, 256, 256), photometric='rgb', dtype='float32'
+... )
 >>> memmap_image[1, 255, 255] = 1.0
 >>> memmap_image.flush()
 >>> del memmap_image
@@ -505,7 +513,7 @@ Successively write the frames of one contiguous series to a TIFF file:
 Append an image series to the existing TIFF file:
 
 >>> data = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
->>> imwrite('temp.tif', data, append=True)
+>>> imwrite('temp.tif', data, photometric='rgb', append=True)
 
 Create a TIFF file from a generator of tiles:
 
@@ -515,7 +523,7 @@ Create a TIFF file from a generator of tiles:
 ...         for x in range(0, data.shape[1], tileshape[1]):
 ...             yield data[y : y + tileshape[0], x : x + tileshape[1]]
 >>> imwrite('temp.tif', tiles(data, (16, 16)), tile=(16, 16),
-...         shape=data.shape, dtype=data.dtype)
+...         shape=data.shape, dtype=data.dtype, photometric='rgb')
 
 Write two numpy arrays to a multi-series OME-TIFF file:
 
@@ -532,7 +540,7 @@ JPEG compression. Sub-resolution images are written to SubIFDs:
 
 >>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
-...     options = dict(tile=(256, 256), compression='jpeg')
+...     options = dict(tile=(256, 256), photometric='rgb', compression='jpeg')
 ...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolutions
