@@ -31,8 +31,6 @@
 
 """TIFF codec for numcodecs based on tifffile."""
 
-__version__ = '2021.4.x'
-
 __all__ = ('register_codec', 'Tiff')
 
 from io import BytesIO
