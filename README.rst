@@ -42,14 +42,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.6.14
+:Version: 2021.7.2
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.10, 3.9.5 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.10, 3.9.8 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2021.6.8 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -62,8 +62,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.7.2
+    Pass 4608 tests.
+    Decode complex integer images found in SAR GeoTIFF.
+    Support reading NDPI with JPEG-XR compression.
+    Deprecate TiffWriter RGB auto-detection, except for RGB24/48 and RGBA32/64.
 2021.6.14
-    Pass 4408 tests.
     Set stacklevel for deprecation warnings (#89).
     Fix svs_description_metadata for SVS with double header (#88, breaking).
     Fix reading JPEG compressed CMYK images.
@@ -267,10 +271,12 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   is equal to the counts of the UIC2tag. Tifffile can read STK files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
-  structures. Tifffile can read NDPI files > 4 GB. JPEG compressed segments
-  with dimensions >65530 or missing restart markers are not readable with
-  libjpeg. Tifffile works around this limitation by separately decoding the
-  MCUs between restart markers.
+  structures. Tifffile can read NDPI files > 4 GB.
+  JPEG compressed segments with dimensions >65530 or missing restart markers
+  are not decodable with libjpeg. Tifffile works around this limitation by
+  separately decoding the MCUs between restart markers.
+  BitsPerSample, SamplesPerPixel, and PhotometricInterpretation tags may
+  contain wrong values, which can be corrected using the value of tag 65441.
 * *Philips* TIFF slides store wrong ImageWidth and ImageLength tag values for
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
