@@ -1,7 +1,11 @@
 Revisions
 ---------
+2021.7.2
+    Pass 4608 tests.
+    Decode complex integer images found in SAR GeoTIFF.
+    Support reading NDPI with JPEG-XR compression.
+    Deprecate TiffWriter RGB auto-detection, except for RGB24/48 and RGBA32/64.
 2021.6.14
-    Pass 4408 tests.
     Set stacklevel for deprecation warnings (#89).
     Fix svs_description_metadata for SVS with double header (#88, breaking).
     Fix reading JPEG compressed CMYK images.
