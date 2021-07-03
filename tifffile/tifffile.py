@@ -72,14 +72,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.6.14
+:Version: 2021.7.2
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.10, 3.9.5 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.10, 3.9.8 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2021.6.8 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -92,8 +92,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.7.2
+    Pass 4608 tests.
+    Decode complex integer images found in SAR GeoTIFF.
+    Support reading NDPI with JPEG-XR compression.
+    Deprecate TiffWriter RGB auto-detection, except for RGB24/48 and RGBA32/64.
 2021.6.14
-    Pass 4408 tests.
     Set stacklevel for deprecation warnings (#89).
     Fix svs_description_metadata for SVS with double header (#88, breaking).
     Fix reading JPEG compressed CMYK images.
@@ -297,10 +301,12 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   is equal to the counts of the UIC2tag. Tifffile can read STK files.
 * *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
   Tag values/offsets can be corrected using high bits stored after IFD
-  structures. Tifffile can read NDPI files > 4 GB. JPEG compressed segments
-  with dimensions >65530 or missing restart markers are not readable with
-  libjpeg. Tifffile works around this limitation by separately decoding the
-  MCUs between restart markers.
+  structures. Tifffile can read NDPI files > 4 GB.
+  JPEG compressed segments with dimensions >65530 or missing restart markers
+  are not decodable with libjpeg. Tifffile works around this limitation by
+  separately decoding the MCUs between restart markers.
+  BitsPerSample, SamplesPerPixel, and PhotometricInterpretation tags may
+  contain wrong values, which can be corrected using the value of tag 65441.
 * *Philips* TIFF slides store wrong ImageWidth and ImageLength tag values for
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
@@ -638,7 +644,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.6.14'
+__version__ = '2021.7.2'
 
 __all__ = (
     'OmeXml',
@@ -1224,8 +1230,9 @@ class TiffWriter:
             Use only if 'data' is None or an iterable of tiles or images.
         photometric : {MINISBLACK, MINISWHITE, RGB, PALETTE, SEPARATED, CFA}
             The color space of the image data according to TIFF.PHOTOMETRIC.
-            By default, this setting is inferred from the data shape and the
-            value of colormap.
+            By default, this setting is inferred from the data shape, dtype,
+            and the value of colormap. Always specify this parameter to avoid
+            ambiguities.
             For CFA images, the CFARepeatPatternDim, CFAPattern, and other
             DNG or TIFF/EP tags must be specified in 'extratags' to produce a
             valid file.
@@ -1732,7 +1739,6 @@ class TiffWriter:
         storedshape = reshape_nd(
             datashape, TIFF.PHOTOMETRIC_SAMPLES.get(photometric, 2)
         )
-        del datashape
         shape = storedshape
         ndim = len(storedshape)
 
@@ -1747,42 +1753,58 @@ class TiffWriter:
             planarconfig = None
 
         if photometric is None:
+            deprecate = False
             photometric = MINISBLACK
             if bilevel:
                 photometric = MINISWHITE
             elif planarconfig == CONTIG:
                 if ndim > 2 and shape[-1] in (3, 4):
                     photometric = RGB
+                    deprecate = datadtypechar not in 'BH'
             elif planarconfig == SEPARATE:
                 if volumetric and ndim > 3 and shape[-4] in (3, 4):
                     photometric = RGB
+                    deprecate = True
                 elif ndim > 2 and shape[-3] in (3, 4):
                     photometric = RGB
+                    deprecate = True
             elif ndim > 2 and shape[-1] in (3, 4):
                 photometric = RGB
                 planarconfig = CONTIG
+                deprecate = datadtypechar not in 'BH'
             elif self._imagej or self._ome:
                 photometric = MINISBLACK
                 planarconfig = None
             elif volumetric and ndim > 3 and shape[-4] in (3, 4):
                 photometric = RGB
                 planarconfig = SEPARATE
+                deprecate = True
             elif ndim > 2 and shape[-3] in (3, 4):
                 photometric = RGB
                 planarconfig = SEPARATE
+                deprecate = True
 
-            if photometric == RGB:
-                # TODO: deprecate RGB autodetection?
+            if deprecate:
                 if planarconfig == CONTIG:
-                    msg = 'contiguous samples'
+                    msg = 'contiguous samples', "parameter is"
                 else:
-                    msg = 'separate component planes'
-                # warnings.warn(
-                log_warning(
-                    f"TiffWriter: data are stored as RGB with {msg}. Specify "
-                    "the 'photometric' parameter to silence this warning"
+                    msg = (
+                        'separate component planes',
+                        "and 'planarconfig' parameters are",
+                    )
+                warnings.warn(
+                    f"TiffWriter: data with shape {datashape} and dtype "
+                    f"'{datadtype}'' are stored as RGB with {msg[0]}. "
+                    "Future versions will store such data as MINISBLACK in "
+                    "separate pages by default unless the 'photometric' "
+                    f"{msg[1]} specified.",
+                    DeprecationWarning,
+                    stacklevel=2,
                 )
+                del msg
+            del deprecate
 
+        del datashape
         photometricsamples = TIFF.PHOTOMETRIC_SAMPLES[photometric]
 
         if planarconfig and len(shape) <= (3 if volumetric else 2):
@@ -1806,6 +1828,7 @@ class TiffWriter:
                 elif shape[-4 if volumetric else -3] in samples_:
                     planarconfig = SEPARATE
                 elif shape[-1] > shape[-4 if volumetric else -3]:
+                    # TODO: deprecated this?
                     planarconfig = SEPARATE
                 else:
                     planarconfig = CONTIG
@@ -3043,6 +3066,14 @@ class TiffFile:
                 except Exception as exc:
                     log_warning(
                         f'philips_load_pages: {exc.__class__.__name__}: {exc}'
+                    )
+
+            elif self.is_ndpi:
+                try:
+                    self._ndpi_load_pages()
+                except Exception as exc:
+                    log_warning(
+                        f'_ndpi_load_pages: {exc.__class__.__name__}: {exc}'
                     )
 
             elif _useframes:
@@ -4538,6 +4569,36 @@ class TiffFile:
                 bytecounts[j] = offsets[j + 1] - offsets[j]
             bytecounts[-1] = lastoffset - offsets[-1]
             page.databytecounts = tuple(bytecounts)
+
+    def _ndpi_load_pages(self):
+        """Load and fix pages from NDPI slide file if CaptureMode > 6.
+
+        If the value of the CaptureMode tag is greater than 6, change the
+        attributes of the TiffPages that are part of the pyramid to match
+        16-bit grayscale data. TiffTags are not corrected.
+
+        """
+        pages = self.pages
+        capturemode = pages[0].tags.get(65441, None)
+        if capturemode is None or capturemode.value < 6:
+            return
+
+        pages.cache = True
+        pages.useframes = False
+        pages._load()
+
+        for page in pages:
+            mag = page.tags.get(65421, None)
+            if mag is None or mag.value > 0:
+                page.photometric = TIFF.PHOTOMETRIC.MINISBLACK
+                page.samplesperpixel = 1
+                page.sampleformat = 1
+                page.bitspersample = 16
+                page.dtype = page._dtype = numpy.dtype('uint16')
+                if page.shaped[-1] > 1:
+                    page.axes = page.axes[:-1]
+                    page.shape = page.shape[:-1]
+                    page.shaped = page.shaped[:-1] + (1,)
 
     def _philips_load_pages(self):
         """Load and fix all pages from Philips slide file.
@@ -6121,6 +6182,7 @@ class TiffPage:
             34712,
             34933,
             34934,
+            22610,
             50001,
             50002,
         ):
@@ -6154,7 +6216,26 @@ class TiffPage:
 
         dtype = numpy.dtype(self.parent.byteorder + self._dtype.char)
 
-        if self.bitspersample in (8, 16, 32, 64, 128):
+        if self.sampleformat == 5:
+            # complex integer
+            if unpredict is not None:
+                raise NotImplementedError(
+                    'unpredicting complex integers not supported'
+                )
+
+            itype = numpy.dtype(
+                f'{self.parent.byteorder}i{self.bitspersample // 16}'
+            )
+            ftype = numpy.dtype(
+                f'{self.parent.byteorder}f{dtype.itemsize // 2}'
+            )
+
+            def unpack(data):
+                # return complex integer as numpy.complex
+                data = numpy.frombuffer(data, itype)
+                return data.astype(ftype).view(dtype)
+
+        elif self.bitspersample in (8, 16, 32, 64, 128):
             # regular data types
 
             if (self.bitspersample * stwidth * samples) % 8:
@@ -6245,11 +6326,17 @@ class TiffPage:
             decodeargs['jpegtables'] = self.jpegtables
             decodeargs['jpegheader'] = keyframe.jpegheader
 
-        def decode(args, decodeargs=decodeargs, keyframe=keyframe, func=func):
-            result = keyframe.decode(*args, **decodeargs)
-            if func is not None:
-                return func(result)
-            return result
+        if func is None:
+
+            def decode(args, decodeargs=decodeargs, keyframe=keyframe):
+                return keyframe.decode(*args, **decodeargs)
+
+        else:
+
+            def decode(
+                args, decodeargs=decodeargs, keyframe=keyframe, func=func
+            ):
+                return func(keyframe.decode(*args, **decodeargs))
 
         if maxworkers is None or maxworkers < 1:
             maxworkers = keyframe.maxworkers
@@ -6639,6 +6726,7 @@ class TiffPage:
             34892,
             34933,
             34934,
+            22610,
             50001,
             50002,
         ):
@@ -6666,6 +6754,8 @@ class TiffPage:
         Excludes prediction and fill_order.
 
         """
+        if self.sampleformat == 5:
+            return None
         if self.compression != 1 or self.bitspersample not in (8, 16, 32, 64):
             return None
         if 322 in self.tags:  # TileWidth
@@ -7043,7 +7133,7 @@ class TiffPage:
     def is_shaped(self):
         """Return description containing array shape if exists, else None."""
         for description in (self.description, self.description1):
-            if not description:
+            if not description or '"mibi.' in description:
                 return None
             if description[:1] == '{' and '"shape":' in description:
                 return description
@@ -8603,6 +8693,7 @@ class ZarrTiffStore(ZarrStore):
             50000: 'zstd',
             5: 'imagecodecs_lzw',
             7: 'imagecodecs_jpeg',
+            22610: 'imagecodecs_jpegxr',  # NDPI
             32773: 'imagecodecs_packbits',
             33003: 'imagecodecs_jpeg2k',
             33004: 'imagecodecs_jpeg2k',
@@ -11523,6 +11614,7 @@ class TIFF:
             JBIG_COLOR = 10
             JPEG_99 = 99
             KODAK_262 = 262
+            JPEGXR_NDPI = 22610
             NEXT = 32766
             SONY_ARW = 32767
             PACKED_RAW = 32769
@@ -11873,6 +11965,9 @@ class TIFF:
             # RGB565
             (1, (5, 6, 5)): 'B',
             # COMPLEXINT : not supported by numpy
+            (5, 16): 'E',
+            (5, 32): 'F',
+            (5, 64): 'D',
         }
 
     def PREDICTORS():
@@ -12038,7 +12133,7 @@ class TIFF:
                             codec = lzma_encode
                     elif key == 34933:
                         codec = imagecodecs.png_encode
-                    elif key == 34934:
+                    elif key == 34934 or key == 22610:
                         codec = imagecodecs.jpegxr_encode
                     elif key == 50000:
                         codec = imagecodecs.zstd_encode
@@ -12112,7 +12207,7 @@ class TIFF:
                             codec = lzma_decode
                     elif key == 34933:
                         codec = imagecodecs.png_decode
-                    elif key == 34934:
+                    elif key == 34934 or key == 22610:
                         codec = imagecodecs.jpegxr_decode
                     elif key == 50000 or key == 34926:  # 34926 deprecated
                         codec = imagecodecs.zstd_decode
@@ -14514,7 +14609,7 @@ def fluoview_description_metadata(description, ignoresections=None):
                 if comment:
                     section[name] = '\n'.join(section[name])
                 if name[:4] == 'LUT ':
-                    a = numpy.array(section[name], dtype='uint8')
+                    a = numpy.array(section[name], dtype=numpy.uint8)
                     a.shape = -1, 3
                     section[name] = a
                 continue
@@ -14908,7 +15003,7 @@ if imagecodecs is None:
         if dist != 1:
             raise NotImplementedError(f'dist {dist} not implemented')
         if isinstance(data, (bytes, bytearray)):
-            data = numpy.frombuffer(data, dtype='u1')
+            data = numpy.frombuffer(data, dtype=numpy.uint8)
             diff = numpy.diff(data, axis=0)
             return numpy.insert(diff, 0, data[0]).tobytes()
 
@@ -14932,8 +15027,10 @@ if imagecodecs is None:
         if out is not None and not out.flags.writeable:
             out = None
         if isinstance(data, (bytes, bytearray)):
-            data = numpy.frombuffer(data, dtype='u1')
-            return numpy.cumsum(data, axis=0, dtype='u1', out=out).tobytes()
+            data = numpy.frombuffer(data, dtype=numpy.uint8)
+            return numpy.cumsum(
+                data, axis=0, dtype=numpy.uint8, out=out
+            ).tobytes()
         if data.dtype.kind == 'f':
             view = data.view(f'u{data.dtype.itemsize}')
             view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
@@ -14979,7 +15076,7 @@ if imagecodecs is None:
                 b'\xe7\x17\x97W\xd77\xb7w\xf7\x0f\x8fO\xcf/\xafo\xef\x1f\x9f_'
                 b'\xdf?\xbf\x7f\xff'
             )
-            _bitorder.append(numpy.frombuffer(_bitorder[0], dtype='uint8'))
+            _bitorder.append(numpy.frombuffer(_bitorder[0], dtype=numpy.uint8))
         try:
             view = data.view('uint8')
             numpy.take(_bitorder[1], view, out=view)
@@ -15193,8 +15290,7 @@ def parse_filenames(files, pattern, axesorder=None):
 
 def iter_images(data):
     """Return iterator over pages in data array of normalized shape."""
-    for image in data:
-        yield image
+    yield from data
 
 
 def iter_tiles(data, tile, tiles):
@@ -17026,7 +17122,7 @@ def main():
         '--debug',
         dest='debug',
         action='store_true',
-        default=__debug__,
+        default=False,
         help='raise exception on failures',
     )
     opt(
