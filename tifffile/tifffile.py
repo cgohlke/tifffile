@@ -5825,10 +5825,14 @@ class TiffPage:
             self.dataoffsets = tags[324].value
         elif 273 in tags:  # StripOffsets
             self.dataoffsets = tags[273].value
+        elif 513 in tags:  # JPEGInterchangeFormat et al.
+            self.dataoffsets = tags[513].value
         if 325 in tags:  # TileByteCounts
             self.databytecounts = tags[325].value
         elif 279 in tags:  # StripByteCounts
             self.databytecounts = tags[279].value
+        elif 514 in tags:  # JPEGInterchangeFormatLength et al.
+            self.databytecounts = tags[514].value
         else:
             self.databytecounts = (
                 product(self.shape) * (self.bitspersample // 8),
@@ -11485,7 +11489,7 @@ class TIFF:
 
     def TAG_TUPLE():
         # tags whose values must be stored as tuples
-        return frozenset((273, 279, 324, 325, 330, 338, 530, 531, 34736))
+        return frozenset((273, 279, 324, 325, 330, 338, 513, 514, 530, 531, 34736))
 
     def TAG_ATTRIBUTES():
         # map tag codes to TiffPage attribute names
