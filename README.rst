@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.7.2
+:Version: 2021.7.30
 
 Requirements
 ------------
@@ -51,7 +51,7 @@ This release has been tested with the following requirements and dependencies
 
 * `CPython 3.7.9, 3.8.10, 3.9.8 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.6.8 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.7.30 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.4.2 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
@@ -62,8 +62,15 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.7.30
+    Pass 4612 tests.
+    Deprecate first parameter to TiffTag.overwrite (no longer required).
+    TiffTag init API change (breaking).
+    Detect Ventana BIF series and warn that tiles are not stitched.
+    Enable reading PreviewImage from RAW formats (#93, #94).
+    Work around numpy.ndarray.tofile is very slow for non-contiguous arrays.
+    Fix issues with PackBits compression (requires imagecodecs 2021.7.30).
 2021.7.2
-    Pass 4608 tests.
     Decode complex integer images found in SAR GeoTIFF.
     Support reading NDPI with JPEG-XR compression.
     Deprecate TiffWriter RGB auto-detection, except for RGB24/48 and RGBA32/64.
@@ -281,6 +288,10 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
   read Philips slides.
+* *Ventana BIF* slides store tiles and metadata in a BigTIFF container.
+  Tiles may overlap and require stitching based on the TileJointInfo elements
+  in the XMP tag. Tifffile can read BigTIFF and decode individual tiles,
+  but does not perform stitching.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -446,14 +457,14 @@ Iterate over all tags in the TIFF file:
 Overwrite the value of an existing tag, e.g. XResolution:
 
 >>> with TiffFile('temp.tif', mode='r+b') as tif:
-...     _ = tif.pages[0].tags['XResolution'].overwrite(tif, (96000, 1000))
+...     _ = tif.pages[0].tags['XResolution'].overwrite((96000, 1000))
 
 Write a floating-point ndarray and metadata using BigTIFF format, tiling,
 compression, and planar storage:
 
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
 >>> imwrite('temp.tif', data, bigtiff=True, photometric='minisblack',
-...         compression='deflate', planarconfig='separate', tile=(32, 32),
+...         compression='zlib', planarconfig='separate', tile=(32, 32),
 ...         metadata={'axes': 'TZCYX'})
 
 Write a 10 fps time series of volumes with xyz voxel size 2.6755x2.6755x3.9474
