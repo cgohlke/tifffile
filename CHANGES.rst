@@ -1,7 +1,14 @@
 Revisions
 ---------
+2021.7.30
+    Pass 4612 tests.
+    Deprecate first parameter to TiffTag.overwrite (no longer required).
+    TiffTag init API change (breaking).
+    Detect Ventana BIF series and warn that tiles are not stitched.
+    Enable reading PreviewImage from RAW formats (#93, #94).
+    Work around numpy.ndarray.tofile is very slow for non-contiguous arrays.
+    Fix issues with PackBits compression (requires imagecodecs 2021.7.30).
 2021.7.2
-    Pass 4608 tests.
     Decode complex integer images found in SAR GeoTIFF.
     Support reading NDPI with JPEG-XR compression.
     Deprecate TiffWriter RGB auto-detection, except for RGB24/48 and RGBA32/64.
