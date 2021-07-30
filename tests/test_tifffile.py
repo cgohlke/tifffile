@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.7.2
+:Version: 2021.7.30
 
 """
 
@@ -206,6 +206,7 @@ LERC = TIFF.COMPRESSION.LERC
 JPEGXL = TIFF.COMPRESSION.JPEGXL
 PACKBITS = TIFF.COMPRESSION.PACKBITS
 JPEG = TIFF.COMPRESSION.JPEG
+OJPEG = TIFF.COMPRESSION.OJPEG
 APERIO_JP2000_RGB = TIFF.COMPRESSION.APERIO_JP2000_RGB
 APERIO_JP2000_YCBC = TIFF.COMPRESSION.APERIO_JP2000_YCBC
 ADOBE_DEFLATE = TIFF.COMPRESSION.ADOBE_DEFLATE
@@ -1142,7 +1143,7 @@ def test_issue_imagej_singlet_dimensions():
             assert_aszarr_method(series, data, squeeze=False, chunkmode='page')
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_issue_cr2_ojpeg():
     """Test read OJPEG image from CR2."""
     # https://github.com/cgohlke/tifffile/issues/75
@@ -1156,6 +1157,7 @@ def test_issue_cr2_ojpeg():
         assert page.shape == (4000, 6000, 3)
         assert page.dtype == numpy.uint8
         assert page.photometric == YCBCR
+        assert page.compression == OJPEG
         data = page.asarray()
         assert data.shape == (4000, 6000, 3)
         assert data.dtype == numpy.uint8
@@ -1163,15 +1165,124 @@ def test_issue_cr2_ojpeg():
         assert_aszarr_method(page, data)
 
         page = tif.pages[1]
-        assert page.shape == (0, 0)
-        assert page.dtype == numpy.bool8
+        assert page.shape == (120, 160, 3)
+        assert page.dtype == numpy.uint8
+        assert page.photometric == YCBCR
+        assert page.compression == OJPEG
+        data = page.asarray()
+        assert tuple(data[60, 80]) == (124, 144, 107)
+        assert_aszarr_method(page, data)
 
         page = tif.pages[2]
         assert page.shape == (400, 600, 3)
+        assert page.dtype == numpy.uint16
+        assert page.photometric == RGB
+        assert page.compression == NONE
+        data = page.asarray()
+        assert tuple(data[200, 300]) == (1648, 2340, 1348)
+        assert_aszarr_method(page, data)
 
         page = tif.pages[3]
-        assert page.shape == (0, 0, 3)
+        assert page.shape == (4056, 3144, 2)
+        assert page.dtype == numpy.uint16
+        assert page.photometric == MINISWHITE
+        assert page.compression == OJPEG  # SOF3
+        data = page.asarray()
+        assert tuple(data[2000, 1500]) == (1759, 2467)
+        assert_aszarr_method(page, data)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_issue_ojpeg_preview():
+    """Test read JPEGInterchangeFormat from RAW image."""
+    # https://github.com/cgohlke/tifffile/issues/93
+
+    fname = private_file('RAW/RAW_NIKON_D3X.NEF')
+
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 1
+        page = tif.pages[0]
+        assert page.compression == NONE
+        assert page.shape == (120, 160, 3)
         assert page.dtype == numpy.uint8
+        assert page.photometric == RGB
+        data = page.asarray()
+        assert data.shape == (120, 160, 3)
+        assert data.dtype == numpy.uint8
+        assert tuple(data[60, 80]) == (180, 167, 159)
+        assert_aszarr_method(page, data)
+
+        page = tif.pages[0].pages[0]
+        assert page.shape == (4032, 6048, 3)
+        assert page.dtype == numpy.uint8
+        assert page.photometric == OJPEG
+        data = page.asarray()
+        assert tuple(data[60, 80]) == (67, 13, 11)
+        assert_aszarr_method(page, data)
+
+        page = tif.pages[0].pages[1]
+        assert page.shape == (4044, 6080)
+        assert page.bitspersample == 14
+        assert page.photometric == CFA
+        assert page.compression == TIFF.COMPRESSION.NIKON_NEF
+        with pytest.raises(ValueError):
+            data = page.asarray()
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_issue_arw(caplog):
+    """Test read Sony ARW RAW image."""
+    # https://github.com/cgohlke/tifffile/issues/95
+
+    fname = private_file('RAW/A1_full_lossless_compressed.ARW')
+
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 3
+        assert len(tif.series) == 4
+
+        page = tif.pages[0]
+        assert page.compression == OJPEG
+        assert page.photometric == YCBCR
+        assert page.shape == (1080, 1616, 3)
+        assert page.dtype == numpy.uint8
+        data = page.asarray()
+        assert data.shape == (1080, 1616, 3)
+        assert data.dtype == numpy.uint8
+        assert tuple(data[60, 80]) == (122, 119, 104)
+        assert_aszarr_method(page, data)
+
+        page = tif.pages[0].pages[0]
+        assert page.is_tiled
+        assert page.compression == JPEG
+        assert page.photometric == CFA
+        assert page.bitspersample == 14
+        assert page.tags['SonyRawFileType'].value == 4
+        assert page.tags['CFARepeatPatternDim'].value == (2, 2)
+        assert page.tags['CFAPattern'].value == b'\0\1\1\2'
+        assert page.shape == (6144, 8704)
+        assert page.dtype == numpy.uint16
+        data = page.asarray()
+        assert 'SonyRawFileType' in caplog.text
+        assert data[60, 80] == 1000  # might not be correct according to #95
+        assert_aszarr_method(page, data)
+
+        page = tif.pages[1]
+        assert page.compression == OJPEG
+        assert page.photometric == YCBCR
+        assert page.shape == (120, 160, 3)
+        assert page.dtype == numpy.uint8
+        data = page.asarray()
+        assert tuple(data[60, 80]) == (56, 54, 29)
+        assert_aszarr_method(page, data)
+
+        page = tif.pages[2]
+        assert page.compression == JPEG
+        assert page.photometric == YCBCR
+        assert page.shape == (5760, 8640, 3)
+        assert page.dtype == numpy.uint8
+        data = page.asarray()
+        assert tuple(data[60, 80]) == (243, 238, 218)
+        assert_aszarr_method(page, data)
 
 
 def test_issue_rational_rounding():
@@ -1251,6 +1362,50 @@ def test_issue_svs_doubleheader():
         'Filtered': 5,
         'OriginalHeight': 32914,
     }
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_issue_packbits_dtype():
+    """Test read and efficiently write PackBits compressed int16 image."""
+    # https://github.com/blink1073/tifffile/issues/61
+    # requires imagecodecs > 2021.6.8
+
+    fname = private_file('packbits/imstack_packbits-int16.tif')
+
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 519
+        page = tif.pages[181]
+        assert page.compression == PACKBITS
+        assert page.photometric == MINISBLACK
+        assert page.shape == (348, 185)
+        assert page.dtype == numpy.int16
+        data = page.asarray()
+        assert data.shape == (348, 185)
+        assert data.dtype == numpy.int16
+        assert data[184, 72] == 24
+        assert_aszarr_method(page, data)
+        data = tif.asarray()
+        assert_aszarr_method(tif, data)
+
+    buf = BytesIO()
+    imwrite(buf, data, compression='packbits')
+    assert buf.seek(0, 2) < 1700000  # efficiently compressed
+    buf.seek(0)
+
+    with TiffFile(buf) as tif:
+        assert len(tif.pages) == 519
+        page = tif.pages[181]
+        assert page.compression == PACKBITS
+        assert page.photometric == MINISBLACK
+        assert page.shape == (348, 185)
+        assert page.dtype == numpy.int16
+        data = page.asarray()
+        assert data.shape == (348, 185)
+        assert data.dtype == numpy.int16
+        assert data[184, 72] == 24
+        assert_aszarr_method(page, data)
+        data = tif.asarray()
+        assert_aszarr_method(tif, data)
 
 
 ###############################################################################
@@ -1368,16 +1523,16 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
             tags = tif.pages[0].tags
             # inline -> inline
             tag = tags[305]
-            t305 = tags[305].overwrite(tif, 'inl')
+            t305 = tags[305].overwrite('inl')
             assert tag.valueoffset == t305.valueoffset
             valueoffset = tag.valueoffset
             # xresolution
             tag = tags[282]
-            t282 = tags[282].overwrite(tif, (2000, 1000))
+            t282 = tags[282].overwrite((2000, 1000))
             assert tag.valueoffset == t282.valueoffset
             # sampleformat, int -> uint
             tag = tags[339]
-            t339 = tags[339].overwrite(tif, (1, 1, 1))
+            t339 = tags[339].overwrite((1, 1, 1))
             assert tag.valueoffset == t339.valueoffset
 
         with TiffFile(fname) as tif:
@@ -1395,7 +1550,7 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
         # inline -> separate
         with TiffFile(fname, mode='r+b') as tif:
             tag = tif.pages[0].tags[305]
-            t305 = tag.overwrite(tif, 'separate')
+            t305 = tag.overwrite('separate')
             assert tag.valueoffset != t305.valueoffset
 
         # separate at end -> separate longer
@@ -1403,7 +1558,7 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
             tag = tif.pages[0].tags[305]
             assert tag.value == 'separate'
             assert tag.valueoffset == t305.valueoffset
-            t305 = tag.overwrite(tif, 'separate longer')
+            t305 = tag.overwrite('separate longer')
             assert tag.valueoffset == t305.valueoffset  # overwrite, not append
 
         # separate -> separate shorter
@@ -1411,7 +1566,7 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
             tag = tif.pages[0].tags[305]
             assert tag.value == 'separate longer'
             assert tag.valueoffset == t305.valueoffset
-            t305 = tag.overwrite(tif, 'separate short')
+            t305 = tag.overwrite('separate short')
             assert tag.valueoffset == t305.valueoffset
 
         # separate -> separate longer
@@ -1420,7 +1575,7 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
             assert tag.value == 'separate short'
             assert tag.valueoffset == t305.valueoffset
             filesize = tif.filehandle.size
-            t305 = tag.overwrite(tif, 'separate longer')
+            t305 = tag.overwrite('separate longer')
             assert tag.valueoffset != t305.valueoffset
             assert t305.valueoffset == filesize  # append to end
 
@@ -1429,7 +1584,7 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
             tag = tif.pages[0].tags[305]
             assert tag.value == 'separate longer'
             assert tag.valueoffset == t305.valueoffset
-            t305 = tag.overwrite(tif, 'inl')
+            t305 = tag.overwrite('inl')
             assert tag.valueoffset != t305.valueoffset
             assert t305.valueoffset == valueoffset
 
@@ -1438,7 +1593,8 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
             tag = tif.pages[0].tags[305]
             assert tag.value == 'inl'
             assert tag.valueoffset == t305.valueoffset
-            t305 = tag.overwrite(tif, '')
+            with pytest.warns(DeprecationWarning):
+                t305 = tag.overwrite(tif, '')
             assert tag.valueoffset == t305.valueoffset
 
         with TiffFile(fname) as tif:
@@ -6310,6 +6466,51 @@ def test_read_svs_jp2k_33003_1():
         assert page.shape == (422, 415, 3)
         metadata = svs_description_metadata(page.description)
         assert 'label 415x422' in metadata['Header']
+        assert_aszarr_method(page)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_bif(caplog):
+    """Test read Ventana BIF slide."""
+    fname = private_file('VentanaBIF/OS-2.bif')
+    with TiffFile(fname) as tif:
+        assert tif.is_bif
+        assert len(tif.pages) == 12
+        assert len(tif.series) == 3
+        # first page
+        page = tif.pages[0]
+        assert page.is_bif
+        assert page.photometric == YCBCR
+        assert page.is_tiled
+        assert page.compression == JPEG
+        assert page.shape == (3008, 1008, 3)
+
+        series = tif.series
+        assert 'not stiched' in caplog.text
+        # baseline
+        series = tif.series[0]
+        assert series.name == 'Baseline'
+        assert len(series.levels) == 10
+        assert series.shape == (82960, 128000, 3)
+        assert series.dtype == numpy.uint8
+        # level 0
+        page = series.pages[0]
+        assert page.is_bif
+        assert page.is_tiled
+        assert page.photometric == YCBCR
+        assert page.compression == JPEG
+        assert page.shape == (82960, 128000, 3)
+        assert page.description == 'level=0 mag=40 quality=90'
+        # level 5
+        page = series.levels[5].pages[0]
+        assert not page.is_bif
+        assert page.is_tiled
+        assert page.photometric == YCBCR
+        assert page.compression == JPEG
+        assert page.shape == (2600, 4000, 3)
+        assert page.description == 'level=5 mag=1.25 quality=90'
+
         assert_aszarr_method(page)
         assert__str__(tif)
 
@@ -13017,8 +13218,8 @@ def test_write_ome_copy():
                     compressionargs = {}
                 extratags = (
                     # copy some extra tags
-                    page.tags.get('ImageDepth').astuple(svs),
-                    page.tags.get('InterColorProfile').astuple(svs),
+                    page.tags.get('ImageDepth').astuple(),
+                    page.tags.get('InterColorProfile').astuple(),
                 )
                 tif.write(
                     tiles(page),
@@ -13092,11 +13293,11 @@ def test_write_geotiff_copy():
                 page = geotiff.pages[0]
                 tags = page.tags
                 extratags = (
-                    tags.get('ModelPixelScaleTag').astuple(geotiff),
-                    tags.get('ModelTiepointTag').astuple(geotiff),
-                    tags.get('GeoKeyDirectoryTag').astuple(geotiff),
-                    tags.get('GeoAsciiParamsTag').astuple(geotiff),
-                    tags.get('GDAL_NODATA').astuple(geotiff),
+                    tags.get('ModelPixelScaleTag').astuple(),
+                    tags.get('ModelTiepointTag').astuple(),
+                    tags.get('GeoKeyDirectoryTag').astuple(),
+                    tags.get('GeoAsciiParamsTag').astuple(),
+                    tags.get('GDAL_NODATA').astuple(),
                 )
                 tif.write(
                     strips(page),
