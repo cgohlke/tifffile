@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.7.30
+:Version: 2021.8.8
 
 Requirements
 ------------
@@ -92,8 +92,10 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2021.7.30
+2021.8.8
     Pass 4612 tests.
+    Fix tag offset and valueoffset for NDPI > 4 GB (#96).
+2021.7.30
     Deprecate first parameter to TiffTag.overwrite (no longer required).
     TiffTag init API change (breaking).
     Detect Ventana BIF series and warn that tiles are not stitched.
@@ -395,6 +397,9 @@ References
   http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 * The EER (Electron Event Representation) file format.
   https://github.com/fei-company/EerReaderLib
+* Digital Negative (DNG) Specification. Version 1.4.0.0, June 2012.
+  https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/
+  dng_spec_1.4.0.0.pdf
 
 Examples
 --------
@@ -655,7 +660,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.7.30'
+__version__ = '2021.8.8'
 
 __all__ = (
     'OmeXml',
@@ -5700,7 +5705,7 @@ class TiffPage:
             ) from exc
 
         tagoffset = self.offset + tiff.tagnosize  # fh.tell()
-        tagsize = tiff.tagsize
+        tagsize = tagsize_ = tiff.tagsize
 
         data = fh.read(tagsize * tagno)
 
@@ -5715,11 +5720,13 @@ class TiffPage:
             )
 
         tagindex = -tagsize
-        for _ in range(tagno):
+        for i in range(tagno):
             tagindex += tagsize
             tagdata = data[tagindex : tagindex + tagsize]
             try:
-                tag = TiffTag.fromfile(parent, tagoffset + tagindex, tagdata)
+                tag = TiffTag.fromfile(
+                    parent, tagoffset + i * tagsize_, tagdata
+                )
             except TiffFileError as exc:
                 log_warning(
                     f'TiffPage {self.index}: {exc.__class__.__name__}: {exc}'
@@ -7250,9 +7257,8 @@ class TiffPage:
     @property
     def is_subsampled(self):
         """Page contains chroma subsampled image."""
-        tag = self.tags.get(530)  # YCbCrSubSampling
-        if tag is not None:
-            return tag.value != (1, 1)
+        if self.subsampling is not None:
+            return self.subsampling != (1, 1)
         return (
             self.compression == 7
             and self.planarconfig == 1
@@ -7290,7 +7296,10 @@ class TiffPage:
     def is_mediacy(self):
         """Page contains Media Cybernetics Id tag."""
         tag = self.tags.get(50288)  # MC_Id
-        return tag is not None and tag.value[:7] == b'MC TIFF'
+        try:
+            return tag is not None and tag.value[:7] == b'MC TIFF'
+        except Exception:
+            return False
 
     @property
     def is_stk(self):
@@ -7390,10 +7399,15 @@ class TiffPage:
     @property
     def is_bif(self):
         """Page contains Ventana metadata."""
-        return (
-            self.description == 'Label Image'
-            or (305 in self.tags and 'Ventana' in self.tags[305].value)
-        ) and (700 in self.tags and b'<iScan' in self.tags[700].value[:4096])
+        try:
+            return (
+                self.description == 'Label Image'
+                or ('Ventana' in self.software)
+            ) and (
+                700 in self.tags and b'<iScan' in self.tags[700].value[:4096]
+            )
+        except Exception:
+            return False
 
     @property
     def is_scanimage(self):
@@ -7753,7 +7767,7 @@ class TiffTag:
         elif offset is None:
             offset = fh.tell()
 
-        valueoffset = offset + tiff.offsetsize + 4
+        valueoffset = offset + tiff.tagsize - tiff.tagoffsetthreshold
         code, dtype = unpack(tiff.tagformat1, header[:4])
         count, value = unpack(tiff.tagformat2, header[4:])
 
@@ -7849,12 +7863,13 @@ class TiffTag:
         """Return size of value in file."""
         return self.count * struct.calcsize(TIFF.DATA_FORMATS[self.dtype])
 
-    def astuple(self):
+    def _astuple(self):
         """Return tag code, dtype, count, and encoded value.
 
         The encoded value is read from file if necessary.
 
         """
+        # TODO: make this method public
         if isinstance(self.value, bytes):
             value = self.value
         else:
@@ -7869,6 +7884,9 @@ class TiffTag:
                 else:
                     value = struct.pack(fmt, *self.value)
             except Exception:
+                tiff = self.parent.tiff
+                if tiff.version == 42 and tiff.offsetsize == 8:
+                    raise NotImplementedError('cannot read NDPI > 4 GB files')
                 fh = self.parent.filehandle
                 pos = fh.tell()
                 fh.seek(self.valueoffset)
@@ -7903,8 +7921,8 @@ class TiffTag:
         tiff = self.parent.tiff
 
         if tiff.version == 42 and tiff.offsetsize == 8:
-            # TODO: support patching NDPI files
-            raise NotImplementedError('cannot patch NDPI files')
+            # TODO: support patching NDPI > 4 GB files
+            raise NotImplementedError('cannot patch NDPI > 4 GB files')
 
         if value is None:
             value = b''
@@ -10945,7 +10963,7 @@ class TIFF:
             offsetformat = '<Q'
             tagnosize = 2
             tagnoformat = '<H'
-            tagsize = 12
+            tagsize = 12  # 16 after patching
             tagformat1 = '<HH'
             tagformat2 = '<I8s'  # after patching
             tagoffsetthreshold = 4
@@ -11760,7 +11778,9 @@ class TIFF:
             REDUCEDIMAGE = 1
             PAGE = 2
             MASK = 4
-            MACRO = 8  # found in Aperio SVS
+            MACRO = 8  # Aperio SVS, or DNG Depth map
+            ENHANCED = 16  # DNG
+            DNG = 65536  # 65537: Alternative, 65540: Semantic mask
 
         return FILETYPE
 
@@ -11818,7 +11838,7 @@ class TIFF:
             MDI_PROGRESSIVE = 34719  # Microsoft Document Imaging
             MDI_VECTOR = 34720  # Microsoft Document Imaging
             LERC = 34887  # ESRI Lerc
-            JPEG_LOSSY = 34892
+            JPEG_LOSSY = 34892  # DNG
             LZMA = 34925
             ZSTD_DEPRECATED = 34926
             WEBP_DEPRECATED = 34927
@@ -11854,6 +11874,8 @@ class TIFF:
             LOGL = 32844
             LOGLUV = 32845
             LINEAR_RAW = 34892
+            DEPTH_MAP = 51177  # DNG 1.5
+            SEMANTIC_MASK = 52527  # DNG 1.6
 
         return PHOTOMETRIC
 
@@ -11873,6 +11895,8 @@ class TIFF:
             32844: 1,  # LOGL ?
             32845: 3,  # LOGLUV
             34892: 3,  # LINEAR_RAW ?
+            51177: 1,  # DEPTH_MAP ?
+            52527: 1,  # SEMANTIC_MASK ?
         }
 
     def THRESHHOLD():
