@@ -1,7 +1,9 @@
 Revisions
 ---------
-2021.7.30
+2021.8.8
     Pass 4612 tests.
+    Fix tag offset and valueoffset for NDPI > 4 GB (#96).
+2021.7.30
     Deprecate first parameter to TiffTag.overwrite (no longer required).
     TiffTag init API change (breaking).
     Detect Ventana BIF series and warn that tiles are not stitched.
