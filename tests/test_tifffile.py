@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.7.30
+:Version: 2021.8.8
 
 """
 
@@ -6301,11 +6301,22 @@ def test_read_ndpi_4gb():
             assert page.ndpi_tags['Model'] == 'C13220'
         # first page
         page = tif.pages[0]
+        assert page.offset == 4466602683
         assert page.is_ndpi
         assert page.databytecounts[0] == 5105  # not 4461521316
         assert page.photometric == YCBCR
         assert page.compression == JPEG
         assert page.shape == (103680, 188160, 3)
+        assert (
+            page.tags['ImageLength'].offset - page.tags['ImageWidth'].offset
+            == 12
+        )
+        assert page.tags['ImageWidth'].offset == 4466602685
+        assert page.tags['ImageWidth'].valueoffset == 4466602693
+        assert page.tags['ImageLength'].offset == 4466602697
+        assert page.tags['ImageLength'].valueoffset == 4466602705
+        assert page.tags['ReferenceBlackWhite'].offset == 4466602889
+        assert page.tags['ReferenceBlackWhite'].valueoffset == 1003
         assert page.ndpi_tags['Magnification'] == 40.0
         assert page.ndpi_tags['McuStarts'][-1] == 4461516507  # corrected
         if not SKIP_ZARR:
@@ -7573,6 +7584,16 @@ def test_read_ome_nikon(caplog):
         assert page.imagelength == 1726
         assert page.bitspersample == 16
         assert page.is_contiguous
+        assert (
+            page.tags['ImageLength'].offset - page.tags['ImageWidth'].offset
+            == 20
+        )
+        assert page.tags['ImageWidth'].offset == 6856262146
+        assert page.tags['ImageWidth'].valueoffset == 6856262158
+        assert page.tags['ImageLength'].offset == 6856262166
+        assert page.tags['ImageLength'].valueoffset == 6856262178
+        assert page.tags['StripByteCounts'].offset == 6856262366
+        assert page.tags['StripByteCounts'].valueoffset == 6856262534
         # assert series properties
         series = tif.series[0]
         assert len(series._pages) == 1
@@ -13218,8 +13239,8 @@ def test_write_ome_copy():
                     compressionargs = {}
                 extratags = (
                     # copy some extra tags
-                    page.tags.get('ImageDepth').astuple(),
-                    page.tags.get('InterColorProfile').astuple(),
+                    page.tags.get('ImageDepth')._astuple(),
+                    page.tags.get('InterColorProfile')._astuple(),
                 )
                 tif.write(
                     tiles(page),
@@ -13293,11 +13314,11 @@ def test_write_geotiff_copy():
                 page = geotiff.pages[0]
                 tags = page.tags
                 extratags = (
-                    tags.get('ModelPixelScaleTag').astuple(),
-                    tags.get('ModelTiepointTag').astuple(),
-                    tags.get('GeoKeyDirectoryTag').astuple(),
-                    tags.get('GeoAsciiParamsTag').astuple(),
-                    tags.get('GDAL_NODATA').astuple(),
+                    tags.get('ModelPixelScaleTag')._astuple(),
+                    tags.get('ModelTiepointTag')._astuple(),
+                    tags.get('GeoKeyDirectoryTag')._astuple(),
+                    tags.get('GeoAsciiParamsTag')._astuple(),
+                    tags.get('GDAL_NODATA')._astuple(),
                 )
                 tif.write(
                     strips(page),
