@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.7.30
+:Version: 2021.8.8
 
 Requirements
 ------------
@@ -62,8 +62,10 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
-2021.7.30
+2021.8.8
     Pass 4612 tests.
+    Fix tag offset and valueoffset for NDPI > 4 GB (#96).
+2021.7.30
     Deprecate first parameter to TiffTag.overwrite (no longer required).
     TiffTag init API change (breaking).
     Detect Ventana BIF series and warn that tiles are not stitched.
@@ -365,6 +367,9 @@ References
   http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 * The EER (Electron Event Representation) file format.
   https://github.com/fei-company/EerReaderLib
+* Digital Negative (DNG) Specification. Version 1.4.0.0, June 2012.
+  https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/
+  dng_spec_1.4.0.0.pdf
 
 Examples
 --------
