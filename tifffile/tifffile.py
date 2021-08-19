@@ -7912,7 +7912,7 @@ class TiffTag:
             value = _arg
             warnings.warn(
                 "TiffTag.overwrite: passing a TiffFile instance is deprecated "
-                "and no longer required since 2020.7.x.",
+                "and no longer required since 2021.7.x.",
                 DeprecationWarning,
                 stacklevel=2,
             )
