@@ -72,28 +72,31 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.8.8
+:Version: 2021.8.30
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.10, 3.9.8 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.10, 3.9.7 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.7.30 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.8.26  <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
-* `Matplotlib 3.4.2 <https://pypi.org/project/matplotlib/>`_
+* `Matplotlib 3.4.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
 * `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.8.3 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.9.4 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2021.8.30
+    Pass 4723 tests.
+    Fix horizontal differencing with non-native byte order.
+    Fix multi-threaded access of memory-mappable, multi-page Zarr stores (#67).
 2021.8.8
-    Pass 4612 tests.
     Fix tag offset and valueoffset for NDPI > 4 GB (#96).
 2021.7.30
     Deprecate first parameter to TiffTag.overwrite (no longer required).
@@ -660,7 +663,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.8.8'
+__version__ = '2021.8.30'
 
 __all__ = (
     'OmeXml',
@@ -715,9 +718,9 @@ __all__ = (
     'transpose_axes',
     'update_kwargs',
     'xml2dict',
-    '_app_show',
     # deprecated
     'imsave',
+    '_app_show',
 )
 
 import binascii
@@ -6442,9 +6445,10 @@ class TiffPage:
                 data = decompress(data, out=size * dtype.itemsize)
             data = unpack(data)
             data = reshape(data, index, shape)
-            if unpredict is not None:
-                data = unpredict(data, axis=-2, out=data)
             data = data.astype('=' + dtype.char)
+            if unpredict is not None:
+                # unpredict is faster with native byte order
+                data = unpredict(data, axis=-2, out=data)
             if _fullsize:
                 data, shape = pad(data, shape)
             return data, index, shape
@@ -7726,6 +7730,8 @@ class TiffTag:
         Location of value in file.
     offset : int
         Location of tag structure in file.
+    parent : TiffFile or TiffWriter
+        Reference to parent TIFF file.
 
     All attributes are read-only.
 
@@ -7912,7 +7918,7 @@ class TiffTag:
             value = _arg
             warnings.warn(
                 "TiffTag.overwrite: passing a TiffFile instance is deprecated "
-                "and no longer required since 2020.7.x.",
+                "and no longer required since 2021.7.x.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -9118,12 +9124,14 @@ class ZarrTiffStore(ZarrStore):
                 bytecount = page.size * page.dtype.itemsize
                 return page.keyframe, page, chunkindex, offset, bytecount
         elif self._chunkmode:
-            page = series[pageindex]
+            with self._filecache.lock:
+                page = series[pageindex]
             if page is None:
                 return keyframe, None, None, 0, 0
             return page.keyframe, page, None, None, None
         else:
-            page = series[pageindex]
+            with self._filecache.lock:
+                page = series[pageindex]
             if page is None:
                 return keyframe, None, chunkindex, 0, 0
             offset = page.dataoffsets[chunkindex]
@@ -10344,6 +10352,8 @@ class OmeXml:
         Non-TZCYXS (modulo) dimensions must be after a TZC dimension or
         require an unused TZC dimension.
 
+        Parameters
+        ----------
         dtype : numpy.dtype
             Data type of image array.
         shape : tuple
@@ -11797,8 +11807,8 @@ class TIFF:
         class COMPRESSION(enum.IntEnum):
             NONE = 1  # Uncompressed
             CCITTRLE = 2  # CCITT 1D
-            CCITT_T4 = 3  # 'T4/Group 3 Fax',
-            CCITT_T6 = 4  # 'T6/Group 4 Fax',
+            CCITT_T4 = 3  # T4/Group 3 Fax
+            CCITT_T6 = 4  # T6/Group 4 Fax
             LZW = 5
             OJPEG = 6  # old-style JPEG
             JPEG = 7
@@ -12011,7 +12021,7 @@ class TIFF:
         class DATATYPES(enum.IntEnum):
             BYTE = 1  # 8-bit unsigned integer
             ASCII = 2  # 8-bit byte that contains a 7-bit ASCII code;
-            #           the last byte must be NULL (binary zero)
+            #            the last byte must be NULL (binary zero)
             SHORT = 3  # 16-bit (2-byte) unsigned integer
             LONG = 4  # 32-bit (4-byte) unsigned integer
             RATIONAL = 5  # two LONGs: the first represents the numerator
