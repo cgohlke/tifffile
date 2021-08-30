@@ -23,9 +23,21 @@ def pytest_report_header(config):
             from imagecodecs import __version__ as imagecodecs
         except ImportError:
             imagecodecs = 'N/A'
+        try:
+            from zarr import __version__ as zarr
+        except ImportError:
+            zarr = 'N/A'
+        try:
+            from fsspec import __version__ as fsspec
+        except ImportError:
+            fsspec = 'N/A'
         return (
-            'versions: tifffile-{}, imagecodecs-{}, numpy-{}\n'
-            'test config: {}'.format(tifffile, imagecodecs, numpy, config())
+            f'versions: tifffile-{tifffile}, '
+            f'imagecodecs-{imagecodecs}, '
+            f'numpy-{numpy}, '
+            f'zarr-{zarr}, '
+            f'fsspec-{fsspec}\n'
+            f'test config: {config()}'
         )
     except Exception:
         pass
