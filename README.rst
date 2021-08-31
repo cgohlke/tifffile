@@ -42,28 +42,31 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.8.8
+:Version: 2021.8.30
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.10, 3.9.8 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.10, 3.9.7 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.7.30 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2021.8.26  <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
-* `Matplotlib 3.4.2 <https://pypi.org/project/matplotlib/>`_
+* `Matplotlib 3.4.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
 * `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.8.3 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.9.4 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2021.8.30
+    Pass 4723 tests.
+    Fix horizontal differencing with non-native byte order.
+    Fix multi-threaded access of memory-mappable, multi-page Zarr stores (#67).
 2021.8.8
-    Pass 4612 tests.
     Fix tag offset and valueoffset for NDPI > 4 GB (#96).
 2021.7.30
     Deprecate first parameter to TiffTag.overwrite (no longer required).
