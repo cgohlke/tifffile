@@ -1,7 +1,17 @@
 Revisions
 ---------
+2021.10.10
+    Pass 4724 tests.
+    Disallow letters as indices in FileSequence; use categories (breaking).
+    Do not warn of missing files in FileSequence; use files_missing property.
+    Support predictors in ZarrTiffStore.write_fsspec.
+    Add option to specify zarr group name in write_fsspec.
+    Add option to specify categories for FileSequence patterns.
+    Add option to specify chunk shape and dtype for ZarrFileSequenceStore.
+    Add option to tile ZarrFileSequenceStore.
+    Add option to pass additional zattrs to Zarr stores.
+    Detect Roche BIF files.
 2021.8.30
-    Pass 4723 tests.
     Fix horizontal differencing with non-native byte order.
     Fix multi-threaded access of memory-mappable, multi-page Zarr stores (#67).
 2021.8.8
