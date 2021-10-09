@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.8.30
+:Version: 2021.10.10
 
 """
 
@@ -1466,7 +1466,7 @@ def test_issue_dask_multipage(truncate):
         imwrite(fname, data, truncate=truncate)
         with imread(fname, aszarr=True) as store:
             daskarray = dask.array.from_zarr(store).compute()
-    assert_array_equal(data, daskarray)
+            assert_array_equal(data, daskarray)
 
 
 ###############################################################################
@@ -2224,32 +2224,36 @@ def test_func_apply_colormap():
 
 def test_func_parse_filenames():
     """Test parse_filenames function."""
-    func = parse_filenames
+
+    def func(*args, **kwargs):
+        labels, shape, indices, _ = parse_filenames(*args, **kwargs)
+        return ''.join(labels), shape, indices
 
     files = ['c1t001.ext', 'c1t002.ext', 'c2t002.ext']  # 'c2t001.ext' missing
     # group names
     p = r'(?P<a>\d).[!\d](?P<b>\d+)\.ext'
-    assert func(files[:1], p) == ('ab', (1, 1), [(0, 0)], (1, 1))
-    assert func(files[:2], p) == ('ab', (1, 2), [(0, 0), (0, 1)], (1, 1))
-    assert func(files, p) == ('ab', (2, 2), [(0, 0), (0, 1), (1, 1)], (1, 1))
+    assert func(files[:1], p) == ('ab', (1, 1), [(0, 0)])  # (1, 1)
+    assert func(files[:2], p) == ('ab', (1, 2), [(0, 0), (0, 1)])  # (1, 1)
+    assert func(files, p) == ('ab', (2, 2), [(0, 0), (0, 1), (1, 1)])  # (1, 1)
     # unknown axes
     p = r'(\d)[^\d](\d+)\.ext'
-    assert func(files[:1], p) == ('QQ', (1, 1), [(0, 0)], (1, 1))
-    assert func(files[:2], p) == ('QQ', (1, 2), [(0, 0), (0, 1)], (1, 1))
-    assert func(files, p) == ('QQ', (2, 2), [(0, 0), (0, 1), (1, 1)], (1, 1))
+    assert func(files[:1], p) == ('QQ', (1, 1), [(0, 0)])  # (1, 1)
+    assert func(files[:2], p) == ('QQ', (1, 2), [(0, 0), (0, 1)])  # (1, 1)
+    assert func(files, p) == ('QQ', (2, 2), [(0, 0), (0, 1), (1, 1)])  # (1, 1)
     # match axes
     p = r'([^\d])(\d)([^\d])(\d+)\.ext'
-    assert func(files[:1], p) == ('ct', (1, 1), [(0, 0)], (1, 1))
-    assert func(files[:2], p) == ('ct', (1, 2), [(0, 0), (0, 1)], (1, 1))
-    assert func(files, p) == ('ct', (2, 2), [(0, 0), (0, 1), (1, 1)], (1, 1))
+    assert func(files[:1], p) == ('ct', (1, 1), [(0, 0)])  # (1, 1)
+    assert func(files[:2], p) == ('ct', (1, 2), [(0, 0), (0, 1)])  # (1, 1)
+    assert func(files, p) == ('ct', (2, 2), [(0, 0), (0, 1), (1, 1)])  # (1, 1)
     # misc
     files = ['c0t001.ext', 'c0t002.ext', 'c2t002.ext']  # 'c2t001.ext' missing
     p = r'([^\d])(\d)[^\d](?P<b>\d+)\.ext'
-    assert func(files[:1], p) == ('cb', (1, 1), [(0, 0)], (0, 1))
-    assert func(files[:2], p) == ('cb', (1, 2), [(0, 0), (0, 1)], (0, 1))
-    assert func(files, p) == ('cb', (3, 2), [(0, 0), (0, 1), (2, 1)], (0, 1))
+    assert func(files[:1], p) == ('cb', (1, 1), [(0, 0)])  # (0, 1)
+    assert func(files[:2], p) == ('cb', (1, 2), [(0, 0), (0, 1)])  # (0, 1)
+    assert func(files, p) == ('cb', (3, 2), [(0, 0), (0, 1), (2, 1)])  # (0, 1)
 
     # BBBC006_v1
+    categories = {'p': {chr(i + 97): i for i in range(25)}}
     files = [
         'BBBC006_v1_images_z_00/mcf-z-stacks-03212011_a01_s1_w1a57.tif',
         'BBBC006_v1_images_z_00/mcf-z-stacks-03212011_a03_s2_w1419.tif',
@@ -2258,21 +2262,21 @@ def test_func_parse_filenames():
     ]
     # don't match directory
     p = r'_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
-    assert func(files[:1], p) == (
+    assert func(files[:1], p, categories=categories) == (
         'pasw',
         (1, 1, 1, 1),
         [(0, 0, 0, 0)],
-        (97, 1, 1, 1),
+        # (97, 1, 1, 1),
     )
-    assert func(files[:2], p) == (
+    assert func(files[:2], p, categories=categories) == (
         'pasw',
         (1, 3, 2, 1),
         [(0, 0, 0, 0), (0, 2, 1, 0)],
-        (97, 1, 1, 1),
+        # (97, 1, 1, 1),
     )
     # match directory
     p = r'(?:_(z)_(\d+)).*_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
-    assert func(files, p) == (
+    assert func(files, p, categories=categories) == (
         'zpasw',
         (2, 16, 24, 2, 2),
         [
@@ -2281,11 +2285,13 @@ def test_func_parse_filenames():
             (0, 15, 23, 1, 1),
             (1, 15, 23, 1, 0),
         ],
-        (0, 97, 1, 1, 1),
+        # (0, 97, 1, 1, 1),
     )
     # reorder axes
     p = r'(?:_(z)_(\d+)).*_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
-    assert func(files, p, axesorder=(2, 0, 1, 3, 4)) == (
+    assert func(
+        files, p, axesorder=(2, 0, 1, 3, 4), categories=categories
+    ) == (
         'azpsw',
         (24, 2, 16, 2, 2),
         [
@@ -2294,7 +2300,7 @@ def test_func_parse_filenames():
             (23, 0, 15, 1, 1),
             (23, 1, 15, 1, 0),
         ],
-        (1, 0, 97, 1, 1),
+        # (1, 0, 97, 1, 1),
     )
 
 
@@ -12651,6 +12657,13 @@ def assert_fsspec(url, data, target_protocol='http'):
 @pytest.mark.parametrize('version', [0, 1])
 def test_write_fsspec(version):
     """Test write fsspec for multi-series OME-TIFF."""
+    try:
+        from imagecodecs.numcodecs import register_codecs
+    except ImportError:
+        register_codecs = None
+    else:
+        register_codecs('imagecodecs_delta', verbose=False)
+
     data0 = random_data(numpy.uint8, (3, 252, 244))
     data1 = random_data(numpy.uint8, (219, 301, 3))
     data2 = random_data(numpy.uint16, (3, 219, 301))
@@ -12660,7 +12673,10 @@ def test_write_fsspec(version):
         with TiffWriter(fname, ome=True, byteorder='>') as tif:
             # series 0
             options = dict(
-                tile=(64, 64), photometric=MINISBLACK, compression=DEFLATE
+                tile=(64, 64),
+                photometric=MINISBLACK,
+                compression=DEFLATE,
+                predictor=HORIZONTAL,
             )
             tif.write(data0, subifds=2, **options)
             tif.write(data0[:, ::2, ::2], subfiletype=1, **options)
@@ -12683,6 +12699,7 @@ def test_write_fsspec(version):
             assert tif.is_ome
             assert len(tif.series) == 5
 
+            # TODO: clean up temp JSON files
             with tif.series[0].aszarr() as store:
                 assert store.is_multiscales
                 store.write_fsspec(
@@ -12728,12 +12745,8 @@ def test_write_fsspec(version):
                         assert_fsspec(
                             URL + filename + f'.v{version}.s4.json', data1
                         )
-                try:
-                    from imagecodecs.numcodecs import register_codecs
-                except ImportError:
-                    pass
-                else:
-                    register_codecs('imagecodecs_jpeg')
+                if register_codecs is not None:
+                    register_codecs('imagecodecs_jpeg', verbose=False)
                     assert_fsspec(
                         URL + filename + f'.v{version}.s4.json',
                         tif.series[4].asarray(),
@@ -12745,6 +12758,7 @@ def test_write_fsspec(version):
 def test_write_fsspec_sequence(version):
     """Test write fsspec for multi-file sequence."""
     # https://bbbc.broadinstitute.org/BBBC006
+    categories = {'p': {chr(i + 97): i for i in range(25)}}
     ptrn = r'(?:_(z)_(\d+)).*_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
     fnames = private_file('BBBC/BBBC006_v1_images_z_00/*.tif')
     fnames += private_file('BBBC/BBBC006_v1_images_z_01/*.tif')
@@ -12753,6 +12767,7 @@ def test_write_fsspec_sequence(version):
         imread=imagecodecs.imread,
         pattern=ptrn,
         axesorder=(1, 2, 0, 3, 4),
+        categories=categories,
     )
     assert len(tifs) == 3072
     assert tifs.shape == (16, 24, 2, 2, 2)
@@ -13899,10 +13914,13 @@ def test_sequence_zip_container():
 def test_sequence_wells_axesorder():
     """Test FileSequence with well plates and axes reorder."""
     # https://bbbc.broadinstitute.org/BBBC006
+    categories = {'p': {chr(i + 97): i for i in range(25)}}
     ptrn = r'(?:_(z)_(\d+)).*_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
     fnames = private_file('BBBC/BBBC006_v1_images_z_00/*.tif')
     fnames += private_file('BBBC/BBBC006_v1_images_z_01/*.tif')
-    tifs = TiffSequence(fnames, pattern=ptrn, axesorder=(1, 2, 0, 3, 4))
+    tifs = TiffSequence(
+        fnames, pattern=ptrn, categories=categories, axesorder=(1, 2, 0, 3, 4)
+    )
     assert len(tifs) == 3072
     assert tifs.shape == (16, 24, 2, 2, 2)
     assert tifs.axes == 'PAZSW'
@@ -13918,7 +13936,8 @@ def test_sequence_wells_axesorder():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
-def test_sequence_tiled():
+@pytest.mark.parametrize('tiled', [False, True])
+def test_sequence_tiled(tiled):
     """Test FileSequence with tiled OME-TIFFs."""
     # Dataset from https://github.com/tlambert03/tifffolder/issues/2
     ptrn = re.compile(
@@ -13929,17 +13948,29 @@ def test_sequence_tiled():
     assert len(tifs) == 60
     assert tifs.shape == (2, 3, 2, 5)
     assert tifs.axes == 'UVCZ'
-    data = tifs.asarray(is_ome=False)
+    tiled = {0: 0, 1: 1} if tiled else None
+    data = tifs.asarray(axestiled=tiled, is_ome=False)
     assert isinstance(data, numpy.ndarray)
     assert data.flags['C_CONTIGUOUS']
-    assert data.shape == (2, 3, 2, 5, 2560, 2160)
     assert data.dtype == numpy.uint16
-    assert data[1, 2, 1, 3, 1024, 1024] == 596
+    if tiled:
+        assert data.shape == (2, 5, 2 * 2560, 3 * 2160)
+        assert data[1, 3, 2560 + 1024, 2 * 2160 + 1024] == 596
+    else:
+        assert data.shape == (2, 3, 2, 5, 2560, 2160)
+        assert data[1, 2, 1, 3, 1024, 1024] == 596
     if not SKIP_ZARR:
-        with tifs.aszarr(is_ome=False) as store:
-            assert_array_equal(
-                data[1, 2, 1, 3:5], zarr.open(store, mode='r')[1, 2, 1, 3:5]
-            )
+        with tifs.aszarr(axestiled=tiled, is_ome=False) as store:
+            if tiled:
+                assert_array_equal(
+                    data[1, 3, 2048:3072],
+                    zarr.open(store, mode='r')[1, 3, 2048:3072],
+                )
+            else:
+                assert_array_equal(
+                    data[1, 2, 1, 3:5],
+                    zarr.open(store, mode='r')[1, 2, 1, 3:5],
+                )
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
