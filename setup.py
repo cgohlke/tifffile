@@ -18,7 +18,7 @@ version += ('.' + buildnumber) if buildnumber else ''
 description = re.search(r'"""(.*)\.(?:\r\n|\r|\n)', code).groups()[0]
 
 readme = re.search(
-    r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}__version__',
+    r'(?:\r\n|\r|\n){2}r"""(.*)"""(?:\r\n|\r|\n){2}__version__',
     code,
     re.MULTILINE | re.DOTALL,
 ).groups()[0]
@@ -34,7 +34,7 @@ if 'sdist' in sys.argv:
         fh.write(readme)
 
     license = re.search(
-        r'(# Copyright.*?(?:\r\n|\r|\n))(?:\r\n|\r|\n)+""',
+        r'(# Copyright.*?(?:\r\n|\r|\n))(?:\r\n|\r|\n)+r""',
         code,
         re.MULTILINE | re.DOTALL,
     ).groups()[0]
