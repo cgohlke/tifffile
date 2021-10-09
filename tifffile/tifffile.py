@@ -29,7 +29,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-"""Read and write TIFF files.
+r"""Read and write TIFF files.
 
 Tifffile is a Python library to
 
@@ -38,7 +38,7 @@ Tifffile is a Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
 NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
-ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
+BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
 
 Image data can be read as numpy arrays or zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -51,16 +51,16 @@ A subset of the TIFF specification is supported, mainly 8, 16, 32 and 64-bit
 integer, 16, 32 and 64-bit float, grayscale and multi-sample images.
 Specifically, CCITT and OJPEG compression, chroma subsampling without JPEG
 compression, color space transformations, samples with differing types, or
-IPTC and XMP metadata are not implemented.
+IPTC, ICC, and XMP metadata are not implemented.
 
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, SVS, ZIF, and OME-TIFF,
-are custom extensions defined by Molecular Devices (Universal Imaging
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, SVS, ZIF, BIF, and
+OME-TIFF, are custom extensions defined by Molecular Devices (Universal Imaging
 Corporation), Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
 Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica,
-ObjectivePathology, and the Open Microscopy Environment consortium,
-respectively.
+ObjectivePathology, Roche Digital Pathology, and the Open Microscopy
+Environment consortium, respectively.
 
 For command line usage run ``python -m tifffile --help``
 
@@ -72,14 +72,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.8.30
+:Version: 2021.10.10
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.10, 3.9.7 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.10, 3.9.7, 3.10.0, 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2021.8.26  <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -87,13 +87,23 @@ This release has been tested with the following requirements and dependencies
   (required only for plotting)
 * `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.9.4 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.10.1 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2021.10.10
+    Pass 4724 tests.
+    Disallow letters as indices in FileSequence; use categories (breaking).
+    Do not warn of missing files in FileSequence; use files_missing property.
+    Support predictors in ZarrTiffStore.write_fsspec.
+    Add option to specify zarr group name in write_fsspec.
+    Add option to specify categories for FileSequence patterns.
+    Add option to specify chunk shape and dtype for ZarrFileSequenceStore.
+    Add option to tile ZarrFileSequenceStore.
+    Add option to pass additional zattrs to Zarr stores.
+    Detect Roche BIF files.
 2021.8.30
-    Pass 4723 tests.
     Fix horizontal differencing with non-native byte order.
     Fix multi-threaded access of memory-mappable, multi-page Zarr stores (#67).
 2021.8.8
@@ -323,10 +333,11 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
   read Philips slides.
-* *Ventana BIF* slides store tiles and metadata in a BigTIFF container.
+* *Ventana/Roche BIF* slides store tiles and metadata in a BigTIFF container.
   Tiles may overlap and require stitching based on the TileJointInfo elements
-  in the XMP tag. Tifffile can read BigTIFF and decode individual tiles,
-  but does not perform stitching.
+  in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
+  Tifffile can read BigTIFF and decode individual tiles, but does not perform
+  stitching.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -400,9 +411,12 @@ References
   http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 * The EER (Electron Event Representation) file format.
   https://github.com/fei-company/EerReaderLib
-* Digital Negative (DNG) Specification. Version 1.4.0.0, June 2012.
+* Digital Negative (DNG) Specification. Version 1.5.0.0, June 2012.
   https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/
-  dng_spec_1.4.0.0.pdf
+  dng_spec_1.5.0.0.pdf
+* Roche Digital Pathology. BIF image file format for digital pathology.
+  https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
+  Roche-Digital-Pathology-BIF-Whitepaper.pdf
 
 Examples
 --------
@@ -648,7 +662,7 @@ Read images from a sequence of TIFF files as numpy array:
 Read an image stack from a series of TIFF files with a file name pattern
 as numpy or zarr arrays:
 
->>> image_sequence = TiffSequence('temp_C001*.tif', pattern='axes')
+>>> image_sequence = TiffSequence('temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)')
 >>> image_sequence.shape
 (1, 2)
 >>> image_sequence.axes
@@ -663,7 +677,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.8.30'
+__version__ = '2021.10.10'
 
 __all__ = (
     'OmeXml',
@@ -769,8 +783,8 @@ def imread(files=None, aszarr=False, **kwargs):
     kwargs : dict
         Parameters 'name', 'offset', 'size', and 'is_' flags are passed to
         TiffFile or TiffSequence.imread.
-        The 'pattern', 'sort', 'container', and 'axesorder' parameters are
-        passed to TiffSequence().
+        Parameters 'imread', 'container', 'sort', 'pattern', 'axesorder',
+        and 'categories' are passed to TiffSequence.
         Other parameters are passed to the asarray or aszarr functions.
         The first image series in the file is returned if no arguments are
         provided.
@@ -802,7 +816,13 @@ def imread(files=None, aszarr=False, **kwargs):
         *(key for key in kwargs if key[:3] == 'is_'),
     )
     kwargs_seq = parse_kwargs(
-        kwargs, 'pattern', 'sort', 'container', 'imread', 'axesorder'
+        kwargs,
+        'imread',
+        'container',
+        'sort',
+        'pattern',
+        'axesorder',
+        'categories',
     )
 
     if kwargs.get('pages', None) is not None:
@@ -1645,7 +1665,7 @@ class TiffWriter:
 
         if not compression:
             compressionargs = {}
-            predictor = False  # TODO: support predictors without compression?
+            predictor = False
             predictortag = 1
 
         if predictor:
@@ -4080,10 +4100,7 @@ class TiffFile:
         return series
 
     def _series_bif(self):
-        """Return image series in Ventana BIF file."""
-        if not self.pages[0].is_tiled:
-            return None
-
+        """Return image series in Ventana/Roche BIF file."""
         series = []
         baseline = None
         self.is_uniform = False
@@ -4093,7 +4110,7 @@ class TiffFile:
         self.pages._load()
 
         for page in self.pages:
-            if page.description == 'Label Image':
+            if page.description[:5] == 'Label':
                 series.append(
                     TiffPageSeries(
                         [page],
@@ -4104,7 +4121,10 @@ class TiffFile:
                         kind='BIF',
                     )
                 )
-            elif page.description == 'Thumbnail':
+            elif (
+                page.description == 'Thumbnail'
+                or page.description[:11] == 'Probability'
+            ):
                 series.append(
                     TiffPageSeries(
                         [page],
@@ -5200,7 +5220,12 @@ class TiffPages:
         self._keyframe = None  # page that is currently used as keyframe
         self._cache = False  # do not cache frames or pages (if not keyframe)
         self._nextpageoffset = None
-        self._index = (index,) if isinstance(index, int) else index
+        if isinstance(index, (int, numpy.integer)):
+            self._index = (int(index),)
+        elif index is None:
+            self._index = None
+        else:
+            self._index = tuple(index)
 
         if isinstance(arg, TiffFile):
             # read offset to first page from current file position
@@ -7405,9 +7430,6 @@ class TiffPage:
         """Page contains Ventana metadata."""
         try:
             return (
-                self.description == 'Label Image'
-                or ('Ventana' in self.software)
-            ) and (
                 700 in self.tags and b'<iScan' in self.tags[700].value[:4096]
             )
         except Exception:
@@ -8766,11 +8788,33 @@ class ZarrTiffStore(ZarrStore):
         level=None,
         chunkmode=None,
         fillvalue=None,
+        zattrs=None,
         lock=None,
         squeeze=None,
         _openfiles=None,
     ):
-        """Initialize Zarr storage from TiffPage or TiffPageSeries."""
+        """Initialize Zarr storage.
+
+        Parameters
+        ----------
+        arg : TiffPage or TiffPageSeries
+            The TiffPage or TiffPageSeries instance to wrap as a zarr store.
+        level : int (optional)
+            Specifies a pyramidal level to wrap.
+        chunkmode : {0, 2} (optional)
+            Specifies to use strips/tiles (0, the default) or whole page data
+            (2) as chunks.
+        fillvalue : number (optional)
+            Value to use for missing chunks of the Zarr store. Default: 0.
+        zattrs : dict (optional)
+            Additional attributes to store in .zattrs.
+        lock : {RLock, NullContext} (optional)
+            A reentrant lock used to synchronize seeks and reads from file.
+            If None (default), the lock of the parent's filehandle is used.
+        squeeze : bool (optional)
+            Squeeze shape of TiffPageSeries.
+
+        """
         super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
 
         if self._chunkmode not in (0, 2):
@@ -8788,6 +8832,8 @@ class ZarrTiffStore(ZarrStore):
             lock = fh.lock
         self._filecache = FileCache(size=_openfiles, lock=lock)
 
+        zattrs = {} if zattrs is None else dict(zattrs)
+
         if len(self._data) > 1:
             # multiscales
             self._store['.zgroup'] = ZarrStore._json({'zarr_format': 2})
@@ -8804,7 +8850,8 @@ class ZarrTiffStore(ZarrStore):
                             # 'type': 'gaussian',
                             'version': '0.1',
                         }
-                    ]
+                    ],
+                    **zattrs,
                 }
             )
             for level, series in enumerate(self._data):
@@ -8840,7 +8887,7 @@ class ZarrTiffStore(ZarrStore):
                 chunks = series.keyframe.shape
             else:
                 chunks = series.keyframe.chunks
-            self._store['.zattrs'] = ZarrStore._json({})
+            self._store['.zattrs'] = ZarrStore._json(zattrs)
             self._store['.zarray'] = ZarrStore._json(
                 {
                     'zarr_format': 2,
@@ -8859,17 +8906,25 @@ class ZarrTiffStore(ZarrStore):
         if hasattr(self, '_filecache'):
             self._filecache.clear()
 
-    def write_fsspec(self, arg, url, compressors=None, version=None):
+    def write_fsspec(
+        self,
+        arg,
+        url,
+        groupname=None,
+        compressors=None,
+        version=None,
+        _append=False,
+    ):
         """Write fsspec ReferenceFileSystem as JSON to file.
 
         Url is the remote location of the TIFF file without the file name(s).
 
         Raise ValueError if TIFF store can not be represented as
-        ReferenceFileSystem due to features that are not supported by zarr
-        or numcodecs:
+        ReferenceFileSystem due to features that are not supported by zarr,
+        numcodecs, or imagecodecs:
 
         * compressors, e.g. CCITT
-        * filters, e.g. predictors, bitorder reversal, packed integers
+        * filters, e.g. bitorder reversal, packed integers
         * dtypes, e.g. float24
         * JPEGTables in multi-page files
         * incomplete chunks, e.g. if imagelength % rowsperstrip != 0
@@ -8908,11 +8963,10 @@ class ZarrTiffStore(ZarrStore):
             keyframe = series.keyframe
             if keyframe.compression not in compressors:
                 raise ValueError(f'{keyframe.compression!r} is' + errormsg)
-            if keyframe.predictor != 1:
-                raise ValueError(f'{keyframe.predictor!r} is' + errormsg)
             if keyframe.fillorder != 1:
                 raise ValueError(f'{keyframe.fillorder!r} is' + errormsg)
             if keyframe.sampleformat not in (1, 2, 3, 6):
+                # TODO: support float24 and cint via filters?
                 raise ValueError(f'{keyframe.sampleformat!r} is' + errormsg)
             if keyframe.bitspersample not in (
                 8,
@@ -8946,6 +9000,11 @@ class ZarrTiffStore(ZarrStore):
         elif url and url[-1] != '/':
             url += '/'
 
+        if groupname is None:
+            groupname = ''
+        elif groupname and groupname[-1] != '/':
+            groupname += '/'
+
         byteorder = '<' if sys.byteorder == 'big' else '>'
         if (
             self._data[0].keyframe.parent.byteorder != byteorder
@@ -8955,6 +9014,8 @@ class ZarrTiffStore(ZarrStore):
 
         refs = dict()
         if version == 1:
+            if _append:
+                raise ValueError('cannot append to version 1')
             refs['version'] = 1
             refs['templates'] = {}
             refs['gen'] = []
@@ -8980,6 +9041,10 @@ class ZarrTiffStore(ZarrStore):
             refs['refs'] = refzarr = dict()
         else:
             refzarr = refs
+
+        if groupname and not _append:
+            # TODO: support nested groups
+            refzarr['.zgroup'] = ZarrStore._json({'zarr_format': 2}).decode()
 
         for key, value in self._store.items():
             if '.zarray' in key:
@@ -9014,11 +9079,40 @@ class ZarrTiffStore(ZarrStore):
                     }
                 elif codec_id is not None:
                     value['compressor'] = {'id': codec_id}
+                if keyframe.predictor > 1:
+                    # predictors need access to chunk shape and dtype
+                    # requires imagecodecs > 2021.8.26 to read
+                    if keyframe.predictor in (2, 34892, 34893):
+                        filter_id = 'imagecodecs_delta'
+                    else:
+                        filter_id = 'imagecodecs_floatpred'
+                    if keyframe.predictor <= 3:
+                        dist = 1
+                    elif keyframe.predictor in (34892, 34894):
+                        dist = 2
+                    else:
+                        dist = 4
+                    if (
+                        keyframe.planarconfig == 1
+                        and keyframe.samplesperpixel > 1
+                    ):
+                        axis = -2
+                    else:
+                        axis = -1
+                    value['filters'] = [
+                        {
+                            'id': filter_id,
+                            'axis': axis,
+                            'dist': dist,
+                            'shape': value['chunks'],
+                            'dtype': value['dtype'],
+                        }
+                    ]
                 if byteorder is not None:
                     value['dtype'] = byteorder + value['dtype'][1:]
                 value = ZarrStore._json(value)
 
-            refzarr[key] = value.decode()
+            refzarr[groupname + key] = value.decode()
 
         if hasattr(arg, 'write'):
             fh = arg
@@ -9028,6 +9122,10 @@ class ZarrTiffStore(ZarrStore):
         if version == 1:
             fh.write(json.dumps(refs, indent=1).rsplit('}"', 1)[0] + '}"')
             indent = '  '
+        elif _append:
+            fh.write(',\n')
+            fh.write(json.dumps(refs, indent=1)[2:-2])
+            indent = ' '
         else:
             fh.write(json.dumps(refs, indent=1)[:-2])
             indent = ' '
@@ -9051,13 +9149,15 @@ class ZarrTiffStore(ZarrStore):
                         else:
                             fname = f'{url}{fname}'
                         fh.write(
-                            f',\n{indent}"{key}": '
+                            f',\n{indent}"{groupname}{key}": '
                             f'["{fname}", {offset}, {bytecount}]'
                         )
 
+        # TODO: support nested groups
         if version == 1:
-            fh.write('\n }')
-        fh.write('\n}')
+            fh.write('\n }\n}')
+        elif not _append:
+            fh.write('\n}')
 
         if not hasattr(arg, 'write'):
             fh.close()
@@ -9232,8 +9332,49 @@ class ZarrTiffStore(ZarrStore):
 class ZarrFileSequenceStore(ZarrStore):
     """Zarr storage interface to image data in FileSequence."""
 
-    def __init__(self, arg, fillvalue=None, chunkmode=None, **kwargs):
-        """Initialize Zarr storage from FileSequence."""
+    def __init__(
+        self,
+        arg,
+        fillvalue=None,
+        chunkmode=None,
+        chunkshape=None,
+        dtype=None,
+        axestiled=None,
+        zattrs=None,
+        **kwargs,
+    ):
+        """Initialize Zarr storage from FileSequence.
+
+        Parameters
+        ----------
+        arg: FileSequence
+            FileSequence instance to wrap as zarr store. Files in containers
+            are not supported.
+        fillvalue : number (optional)
+            Default value to use for missing chunks of the Zarr store.
+            Default: 0.
+        chunkmode: {0, 3} (optional)
+            Currently only one chunk per file is supported.
+        chunkshape : tuple of int (optional)
+            Shape of the chunk in each file.
+            Must match `arg.imread(file, **kwargs).shape`.
+        dtype : numpy.dtype (optional)
+            Data type of the chunk in each file.
+            Must match `arg.imread(file, **kwargs).dtype`.
+        axestiled: dict (optional)
+           Defines the axes to be tiled. Map stacked sequence axis to
+           chunk axis.
+        zattrs : dict
+            Additional attributes to store in .zattrs.
+        kwargs: dict
+            Additional parameters passed to the FileSequence.imread function.
+
+        Notes
+        -----
+        If chunkshape or dtype are None (default), their values are determined
+        by reading the first file using `arg.imread(arg.files[0], **kwargs)`.
+
+        """
         super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
 
         if self._chunkmode not in (0, 3):
@@ -9245,38 +9386,44 @@ class ZarrFileSequenceStore(ZarrStore):
         if arg._container:
             raise NotImplementedError('cannot open container as zarr storage')
 
-        image = arg.imread(arg.files[0], **kwargs)
-        dtype = image.dtype
-        chunks = image.shape
-        shape = arg.shape + chunks
-        chunks = (1,) * len(arg.shape) + chunks
+        self._kwargs = kwargs
+        self._imread = arg.imread
+        self._cache = {}  # TODO: cache MRU number chunks
+        self._commonpath = arg.commonpath()
 
-        self._store['.zattrs'] = ZarrStore._json({})
+        if chunkshape is None or dtype is None:
+            chunk = arg.imread(arg.files[0], **kwargs)
+            self._chunks = chunk.shape
+            self._dtype = chunk.dtype
+        else:
+            self._chunks = tuple(chunkshape)
+            self._dtype = numpy.dtype(dtype)
+            chunk = None
+
+        self._tiled = TiledSequence(arg.shape, self._chunks, axestiled)
+        self._lookup = dict(zip(self._tiled.indices(arg.indices), arg.files))
+        if chunk is not None:
+            self._cache[next(self._tiled.indices(arg.indices[0:1]))] = chunk
+
+        zattrs = {} if zattrs is None else dict(zattrs)
+
+        self._store['.zattrs'] = ZarrStore._json(zattrs)
         self._store['.zarray'] = ZarrStore._json(
             {
                 'zarr_format': 2,
-                'shape': shape,
-                'chunks': chunks,
-                'dtype': ZarrStore._dtype(dtype),
+                'shape': self._tiled.shape,
+                'chunks': self._tiled.chunks,
+                'dtype': ZarrStore._dtype(self._dtype),
                 'compressor': None,
-                'fill_value': ZarrStore._value(fillvalue, dtype),
+                'fill_value': ZarrStore._value(fillvalue, self._dtype),
                 'order': 'C',
                 'filters': None,
             }
         )
 
-        self._kwargs = kwargs
-        self._imread = arg.imread
-        self._lookup = dict(zip(arg.indices, arg.files))
-        self._chunks = image.shape
-        self._dtype = image.dtype
-        self._cache = {arg.indices[0]: image}  # TODO: cache MRU number chunks
-        self._commonpath = arg.commonpath()
-
     def _getitem(self, key):
         """Return chunk from file."""
         indices = tuple(int(i) for i in key.split('.'))
-        indices = indices[: -len(self._chunks)]
         if indices in self._cache:
             return self._cache[indices]
         self._cache.clear()
@@ -9294,7 +9441,15 @@ class ZarrFileSequenceStore(ZarrStore):
         """Clear chunk cache."""
         self._cache.clear()
 
-    def write_fsspec(self, arg, url, codec_id=None, version=None):
+    def write_fsspec(
+        self,
+        arg,
+        url,
+        groupname=None,
+        codec_id=None,
+        version=None,
+        _append=False,
+    ):
         """Write fsspec ReferenceFileSystem as JSON to file.
 
         Url is the remote location of the files without the file names.
@@ -9344,8 +9499,15 @@ class ZarrFileSequenceStore(ZarrStore):
         elif url and url[-1] != '/':
             url += '/'
 
+        if groupname is None:
+            groupname = ''
+        elif groupname and groupname[-1] != '/':
+            groupname += '/'
+
         refs = dict()
         if version == 1:
+            if _append:
+                raise ValueError('cannot append when using version 1')
             refs['version'] = 1
             refs['templates'] = {'u': url}
             refs['gen'] = []
@@ -9354,13 +9516,16 @@ class ZarrFileSequenceStore(ZarrStore):
         else:
             refzarr = refs
 
+        if groupname and not _append:
+            refzarr['.zgroup'] = ZarrStore._json({'zarr_format': 2}).decode()
+
         for key, value in self._store.items():
             if '.zarray' in key:
                 value = json.loads(value)
                 # TODO: make kwargs serializable
                 value['compressor'] = {'id': codec_id, **kwargs}
                 value = ZarrStore._json(value)
-            refzarr[key] = value.decode()
+            refzarr[groupname + key] = value.decode()
 
         if hasattr(arg, 'write'):
             fh = arg
@@ -9370,6 +9535,10 @@ class ZarrFileSequenceStore(ZarrStore):
         if version == 1:
             fh.write(json.dumps(refs, indent=1).rsplit('}"', 1)[0] + '}"')
             indent = '  '
+        elif _append:
+            fh.write(',\n')
+            fh.write(json.dumps(refs, indent=1)[2:-2])
+            indent = ' '
         else:
             fh.write(json.dumps(refs, indent=1)[:-2])
             indent = ' '
@@ -9379,36 +9548,54 @@ class ZarrFileSequenceStore(ZarrStore):
         for key, value in self._store.items():
             if '.zarray' in key:
                 value = json.loads(value)
-                shape = value['shape']
-                chunks = value['chunks']
-                for key in ZarrStore._ndindex(shape, chunks):
-                    indices = tuple(int(i) for i in key.split('.'))
-                    indices = indices[: -len(self._chunks)]
-                    filename = self._lookup.get(indices, None)
-                    if filename is not None:
-                        filename = quote(filename[prefix:].replace('\\', '/'))
-                        if filename[0] == '/':
-                            filename = filename[1:]
-                        fh.write(f',\n{indent}"{key}": ["{url}{filename}"]')
+                for index, filename in sorted(
+                    self._lookup.items(), key=lambda x: x[0]
+                ):
+                    filename = quote(filename[prefix:].replace('\\', '/'))
+                    if filename[0] == '/':
+                        filename = filename[1:]
+                    index = '.'.join(str(i) for i in index)
+                    fh.write(
+                        f',\n{indent}"{groupname}{index}": ["{url}{filename}"]'
+                    )
 
         if version == 1:
-            fh.write('\n }')
-        fh.write('\n}')
+            fh.write('\n }\n}')
+        elif not _append:
+            fh.write('\n}')
 
         if not hasattr(arg, 'write'):
             fh.close()
 
+    def __str__(self):
+        """Return information about instance."""
+        return '\n '.join(
+            (
+                self.__class__.__name__,
+                'shape: {}'.format(
+                    ', '.join(str(i) for i in self._tiled.shape)
+                ),
+                'chunks: {}'.format(
+                    ', '.join(str(i) for i in self._tiled.chunks)
+                ),
+                f'dtype: {self._dtype}',
+                f'fillvalue: {self._fillvalue}',
+            )
+        )
+
 
 class FileSequence:
-    """Series of files containing array data of compatible shape and data type.
+    """Series of files containing array data of compatible shape and type.
 
     Attributes
     ----------
     files : list
         List of file names.
     shape : tuple
-        Shape of file series. Excludes shape of individual arrays.
+        Shape of file series. Excludes shape of chunks in files.
     axes : str
+        One letter labels of axes in shape.
+    labels : tuple of str
         Labels of axes in shape.
     indices : tuple of tuples
         ND indices of files in shape.
@@ -9421,8 +9608,8 @@ class FileSequence:
         files,
         container=None,
         sort=None,
-        pattern=None,
-        axesorder=None,
+        parse=None,
+        **kwargs,
     ):
         r"""Initialize instance from multiple files.
 
@@ -9434,21 +9621,19 @@ class FileSequence:
         files : str, path-like, or sequence thereof
             Glob filename pattern or sequence of file names. Default: \*.
             Binary streams are not supported.
-        container : str or container instance
+        container : str or container instance (optional)
             Name or open instance of ZIP file in which files are stored.
-        sort : function
+        sort : function (optional)
             Sort function used to sort file names when 'files' is a pattern.
-            The default (None) is natural_sorted. Use sort=False to disable
-            sorting.
-        pattern : str
-            Regular expression pattern that matches axes and sequence indices
-            in file names. By default (None), no pattern matching is performed.
-            Axes can be specified by matching groups preceding the index groups
-            in the file name, be provided as group names for the index groups,
-            or be omitted. The predefined 'axes' pattern matches Olympus OIF
-            and Leica TIFF series.
-        axesorder : sequence of int
-            Indices of axes in pattern.
+            The default (None) is the natural_sorted function.
+            If False, disable sorting.
+        parse : func (optional)
+            Parse function used to parse the sequence of sorted file names to
+            axes labels, shape, chunk indices, and filtered file names.
+            The default (None) is the parse_filenames function if kwargs
+            contains 'pattern'.
+        kwargs : dict
+            Additional arguments passed to the parse function.
 
         """
         if files is None:
@@ -9502,35 +9687,30 @@ class FileSequence:
                     with io.BytesIO(handle1.read()) as handle2:
                         return _imread_(handle2, **kwargs)
 
-        axes = 'I'
-        shape = (len(files),)
-        indices = tuple((i,) for i in range(len(files)))
-        startindex = (0,)
+        if parse is None and kwargs.get('pattern', None):
+            parse = parse_filenames
 
-        pattern = TIFF.FILE_PATTERNS.get(pattern, pattern)
-        if pattern:
+        if parse:
             try:
-                axes, shape, indices, startindex = parse_filenames(
-                    files, pattern, axesorder
-                )
+                labels, shape, indices, files = parse(files, **kwargs)
             except ValueError as exc:
-                log_warning(
-                    f'FileSequence: failed to parse file names ({exc})'
-                )
-                axesorder = None
-
-        if product(shape) != len(files):
-            log_warning(
-                'FileSequence: files are missing. Missing data are zeroed'
-            )
+                raise ValueError('failed to parse file names') from exc
+        else:
+            labels = ('I',)
+            shape = (len(files),)
+            indices = tuple((i,) for i in range(len(files)))
 
         self.imread = imread
         self.files = files
-        self.pattern = pattern
-        self.axes = axes.upper()
-        self.shape = shape
+        self.axes = ''.join(label[0] for label in labels).upper()
+        self.labels = tuple(labels)
+        self.shape = tuple(shape)
         self.indices = indices
-        self._startindex = startindex
+
+    @property
+    def files_missing(self):
+        """Return number of empty chunks."""
+        return product(self.shape) - len(self.files)
 
     def __str__(self):
         """Return string with information about file FileSequence."""
@@ -9540,9 +9720,10 @@ class FileSequence:
             (
                 self.__class__.__name__,
                 file,
-                f'files: {len(self.files)}',
+                f'files: {len(self.files)} ({self.files_missing} missing)',
                 'shape: {}'.format(', '.join(str(i) for i in self.shape)),
-                f'axes: {self.axes}',
+                'labels: {}'.format(', '.join(s for s in self.labels)),
+                # f'axes: {self.axes}',
             )
         )
 
@@ -9560,22 +9741,27 @@ class FileSequence:
             self._container.close()
         self._container = None
 
-    def asarray(self, file=None, ioworkers=1, out=None, **kwargs):
+    def asarray(
+        self, index=None, axestiled=None, ioworkers=1, out=None, **kwargs
+    ):
         """Read image data from files and return as numpy array.
 
         Raise IndexError or ValueError if array shapes do not match.
 
         Parameters
         ----------
-        file : int or None
-            Index or name of single file to read.
-        ioworkers : int or None
+        index : int or tuple (optional)
+            Sequential or chunk index of single file to read.
+        axestiled: dict (optional)
+           Defines the axes to be tiled. Map stacked sequence axis to
+           chunk axis.
+        ioworkers : int  (optional)
             Maximum number of threads to execute the array read function
             asynchronously. Default: 1.
             If None, default to the number of processors multiplied by 5.
             Using threads can significantly improve runtime when
             reading many small files from a network share.
-        out : numpy.ndarray, str, or file-like object
+        out : numpy.ndarray, str, or file-like object (optional)
             Buffer where image data are saved.
             If None (default), a new array is created.
             If numpy.ndarray, a writable array of compatible dtype and shape.
@@ -9586,21 +9772,16 @@ class FileSequence:
             Additional parameters passed to the array read function.
 
         """
-        if file is not None:
-            if isinstance(file, int):
-                return self.imread(self.files[file], **kwargs)
-            return self.imread(file, **kwargs)
-
-        im = self.imread(self.files[0], **kwargs)
-        shape = self.shape + im.shape
-        result = create_output(out, shape, dtype=im.dtype)
-        result = result.reshape(-1, *im.shape)
-
-        def func(index, fname):
-            """Read single image from file into result."""
-            index = int(numpy.ravel_multi_index(index, self.shape))
-            im = self.imread(fname, **kwargs)
-            result[index] = im
+        if index is not None:
+            if isinstance(index, (int, numpy.integer)):
+                return self.imread(self.files[index], **kwargs)
+            if isinstance(index, tuple):
+                # TODO support tiled indices
+                for i, idx in enumerate(self.indices):
+                    if idx == index:
+                        return self.imread(self.files[i], **kwargs)
+                raise IndexError(f'file index {index!r} out of range')
+            return self.imread(index, **kwargs)
 
         if len(self.files) < 2:
             ioworkers = 1
@@ -9609,15 +9790,52 @@ class FileSequence:
 
             ioworkers = max(multiprocessing.cpu_count() * 5, 1)
 
-        if ioworkers < 2:
-            for index, fname in zip(self.indices, self.files):
-                func(index, fname)
-        else:
-            with ThreadPoolExecutor(ioworkers) as executor:
-                for _ in executor.map(func, self.indices, self.files):
-                    pass
+        im = self.imread(self.files[0], **kwargs)
 
-        result.shape = shape
+        if axestiled:
+            tiled = TiledSequence(self.shape, im.shape, axestiled)
+            result = create_output(out, tiled.shape, dtype=im.dtype)
+
+            def func(index, fname):
+                # read single image from file into result
+                # if index is None:
+                #     return
+                result[index] = self.imread(fname, **kwargs)
+
+            if ioworkers < 2:
+                for index, fname in zip(
+                    tiled.slices(self.indices), self.files
+                ):
+                    func(index, fname)
+            else:
+                with ThreadPoolExecutor(ioworkers) as executor:
+                    for _ in executor.map(
+                        func, tiled.slices(self.indices), self.files
+                    ):
+                        pass
+        else:
+            shape = self.shape + im.shape
+            result = create_output(out, shape, dtype=im.dtype)
+            result = result.reshape(-1, *im.shape)
+
+            def func(index, fname):
+                # read single image from file into result
+                if index is None:
+                    return
+                index = int(numpy.ravel_multi_index(index, self.shape))
+                im = self.imread(fname, **kwargs)
+                result[index] = im
+
+            if ioworkers < 2:
+                for index, fname in zip(self.indices, self.files):
+                    func(index, fname)
+            else:
+                with ThreadPoolExecutor(ioworkers) as executor:
+                    for _ in executor.map(func, self.indices, self.files):
+                        pass
+
+            result.shape = shape
+
         return result
 
     def aszarr(self, **kwargs):
@@ -9636,24 +9854,130 @@ class FileSequence:
 class TiffSequence(FileSequence):
     """Series of TIFF files."""
 
-    def __init__(
-        self,
-        files=None,
-        container=None,
-        sort=None,
-        pattern=None,
-        axesorder=None,
-        imread=imread,
-    ):
+    def __init__(self, files=None, imread=imread, **kwargs):
         """Initialize instance from multiple TIFF files."""
-        super().__init__(
-            imread,
-            '*.tif' if files is None else files,
-            container=container,
-            sort=sort,
-            pattern=pattern,
-            axesorder=axesorder,
-        )
+        super().__init__(imread, '*.tif' if files is None else files, **kwargs)
+
+
+class TiledSequence:
+    """Tiled Sequence.
+
+    Transform a sequence of stacked chunks to tiled chunks.
+
+    Attributes
+    ----------
+    shape : tuple of int
+        Shape of the tiled sequence.
+    chunks : tuple of int
+        Shape of the chunks in the tiled sequence.
+
+    Examples
+    --------
+    >>> ts = TiledSequence((1, 2), (3, 4), {1: 0})
+    >>> ts.shape
+    (1, 6, 4)
+    >>> ts.chunks
+    (1, 3, 4)
+
+    """
+
+    def __init__(self, stackshape, chunkshape, axestiled=None):
+        """Initialize from shape of stacked sequence and axes to be tiled.
+
+        Parameters
+        ----------
+        stackshape : tuple of int
+            Shape of the stacked sequence excluding chunks.
+        chunkshape : tuple of int
+            Shape of the chunks excluding stack axes.
+        axestiled: dict (optional)
+           Defines the axes to be tiled. Map stacked sequence axis to
+           chunk axis.
+
+        """
+        self._stackdims = len(stackshape)
+        self._chunkdims = len(chunkshape)
+        self._stackshape = tuple(stackshape) + tuple(chunkshape)
+
+        if axestiled:
+            axestiled = dict(axestiled)
+            for ax0, ax1 in axestiled.items():
+                axestiled[ax0] = ax1 + self._stackdims
+            self._axestiled = tuple(reversed(sorted(axestiled.items())))
+
+            shape = list(self._stackshape)
+            chunks = [1] * self._stackdims + list(chunkshape)
+            used = set()
+            for ax0, ax1 in self._axestiled:
+                if ax0 in used or ax1 in used:
+                    raise ValueError('duplicate axis')
+                used.add(ax0)
+                used.add(ax1)
+                shape[ax1] *= stackshape[ax0]
+            for ax0, ax1 in self._axestiled:
+                del shape[ax0]
+                del chunks[ax0]
+            self.shape = tuple(shape)
+            self.chunks = tuple(chunks)
+        else:
+            self._axestiled = ()
+            self.shape = self._stackshape
+            self.chunks = (1,) * self._stackdims + tuple(chunkshape)
+
+    def indices(self, indices):
+        """Return iterator over chunk indices of tiled sequence.
+
+        Parameters
+        ----------
+        indices : sequence of tuple of int
+            Indices of chunks in the stacked sequence.
+
+        """
+        chunkindex = [0] * self._chunkdims
+        for index in indices:
+            if index is None:
+                yield None
+            else:
+                if len(index) != self._stackdims:
+                    raise ValueError('')
+                index = list(index) + chunkindex
+                for ax0, ax1 in self._axestiled:
+                    index[ax1] = index[ax0]
+                for ax0, ax1 in self._axestiled:
+                    del index[ax0]
+                yield tuple(index)
+
+    def slices(self, indices):
+        """Return iterator over slices of chunks in tiled sequence.
+
+        Parameters
+        ----------
+        indices : sequence of tuple of int
+            Indices of chunks in the stacked sequence.
+
+        """
+        chunkslice = [slice(None)] * self._chunkdims
+        for index in indices:
+            if index is None:
+                yield None
+            else:
+                assert len(index) == self._stackdims
+                index = list(index) + chunkslice
+                for ax0, ax1 in self._axestiled:
+                    j = self._stackshape[ax1]
+                    i = index[ax0] * j
+                    index[ax1] = slice(i, i + j)
+                for ax0, ax1 in self._axestiled:
+                    del index[ax0]
+                yield tuple(index)
+
+    @property
+    def ndim(self):
+        return len(self.shape)
+
+    @property
+    def is_tiled(self):
+        return bool(self._axestiled)
 
 
 class FileHandle:
@@ -15444,91 +15768,157 @@ def apply_colormap(image, colormap, contig=True):
     return image
 
 
-def parse_filenames(files, pattern, axesorder=None):
+def parse_filenames(
+    files, pattern, axesorder=None, categories=None, _shape=None
+):
     r"""Return shape and axes from sequence of file names matching pattern.
 
+    Parameters
+    ----------
+    files : sequence of str
+        Sequence of file names to parse.
+    pattern : str
+        Regular expression pattern matching axes labels and chunk indices
+        in file names. By default, no pattern matching is performed.
+        Axes labels can be specified by matching groups preceding the index
+        groups in the file name, be provided as group names for the index
+        groups, or be omitted.
+        The predefined 'axes' pattern matches Olympus OIF and Leica TIFF
+        series.
+    axesorder : sequence of int (optional)
+        Indices of axes in pattern. By default axes are returned in the order
+        they appear in pattern.
+    categories : dict of dicts (optional)
+        Map of index group matches to integer indices.
+        {'axislabel': {'category': index}}
+    _shape : tuple of int (optional)
+        Shape of the file sequence. If None (default), the shape is
+        maximum-minimum+1 of the parsed indices for each dimension.
+
+    Returns
+    -------
+    labels : tuple of str
+        Axes labels for each dimension.
+    shape : tuple of int
+        Shape of file series.
+    indices : sequence of tuples
+        Index of each file in shape.
+    files : sequence of str
+        Filtered sequence of file names.
+
+    Examples
+    --------
     >>> parse_filenames(
     ...     ['c1001.ext', 'c2002.ext'], r'([^\d])(\d)(?P<t>\d+)\.ext'
     ... )
-    ('ct', (2, 2), [(0, 0), (1, 1)], (1, 1))
+    (('c', 't'), (2, 2), [(0, 0), (1, 1)], ['c1001.ext', 'c2002.ext'])
 
     """
+    # TODO: add option to filter files that do not match pattern
+
+    shape = _shape
+    if pattern is None:
+        if shape is not None and (len(shape) != 1 or shape[0] < len(files)):
+            raise ValueError(
+                f'shape {(len(files),)} does not fit provided shape {shape}'
+            )
+        return (
+            ('I',),
+            (len(files),),
+            tuple((i,) for i in range(len(files))),
+            files,
+        )
+
+    pattern = TIFF.FILE_PATTERNS.get(pattern, pattern)
     if not pattern:
         raise ValueError('invalid pattern')
     if isinstance(pattern, str):
         pattern = re.compile(pattern)
 
-    def parse(fname, pattern=pattern):
-        # return axes and indices from file name
-        # fname = os.path.split(fname)[-1]
-        axes = []
+    if categories is None:
+        categories = {}
+
+    def parse(fname):
+        # return axes labels and indices from file name
+        labels = []
         indices = []
         groupindex = {v: k for k, v in pattern.groupindex.items()}
         match = pattern.search(fname)
         if not match:
-            raise ValueError('pattern does not match file name')
+            raise ValueError(f'pattern does not match file name {fname!r}')
         ax = None
         for i, m in enumerate(match.groups()):
             if m is None:
                 continue
             if i + 1 in groupindex:
-                ax = groupindex[i + 1]  # names axis
-                if not m[0].isdigit():
-                    m = ord(m)  # index letter to number
-                    if m < 65 or m > 122:
-                        raise ValueError(f'invalid index {m!r}')
+                ax = groupindex[i + 1]
             elif m[0].isalpha():
-                ax = m  # axis letter for next index
+                ax = m  # axis label for next index
                 continue
             if ax is None:
                 ax = 'Q'  # no preceding axis letter
             try:
+                if ax in categories:
+                    m = categories[ax][m]
                 m = int(m)
-            except Exception:
-                raise ValueError(f'invalid index {m!r}')
+            except Exception as exc:
+                raise ValueError(f'invalid index {m!r}') from exc
             indices.append(m)
-            axes.append(ax)
+            labels.append(ax)
             ax = None
-        return ''.join(axes), indices
+        return tuple(labels), indices
 
-    files = [os.path.normpath(f) for f in files]
-    if len(files) == 1:
-        prefix = os.path.dirname(files[0])
+    normpaths = [os.path.normpath(f) for f in files]
+    if len(normpaths) == 1:
+        prefix = os.path.dirname(normpaths[0])
     else:
-        prefix = os.path.commonpath(files)
+        prefix = os.path.commonpath(normpaths)
     prefix = len(prefix)
 
-    axes = None
+    labels = None
     indices = []
-    for fname in files:
-        ax, idx = parse(fname[prefix:])
-        if axes is None:
-            axes = ax
+    for fname in normpaths:
+        lbl, idx = parse(fname[prefix:])
+        if labels is None:
+            labels = lbl
             if axesorder is not None and (
-                len(axesorder) != len(axes)
-                or any(i not in axesorder for i in range(len(axes)))
+                len(axesorder) != len(labels)
+                or any(i not in axesorder for i in range(len(labels)))
             ):
-                raise ValueError('invalid axisorder')
-        elif axes != ax:
-            raise ValueError('axes do not match within image sequence')
+                raise ValueError(
+                    f'invalid axesorder {axesorder!r} for {labels!r}'
+                )
+        elif labels != lbl:
+            raise ValueError('axes labels do not match within image sequence')
         if axesorder is not None:
             idx = [idx[i] for i in axesorder]
         indices.append(idx)
 
-    if axesorder is not None:
-        axes = ''.join(axes[i] for i in axesorder)
+    if axesorder is None:
+        labels = tuple(labels)
+    else:
+        labels = tuple(labels[i] for i in axesorder)
 
+    # determine shape
     indices = numpy.array(indices, dtype=numpy.intp)
-    startindex = numpy.min(indices, axis=0)
-    shape = numpy.max(indices, axis=0)
-    shape -= startindex
-    shape += 1
-    shape = tuple(shape.tolist())
-    indices -= startindex
-    indices = indices.tolist()
-    indices = [tuple(index) for index in indices]
-    startindex = tuple(startindex.tolist())
-    return axes, shape, indices, startindex
+    parsedshape = numpy.max(indices, axis=0)
+
+    if shape is None:
+        startindex = numpy.min(indices, axis=0)
+        indices -= startindex
+        parsedshape -= startindex
+        parsedshape += 1
+        shape = tuple(parsedshape.tolist())
+    elif len(parsedshape) != len(shape) or any(
+        i > j for i, j in zip(shape, parsedshape)
+    ):
+        raise ValueError(
+            f'parsed shape {parsedshape} does not fit provided shape {shape}'
+        )
+
+    indices = [tuple(index) for index in indices.tolist()]
+
+    return labels, shape, indices, files
 
 
 def iter_images(data):
@@ -15925,13 +16315,13 @@ def stack_pages(pages, out=None, maxworkers=None, **kwargs):
     return out
 
 
-def create_output(out, shape, dtype, mode='w+', suffix=None):
+def create_output(out, shape, dtype, mode='w+', suffix=None, fillvalue=0):
     """Return numpy array where image data of shape and dtype can be copied.
 
     The 'out' parameter may have the following values or types:
 
     None
-        An empty array of shape and dtype is created and returned.
+        A zeroed array of shape and dtype is created and returned.
     numpy.ndarray
         An existing writable array of compatible dtype and shape. A view of
         the same array is returned after verification.
@@ -15945,6 +16335,12 @@ def create_output(out, shape, dtype, mode='w+', suffix=None):
 
     """
     if out is None:
+        if fillvalue is None:
+            return numpy.empty(shape, dtype)
+        if fillvalue:
+            out = numpy.empty(shape, dtype)
+            out[:] = fillvalue
+            return out
         return numpy.zeros(shape, dtype)
     if isinstance(out, numpy.ndarray):
         if product(shape) != product(out.shape):
