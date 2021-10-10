@@ -8,7 +8,7 @@ Tifffile is a Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
 NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
-ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
+BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
 
 Image data can be read as numpy arrays or zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -21,16 +21,16 @@ A subset of the TIFF specification is supported, mainly 8, 16, 32 and 64-bit
 integer, 16, 32 and 64-bit float, grayscale and multi-sample images.
 Specifically, CCITT and OJPEG compression, chroma subsampling without JPEG
 compression, color space transformations, samples with differing types, or
-IPTC and XMP metadata are not implemented.
+IPTC, ICC, and XMP metadata are not implemented.
 
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated. BigTIFF allows for files larger than 4 GB.
-STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, SVS, ZIF, and OME-TIFF,
-are custom extensions defined by Molecular Devices (Universal Imaging
+STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI, SCN, SVS, ZIF, BIF, and
+OME-TIFF, are custom extensions defined by Molecular Devices (Universal Imaging
 Corporation), Carl Zeiss MicroImaging, Olympus, Silicon Graphics International,
 Media Cybernetics, Molecular Dynamics, PerkinElmer, Hamamatsu, Leica,
-ObjectivePathology, and the Open Microscopy Environment consortium,
-respectively.
+ObjectivePathology, Roche Digital Pathology, and the Open Microscopy
+Environment consortium, respectively.
 
 For command line usage run ``python -m tifffile --help``
 
@@ -42,14 +42,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.8.30
+:Version: 2021.10.10
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.10, 3.9.7 64-bit <https://www.python.org>`_
+* `CPython 3.7.9, 3.8.10, 3.9.7, 3.10.0, 64-bit <https://www.python.org>`_
 * `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2021.8.26  <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -57,13 +57,23 @@ This release has been tested with the following requirements and dependencies
   (required only for plotting)
 * `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.9.4 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.10.1 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2021.10.10
+    Pass 4724 tests.
+    Disallow letters as indices in FileSequence; use categories (breaking).
+    Do not warn of missing files in FileSequence; use files_missing property.
+    Support predictors in ZarrTiffStore.write_fsspec.
+    Add option to specify zarr group name in write_fsspec.
+    Add option to specify categories for FileSequence patterns.
+    Add option to specify chunk shape and dtype for ZarrFileSequenceStore.
+    Add option to tile ZarrFileSequenceStore.
+    Add option to pass additional zattrs to Zarr stores.
+    Detect Roche BIF files.
 2021.8.30
-    Pass 4723 tests.
     Fix horizontal differencing with non-native byte order.
     Fix multi-threaded access of memory-mappable, multi-page Zarr stores (#67).
 2021.8.8
@@ -293,10 +303,11 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
   read Philips slides.
-* *Ventana BIF* slides store tiles and metadata in a BigTIFF container.
+* *Ventana/Roche BIF* slides store tiles and metadata in a BigTIFF container.
   Tiles may overlap and require stitching based on the TileJointInfo elements
-  in the XMP tag. Tifffile can read BigTIFF and decode individual tiles,
-  but does not perform stitching.
+  in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
+  Tifffile can read BigTIFF and decode individual tiles, but does not perform
+  stitching.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
@@ -370,9 +381,12 @@ References
   http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 * The EER (Electron Event Representation) file format.
   https://github.com/fei-company/EerReaderLib
-* Digital Negative (DNG) Specification. Version 1.4.0.0, June 2012.
+* Digital Negative (DNG) Specification. Version 1.5.0.0, June 2012.
   https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/
-  dng_spec_1.4.0.0.pdf
+  dng_spec_1.5.0.0.pdf
+* Roche Digital Pathology. BIF image file format for digital pathology.
+  https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
+  Roche-Digital-Pathology-BIF-Whitepaper.pdf
 
 Examples
 --------
@@ -618,7 +632,7 @@ Read images from a sequence of TIFF files as numpy array:
 Read an image stack from a series of TIFF files with a file name pattern
 as numpy or zarr arrays:
 
->>> image_sequence = TiffSequence('temp_C001*.tif', pattern='axes')
+>>> image_sequence = TiffSequence('temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)')
 >>> image_sequence.shape
 (1, 2)
 >>> image_sequence.axes
