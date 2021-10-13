@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.10.10
+:Version: 2021.10.12
 
 """
 
@@ -1467,6 +1467,46 @@ def test_issue_dask_multipage(truncate):
         with imread(fname, aszarr=True) as store:
             daskarray = dask.array.from_zarr(store).compute()
             assert_array_equal(data, daskarray)
+
+
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.PNG, reason=REASON
+)
+def test_issue_filesequence_categories():
+    """Test FileSequence with categories."""
+    # https://github.com/cgohlke/tifffile/issues/76
+
+    with tifffile.FileSequence(
+        imagecodecs.imread,
+        private_file('dataset-A1-20200531/*.png'),
+        pattern=(
+            r'(?P<sampleid>.{2})-'
+            r'(?P<experiment>.+)-\d{8}T\d{6}-PSII0-'
+            r'(?P<frameid>\d)'
+        ),
+        categories={'sampleid': {'A1': 0, 'B1': 1}, 'experiment': {'doi': 0}},
+    ) as pngs:
+        assert len(pngs.files) == 2
+        assert pngs.files_missing == 2
+        assert pngs.shape == (2, 1, 2)
+        assert pngs.labels == ('sampleid', 'experiment', 'frameid')
+        data = pngs.asarray()
+        assert data.shape == (2, 1, 2, 200, 200)
+        assert data[1, 0, 1, 100, 100] == 353
+
+
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+def test_issue_filesequence_file_parameter():
+    """Test FileSequence.asarray with deprecated 'file' parameter."""
+    # https://github.com/bluesky/tiled/pull/97
+
+    files = public_file('tifffile/temp_C001T00*.tif')
+    with TiffSequence(files) as tiffs:
+        assert tiffs.shape == (2,)
+        with pytest.warns(DeprecationWarning):
+            assert_array_equal(tiffs.asarray(file=files[0]), imread(files[0]))
+        with pytest.warns(DeprecationWarning):
+            assert_array_equal(tiffs.asarray(file=1), imread(files[1]))
 
 
 ###############################################################################
