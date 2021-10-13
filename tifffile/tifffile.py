@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.10.10
+:Version: 2021.10.12
 
 Requirements
 ------------
@@ -92,15 +92,18 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2021.10.12
+    Pass 4726 tests.
+    Revert renaming of 'file' parameter in FileSequence.asarray (breaking).
+    Deprecate 'file' parameter in FileSequence.asarray.
 2021.10.10
-    Pass 4724 tests.
     Disallow letters as indices in FileSequence; use categories (breaking).
     Do not warn of missing files in FileSequence; use files_missing property.
     Support predictors in ZarrTiffStore.write_fsspec.
     Add option to specify zarr group name in write_fsspec.
-    Add option to specify categories for FileSequence patterns.
+    Add option to specify categories for FileSequence patterns (#76).
     Add option to specify chunk shape and dtype for ZarrFileSequenceStore.
-    Add option to tile ZarrFileSequenceStore.
+    Add option to tile ZarrFileSequenceStore and FileSequence.asarray.
     Add option to pass additional zattrs to Zarr stores.
     Detect Roche BIF files.
 2021.8.30
@@ -336,7 +339,7 @@ some of which allow file or data sizes to exceed the 4 GB limit:
 * *Ventana/Roche BIF* slides store tiles and metadata in a BigTIFF container.
   Tiles may overlap and require stitching based on the TileJointInfo elements
   in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
-  Tifffile can read BigTIFF and decode individual tiles, but does not perform
+  Tifffile can read BIF and decode individual tiles, but does not perform
   stitching.
 * *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
@@ -677,7 +680,7 @@ as numpy or zarr arrays:
 
 """
 
-__version__ = '2021.10.10'
+__version__ = '2021.10.12'
 
 __all__ = (
     'OmeXml',
@@ -7940,7 +7943,7 @@ class TiffTag:
             value = _arg
             warnings.warn(
                 "TiffTag.overwrite: passing a TiffFile instance is deprecated "
-                "and no longer required since 2021.7.x.",
+                "and no longer required since 2021.7.30.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -9742,7 +9745,12 @@ class FileSequence:
         self._container = None
 
     def asarray(
-        self, index=None, axestiled=None, ioworkers=1, out=None, **kwargs
+        self,
+        file=None,  # deprecated
+        axestiled=None,
+        ioworkers=1,
+        out=None,
+        **kwargs,
     ):
         """Read image data from files and return as numpy array.
 
@@ -9750,8 +9758,8 @@ class FileSequence:
 
         Parameters
         ----------
-        index : int or tuple (optional)
-            Sequential or chunk index of single file to read.
+        file : int or str (optional, deprecated)
+            Index or name of single file to read.
         axestiled: dict (optional)
            Defines the axes to be tiled. Map stacked sequence axis to
            chunk axis.
@@ -9772,16 +9780,16 @@ class FileSequence:
             Additional parameters passed to the array read function.
 
         """
-        if index is not None:
-            if isinstance(index, (int, numpy.integer)):
-                return self.imread(self.files[index], **kwargs)
-            if isinstance(index, tuple):
-                # TODO support tiled indices
-                for i, idx in enumerate(self.indices):
-                    if idx == index:
-                        return self.imread(self.files[i], **kwargs)
-                raise IndexError(f'file index {index!r} out of range')
-            return self.imread(index, **kwargs)
+        if file is not None:
+            warnings.warn(
+                "FileSequence.asarray: "
+                "the 'file' parameter is deprecated since 2021.10.12.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if isinstance(file, (int, numpy.integer)):
+                return self.imread(self.files[file], **kwargs)
+            return self.imread(file, **kwargs)
 
         if len(self.files) < 2:
             ioworkers = 1
