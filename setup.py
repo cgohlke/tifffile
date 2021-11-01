@@ -103,6 +103,7 @@ setup(
         'roifile',
         'lxml',
         'zarr',
+        'dask',
         'fsspec>=2021.5.0',
     ],
     entry_points={
