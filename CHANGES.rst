@@ -1,7 +1,17 @@
 Revisions
 ---------
+2021.11.2
+    Pass 4731 tests.
+    Lazy-load non-essential tag values (breaking).
+    Warn when reading from closed file.
+    Support ImageJ 'prop' metadata type (#103).
+    Support writing indexed ImageJ format.
+    Fix multi-threaded access of multi-page Zarr stores with chunkmode 2.
+    Raise error if truncate is used with compression, packints, or tile.
+    Read STK metadata without UIC2tag.
+    Improve log and warning messages (WIP).
+    Improve string representation of large tag values.
 2021.10.12
-    Pass 4726 tests.
     Revert renaming of 'file' parameter in FileSequence.asarray (breaking).
     Deprecate 'file' parameter in FileSequence.asarray.
 2021.10.10
