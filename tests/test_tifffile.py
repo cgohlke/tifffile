@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.10.12
+:Version: 2021.11.2
 
 """
 
@@ -66,41 +66,41 @@ from numpy.testing import (
 )
 
 try:
-    from tifffile import *
+    from tifffile import *  # noqa
 
     STAR_IMPORTED = (
-        TIFF,
-        imwrite,
-        imread,
-        imshow,
-        TiffWriter,
-        TiffReader,
-        TiffFile,
-        TiffFileError,
-        TiffSequence,
-        TiffPage,
-        TiffFrame,
-        FileHandle,
-        FileSequence,
-        Timer,
-        lazyattr,
-        natural_sorted,
-        stripnull,
-        memmap,
-        repeat_nd,
-        format_size,
-        product,
-        create_output,
-        askopenfilename,
-        read_scanimage_metadata,
-        read_micromanager_metadata,
-        OmeXmlError,
-        OmeXml,
+        TIFF,  # noqa
+        imwrite,  # noqa
+        imread,  # noqa
+        imshow,  # noqa
+        TiffWriter,  # noqa
+        TiffReader,  # noqa
+        TiffFile,  # noqa
+        TiffFileError,  # noqa
+        TiffSequence,  # noqa
+        TiffPage,  # noqa
+        TiffFrame,  # noqa
+        FileHandle,  # noqa
+        FileSequence,  # noqa
+        Timer,  # noqa
+        lazyattr,  # noqa
+        natural_sorted,  # noqa
+        stripnull,  # noqa
+        memmap,  # noqa
+        repeat_nd,  # noqa
+        format_size,  # noqa
+        product,  # noqa
+        create_output,  # noqa
+        askopenfilename,  # noqa
+        read_scanimage_metadata,  # noqa
+        read_micromanager_metadata,  # noqa
+        OmeXmlError,  # noqa
+        OmeXml,  # noqa
     )
 except NameError:
     STAR_IMPORTED = None
 
-from tifffile.tifffile import (
+from tifffile.tifffile import (  # noqa
     TIFF,
     FileCache,
     FileHandle,
@@ -249,6 +249,11 @@ if not os.path.exists(PRIVATE_DIR):
 
 if not SKIP_CODECS:
     SKIP_CODECS = imagecodecs is None
+
+if SKIP_PYPY:
+    SKIP_ZARR = True
+    SKIP_DASK = True
+    SKIP_HTTP = True
 
 if SKIP_ZARR:
     zarr = None
@@ -681,8 +686,8 @@ def test_issue_no_bytecounts(caplog):
         image = tif.asarray()
         assert image.shape == (800, 1200)
         # fails: assert_aszarr_method(tif, image)
-    assert 'invalid tag value offset' in caplog.text
-    assert 'unknown tag data type 31073' in caplog.text
+    assert 'invalid value offset 0' in caplog.text
+    assert 'invalid data type 31073' in caplog.text
     assert 'invalid page offset 808333686' in caplog.text
 
 
@@ -1103,7 +1108,7 @@ def test_issue_micromanager(caplog):
     # https://github.com/cgohlke/tifffile/issues/54
     # https://forum.image.sc/t/47567/9
     # OME-XML does not contain reference to master file
-    # file has corrupt MicroManager DisplaySettings metadata
+    # file has corrupted MicroManager DisplaySettings metadata
     fname = private_file(
         'OME/'
         'image_stack_tpzc_50tp_2p_5z_3c_512k_1_MMStack_2-Pos001_000.ome.tif'
@@ -1111,12 +1116,12 @@ def test_issue_micromanager(caplog):
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 750
         assert len(tif.series) == 1
-        assert 'OME series: not an ome-tiff master file' in caplog.text
+        assert 'OME series is BinaryOnly' in caplog.text
         assert tif.is_micromanager
         assert tif.is_ome
         assert tif.is_imagej
         assert tif.micromanager_metadata['DisplaySettings'] is None
-        assert 'read_json: invalid JSON' in caplog.text
+        assert 'JSONDecodeError' in caplog.text
         series = tif.series[0]
         assert series.shape == (50, 5, 3, 256, 256)
 
@@ -1456,17 +1461,57 @@ def test_issue_predictor_byteorder():
 
 @pytest.mark.skipif(SKIP_ZARR or SKIP_DASK, reason=REASON)
 @pytest.mark.parametrize('truncate', [False, True])
-def test_issue_dask_multipage(truncate):
+@pytest.mark.parametrize('chunkmode', [0, 2])
+def test_issue_dask_multipage(truncate, chunkmode):
     """Test multi-threaded access of memory-mapable, multi-page Zarr stores."""
     # https://github.com/cgohlke/tifffile/issues/67#issuecomment-908529425
     import dask.array
 
-    data = numpy.arange(5 * 4 * 6, dtype=numpy.uint16).reshape((5, 4, 6))
-    with TempFileName(f'test_issue_dask_multipage{int(truncate)}') as fname:
-        imwrite(fname, data, truncate=truncate)
-        with imread(fname, aszarr=True) as store:
+    data = numpy.arange(5 * 99 * 101, dtype=numpy.uint16).reshape((5, 99, 101))
+    with TempFileName(
+        f'test_issue_dask_multipage_{int(truncate)}_{int(truncate)}'
+    ) as fname:
+        kwargs = {'truncate': truncate}
+        if not truncate:
+            kwargs['tile'] = (32, 32)
+        imwrite(fname, data, **kwargs)
+        with imread(fname, aszarr=True, chunkmode=chunkmode) as store:
             daskarray = dask.array.from_zarr(store).compute()
             assert_array_equal(data, daskarray)
+
+
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LZW, reason=REASON
+)
+def test_issue_read_from_closed_file():
+    """Test read from closed file handles."""
+    fname = private_file('OME/tubhiswt-4D-lzw/tubhiswt_C0_T0.ome.tif')
+    with tifffile.TiffFile(fname) as tif:
+        count = 0
+        for frame in tif.series[0].pages[:10]:
+            # most file handles are closed
+            if frame is None:
+                continue
+            isclosed = frame.parent.filehandle.closed
+            if not isclosed:
+                continue
+            count += 1
+
+            if isinstance(frame, TiffFrame):
+                with pytest.warns(UserWarning):
+                    page = frame.aspage()  # re-load frame as page
+                assert isclosed == page.parent.filehandle.closed
+            else:
+                page = frame
+
+            with pytest.warns(UserWarning):
+                page.colormap  # delay load tag value
+            assert isclosed == page.parent.filehandle.closed
+
+            with pytest.warns(UserWarning):
+                frame.asarray()  # read data
+            assert isclosed == page.parent.filehandle.closed
+        assert count > 0
 
 
 @pytest.mark.skipif(
@@ -1507,6 +1552,61 @@ def test_issue_filesequence_file_parameter():
             assert_array_equal(tiffs.asarray(file=files[0]), imread(files[0]))
         with pytest.warns(DeprecationWarning):
             assert_array_equal(tiffs.asarray(file=1), imread(files[1]))
+
+
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+def test_issue_imagej_prop():
+    """Test reading and writing ImageJ prop metadata type."""
+    # https://github.com/cgohlke/tifffile/issues/103
+    # also test writing indexed ImageJ file
+
+    fname = private_file('issues/triple-sphere-big-distance=035.tif')
+    with tifffile.TiffFile(fname) as tif:
+        assert tif.is_imagej
+        meta = tif.imagej_metadata
+        prop = meta['Properties']
+        assert meta['slices'] == 500
+        assert not meta['loop']
+        assert prop['CurrentLUT'] == 'glasbey_on_dark'
+        assert tif.pages[0].photometric == PALETTE
+        colormap = tif.pages[0].colormap
+        data = tif.asarray()
+
+    prop['Test'] = 0.1
+    with TempFileName('test_issue_imagej_prop') as fname:
+        meta['axes'] = 'ZYX'
+        imwrite(fname, data, imagej=True, colormap=colormap, metadata=meta)
+
+    with tifffile.TiffFile(fname) as tif:
+        assert tif.is_imagej
+        meta = tif.imagej_metadata
+        prop = meta['Properties']
+        assert meta['slices'] == 500
+        assert not meta['loop']
+        assert prop['CurrentLUT'] == 'glasbey_on_dark'
+        assert prop['Test'] == '0.1'
+        assert tif.pages[0].photometric == PALETTE
+        colormap = tif.pages[0].colormap
+        image = tif.asarray()
+        assert_array_equal(image, data)
+
+
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+def test_issue_missing_dataoffset(caplog):
+    """Test reading file with missing data offset."""
+    fname = private_file('gdal/bigtiff_header_extract.tif')
+    with tifffile.TiffFile(fname) as tif:
+        page = tif.pages[0]
+        assert page.imagewidth == 100000
+        assert page.imagelength == 100000
+        assert page.rowsperstrip == 1
+        assert page.databytecounts == (10000000000,)
+        assert page.dataoffsets == ()
+        assert 'incorrect StripOffsets count' in caplog.text
+        assert 'incorrect StripByteCounts count' in caplog.text
+        assert 'missing data offset tag' in caplog.text
+        with pytest.raises(TiffFileError):
+            tif.asarray()
 
 
 ###############################################################################
@@ -1774,14 +1874,15 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
+    numtags = 635
     tags = TIFF.TAGS
-    assert len(tags) == 632
+    assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
     assert tags['ProcessingSoftware'] == 11
     assert tags.getall(11) == ['ProcessingSoftware']
     assert tags.getall('ProcessingSoftware') == [11]
     tags.add(11, 'ProcessingSoftware')
-    assert len(tags) == 632
+    assert len(tags) == numtags
 
     # one code with two names
     assert 34853 in tags
@@ -1794,7 +1895,7 @@ def test_class_tifftagregistry():
     assert tags.getall('GPSTag') == [34853]
 
     del tags[34853]
-    assert len(tags) == 630
+    assert len(tags) == numtags - 2
     assert 34853 not in tags
     assert 'GPSTag' not in tags
     assert 'OlympusSIS2' not in tags
@@ -1820,7 +1921,7 @@ def test_class_tifftagregistry():
     assert tags.getall(41483) == ['FlashEnergy']
 
     del tags['FlashEnergy']
-    assert len(tags) == 630
+    assert len(tags) == numtags - 2
     assert 37387 not in tags
     assert 41483 not in tags
     assert 'FlashEnergy' not in tags
@@ -2829,10 +2930,13 @@ def test_func_pformat_printable_bytes():
         '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX'
     )
 
-    assert pformat(value, height=8, width=60) == (
-        r'0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!'
-        r""""#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
+    assert (
+        pformat(value, height=8, width=60)
+        == r"""
+0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX
+""".strip()
     )
+    # YZ!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~
 
 
 def test_func_pformat_printable_unicode():
@@ -2846,10 +2950,13 @@ def test_func_pformat_printable_unicode():
         '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX'
     )
 
-    assert pformat(value, height=8, width=60) == (
-        r'0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!'
-        r""""#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
+    assert (
+        pformat(value, height=8, width=60)
+        == r"""
+0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX
+""".strip()
     )
+    # YZ!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~
 
 
 def test_func_pformat_hexdump():
@@ -7476,6 +7583,7 @@ def test_read_ome_multifile():
         # assert other files are still closed after TiffFile.asarray
         for page in tif.series[0].pages:
             assert bool(page.parent.filehandle._fh) == (page.parent == tif)
+        assert tif.filehandle._fh
         assert__str__(tif)
         # test aszarr
         assert_aszarr_method(tif, data)
@@ -7691,7 +7799,7 @@ def test_read_ome_corrupted_page(caplog):
         assert tif.byteorder == '<'
         assert len(tif.pages) == 5
         assert len(tif.series) == 1
-        assert 'TiffFrame 4: missing required tags' in caplog.text
+        assert 'missing required tags' in caplog.text
         # assert page properties
         page = tif.pages[0]
         assert page.imagewidth == 7506
@@ -7776,7 +7884,7 @@ def test_read_ome_shape_mismatch(caplog):
         assert tif.byteorder == '<'
         assert len(tif.pages) == 2
         assert len(tif.series) == 2
-        assert 'OME series: cannot handle discontiguous storage' in caplog.text
+        assert 'cannot handle discontiguous storage' in caplog.text
         # assert page properties
         page = tif.pages[0]
         assert page.is_contiguous
@@ -7857,7 +7965,7 @@ def test_read_ome_samplesperpixel_mismatch(caplog):
         assert page.samplesperpixel == 4
         # assert series properties
         series = tif.series[0]
-        assert 'OME series: cannot handle discontiguous storage' in caplog.text
+        assert 'cannot handle discontiguous storage' in caplog.text
         assert series.kind == 'Generic'
         assert series.shape == (1552, 2080, 4)
         assert series.dtype == numpy.uint8
@@ -8452,7 +8560,7 @@ def test_read_imagej_invalid_metadata(caplog):
         assert tif.byteorder == '>'
         assert len(tif.pages) == 1
         assert len(tif.series) == 1
-        assert 'invalid metadata or corrupted file' in caplog.text
+        assert 'ImageJ series metadata invalid or corrupted' in caplog.text
         # assert page properties
         page = tif.pages[0]
         assert page.photometric != RGB
@@ -12793,7 +12901,9 @@ def test_write_fsspec(version):
                     )
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_LARGE or SKIP_CODECS or SKIP_ZARR, reason=REASON
+)
 @pytest.mark.parametrize('version', [1])  # 0,
 def test_write_fsspec_sequence(version):
     """Test write fsspec for multi-file sequence."""
