@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.10.12
+:Version: 2021.11.2
 
 Requirements
 ------------
@@ -50,20 +50,30 @@ This release has been tested with the following requirements and dependencies
 (other versions may work):
 
 * `CPython 3.7.9, 3.8.10, 3.9.7, 3.10.0, 64-bit <https://www.python.org>`_
-* `Numpy 1.20.3 <https://pypi.org/project/numpy/>`_
+* `Numpy 1.21.3 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2021.8.26  <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.4.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
 * `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.10.1 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.10.3 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2021.11.2
+    Pass 4731 tests.
+    Lazy-load non-essential tag values (breaking).
+    Warn when reading from closed file.
+    Support ImageJ 'prop' metadata type (#103).
+    Support writing indexed ImageJ format.
+    Fix multi-threaded access of multi-page Zarr stores with chunkmode 2.
+    Raise error if truncate is used with compression, packints, or tile.
+    Read STK metadata without UIC2tag.
+    Improve log and warning messages (WIP).
+    Improve string representation of large tag values.
 2021.10.12
-    Pass 4726 tests.
     Revert renaming of 'file' parameter in FileSequence.asarray (breaking).
     Deprecate 'file' parameter in FileSequence.asarray.
 2021.10.10
@@ -311,7 +321,7 @@ some of which allow file or data sizes to exceed the 4 GB limit:
   in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
   Tifffile can read BIF and decode individual tiles, but does not perform
   stitching.
-* *ScanImage* optionally allows corrupt non-BigTIFF files > 2 GB. The values
+* *ScanImage* optionally allows corrupted non-BigTIFF files > 2 GB. The values
   of StripOffsets and StripByteCounts can be recovered using the constant
   differences of the offsets of IFD and tag values throughout the file.
   Tifffile can read such files if the image data are stored contiguously in
@@ -425,8 +435,8 @@ Read the image from the first page in the TIFF file as numpy array:
 
 Read images from a selected range of pages:
 
->>> image = imread('temp.tif', key=range(4, 40, 2))
->>> image.shape
+>>> images = imread('temp.tif', key=range(4, 40, 2))
+>>> images.shape
 (18, 301, 219)
 
 Iterate over all pages in the TIFF file and successively read images:
@@ -515,19 +525,24 @@ Read the volume and metadata from the ImageJ file:
 >>> imagej_metadata['frames']
 6
 
-Create an empty TIFF file and write to the memory-mapped numpy array:
+Create a TIFF file containing an empty image and write to the memory-mapped
+numpy array:
 
 >>> memmap_image = memmap(
-...     'temp.tif', shape=(3, 256, 256), photometric='rgb', dtype='float32'
+...     'temp.tif', shape=(256, 256, 3), dtype='float32', photometric='rgb'
 ... )
->>> memmap_image[1, 255, 255] = 1.0
+>>> type(memmap_image)
+<class 'numpy.memmap'>
+>>> memmap_image[255, 255, 1] = 1.0
 >>> memmap_image.flush()
 >>> del memmap_image
 
-Memory-map image data of the first page in the TIFF file:
+Memory-map and read contiguous image data in the TIFF file:
 
->>> memmap_image = memmap('temp.tif', page=0)
->>> memmap_image[1, 255, 255]
+>>> memmap_image = memmap('temp.tif')
+>>> memmap_image.shape
+(256, 256, 3)
+>>> memmap_image[255, 255, 1]
 1.0
 >>> del memmap_image
 
@@ -574,8 +589,8 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 >>> with TiffWriter('temp.ome.tif') as tif:
 ...     tif.write(series0, photometric='rgb')
 ...     tif.write(series1, photometric='minisblack',
-...              metadata={'axes': 'ZYX', 'SignificantBits': 10,
-...                        'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
+...               metadata={'axes': 'ZYX', 'SignificantBits': 10,
+...                         'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
 Write a tiled, multi-resolution, pyramidal, OME-TIFF file using
 JPEG compression. Sub-resolution images are written to SubIFDs:
@@ -605,7 +620,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 ...         for index, (offset, bytecount) in enumerate(
 ...             zip(page.dataoffsets, page.databytecounts)
 ...         ):
-...             fh.seek(offset)
+...             _ = fh.seek(offset)
 ...             data = fh.read(bytecount)
 ...             tile, indices, shape = page.decode(
 ...                 data, index, jpegtables=page.jpegtables
@@ -631,6 +646,8 @@ Read images from a sequence of TIFF files as numpy array:
 >>> image_sequence = imread(['temp_C001T001.tif', 'temp_C001T002.tif'])
 >>> image_sequence.shape
 (2, 64, 64)
+>>> image_sequence.dtype
+dtype('float64')
 
 Read an image stack from a series of TIFF files with a file name pattern
 as numpy or zarr arrays:
@@ -647,3 +664,18 @@ as numpy or zarr arrays:
 ...     zarr.open(store, mode='r')
 <zarr.core.Array (1, 2, 64, 64) float64 read-only>
 >>> image_sequence.close()
+
+Write the zarr store to a fsspec ReferenceFileSystem in JSON format:
+
+>>> with image_sequence.aszarr() as store:
+...     store.write_fsspec('temp.json', url='file://')
+
+Open the fsspec ReferenceFileSystem as a zarr array:
+
+>>> import fsspec
+>>> import tifffile.numcodecs
+>>> tifffile.numcodecs.register_codec()
+>>> mapper = fsspec.get_mapper(
+...     'reference://', fo='temp.json', target_protocol='file')
+>>> zarr.open(mapper, mode='r')
+<zarr.core.Array (1, 2, 64, 64) float64 read-only>
