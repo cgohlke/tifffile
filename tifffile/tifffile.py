@@ -923,7 +923,7 @@ def imwrite(file, data=None, shape=None, dtype=None, **kwargs):
         If 'data' is None, shape of an empty array to save to the file.
     dtype : numpy.dtype
         If 'data' is None, datatype of an empty array to save to the file.
-    kwargs : dict
+    kwargs :
         Parameters 'append', 'byteorder', 'bigtiff', 'imagej', and 'ome',
         are passed to TiffWriter().
         Other parameters are passed to TiffWriter.write().
