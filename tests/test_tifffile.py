@@ -9606,6 +9606,7 @@ def test_write_codecs(mode, tile, codec):
             assert_array_equal(im, numpy.squeeze(image))
 
 
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 @pytest.mark.parametrize('mode', ['gray', 'rgb', 'planar'])
 @pytest.mark.parametrize('tile', [False, True])
 @pytest.mark.parametrize(
