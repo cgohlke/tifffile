@@ -5924,7 +5924,7 @@ class TiffPage:
             setattr(self, name, value)
 
         value = tags.valueof(270, index=1)
-        if value:
+        if isinstance(value, str):
             self.description1 = value
 
         if self.subfiletype == 0:
