@@ -18,7 +18,7 @@ version += ('.' + buildnumber) if buildnumber else ''
 description = re.search(r'"""(.*)\.(?:\r\n|\r|\n)', code).groups()[0]
 
 readme = re.search(
-    r'(?:\r\n|\r|\n){2}r"""(.*)"""(?:\r\n|\r|\n){2}__version__',
+    r'(?:\r\n|\r|\n){2}r"""(.*)"""(?:\r\n|\r|\n){2}[__version__|from]',
     code,
     re.MULTILINE | re.DOTALL,
 ).groups()[0]
@@ -79,15 +79,15 @@ setup(
         # 'Documentation': 'https://',
     },
     packages=['tifffile'],
-    python_requires='>=3.7',
+    python_requires='>=3.8',
     install_requires=[
-        'numpy>=1.15.1',
-        # 'imagecodecs>=2021.7.30',
+        'numpy>=1.19.2',
+        # 'imagecodecs>=2021.11.20',
     ],
     extras_require={
         'all': [
-            'imagecodecs>=2021.7.30',
-            'matplotlib>=3.2',
+            'imagecodecs>=2021.11.20',
+            'matplotlib>=3.3',
             'lxml',
             # 'zarr',
             # 'fsspec'
@@ -123,7 +123,6 @@ setup(
         'Intended Audience :: Developers',
         'Operating System :: OS Independent',
         'Programming Language :: Python :: 3 :: Only',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
