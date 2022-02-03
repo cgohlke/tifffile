@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2021.11.2
+:Version: 2022.2.2
 
 """
 
@@ -98,7 +98,7 @@ try:
         OmeXml,  # noqa
     )
 except NameError:
-    STAR_IMPORTED = None
+    STAR_IMPORTED = None  # type: ignore
 
 from tifffile.tifffile import (  # noqa
     TIFF,
@@ -187,7 +187,7 @@ SKIP_WIN = sys.platform != 'win32'
 SKIP_BE = sys.byteorder == 'big'
 REASON = 'skipped'
 
-if sys.maxsize < 2 ** 32:
+if sys.maxsize < 2**32:
     SKIP_LARGE = True
 
 MINISBLACK = TIFF.PHOTOMETRIC.MINISBLACK
@@ -259,7 +259,7 @@ if SKIP_ZARR:
     zarr = None
 else:
     try:
-        import zarr
+        import zarr  # type: ignore
     except ImportError:
         zarr = None
         SKIP_ZARR = True
@@ -268,7 +268,7 @@ if SKIP_DASK:
     dask = None
 else:
     try:
-        import dask
+        import dask  # type: ignore
     except ImportError:
         dask = None
         SKIP_DASK = True
@@ -419,6 +419,15 @@ def test_issue_version_mismatch():
 def test_issue_deprecated_import():
     """Test deprecated functions can still be imported."""
     from tifffile import imsave  # noqa
+
+    with TempFileName('issue_deprecated_import') as fname:
+        with pytest.warns(DeprecationWarning):
+            imsave(fname, [[0]])
+        imread(fname)
+        with TiffWriter(fname) as tif:
+            with pytest.warns(DeprecationWarning):
+                tif.save([[0]])
+        imread(fname)
 
     # from tifffile import decodelzw
     # from tifffile import decode_lzw
@@ -932,10 +941,10 @@ def test_issue_tiles_pad(samples):
     """Test tiles from iterator get padded."""
     # https://github.com/cgohlke/tifffile/issues/38
     if samples == 3:
-        data = numpy.random.randint(0, 2 ** 12, (31, 33, 3), numpy.uint16)
+        data = numpy.random.randint(0, 2**12, (31, 33, 3), numpy.uint16)
         photometric = 'rgb'
     else:
-        data = numpy.random.randint(0, 2 ** 12, (31, 33), numpy.uint16)
+        data = numpy.random.randint(0, 2**12, (31, 33), numpy.uint16)
         photometric = None
 
     def tiles(data, tileshape, pad=False):
@@ -1120,8 +1129,8 @@ def test_issue_micromanager(caplog):
         assert tif.is_micromanager
         assert tif.is_ome
         assert tif.is_imagej
-        assert tif.micromanager_metadata['DisplaySettings'] is None
-        assert 'JSONDecodeError' in caplog.text
+        assert 'DisplaySettings' not in tif.micromanager_metadata
+        assert 'failed to read display settings' in caplog.text
         series = tif.series[0]
         assert series.shape == (50, 5, 3, 256, 256)
 
@@ -1142,7 +1151,7 @@ def test_issue_imagej_singlet_dimensions():
     # https://github.com/cgohlke/tifffile/issues/66
 
     data = numpy.random.randint(
-        0, 2 ** 8, (1, 10, 1, 248, 260, 1), numpy.uint8
+        0, 2**8, (1, 10, 1, 248, 260, 1), numpy.uint8
     )
 
     with TempFileName('issue_imagej_singlet_dimensions') as fname:
@@ -1554,7 +1563,7 @@ def test_issue_filesequence_file_parameter():
             assert_array_equal(tiffs.asarray(file=1), imread(files[1]))
 
 
-@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_imagej_prop():
     """Test reading and writing ImageJ prop metadata type."""
     # https://github.com/cgohlke/tifffile/issues/103
@@ -1591,7 +1600,7 @@ def test_issue_imagej_prop():
         assert_array_equal(image, data)
 
 
-@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_missing_dataoffset(caplog):
     """Test reading file with missing data offset."""
     fname = private_file('gdal/bigtiff_header_extract.tif')
@@ -1607,6 +1616,42 @@ def test_issue_missing_dataoffset(caplog):
         assert 'missing data offset tag' in caplog.text
         with pytest.raises(TiffFileError):
             tif.asarray()
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_imagej_metadatabytecounts():
+    """Test reading ImageJ file with many IJMetadataByteCounts."""
+    # https://github.com/cgohlke/tifffile/issues/111
+    fname = private_file('imagej/issue111.tif')
+    with tifffile.TiffFile(fname) as tif:
+        assert tif.is_imagej
+        page = tif.pages[0]
+        assert isinstance(page.tags['IJMetadataByteCounts'].value, tuple)
+        assert isinstance(page.tags['IJMetadata'].value, dict)
+
+
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+def test_issue_description_bytes(caplog):
+    """Test reading file with imagedescription bytes."""
+    # https://github.com/cgohlke/tifffile/issues/112
+    with TempFileName('issue_description_bytes') as fname:
+        imwrite(
+            fname,
+            [[0]],
+            description='1st description',
+            extratags=[
+                (270, 1, None, b'\1\128\0', True),
+                (270, 1, None, b'\2\128\0', True),
+            ],
+            metadata=False,
+        )
+        with TiffFile(fname) as tif:
+            page = tif.pages[0]
+            assert page.description == '1st description'
+            assert page.description1 == ''
+            assert page.tags.get(270).value == '1st description'
+            assert page.tags.get(270, index=1).value == b'\1\128\0'
+            assert page.tags.get(270, index=2).value == b'\2\128\0'
 
 
 ###############################################################################
@@ -2511,7 +2556,7 @@ def test_func_sequence():
 
 def test_func_product():
     """Test product function."""
-    assert product([2 ** 8, 2 ** 30]) == 274877906944
+    assert product([2**8, 2**30]) == 274877906944
     assert product([]) == 1
 
 
@@ -9606,6 +9651,7 @@ def test_write_codecs(mode, tile, codec):
             assert_array_equal(im, numpy.squeeze(image))
 
 
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 @pytest.mark.parametrize('mode', ['gray', 'rgb', 'planar'])
 @pytest.mark.parametrize('tile', [False, True])
 @pytest.mark.parametrize(
@@ -9640,9 +9686,9 @@ def test_write_predictor(byteorder, dtype, tile, mode):
     if dtype in 'u1i1':
         data *= 255
     elif dtype in 'i2u2':
-        data *= 2 ** 12
+        data *= 2**12
     elif dtype in 'i4u4':
-        data *= 2 ** 21
+        data *= 2**21
     else:
         data *= 3.145
     data = data.astype(byteorder + dtype)
