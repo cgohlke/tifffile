@@ -1,7 +1,16 @@
 Revisions
 ---------
+2022.2.2
+    Pass 4733 tests.
+    Fix TypeError when second ImageDescription tag contains non-ASCII (#112).
+    Fix parsing IJMetadata with many IJMetadataByteCounts (#111).
+    Detect MicroManager NDTiffv2 header (not tested).
+    Remove cache from ZarrFileSequenceStore (use zarr.LRUStoreCache).
+    Raise limit on maximum number of pages.
+    Use J2K format when encoding JPEG2000 segments.
+    Formally deprecate imsave and TiffWriter.save.
+    Drop support for Python 3.7 and numpy < 1.19 (NEP29).
 2021.11.2
-    Pass 4731 tests.
     Lazy-load non-essential tag values (breaking).
     Warn when reading from closed file.
     Support ImageJ 'prop' metadata type (#103).
