@@ -1,6 +1,6 @@
 # tifffile/examples/earthbigdata.py
 
-# Copyright (c) 2021, Christoph Gohlke
+# Copyright (c) 2021-2022, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -39,18 +39,18 @@
 by [Christoph Gohlke](https://www.lfd.uci.edu/~gohlke/),
 Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-Updated on October 9, 2021
+Updated on February, 2, 2022
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
-[fsspec ReferenceFileSystem](https://github.com/intake/fsspec-reference-maker)
-file in JSON format for the [earthbigdata](
+[fsspec ReferenceFileSystem](https://github.com/fsspec/kerchunk) file in
+JSON format for the [earthbigdata](
 http://sentinel-1-global-coherence-earthbigdata.s3-website-us-west-2.amazonaws.com
 ) set, which consists of 1,033,422 GeoTIFF files stored on AWS.
 The ReferenceFileSystem is used to create a multi-dimensional xarray dataset.
 
-See discussion at [fsspec-reference-maker/issues/78](
-https://github.com/intake/fsspec-reference-maker/issues/78).
+See discussion at [kerchunk/issues/78](
+https://github.com/fsspec/kerchunk/issues/78).
 """
 
 # %%
