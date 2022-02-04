@@ -42,28 +42,37 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2021.11.2
+:Version: 2022.2.2
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.7.9, 3.8.10, 3.9.7, 3.10.0, 64-bit <https://www.python.org>`_
-* `Numpy 1.21.3 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.8.26  <https://pypi.org/project/imagecodecs/>`_
+* `CPython 3.8.10, 3.9.10, 3.10.2, 64-bit <https://www.python.org>`_
+* `Numpy 1.21.5 <https://pypi.org/project/numpy/>`_
+* `Imagecodecs 2021.11.20 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.4.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
-* `Lxml 4.6.3 <https://pypi.org/project/lxml/>`_
+* `Lxml 4.7.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
 * `Zarr 2.10.3 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2022.2.2
+    Pass 4733 tests.
+    Fix TypeError when second ImageDescription tag contains non-ASCII (#112).
+    Fix parsing IJMetadata with many IJMetadataByteCounts (#111).
+    Detect MicroManager NDTiffv2 header (not tested).
+    Remove cache from ZarrFileSequenceStore (use zarr.LRUStoreCache).
+    Raise limit on maximum number of pages.
+    Use J2K format when encoding JPEG2000 segments.
+    Formally deprecate imsave and TiffWriter.save.
+    Drop support for Python 3.7 and numpy < 1.19 (NEP29).
 2021.11.2
-    Pass 4731 tests.
     Lazy-load non-essential tag values (breaking).
     Warn when reading from closed file.
     Support ImageJ 'prop' metadata type (#103).
@@ -286,7 +295,7 @@ some of which allow file or data sizes to exceed the 4 GB limit:
 * *BigTIFF* is identified by version number 43 and uses different file
   header, IFD, and tag structures with 64-bit offsets. It adds more data types.
   Tifffile can read and write BigTIFF files.
-* *ImageJ* hyperstacks store all image data, which may exceed 4 GB,
+* *ImageJ hyperstacks* store all image data, which may exceed 4 GB,
   contiguously after the first IFD. Files > 4 GB contain one IFD only.
   The size (shape and dtype) of the up to 6-dimensional image data can be
   determined from the ImageDescription tag of the first IFD, which is Latin-1
@@ -304,15 +313,15 @@ some of which allow file or data sizes to exceed the 4 GB limit:
 * *STK* (MetaMorph Stack) contains additional image planes stored contiguously
   after the image data of the first page. The total number of planes
   is equal to the counts of the UIC2tag. Tifffile can read STK files.
-* *NDPI* uses some 64-bit offsets in the file header, IFD, and tag structures.
-  Tag values/offsets can be corrected using high bits stored after IFD
-  structures. Tifffile can read NDPI files > 4 GB.
+* *Hamamatsu NDPI* uses some 64-bit offsets in the file header, IFD, and tag
+  structures. Tag values/offsets can be corrected using high bits stored after
+  IFD structures. Tifffile can read NDPI files > 4 GB.
   JPEG compressed segments with dimensions >65530 or missing restart markers
   are not decodable with libjpeg. Tifffile works around this limitation by
   separately decoding the MCUs between restart markers.
   BitsPerSample, SamplesPerPixel, and PhotometricInterpretation tags may
   contain wrong values, which can be corrected using the value of tag 65441.
-* *Philips* TIFF slides store wrong ImageWidth and ImageLength tag values for
+* *Philips TIFF* slides store wrong ImageWidth and ImageLength tag values for
   tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tifffile can
   read Philips slides.
@@ -349,6 +358,8 @@ Other libraries for reading scientific TIFF files from Python:
   <https://gitlab.com/vidriotech/scanimagetiffreader-python>`_
 * `bigtiff <https://pypi.org/project/bigtiff>`_
 * `Large Image <https://github.com/girder/large_image>`_
+* `tiffslide <https://github.com/bayer-science-for-a-better-life/tiffslide>`_
+* `opentile <https://github.com/imi-bigpicture/opentile>`_
 
 Some libraries are using tifffile to write OME-TIFF files:
 
