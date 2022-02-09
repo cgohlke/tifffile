@@ -1,7 +1,12 @@
 Revisions
 ---------
+2022.2.9
+    Pass 4734 tests.
+    Fix ValueError using multiscale ZarrStore with zarr >= 2.11.0.
+    Raise KeyError if ZarrStore does not contain key.
+    Limit number of warnings for missing files in multifile series.
+    Allow to save colormap to 32-bit ImageJ files (#115).
 2022.2.2
-    Pass 4733 tests.
     Fix TypeError when second ImageDescription tag contains non-ASCII (#112).
     Fix parsing IJMetadata with many IJMetadataByteCounts (#111).
     Detect MicroManager NDTiffv2 header (not tested).
