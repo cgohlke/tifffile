@@ -1,6 +1,6 @@
 # test_tifffile.py
 
-# Copyright (c) 2008-2021, Christoph Gohlke
+# Copyright (c) 2008-2022, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.2.2
+:Version: 2022.2.9
 
 """
 
@@ -1652,6 +1652,32 @@ def test_issue_description_bytes(caplog):
             assert page.tags.get(270).value == '1st description'
             assert page.tags.get(270, index=1).value == b'\1\128\0'
             assert page.tags.get(270, index=2).value == b'\2\128\0'
+
+
+def test_issue_imagej_colormap():
+    """Test writing 32-bit imagej file with colormap."""
+    # https://github.com/cgohlke/tifffile/issues/115
+    colormap = numpy.vstack(
+        [
+            numpy.zeros(256, dtype='uint16'),
+            numpy.arange(0, 2**16, 2**8, dtype='uint16'),
+            numpy.arange(0, 2**16, 2**8, dtype='uint16'),
+        ]
+    )
+    metadata = {'min': 0.0, 'max': 1.0, 'Properties': {'CurrentLUT': 'cyan'}}
+    with TempFileName('issue_imagej_colormap') as fname:
+        imwrite(
+            fname,
+            numpy.zeros((16, 16), 'float32'),
+            imagej=True,
+            colormap=colormap,
+            metadata=metadata,
+        )
+        with TiffFile(fname) as tif:
+            assert tif.is_imagej
+            assert tif.imagej_metadata['Properties']['CurrentLUT'] == 'cyan'
+            assert tif.pages[0].photometric == MINISBLACK
+            assert_array_equal(tif.pages[0].colormap, colormap)
 
 
 ###############################################################################
