@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.2.2
+:Version: 2022.2.9
 
 Requirements
 ------------
@@ -87,13 +87,18 @@ This release has been tested with the following requirements and dependencies
   (required only for plotting)
 * `Lxml 4.7.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.10.3 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.11.0 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2022.2.9
+    Pass 4734 tests.
+    Fix ValueError using multiscale ZarrStore with zarr >= 2.11.0.
+    Raise KeyError if ZarrStore does not contain key.
+    Limit number of warnings for missing files in multifile series.
+    Allow to save colormap to 32-bit ImageJ files (#115).
 2022.2.2
-    Pass 4733 tests.
     Fix TypeError when second ImageDescription tag contains non-ASCII (#112).
     Fix parsing IJMetadata with many IJMetadataByteCounts (#111).
     Detect MicroManager NDTiffv2 header (not tested).
@@ -723,9 +728,9 @@ Open the fsspec ReferenceFileSystem as a zarr array:
 
 """
 
-__version__ = '2022.2.2'
+__version__ = '2022.2.9'
 
-__all__ = (
+__all__ = [
     'OmeXml',
     'OmeXmlError',
     'TIFF',
@@ -781,7 +786,7 @@ __all__ = (
     # deprecated
     'imsave',
     '_app_show',
-)
+]
 
 import binascii
 import collections
@@ -1828,11 +1833,15 @@ class TiffWriter:
 
         # verify colormap and indices
         if colormap is not None:
-            if datadtypechar not in 'BH':
-                raise ValueError('invalid data dtype for palette mode')
             colormap = numpy.asarray(colormap, dtype=byteorder + 'H')
-            if colormap.shape != (3, 2 ** (datadtype.itemsize * 8)):
-                raise ValueError('invalid color map shape')
+            if datadtypechar in 'BH':
+                if colormap.shape != (3, 2 ** (datadtype.itemsize * 8)):
+                    raise ValueError('invalid color map shape')
+            elif self._imagej:
+                if colormap.shape != (3, 256):
+                    raise ValueError('invalid color map shape')
+            else:
+                raise ValueError('invalid data dtype for palette mode')
             self._colormap = colormap
 
         if tile:
@@ -1866,7 +1875,7 @@ class TiffWriter:
         if volumetric and ndim < 3:
             volumetric = False
 
-        if colormap is not None:
+        if colormap is not None and datadtypechar in 'BH':
             photometric = PALETTE
             planarconfig = None
 
@@ -4368,6 +4377,7 @@ class TiffFile:
         root_uuid = root.attrib.get('UUID', None)
         self._files = {root_uuid: self}
         dirname = self._fh.dirname
+        files_missing = 0
         moduloref = []
         modulo = {}
         series = []
@@ -4489,10 +4499,12 @@ class TiffFile:
                                 tif.pages.keyframe = 0
                                 tif.pages._load(keyframe=None)
                             except (OSError, FileNotFoundError, ValueError):
-                                log_warning(
-                                    f'{self!r} OME series failed to read '
-                                    f'{fname!r}'
-                                )
+                                if files_missing == 0:
+                                    log_warning(
+                                        f'{self!r} OME series failed to read '
+                                        f'{fname!r}. Missing data are zeroed'
+                                    )
+                                files_missing += 1
                                 # assume that size is same as in previous file
                                 # if no NumPlanes or PlaneCount are given
                                 size = num if num else size  # noqa: undefined
@@ -4632,6 +4644,11 @@ class TiffFile:
                     )
                 )
                 del ifds
+
+        if files_missing > 1:
+            log_warning(
+                f'{self!r} OME series failed to read {files_missing} files'
+            )
 
         for serie, annotationref in zip(series, moduloref):
             if annotationref not in modulo:
@@ -9051,6 +9068,8 @@ class TiffPageSeries:
         return f'TiffPageSeries {self.index}  {s}'
 
 
+# TODO: derive from zarr.storage.Store
+# TODO: this interface does not expose index keys except in __getitem__
 class ZarrStore(MutableMapping):
     """Zarr storage base class.
 
@@ -9121,6 +9140,8 @@ class ZarrStore(MutableMapping):
     def __getitem__(self, key):
         if key in self._store:
             return self._store[key]
+        if key == '.zarray' or key == '.zgroup':
+            raise KeyError(key)
         return self._getitem(key)
 
     def _getitem(self, key):
@@ -9640,7 +9661,10 @@ class ZarrTiffStore(ZarrStore):
         """Return keyframe, page, index, offset, and bytecount from key."""
         if len(self._data) > 1:
             # multiscales
-            level, key = key.split('/')
+            try:
+                level, key = key.split('/')
+            except ValueError:
+                raise KeyError(key)
             series = self._data[int(level)]
         else:
             series = self._data[0]
@@ -9677,7 +9701,10 @@ class ZarrTiffStore(ZarrStore):
         """Return page and strile indices from zarr chunk index."""
         keyframe = series.keyframe
         shape = series.get_shape(self._squeeze)
-        indices = [int(i) for i in key.split('.')]
+        try:
+            indices = [int(i) for i in key.split('.')]
+        except ValueError:
+            raise KeyError(key)
         assert len(indices) == len(shape)
         if self._chunkmode:
             chunked = (1,) * len(keyframe.shape)
