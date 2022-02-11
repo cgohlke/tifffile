@@ -8508,7 +8508,7 @@ class TiffTag:
         self.value = struct.unpack('<HH', self.parent.filehandle.read(4))
 
     def __repr__(self):
-        return f'<tifffile.TiffTag {self.code} @{self.offset}>'
+        return f'<tifffile.TiffTag {self.name} ({self.code}) @{self.offset}>'
 
     def __str__(self, detail=0, width=79):
         """Return string containing information about TiffTag."""
