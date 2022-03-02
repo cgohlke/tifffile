@@ -3893,7 +3893,7 @@ class TiffFile:
                     channels = len(channels)
                 except TypeError:
                     # channelSave is an int
-                    channels = int(channels)
+                    channels = 1
                 # slices = framedata.get(
                 #    'SI.hStackManager.actualNumSlices',
                 #     framedata.get('SI.hStackManager.numSlices', None),
