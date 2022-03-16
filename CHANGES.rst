@@ -1,7 +1,12 @@
 Revisions
 ---------
+2022.3.16
+    Pass 4739 tests.
+    Use multi-threading to compress strips and tiles.
+    Raise TiffFileError when reading corrupted strips and tiles (#122).
+    Fix ScanImage single channel count (#121).
+    Add parser for AstroTIFF FITS metadata.
 2022.2.9
-    Pass 4734 tests.
     Fix ValueError using multiscale ZarrStore with zarr >= 2.11.0.
     Raise KeyError if ZarrStore does not contain key.
     Limit number of warnings for missing files in multifile series.
