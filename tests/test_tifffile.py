@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.2.9
+:Version: 2022.3.16
 
 """
 
@@ -122,6 +122,7 @@ from tifffile.tifffile import (  # noqa
     ZarrTiffStore,
     apply_colormap,
     asbool,
+    astrotiff_description_metadata,
     byteorder_compare,
     byteorder_isnative,
     bytes2str,
@@ -1680,6 +1681,24 @@ def test_issue_imagej_colormap():
             assert_array_equal(tif.pages[0].colormap, colormap)
 
 
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.WEBP, reason=REASON
+)
+@pytest.mark.parametrize('name', ['tile', 'strip'])
+def test_issue_corrupted_segment(name, caplog):
+    """Test reading files with corrupted segments."""
+    # https://github.com/cgohlke/tifffile/issues/122
+    # WebP encoded segments are missing alpha channel
+    fname = private_file(f'issues/CMU-1-Small-Region.{name}.webp.tiff')
+    with tifffile.TiffFile(fname) as tif:
+        page = tif.pages[0]
+        assert page.compression == WEBP
+        assert page.shape == (2967, 2220, 4)
+        with pytest.raises(TiffFileError):
+            assert page.asarray().sum() == 0
+        assert f'corrupted {name}' not in caplog.text
+
+
 ###############################################################################
 
 # Test specific functions and classes
@@ -2768,6 +2787,92 @@ def test_func_pilatus_header_metadata():
     # self.assertEqual(attr['Threshold_setting'], float('nan'))
     assert attr['Beam_xy'] == (243.12, 309.12)
     assert attr['Unknown'] == '1 2 3 4 5'
+
+
+def test_func_astrotiff_description_metadata(caplog):
+    """Test astrotiff_description_metadata function."""
+    assert (
+        astrotiff_description_metadata(
+            """
+SIMPLE  =                    T / file does conform to FITS standard
+COMMENT 1  First comment.
+UNDEF   =                      / undefined
+STRING  = 'a string'           / string
+STRING1 = ''                   / null string
+STRING2 = '    '               / empty string
+STRING3 = ' string with / .'   / comment with / . and leading whitespace
+STRING4 = 'string longer than  30 characters' / long string
+COMMENT 2  Second comment, longer than 30 characters.
+COMMENT 3  Third comment with /.
+NOCOMMEN=                    1
+TRUE    =                    T / True
+FALSE   =                    F / False
+INT     =                  123 / Integer
+FLOAT   =  123.456789123456789 / Float
+FLOAT2  =                 123. / Float
+FLOAT3  = -123.4564890000E-001 / Scientific
+CINT    =            (123, 45) / Complex integer
+CFLT    =       (23.23, -45.7) / Complex float
+JD      =   2457388.4562152778 / Julian date cannot be represented as float ?
+UNIT    =                  123 / [unit] comment
+CUSTOM  = '+12 34 56'          / [+dd mm ss] custom unit
+DUPLICAT=                    1
+DUPLICAT=                    2
+INVALID1=                 None / invalid value
+INVALID2= '                    / invalid string
+END
+"""
+        )
+        == {
+            'SIMPLE': True,
+            'SIMPLE:COMMENT': 'file does conform to FITS standard',
+            'COMMENT:0': '1  First comment.',
+            'UNDEF': None,
+            'UNDEF:COMMENT': 'undefined',
+            'STRING': 'a string',
+            'STRING:COMMENT': 'string',
+            'STRING1': '',
+            'STRING1:COMMENT': 'null string',
+            'STRING2': '    ',
+            'STRING2:COMMENT': 'empty string',
+            'STRING3': ' string with / .',
+            'STRING3:COMMENT': 'comment with / . and leading whitespace',
+            'STRING4': 'string longer than  30 characters',
+            'STRING4:COMMENT': 'long string',
+            'COMMENT:1': '2  Second comment, longer than 30 characters.',
+            'COMMENT:2': '3  Third comment with /.',
+            'NOCOMMEN': 1,
+            'TRUE': True,
+            'TRUE:COMMENT': 'True',
+            'FALSE': False,
+            'FALSE:COMMENT': 'False',
+            'INT': 123,
+            'INT:COMMENT': 'Integer',
+            'FLOAT': 123.45678912345679,
+            'FLOAT:COMMENT': 'Float',
+            'FLOAT2': 123.0,
+            'FLOAT2:COMMENT': 'Float',
+            'FLOAT3': -12.3456489,
+            'FLOAT3:COMMENT': 'Scientific',
+            'CINT': (123, 45),
+            'CINT:COMMENT': 'Complex integer',
+            'CFLT': (23.23, -45.7),
+            'CFLT:COMMENT': 'Complex float',
+            'JD': 2457388.456215278,
+            'JD:COMMENT': 'Julian date cannot be represented as float ?',
+            'UNIT': 123,
+            'UNIT:COMMENT': '[unit] comment',
+            'UNIT:UNIT': 'unit',
+            'CUSTOM': '+12 34 56',
+            'CUSTOM:COMMENT': '[+dd mm ss] custom unit',
+            'CUSTOM:UNIT': '+dd mm ss',
+            'DUPLICAT': 2,
+            'END:0': '',
+        }
+    )
+    assert 'DUPLICAT: duplicate key' in caplog.text
+    assert 'INVALID1: invalid value' in caplog.text
+    assert 'INVALID2: invalid string' in caplog.text
 
 
 def test_func_matlabstr2py():
@@ -9497,6 +9602,35 @@ def test_read_eer(caplog):
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_astrotiff(caplog):
+    """Test read AstroTIFF with FITS metadata."""
+    # https://astro-tiff.sourceforge.io/
+    fname = private_file('AstroTIFF/NGC2024_astro-tiff_sample_48bit.tif')
+    with TiffFile(fname) as tif:
+        assert not caplog.text  # no warning
+        assert tif.is_astrotiff
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert not page.is_contiguous
+        assert page.photometric == RGB
+        assert page.compression == ADOBE_DEFLATE
+        assert page.imagewidth == 3040
+        assert page.imagelength == 2016
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 3
+        # assert data and metadata
+        assert tuple(page.asarray()[545, 1540]) == (10401, 11804, 12058)
+        meta = tif.astrotiff_metadata
+        assert meta['SIMPLE'] == True
+        assert meta['APTDIA'] == 100.0
+        assert meta['APTDIA:COMMENT'] == 'Aperture diameter of telescope in mm'
+        assert__str__(tif)
+
+
 ###############################################################################
 
 # Test TiffWriter
@@ -12854,6 +12988,28 @@ def test_write_multiple_series():
             data1[0],
             imread(fname, key=slice(107, 122)).reshape(data1[0].shape),
         )
+
+
+@pytest.mark.skipif(SKIP_CODECS or not imagecodecs.PNG, reason=REASON)
+def test_write_multithreaded():
+    """Test write large tiled multithreaded."""
+    data = numpy.arange(4001 * 6003 * 3).astype('uint8').reshape(4001, 6003, 3)
+    with TempFileName(f'multithreaded') as fname:
+        imwrite(fname, data, tile=(512, 512), compression='PNG', maxworkers=6)
+        # assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages[0]
+            assert not page.is_contiguous
+            assert page.compression == PNG
+            assert page.planarconfig == CONTIG
+            assert page.imagewidth == 6003
+            assert page.imagelength == 4001
+            assert page.samplesperpixel == 3
+            image = tif.asarray(maxworkers=6)
+            assert_array_equal(data, image)
+            assert_aszarr_method(tif, image)
+            assert__str__(tif)
 
 
 def assert_fsspec(url, data, target_protocol='http'):
