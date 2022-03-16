@@ -31,7 +31,7 @@
 
 """TIFF codec for numcodecs based on tifffile."""
 
-__all__ = ('register_codec', 'Tiff')
+__all__ = ['register_codec', 'Tiff']
 
 from io import BytesIO
 
@@ -116,6 +116,7 @@ class Tiff(Codec):
                     subsampling=self.subsampling,
                     metadata=self.metadata,
                     extratags=self.extratags,
+                    maxworkers=self.maxworkers,
                 )
             result = fh.getvalue()
         return result
