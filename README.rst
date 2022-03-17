@@ -42,28 +42,33 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.2.9
+:Version: 2022.3.16
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.8.10, 3.9.10, 3.10.2, 64-bit <https://www.python.org>`_
+* `CPython 3.8.10, 3.9.11, 3.10.3, 64-bit <https://www.python.org>`_
 * `Numpy 1.21.5 <https://pypi.org/project/numpy/>`_
-* `Imagecodecs 2021.11.20 <https://pypi.org/project/imagecodecs/>`_
+* `Imagecodecs 2022.2.22 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
 * `Matplotlib 3.4.3 <https://pypi.org/project/matplotlib/>`_
   (required only for plotting)
-* `Lxml 4.7.1 <https://pypi.org/project/lxml/>`_
+* `Lxml 4.8.0 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.11.0 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.11.1 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2022.3.16
+    Pass 4739 tests.
+    Use multi-threading to compress strips and tiles.
+    Raise TiffFileError when reading corrupted strips and tiles (#122).
+    Fix ScanImage single channel count (#121).
+    Add parser for AstroTIFF FITS metadata.
 2022.2.9
-    Pass 4734 tests.
     Fix ValueError using multiscale ZarrStore with zarr >= 2.11.0.
     Raise KeyError if ZarrStore does not contain key.
     Limit number of warnings for missing files in multifile series.
@@ -180,104 +185,6 @@ Revisions
     Decode float24 using imagecodecs >= 2021.1.8.
     Consolidate reading of segments if possible.
 2020.12.8
-    Fix corrupted ImageDescription in multi shaped series if buffer too small.
-    Fix libtiff warning that ImageDescription contains null byte in value.
-    Fix reading invalid files using JPEG compression with palette colorspace.
-2020.12.4
-    Fix reading some JPEG compressed CFA images.
-    Make index of SubIFDs a tuple.
-    Pass through FileSequence.imread arguments in imread.
-    Do not apply regex flags to FileSequence axes patterns (breaking).
-2020.11.26
-    Add option to pass axes metadata to ImageJ writer.
-    Pad incomplete tiles passed to TiffWriter.write (#38).
-    Split TiffTag constructor (breaking).
-    Change TiffTag.dtype to TIFF.DATATYPES (breaking).
-    Add TiffTag.overwrite method.
-    Add script to change ImageDescription in files.
-    Add TiffWriter.overwrite_description method (WIP).
-2020.11.18
-    Support writing SEPARATED color space (#37).
-    Use imagecodecs.deflate codec if available.
-    Fix SCN and NDPI series with Z dimensions.
-    Add TiffReader alias for TiffFile.
-    TiffPage.is_volumetric returns True if ImageDepth > 1.
-    Zarr store getitem returns numpy arrays instead of bytes.
-2020.10.1
-    Formally deprecate unused TiffFile parameters (scikit-image #4996).
-2020.9.30
-    Allow to pass additional arguments to compression codecs.
-    Deprecate TiffWriter.save method (use TiffWriter.write).
-    Deprecate TiffWriter.save compress parameter (use compression).
-    Remove multifile parameter from TiffFile (breaking).
-    Pass all is_flag arguments from imread to TiffFile.
-    Do not byte-swap JPEG2000, WEBP, PNG, JPEGXR segments in TiffPage.decode.
-2020.9.29
-    Fix reading files produced by ScanImage > 2015 (#29).
-2020.9.28
-    Derive ZarrStore from MutableMapping.
-    Support zero shape ZarrTiffStore.
-    Fix ZarrFileStore with non-TIFF files.
-    Fix ZarrFileStore with missing files.
-    Cache one chunk in ZarrFileStore.
-    Keep track of already opened files in FileCache.
-    Change parse_filenames function to return zero-based indices.
-    Remove reopen parameter from asarray (breaking).
-    Rename FileSequence.fromfile to imread (breaking).
-2020.9.22
-    Add experimental zarr storage interface (WIP).
-    Remove unused first dimension from TiffPage.shaped (breaking).
-    Move reading of STK planes to series interface (breaking).
-    Always use virtual frames for ScanImage files.
-    Use DimensionOrder to determine axes order in OmeXml.
-    Enable writing striped volumetric images.
-    Keep complete dataoffsets and databytecounts for TiffFrames.
-    Return full size tiles from Tiffpage.segments.
-    Rename TiffPage.is_sgi property to is_volumetric (breaking).
-    Rename TiffPageSeries.is_pyramid to is_pyramidal (breaking).
-    Fix TypeError when passing jpegtables to non-JPEG decode method (#25).
-2020.9.3
-    Do not write contiguous series by default (breaking).
-    Allow to write to SubIFDs (WIP).
-    Fix writing F-contiguous numpy arrays (#24).
-2020.8.25
-    Do not convert EPICS timeStamp to datetime object.
-    Read incompletely written Micro-Manager image file stack header (#23).
-    Remove tag 51123 values from TiffFile.micromanager_metadata (breaking).
-2020.8.13
-    Use tifffile metadata over OME and ImageJ for TiffFile.series (breaking).
-    Fix writing iterable of pages with compression (#20).
-    Expand error checking of TiffWriter data, dtype, shape, and tile arguments.
-2020.7.24
-    Parse nested OmeXml metadata argument (WIP).
-    Do not lazy load TiffFrame JPEGTables.
-    Fix conditionally skipping some tests.
-2020.7.22
-    Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
-    Raise error writing empty bilevel or tiled images.
-    Allow to write tiled bilevel images.
-    Allow to write multi-page TIFF from iterable of single page images (WIP).
-    Add function to validate OME-XML.
-    Correct Philips slide width and length.
-2020.7.17
-    Initial support for writing OME-TIFF (WIP).
-    Return samples as separate dimension in OME series (breaking).
-    Fix modulo dimensions for multiple OME series.
-    Fix some test errors on big endian systems (#18).
-    Fix BytesWarning.
-    Allow to pass TIFF.PREDICTOR values to TiffWriter.save.
-2020.7.4
-    Deprecate support for Python 3.6 (NEP 29).
-    Move pyramidal subresolution series to TiffPageSeries.levels (breaking).
-    Add parser for SVS, SCN, NDPI, and QPI pyramidal series.
-    Read single-file OME-TIFF pyramids.
-    Read NDPI files > 4 GB (#15).
-    Include SubIFDs in generic series.
-    Preliminary support for writing packed integer arrays (#11, WIP).
-    Read more LSM info subrecords.
-    Fix missing ReferenceBlackWhite tag for YCbCr photometrics.
-    Fix reading lossless JPEG compressed DNG files.
-2020.6.3
     ...
 
 Refer to the CHANGES file for older revisions.
@@ -416,6 +323,7 @@ References
 * Roche Digital Pathology. BIF image file format for digital pathology.
   https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
   Roche-Digital-Pathology-BIF-Whitepaper.pdf
+* Astro-TIFF specification. https://astro-tiff.sourceforge.io/
 
 Examples
 --------
