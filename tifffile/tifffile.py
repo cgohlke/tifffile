@@ -72,14 +72,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.3.16
+:Version: 2022.3.25
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.8.10, 3.9.11, 3.10.3, 64-bit <https://www.python.org>`_
+* `CPython 3.8.10, 3.9.12, 3.10.4, 64-bit <https://www.python.org>`_
 * `Numpy 1.21.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2022.2.22 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -92,8 +92,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2022.3.25
+    Pass 4741 tests.
+    Fix another ValueError using ZarrStore with zarr >= 2.11.0 (tiffslide #25).
+    Add parser for Hamamatsu streak metadata.
+    Improve hexdump.
 2022.3.16
-    Pass 4739 tests.
     Use multi-threading to compress strips and tiles.
     Raise TiffFileError when reading corrupted strips and tiles (#122).
     Fix ScanImage single channel count (#121).
@@ -636,7 +640,7 @@ Open the fsspec ReferenceFileSystem as a zarr array:
 
 """
 
-__version__ = '2022.3.16'
+__version__ = '2022.3.25'
 
 __all__ = [
     'OmeXml',
@@ -5346,6 +5350,15 @@ class TiffFile:
             return None
         return astrotiff_description_metadata(self.pages[0].description)
 
+    @lazyattr
+    def streak_metadata(self):
+        """Return Hamamatsu streak metadata from image description as dict."""
+        if not self.is_streak:
+            return None
+        return streak_description_metadata(
+            self.pages[0].description, self.filehandle
+        )
+
     @property
     def eer_metadata(self):
         """Return EER metadata from first page as XML."""
@@ -7668,6 +7681,15 @@ class TiffPage:
         )
 
     @property
+    def is_streak(self):
+        """Page contains Hamamatsu streak metadata."""
+        return (
+            self.description[:1] == '['
+            and '],' in self.description[1:32]
+            # and self.tags.get(315, '').value[:19] == 'Copyright Hamamatsu'
+        )
+
+    @property
     def is_tiffep(self):
         """Page contains TIFF/EP metadata."""
         return 37398 in self.tags  # TIFF/EPStandardID
@@ -9081,7 +9103,8 @@ class ZarrStore(MutableMapping):
     def __getitem__(self, key):
         if key in self._store:
             return self._store[key]
-        if key == '.zarray' or key == '.zgroup':
+        if key[-7:] == '.zarray' or key[-7:] == '.zgroup':
+            # catch '.zarray' and 'attribute/.zarray'
             raise KeyError(key)
         return self._getitem(key)
 
@@ -9608,9 +9631,9 @@ class ZarrTiffStore(ZarrStore):
             # multiscales
             try:
                 level, key = key.split('/')
+                series = self._data[int(level)]
             except ValueError:
                 raise KeyError(key)
-            series = self._data[int(level)]
         else:
             series = self._data[0]
         keyframe = series.keyframe
@@ -16216,6 +16239,69 @@ def astrotiff_description_metadata(description, sep=':'):
     return result
 
 
+def streak_description_metadata(description, filehandle):
+    """Return metatata from Hamamatsu streak image description as dict."""
+    section_pattern = re.compile(
+        r'\[([a-zA-Z0-9 _\-\.]+)\],([^\[]*)', re.DOTALL
+    )
+    properties_pattern = re.compile(
+        r'([a-zA-Z0-9 _\-\.]+)=(\"[^\"]*\"|[\+\-0-9\.]+|[^,]*)'
+    )
+    result = {}
+    for section, values in section_pattern.findall(description.strip()):
+        properties = {}
+        for key, value in properties_pattern.findall(values):
+            value = value.strip()
+            if not value or value == '"':
+                value = None
+            elif value[0] == '"' and value[-1] == '"':
+                value = value[1:-1]
+            if ',' in value:
+                try:
+                    value = tuple(
+                        float(v)
+                        if '.' in value
+                        else int(v[1:] if v[0] == '#' else v)
+                        for v in value.split(',')
+                    )
+                except ValueError:
+                    pass
+            elif '.' in value:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass
+            else:
+                try:
+                    value = int(value)
+                except ValueError:
+                    pass
+            properties[key] = value
+        result[section] = properties
+
+    if filehandle and not filehandle.closed:
+        pos = filehandle.tell()
+        try:
+            offset, count = result['Scaling']['ScalingXScalingFile']
+            filehandle.seek(offset)
+            result['Scaling']['ScalingXScaling'] = filehandle.read_array(
+                dtype='<f4', count=count
+            )
+        except Exception:
+            pass
+        try:
+            offset, count = result['Scaling']['ScalingYScalingFile']
+            filehandle.seek(offset)
+            result['Scaling']['ScalingYScaling'] = filehandle.read_array(
+                dtype='<f4', count=count
+            )
+        except Exception:
+            pass
+        filehandle.seek(pos)
+
+    return result
+
+
 def unpack_rgb(data, dtype=None, bitspersample=None, rescale=True):
     """Return array from bytes containing packed samples.
 
@@ -17696,7 +17782,9 @@ def xml2dict(xml, sanitize=True, prefix=None):
     return etree2dict(etree.fromstring(xml))
 
 
-def hexdump(bytestr, width=75, height=24, snipat=-2, modulo=2, ellipsis=None):
+def hexdump(
+    bytestr, width=75, height=24, snipat=0.75, modulo=2, ellipsis=None
+):
     """Return hexdump representation of bytes.
 
     >>> hexdump(binascii.unhexlify('49492a00080000000e00fe0004000100'))
@@ -17746,14 +17834,26 @@ def hexdump(bytestr, width=75, height=24, snipat=-2, modulo=2, ellipsis=None):
         blocks = [(0, bytestr[:end])]  # (end, None)
     else:
         end1 = bytesperline * snipat
-        end2 = bytesperline * (height - snipat - 1)
+        end2 = bytesperline * (height - snipat - 2)
+        if size % bytesperline:
+            end2 += size % bytesperline
+        else:
+            end2 += bytesperline
         blocks = [
             (0, bytestr[:end1]),
             (size - end1 - end2, None),
             (size - end2, bytestr[size - end2 :]),
         ]
 
-    ellipsis = b'...' if ellipsis is None else ellipsis.encode('cp1252')
+    if ellipsis is None:
+        if addr and bytesperline > 3:
+            ellipsis = b' ' * (len(addr % 1) + bytesperline // 2 * 3 - 2)
+            ellipsis += b'...'
+        else:
+            ellipsis == b'...'
+    else:
+        ellipsis = ellipsis.encode('cp1252')
+
     result = []
     for start, bytestr in blocks:
         if bytestr is None:
