@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.3.16
+:Version: 2022.3.25
 
 """
 
@@ -1699,6 +1699,22 @@ def test_issue_corrupted_segment(name, caplog):
         assert f'corrupted {name}' not in caplog.text
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
+def test_issue_tiffslide():
+    """Test no ValueError when closing TiffSlide with zarr group."""
+    # https://github.com/bayer-science-for-a-better-life/tiffslide/issues/25
+    try:
+        from tiffslide import TiffSlide
+    except ImportError:
+        pytest.skip('tiffslide missing')
+
+    fname = private_file(f'AperioSVS/CMU-1.svs')
+    with TiffSlide(fname) as slide:
+        _ = slide.ts_zarr_grp
+        arr = slide.read_region((100, 200), 0, (256, 256), as_array=True)
+        assert arr.shape == (256, 256, 3)
+
+
 ###############################################################################
 
 # Test specific functions and classes
@@ -2955,7 +2971,7 @@ def test_func_hexdump():
         '49492a00080000000e00fe0004000100'
         '00000000000000010400010000000001'
         '00000101040001000000000100000201'
-        '03000100000020000000030103000100'
+        '030001000000200000000301030001'
     )
     # one line
     assert hexdump(data[:16]) == (
@@ -2973,16 +2989,16 @@ def test_func_hexdump():
         '................\n'
         '20: 00 00 01 01 04 00 01 00 00 00 00 01 00 00 02 01 '
         '................\n'
-        '30: 03 00 01 00 00 00 20 00 00 00 03 01 03 00 01 00 '
-        '...... .........'
+        '30: 03 00 01 00 00 00 20 00 00 00 03 01 03 00 01    '
+        '...... ........'
     )
     # skip center
     assert hexdump(data, height=3, snipat=0.5) == (
         '00: 49 49 2a 00 08 00 00 00 0e 00 fe 00 04 00 01 00 '
         'II*.............\n'
-        '...\n'
-        '30: 03 00 01 00 00 00 20 00 00 00 03 01 03 00 01 00 '
-        '...... .........'
+        '                          ...\n'
+        '30: 03 00 01 00 00 00 20 00 00 00 03 01 03 00 01    '
+        '...... ........'
     )
     # skip start
     assert hexdump(data, height=3, snipat=0) == (
@@ -2990,8 +3006,8 @@ def test_func_hexdump():
         '................\n'
         '20: 00 00 01 01 04 00 01 00 00 00 00 01 00 00 02 01 '
         '................\n'
-        '30: 03 00 01 00 00 00 20 00 00 00 03 01 03 00 01 00 '
-        '...... .........'
+        '30: 03 00 01 00 00 00 20 00 00 00 03 01 03 00 01    '
+        '...... ........'
     )
     # skip end
     assert hexdump(data, height=3, snipat=1) == (
@@ -9628,6 +9644,41 @@ def test_read_astrotiff(caplog):
         assert meta['SIMPLE'] == True
         assert meta['APTDIA'] == 100.0
         assert meta['APTDIA:COMMENT'] == 'Aperture diameter of telescope in mm'
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_streak():
+    """Test read Hamamatus Streak file."""
+    fname = private_file('HamamatsuStreak/hamamatsu_streak.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_streak
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.is_contiguous
+        assert page.photometric == MINISBLACK
+        assert page.imagewidth == 672
+        assert page.imagelength == 508
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        # assert data and metadata
+        assert page.asarray()[277, 341] == 47
+        meta = tif.streak_metadata
+        assert meta['Application']['SoftwareVersion'] == '9.5 pf4'
+        assert meta['Acquisition']['areSource'] == (0, 0, 672, 508)
+        assert meta['Camera']['Prop_InternalLineInterval'] == 9.74436e-06
+        assert meta['Camera']['Prop_OutputTriggerPeriod_2'] == 0.000001
+        assert meta['Camera']['HWidth'] == 672
+        assert meta['DisplayLUT']['EntrySize'] == 4
+        assert meta['Spectrograph']['Front Ent. Slitw.'] == 0
+        assert meta['Scaling']['ScalingYScalingFile'] == 'Focus mode'
+        xscale = meta['Scaling']['ScalingXScaling']
+        assert xscale.size == 672
+        assert xscale[0] == 231.09092712402344
+        assert xscale[-1] == 242.59259033203125
         assert__str__(tif)
 
 
