@@ -1,7 +1,11 @@
 Revisions
 ---------
+2022.3.25
+    Pass 4741 tests.
+    Fix another ValueError using ZarrStore with zarr >= 2.11.0 (tiffslide #25).
+    Add parser for Hamamatsu streak metadata.
+    Improve hexdump.
 2022.3.16
-    Pass 4739 tests.
     Use multi-threading to compress strips and tiles.
     Raise TiffFileError when reading corrupted strips and tiles (#122).
     Fix ScanImage single channel count (#121).
