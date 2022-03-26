@@ -42,14 +42,14 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.3.16
+:Version: 2022.3.25
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 3.8.10, 3.9.11, 3.10.3, 64-bit <https://www.python.org>`_
+* `CPython 3.8.10, 3.9.12, 3.10.4, 64-bit <https://www.python.org>`_
 * `Numpy 1.21.5 <https://pypi.org/project/numpy/>`_
 * `Imagecodecs 2022.2.22 <https://pypi.org/project/imagecodecs/>`_
   (required only for encoding or decoding LZW, JPEG, etc.)
@@ -62,8 +62,12 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2022.3.25
+    Pass 4741 tests.
+    Fix another ValueError using ZarrStore with zarr >= 2.11.0 (tiffslide #25).
+    Add parser for Hamamatsu streak metadata.
+    Improve hexdump.
 2022.3.16
-    Pass 4739 tests.
     Use multi-threading to compress strips and tiles.
     Raise TiffFileError when reading corrupted strips and tiles (#122).
     Fix ScanImage single channel count (#121).
