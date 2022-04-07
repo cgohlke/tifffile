@@ -104,7 +104,8 @@ setup(
         'lxml',
         'zarr',
         'dask',
-        'fsspec>=2021.5.0',
+        'xarray',
+        'fsspec',
     ],
     entry_points={
         'console_scripts': [
