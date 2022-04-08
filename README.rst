@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.3.25
+:Version: 2022.4.8
 
 Requirements
 ------------
@@ -57,13 +57,18 @@ This release has been tested with the following requirements and dependencies
   (required only for plotting)
 * `Lxml 4.8.0 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.11.1 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.11.3 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2022.4.8
+    Pass 4746 tests.
+    Add _ARRAY_DIMENSIONS attributes to ZarrTiffStore.
+    Allow C instead of S axis when writing OME-TIFF.
+    Fix writing OME-TIFF with separate samples.
+    Fix reading unsqueezed pyramidal OME-TIFF series.
 2022.3.25
-    Pass 4741 tests.
     Fix another ValueError using ZarrStore with zarr >= 2.11.0 (tiffslide #25).
     Add parser for Hamamatsu streak metadata.
     Improve hexdump.
