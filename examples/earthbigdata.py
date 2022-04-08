@@ -39,7 +39,7 @@
 by [Christoph Gohlke](https://www.lfd.uci.edu/~gohlke/),
 Laboratory for Fluorescence Dynamics, University of California, Irvine
 
-Updated on February, 2, 2022
+Updated on April 8, 2022
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -337,6 +337,7 @@ store.write_fsspec(
     groupname=mode,
     codec_id='imagecodecs_tiff',
     _append=True,
+    _close=False,
 )
 
 # %% [markdown]
@@ -390,6 +391,7 @@ for mode in (
             groupname=mode,
             codec_id='imagecodecs_tiff',
             _append=True,
+            _close=False,
         )
 
 
@@ -431,6 +433,7 @@ for mode in ('inc', 'lsmap'):
             groupname=mode,
             codec_id='imagecodecs_tiff',
             _append=True,
+            _close=mode == 'lsmap',  # close after last store
         )
 
 # %% [markdown]
@@ -439,7 +442,6 @@ for mode in ('inc', 'lsmap'):
 """
 
 # %%
-jsonfile.write('\n}')
 jsonfile.close()
 
 # %% [markdown]
@@ -464,7 +466,7 @@ mapper = fsspec.get_mapper(
     'reference://',
     fo='earthbigdata.json',
     target_protocol='file',
-    remote_protocol='http',
+    remote_protocol='https',
 )
 
 # %% [markdown]
