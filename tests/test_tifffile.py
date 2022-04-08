@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.3.25
+:Version: 2022.4.8
 
 """
 
@@ -1713,6 +1713,147 @@ def test_issue_tiffslide():
         _ = slide.ts_zarr_grp
         arr = slide.read_region((100, 200), 0, (256, 256), as_array=True)
         assert arr.shape == (256, 256, 3)
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_issue_xarray():
+    """Test reading zarr store with fsspec and xarray."""
+    try:
+        import xarray
+    except ImportError:
+        pytest.skip('xarray missing')
+
+    data = numpy.random.randint(0, 2**8, (5, 31, 33, 3), numpy.uint8)
+
+    with TempFileName('issue_xarry.ome') as fname:
+        with tifffile.TiffWriter(fname) as tif:
+            tif.write(
+                data,
+                photometric='rgb',
+                tile=(16, 16),
+                metadata={'axes': 'TYXC'},
+            )
+
+        for squeeze in (True, False):
+            with TempFileName(
+                f'issue_xarry_{squeeze}', ext='.json'
+            ) as jsonfile:
+                with tifffile.TiffFile(fname) as tif:
+                    store = tif.series[0].aszarr(squeeze=squeeze)
+                    store.write_fsspec(
+                        jsonfile,
+                        url=os.path.split(jsonfile)[0],
+                        groupname='x',
+                    )
+                    store.close()
+
+                mapper = fsspec.get_mapper(
+                    'reference://',
+                    fo=jsonfile,
+                    target_protocol='file',
+                    remote_protocol='file',
+                )
+                dataset = xarray.open_dataset(
+                    mapper,
+                    engine='zarr',
+                    mask_and_scale=False,
+                    backend_kwargs={'consolidated': False},
+                )
+
+                if squeeze:
+                    assert dataset['x'].shape == (5, 31, 33, 3)
+                    assert dataset['x'].dims == ('T', 'Y', 'X', 'S')
+                else:
+                    assert dataset['x'].shape == (5, 1, 1, 31, 33, 3)
+                    assert dataset['x'].dims == ('T', 'Z', 'C', 'Y', 'X', 'S')
+
+                assert_array_equal(data, numpy.squeeze(dataset['x'][:]))
+                del dataset
+                del mapper
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_issue_xarray_multiscale():
+    """Test reading multiscale zarr store with fsspec and xarray."""
+    try:
+        import xarray
+    except ImportError:
+        pytest.skip('xarray missing')
+
+    data = numpy.random.randint(0, 2**8, (8, 3, 128, 128), numpy.uint8)
+
+    with TempFileName('issue_xarry_multiscale.ome') as fname:
+        with tifffile.TiffWriter(fname) as tif:
+            tif.write(
+                data,
+                photometric='rgb',
+                planarconfig='separate',
+                tile=(32, 32),
+                subifds=2,
+                metadata={'axes': 'TCYX'},
+            )
+            tif.write(
+                data[:, :, ::2, ::2],
+                photometric='rgb',
+                planarconfig='separate',
+                tile=(32, 32),
+            )
+            tif.write(
+                data[:, :, ::4, ::4],
+                photometric='rgb',
+                planarconfig='separate',
+                tile=(16, 16),
+            )
+
+        for squeeze in (True, False):
+            with TempFileName(
+                f'issue_xarry_multiscale_{squeeze}', ext='.json'
+            ) as jsonfile:
+                with tifffile.TiffFile(fname) as tif:
+                    store = tif.series[0].aszarr(squeeze=squeeze)
+                    store.write_fsspec(
+                        jsonfile,
+                        url=os.path.split(jsonfile)[0],
+                        # groupname='test',
+                    )
+                    store.close()
+
+                mapper = fsspec.get_mapper(
+                    'reference://',
+                    fo=jsonfile,
+                    target_protocol='file',
+                    remote_protocol='file',
+                )
+                dataset = xarray.open_dataset(
+                    mapper,
+                    engine='zarr',
+                    mask_and_scale=False,
+                    backend_kwargs={'consolidated': False},
+                )
+                if squeeze:
+                    assert dataset['0'].shape == (8, 3, 128, 128)
+                    assert dataset['0'].dims == ('T', 'S', 'Y', 'X')
+                    assert dataset['2'].shape == (8, 3, 32, 32)
+                    assert dataset['2'].dims == ('T', 'S', 'Y2', 'X2')
+                else:
+                    assert dataset['0'].shape == (8, 1, 1, 3, 128, 128)
+                    assert dataset['0'].dims == ('T', 'Z', 'C', 'S', 'Y', 'X')
+                    assert dataset['2'].shape == (8, 1, 1, 3, 32, 32)
+                    assert dataset['2'].dims == (
+                        'T',
+                        'Z',
+                        'C',
+                        'S',
+                        'Y2',
+                        'X2',
+                    )
+
+                assert_array_equal(data, numpy.squeeze(dataset['0'][:]))
+                assert_array_equal(
+                    data[:, :, ::4, ::4], numpy.squeeze(dataset['2'][:])
+                )
+                del dataset
+                del mapper
 
 
 ###############################################################################
@@ -3684,6 +3825,21 @@ def test_filehandle_unc_path():
         assert fh.name == 'test_FileHandle.bin'
         assert fh.dirname == '\\\\localhost\\Data\\Data'
         assert_filehandle(fh)
+
+
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+def test_filehandle_fsspec_openfile():
+    """Test FileHandle from fsspec OpenFile."""
+    try:
+        import fsspec
+    except ImportError:
+        pytest.skip('fsspec not found')
+    with fsspec.open(FILEHANDLE_NAME, 'rb') as fhandle:
+        with FileHandle(fhandle) as fh:
+            assert fh.name == 'test_FileHandle.bin'
+            assert fh.is_file
+            assert_filehandle(fh)
+        assert not fhandle.closed
 
 
 ###############################################################################
@@ -13612,11 +13768,13 @@ def test_write_imagej_raw():
         ((3, 4, 1, 219, 301, 3), None),
         ((2, 3, 4, 219, 301), None),
         ((4, 3, 2, 219, 301, 3), None),
-        ((5, 1, 32, 32), 'CSYX'),
-        ((5, 1, 32, 32), 'ZCYX'),
+        ((3, 33, 31), 'CYX'),
+        ((33, 31, 3), 'YXC'),
+        ((5, 1, 33, 31), 'CSYX'),
+        ((5, 1, 33, 31), 'ZCYX'),
         ((2, 3, 4, 219, 301, 3), 'TCZYXS'),
-        ((10, 5, 200, 200), 'EPYX'),
-        ((2, 3, 4, 5, 6, 7, 32, 32, 3), 'TQCPZRYXS'),
+        ((10, 5, 63, 65), 'EPYX'),
+        ((2, 3, 4, 5, 6, 7, 33, 31, 3), 'TQCPZRYXS'),
     ],
 )
 def test_write_ome(shape, axes):
@@ -13647,6 +13805,10 @@ def test_write_ome(shape, axes):
             image = tif.asarray()
             omexml = tif.ome_metadata
             if axes:
+                if axes == 'CYX':
+                    axes = 'SYX'
+                elif axes == 'YXC':
+                    axes = 'YXS'
                 assert tif.series[0].axes == squeeze_axes(shape, axes)[-1]
             assert_array_equal(data.squeeze(), image.squeeze())
             assert_aszarr_method(tif, image)
