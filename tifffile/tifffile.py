@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.3.25
+:Version: 2022.4.8
 
 Requirements
 ------------
@@ -87,13 +87,18 @@ This release has been tested with the following requirements and dependencies
   (required only for plotting)
 * `Lxml 4.8.0 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-* `Zarr 2.11.1 <https://pypi.org/project/zarr/>`_
+* `Zarr 2.11.3 <https://pypi.org/project/zarr/>`_
   (required only for opening zarr storage)
 
 Revisions
 ---------
+2022.4.8
+    Pass 4746 tests.
+    Add _ARRAY_DIMENSIONS attributes to ZarrTiffStore.
+    Allow C instead of S axis when writing OME-TIFF.
+    Fix writing OME-TIFF with separate samples.
+    Fix reading unsqueezed pyramidal OME-TIFF series.
 2022.3.25
-    Pass 4741 tests.
     Fix another ValueError using ZarrStore with zarr >= 2.11.0 (tiffslide #25).
     Add parser for Hamamatsu streak metadata.
     Improve hexdump.
@@ -640,7 +645,7 @@ Open the fsspec ReferenceFileSystem as a zarr array:
 
 """
 
-__version__ = '2022.3.25'
+__version__ = '2022.4.8'
 
 __all__ = [
     'OmeXml',
@@ -4518,7 +4523,7 @@ class TiffFile:
                     else:
                         shape = shape[:-2] + [spp] + shape[-2:]
                         axes = axes[:-2] + 'S' + axes[-2:]
-                if 'S' not in shape:
+                if 'S' not in axes:
                     shape += [1]
                     axes += 'S'
 
@@ -4635,21 +4640,20 @@ class TiffFile:
                         )
                     ifds.append(ifd)
                 # fix shape
-                shape = []
-                for i, ax in enumerate(serie.axes):
+                shape = list(serie.get_shape(False))
+                axes = serie.get_axes(False)
+                for i, ax in enumerate(axes):
                     if ax == 'X':
-                        shape.append(keyframe.imagewidth)
+                        shape[i] = keyframe.imagewidth
                     elif ax == 'Y':
-                        shape.append(keyframe.imagelength)
-                    else:
-                        shape.append(serie.shape[i])
+                        shape[i] = keyframe.imagelength
                 # add series
                 serie.levels.append(
                     TiffPageSeries(
                         ifds,
                         tuple(shape),
                         keyframe.dtype,
-                        serie.axes,
+                        axes,
                         parent=self,
                         name=f'level {level + 1}',
                         kind='OME',
@@ -9252,6 +9256,10 @@ class ZarrTiffStore(ZarrStore):
 
         if len(self._data) > 1:
             # multiscales
+            if '_ARRAY_DIMENSIONS' in zattrs:
+                array_dimensions = zattrs.pop('_ARRAY_DIMENSIONS')
+            else:
+                array_dimensions = list(self._data[0].get_axes(squeeze))
             self._store['.zgroup'] = ZarrStore._json({'zarr_format': 2})
             self._store['.zattrs'] = ZarrStore._json(
                 {
@@ -9272,6 +9280,7 @@ class ZarrTiffStore(ZarrStore):
                     **zattrs,
                 }
             )
+            shape0 = self._data[0].get_shape(squeeze)
             for level, series in enumerate(self._data):
                 series.keyframe.decode  # cache decode function
                 shape = series.get_shape(squeeze)
@@ -9282,6 +9291,16 @@ class ZarrTiffStore(ZarrStore):
                     chunks = series.keyframe.shape
                 else:
                     chunks = series.keyframe.chunks
+                self._store[f'{level}/.zattrs'] = ZarrStore._json(
+                    {
+                        '_ARRAY_DIMENSIONS': [
+                            (f'{ax}{level}' if i != j else ax)
+                            for ax, i, j in zip(
+                                array_dimensions, shape, shape0
+                            )
+                        ]
+                    }
+                )
                 self._store[f'{level}/.zarray'] = ZarrStore._json(
                     {
                         'zarr_format': 2,
@@ -9305,6 +9324,8 @@ class ZarrTiffStore(ZarrStore):
                 chunks = series.keyframe.shape
             else:
                 chunks = series.keyframe.chunks
+            if '_ARRAY_DIMENSIONS' not in zattrs:
+                zattrs['_ARRAY_DIMENSIONS'] = list(series.get_axes(squeeze))
             self._store['.zattrs'] = ZarrStore._json(zattrs)
             self._store['.zarray'] = ZarrStore._json(
                 {
@@ -9331,6 +9352,10 @@ class ZarrTiffStore(ZarrStore):
         groupname=None,
         compressors=None,
         version=None,
+        _shape=None,
+        _axes=None,
+        _index=None,
+        _close=True,
         _append=False,
     ):
         """Write fsspec ReferenceFileSystem as JSON to file.
@@ -9417,6 +9442,7 @@ class ZarrTiffStore(ZarrStore):
             url = ''
         elif url and url[-1] != '/':
             url += '/'
+        url = url.replace('\\', '/')
 
         if groupname is None:
             groupname = ''
@@ -9429,6 +9455,18 @@ class ZarrTiffStore(ZarrStore):
             or self._data[0].keyframe.dtype.itemsize == 1
         ):
             byteorder = None
+
+        _shape = [] if _shape is None else list(_shape)
+        _axes = [] if _axes is None else list(_axes)
+        if len(_shape) != len(_axes):
+            raise ValueError('len(_shape) != len(_index)')
+        if _index is None:
+            _index = ''
+        elif len(_shape) != len(_index):
+            raise ValueError('len(_shape) != len(_index)')
+        elif _index:
+            _index = '.'.join(str(i) for i in _index)
+            _index += '.'
 
         refs = dict()
         if version == 1:
@@ -9460,77 +9498,93 @@ class ZarrTiffStore(ZarrStore):
         else:
             refzarr = refs
 
-        if groupname and not _append:
-            # TODO: support nested groups
-            refzarr['.zgroup'] = ZarrStore._json({'zarr_format': 2}).decode()
+        if not _append:
+            if groupname:
+                # TODO: support nested groups
+                refzarr['.zgroup'] = ZarrStore._json(
+                    {'zarr_format': 2}
+                ).decode()
 
-        for key, value in self._store.items():
-            if '.zarray' in key:
-                level = int(key.split('/')[0]) if '/' in key else 0
-                keyframe = self._data[level].keyframe
-                value = json.loads(value)
-                codec_id = compressors[keyframe.compression]
-                if codec_id == 'imagecodecs_jpeg':
-                    # TODO: handle JPEG colorspaces
-                    tables = keyframe.jpegtables
-                    if tables is not None:
-                        import base64
+            for key, value in self._store.items():
+                if '.zattrs' in key and _axes:
+                    value = json.loads(value)
+                    if '_ARRAY_DIMENSIONS' in value:
+                        value['_ARRAY_DIMENSIONS'] = (
+                            _axes + value['_ARRAY_DIMENSIONS']
+                        )
+                    value = ZarrStore._json(value)
+                elif '.zarray' in key:
+                    level = int(key.split('/')[0]) if '/' in key else 0
+                    keyframe = self._data[level].keyframe
+                    value = json.loads(value)
+                    if _shape:
+                        value['shape'] = _shape + value['shape']
+                        value['chunks'] = [1] * len(_shape) + value['chunks']
+                    codec_id = compressors[keyframe.compression]
+                    if codec_id == 'imagecodecs_jpeg':
+                        # TODO: handle JPEG colorspaces
+                        tables = keyframe.jpegtables
+                        if tables is not None:
+                            import base64
 
-                        tables = base64.b64encode(tables).decode()
-                    header = keyframe.jpegheader
-                    if header is not None:
-                        import base64
+                            tables = base64.b64encode(tables).decode()
+                        header = keyframe.jpegheader
+                        if header is not None:
+                            import base64
 
-                        header = base64.b64encode(header).decode()
-                    colorspace_jpeg, colorspace_data = jpeg_decode_colorspace(
-                        keyframe.photometric,
-                        keyframe.planarconfig,
-                        keyframe.extrasamples,
-                    )
-                    value['compressor'] = {
-                        'id': codec_id,
-                        'tables': tables,
-                        'header': header,
-                        'bitspersample': keyframe.bitspersample,
-                        'colorspace_jpeg': colorspace_jpeg,
-                        'colorspace_data': colorspace_data,
-                    }
-                elif codec_id is not None:
-                    value['compressor'] = {'id': codec_id}
-                if keyframe.predictor > 1:
-                    # predictors need access to chunk shape and dtype
-                    # requires imagecodecs > 2021.8.26 to read
-                    if keyframe.predictor in (2, 34892, 34893):
-                        filter_id = 'imagecodecs_delta'
-                    else:
-                        filter_id = 'imagecodecs_floatpred'
-                    if keyframe.predictor <= 3:
-                        dist = 1
-                    elif keyframe.predictor in (34892, 34894):
-                        dist = 2
-                    else:
-                        dist = 4
-                    if (
-                        keyframe.planarconfig == 1
-                        and keyframe.samplesperpixel > 1
-                    ):
-                        axis = -2
-                    else:
-                        axis = -1
-                    value['filters'] = [
-                        {
-                            'id': filter_id,
-                            'axis': axis,
-                            'dist': dist,
-                            'shape': value['chunks'],
-                            'dtype': value['dtype'],
+                            header = base64.b64encode(header).decode()
+                        (
+                            colorspace_jpeg,
+                            colorspace_data,
+                        ) = jpeg_decode_colorspace(
+                            keyframe.photometric,
+                            keyframe.planarconfig,
+                            keyframe.extrasamples,
+                        )
+                        value['compressor'] = {
+                            'id': codec_id,
+                            'tables': tables,
+                            'header': header,
+                            'bitspersample': keyframe.bitspersample,
+                            'colorspace_jpeg': colorspace_jpeg,
+                            'colorspace_data': colorspace_data,
                         }
-                    ]
-                if byteorder is not None:
-                    value['dtype'] = byteorder + value['dtype'][1:]
-                value = ZarrStore._json(value)
+                    elif codec_id is not None:
+                        value['compressor'] = {'id': codec_id}
+                    if keyframe.predictor > 1:
+                        # predictors need access to chunk shape and dtype
+                        # requires imagecodecs > 2021.8.26 to read
+                        if keyframe.predictor in (2, 34892, 34893):
+                            filter_id = 'imagecodecs_delta'
+                        else:
+                            filter_id = 'imagecodecs_floatpred'
+                        if keyframe.predictor <= 3:
+                            dist = 1
+                        elif keyframe.predictor in (34892, 34894):
+                            dist = 2
+                        else:
+                            dist = 4
+                        if (
+                            keyframe.planarconfig == 1
+                            and keyframe.samplesperpixel > 1
+                        ):
+                            axis = -2
+                        else:
+                            axis = -1
+                        value['filters'] = [
+                            {
+                                'id': filter_id,
+                                'axis': axis,
+                                'dist': dist,
+                                'shape': value['chunks'],
+                                'dtype': value['dtype'],
+                            }
+                        ]
+                    if byteorder is not None:
+                        value['dtype'] = byteorder + value['dtype'][1:]
+                    value = ZarrStore._json(value)
 
-            refzarr[groupname + key] = value.decode()
+                refzarr[groupname + key] = value.decode()
 
         if hasattr(arg, 'write'):
             fh = arg
@@ -9541,8 +9595,6 @@ class ZarrTiffStore(ZarrStore):
             fh.write(json.dumps(refs, indent=1).rsplit('}"', 1)[0] + '}"')
             indent = '  '
         elif _append:
-            fh.write(',\n')
-            fh.write(json.dumps(refs, indent=1)[2:-2])
             indent = ' '
         else:
             fh.write(json.dumps(refs, indent=1)[:-2])
@@ -9557,6 +9609,7 @@ class ZarrTiffStore(ZarrStore):
                 for chunkindex in ZarrStore._ndindex(shape, chunks):
                     key = level + chunkindex
                     keyframe, page, _, offset, bytecount = self._parse_key(key)
+                    key = level + _index + chunkindex
                     if page and self._chunkmode and offset is None:
                         offset = page.dataoffsets[0]
                         bytecount = keyframe.nbytes
@@ -9574,7 +9627,7 @@ class ZarrTiffStore(ZarrStore):
         # TODO: support nested groups
         if version == 1:
             fh.write('\n }\n}')
-        elif not _append:
+        elif _close:
             fh.write('\n}')
 
         if not hasattr(arg, 'write'):
@@ -9839,6 +9892,9 @@ class ZarrFileSequenceStore(ZarrStore):
         #     self._cache[next(self._tiled.indices(arg.indices[0:1]))] = chunk
 
         zattrs = {} if zattrs is None else dict(zattrs)
+        # TODO: add _ARRAY_DIMENSIONS to ZarrFileSequenceStore
+        # if '_ARRAY_DIMENSIONS' not in zattrs:
+        #     zattrs['_ARRAY_DIMENSIONS'] = list(...)
 
         self._store['.zattrs'] = ZarrStore._json(zattrs)
         self._store['.zarray'] = ZarrStore._json(
@@ -9882,6 +9938,7 @@ class ZarrFileSequenceStore(ZarrStore):
         codec_id=None,
         version=None,
         _append=False,
+        _close=True,
     ):
         """Write fsspec ReferenceFileSystem as JSON to file.
 
@@ -9999,7 +10056,7 @@ class ZarrFileSequenceStore(ZarrStore):
 
         if version == 1:
             fh.write('\n }\n}')
-        elif not _append:
+        elif _close:
             fh.write('\n}')
 
         if not hasattr(arg, 'write'):
@@ -10481,8 +10538,8 @@ class FileHandle:
         Parameters
         ----------
         file : str, path-like, binary stream, or FileHandle
-            File name or seekable binary stream, such as an open file
-            or BytesIO.
+            File name or seekable binary stream, such as an open file, BytesIO,
+            or fsspec OpenFile.
         mode : str
             File open mode in case 'file' is a file name. Must be 'rb', 'r+b',
             or 'wb'. Default is 'rb'.
@@ -10541,7 +10598,7 @@ class FileHandle:
             self._mode = self._file._mode
             self._dir = self._file._dir
         elif hasattr(self._file, 'seek'):
-            # binary stream: open file, BytesIO
+            # binary stream: open file, BytesIO, fsspec OpenFile
             try:
                 self._file.tell()
             except Exception:
@@ -10864,6 +10921,7 @@ class FileHandle:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+        self._file = None
 
     def __getattr__(self, name):
         """Return attribute from underlying file object."""
@@ -11268,7 +11326,11 @@ class OmeXml:
             axes = axes.upper()
             if len(axes) != len(shape):
                 raise ValueError('axes do not match shape')
-            if not (axes.endswith('YX') or axes.endswith('YXS')):
+            if not (
+                axes.endswith('YX')
+                or axes.endswith('YXS')
+                or (axes.endswith('YXC') and 'S' not in axes)
+            ):
                 raise OmeXmlError('dimensions must end with YX or YXS')
             unique = []
             for ax in axes:
@@ -11283,7 +11345,12 @@ class OmeXml:
                 samples = contig
                 if ndim < 3:
                     raise ValueError('dimensions do not match stored shape')
-                if axes[-1] != 'S':
+                if axes[-1] == 'C':
+                    # allow C axis instead of S
+                    if 'S' in axes:
+                        raise ValueError('invalid axes')
+                    axes = axes.replace('C', 'S')
+                elif axes[-1] != 'S':
                     raise ValueError('axes do not match stored shape')
                 if shape[-1] != contig or shape[-2] != width:
                     raise ValueError('shape does not match stored shape')
@@ -11291,9 +11358,14 @@ class OmeXml:
                 samples = separate
                 if ndim < 3:
                     raise ValueError('dimensions do not match stored shape')
-                if axes[-3] != 'S':
+                if axes[-3] == 'C':
+                    # allow C axis instead of S
+                    if 'S' in axes:
+                        raise ValueError('invalid axes')
+                    axes = axes.replace('C', 'S')
+                elif axes[-3] != 'S':
                     raise ValueError('axes do not match stored shape')
-                if shape[-3] != separate or shape[-1] != length:
+                if shape[-3] != separate or shape[-1] != width:
                     raise ValueError('shape does not match stored shape')
 
         if shape[axes.index('X')] != width or shape[axes.index('Y')] != length:
