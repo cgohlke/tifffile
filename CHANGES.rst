@@ -1,7 +1,12 @@
 Revisions
 ---------
+2022.4.8
+    Pass 4746 tests.
+    Add _ARRAY_DIMENSIONS attributes to ZarrTiffStore.
+    Allow C instead of S axis when writing OME-TIFF.
+    Fix writing OME-TIFF with separate samples.
+    Fix reading unsqueezed pyramidal OME-TIFF series.
 2022.3.25
-    Pass 4741 tests.
     Fix another ValueError using ZarrStore with zarr >= 2.11.0 (tiffslide #25).
     Add parser for Hamamatsu streak metadata.
     Improve hexdump.
