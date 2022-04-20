@@ -194,7 +194,7 @@ ReferenceFileSystem JSON string, and write it to the open file.
 """
 
 # %%
-coordinates = {}
+coordinates = {}  # type: ignore
 zarrgroup = zarr.open_group(coordinates)
 zarrgroup.array(
     longitude_label, data=longitude_coordinates, dtype='float32'
