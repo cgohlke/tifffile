@@ -1,7 +1,28 @@
 Revisions
 ---------
+2022.4.22
+    Pass 4753 tests.
+    Add type hints for Python 3.10 (WIP).
+    Fix mypy errors (breaking).
+    Mark many parameters positional-only or keyword-only (breaking).
+    Remove deprecated 'pages' parameter from imread (breaking).
+    Remove deprecated 'compress' and 'ijmetadata' write parameters (breaking).
+    Remove deprecated 'fastij' and 'movie' parameters from TiffFile (breaking).
+    Remove deprecated 'multifile' parameters from TiffFile (breaking).
+    Remove deprecated 'tif' parameter from TiffTag.overwrite (breaking).
+    Remove deprecated 'file' parameter from FileSequence.asarray (breaking).
+    Remove option to pass imread class to FileSequence (breaking).
+    Remove optional parameters from '__str__' functions (breaking).
+    Rename TiffPageSeries.offset to dataoffset (breaking)
+    Change TiffPage.pages to None if no SubIFDs are present (breaking).
+    Change TiffPage.index to int (breaking).
+    Change TiffPage.is_contiguous, is_imagej, and is_shaped to bool (breaking).
+    Add TiffPage imagej_description and shaped_description properties.
+    Add TiffFormat abstract base class.
+    Deprecate 'lazyattr' and use functools.cached_property instead (breaking).
+    Julian_datetime raises ValueError for dates before year 1 (breaking).
+    Regressed import time due to typing.
 2022.4.8
-    Pass 4746 tests.
     Add _ARRAY_DIMENSIONS attributes to ZarrTiffStore.
     Allow C instead of S axis when writing OME-TIFF.
     Fix writing OME-TIFF with separate samples.
