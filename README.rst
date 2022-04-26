@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.4.22
+:Version: 2022.4.26
 
 Requirements
 ------------
@@ -62,8 +62,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2022.4.26
+    Pass 4779 tests.
+    Fix AttributeError in TiffFile.shaped_metadata (#127).
+    Fix TiffTag.overwrite with pre-packed binary value.
+    Write sparse TIFF if tile iterator contains None.
+    Raise ValueError when writing photometric mode with too few samples.
+    Improve test coverage.
 2022.4.22
-    Pass 4753 tests.
     Add type hints for Python 3.10 (WIP).
     Fix mypy errors (breaking).
     Mark many parameters positional-only or keyword-only (breaking).
