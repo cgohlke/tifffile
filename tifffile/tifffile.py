@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.4.22
+:Version: 2022.4.26
 
 Requirements
 ------------
@@ -92,8 +92,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2022.4.26
+    Pass 4779 tests.
+    Fix AttributeError in TiffFile.shaped_metadata (#127).
+    Fix TiffTag.overwrite with pre-packed binary value.
+    Write sparse TIFF if tile iterator contains None.
+    Raise ValueError when writing photometric mode with too few samples.
+    Improve test coverage.
 2022.4.22
-    Pass 4753 tests.
     Add type hints for Python 3.10 (WIP).
     Fix mypy errors (breaking).
     Mark many parameters positional-only or keyword-only (breaking).
@@ -668,7 +674,7 @@ Open the fsspec ReferenceFileSystem as a zarr array:
 
 from __future__ import annotations
 
-__version__ = '2022.4.22'
+__version__ = '2022.4.26'
 
 __all__ = [
     'OmeXml',
@@ -835,7 +841,7 @@ def imread(
 
     Parameters
     ----------
-    files : str, path-like, binary stream, or sequence
+    files : path-like, binary stream, or sequence
         File name, seekable binary stream, glob pattern, or sequence of
         file names. May be None (default) if 'container' is specified.
     aszarr : bool
@@ -930,7 +936,7 @@ def imwrite(
 
     Parameters
     ----------
-    file : str, path-like, or binary stream
+    file : path-like or binary stream
         File name or writable binary stream, such as an open file or BytesIO.
     data : array-like
         Input image. The last dimensions are assumed to be image depth,
@@ -1026,7 +1032,7 @@ def memmap(
 
     Parameters
     ----------
-    filename : str or path-like
+    filename : path-like
         Name of the TIFF file which stores the array.
     shape : tuple
         Shape of the empty array.
@@ -1192,7 +1198,6 @@ class TiffWriter:
                                 )
                             byteorder = tif.byteorder
                             bigtiff = tif.is_bigtiff
-                            t = tif.pages.next_page_offset
                             self._ifdoffset = cast(
                                 int, tif.pages.next_page_offset
                             )
@@ -1281,7 +1286,9 @@ class TiffWriter:
         colormap: ArrayLike | None = None,
         description: str | bytes | None = None,
         datetime: str | None = None,
-        resolution=None,  # TODO
+        resolution: tuple[float | tuple[int, int], float | tuple[int, int]]
+        | tuple[float | tuple[int, int], float | tuple[int, int], str]
+        | None = None,
         subfiletype: int = 0,
         software: str | bytes | None = None,
         subifds: int | Sequence[int] | None = None,
@@ -1937,7 +1944,7 @@ class TiffWriter:
 
             if deprecate:
                 if planarconfig == CONTIG:
-                    msg = 'contiguous samples', "parameter is"
+                    msg = 'contiguous samples', 'parameter is'
                 else:
                     msg = (
                         'separate component planes',
@@ -2126,21 +2133,23 @@ class TiffWriter:
         if datasize > 0 and not storedshape.is_valid:
             raise RuntimeError(f'invalid {storedshape!r}')
 
+        if photometric == PALETTE:
+            if storedshape.samples != 1 or storedshape.extrasamples > 0:
+                raise ValueError(f'invalid {storedshape!r} for palette mode')
+        elif storedshape.samples < photometricsamples:
+            raise ValueError(
+                f'not enough samples for {photometric!r}: '
+                f'expected {photometricsamples}, got {storedshape.samples}'
+            )
+
         if (
             planarconfig is not None
             and storedshape.planarconfig != planarconfig
         ):
-            raise RuntimeError(
-                f'{storedshape.planarconfig} != {planarconfig} {storedshape}'
+            raise ValueError(
+                f'{planarconfig!r} does not match {storedshape!r}'
             )
         del planarconfig
-
-        if photometric == PALETTE:
-            if storedshape.samples != 1 or storedshape.extrasamples > 0:
-                raise ValueError(f'invalid {storedshape!r} for palette mode')
-
-        if photometric == RGB and storedshape.samples == 2:
-            raise ValueError('not a RGB image (samplesperpixel=2)')
 
         if dataarray is not None:
             dataarray = dataarray.reshape(storedshape.shape)
@@ -2155,138 +2164,12 @@ class TiffWriter:
             tagoffsets = 273  # StripOffsets
         self._dataoffsetstag = tagoffsets
 
-        def pack(fmt: str, *val: Any) -> bytes:
-            if fmt[0] not in '<>':
-                fmt = byteorder + fmt
-            return struct.pack(fmt, *val)
-
-        def addtag(
-            code: int | str,
-            dtype: int | str,
-            count: int | None,
-            value: Any,
-            /,
-            writeonce: bool = False,
-        ) -> None:
-            # compute ifdentry & ifdvalue bytes from code, dtype, count, value
-            # append (code, ifdentry, ifdvalue, writeonce) to tags list
-            if not isinstance(code, int):
-                code = TIFF.TAGS[code]
-            try:
-                datatype = cast(int, dtype)
-                dataformat = TIFF.DATA_FORMATS[datatype][-1]
-            except KeyError as exc:
-                try:
-                    dataformat = cast(str, dtype)
-                    if dataformat[0] in '<>':
-                        dataformat = dataformat[1:]
-                    datatype = TIFF.DATA_DTYPES[dataformat]
-                except (KeyError, TypeError):
-                    raise ValueError(f'unknown dtype {dtype}') from exc
-            del dtype
-
-            rawcount = count
-            if datatype == 2:
-                # string
-                if isinstance(value, str):
-                    # enforce 7-bit ASCII on Unicode strings
-                    try:
-                        value = value.encode('ascii')
-                    except UnicodeEncodeError as exc:
-                        raise ValueError(
-                            'TIFF strings must be 7-bit ASCII'
-                        ) from exc
-                elif not isinstance(value, bytes):
-                    raise ValueError('TIFF strings must be 7-bit ASCII')
-
-                if len(value) == 0 or value[-1] != b'\x00':
-                    value += b'\x00'
-                count = len(value)
-                if code == 270:
-                    self._descriptiontag = TiffTag(
-                        self, 0, 270, 2, count, None, 0
-                    )
-                    rawcount = int(value.find(b'\x00\x00'))
-                    if rawcount < 0:
-                        rawcount = count
-                    else:
-                        # length of string without buffer
-                        rawcount = max(offsetsize + 1, rawcount + 1)
-                        rawcount = min(count, rawcount)
-                else:
-                    rawcount = count
-                value = (value,)
-
-            elif isinstance(value, bytes):
-                # packed binary data
-                itemsize = struct.calcsize(dataformat)
-                if len(value) % itemsize:
-                    raise ValueError('invalid packed binary data')
-                count = len(value) // itemsize
-                rawcount = count
-
-            elif count is None:
-                raise ValueError('invalid count')
-            else:
-                count = int(count)
-
-            if datatype in (5, 10):  # rational
-                count *= 2
-                dataformat = dataformat[-1]
-
-            ifdentry = [
-                pack('HH', code, datatype),
-                pack(offsetformat, rawcount),
-            ]
-
-            ifdvalue = None
-            if struct.calcsize(dataformat) * count <= offsetsize:
-                # value(s) can be written directly
-                if isinstance(value, bytes):
-                    ifdentry.append(pack(valueformat, value))
-                elif count == 1:
-                    if isinstance(value, (tuple, list, numpy.ndarray)):
-                        value = value[0]
-                    ifdentry.append(pack(valueformat, pack(dataformat, value)))
-                else:
-                    ifdentry.append(
-                        pack(valueformat, pack(f'{count}{dataformat}', *value))
-                    )
-            else:
-                # use offset to value(s)
-                ifdentry.append(pack(offsetformat, 0))
-                if isinstance(value, bytes):
-                    ifdvalue = value
-                elif isinstance(value, numpy.ndarray):
-                    if value.size != count:
-                        raise RuntimeError('value.size != count')
-                    if value.dtype.char != dataformat:
-                        raise RuntimeError('value.dtype.char != dtype')
-                    ifdvalue = value.tobytes()
-                elif isinstance(value, (tuple, list)):
-                    ifdvalue = pack(f'{count}{dataformat}', *value)
-                else:
-                    ifdvalue = pack(dataformat, value)
-            tags.append((code, b''.join(ifdentry), ifdvalue, writeonce))
-
-        def rational(arg, /) -> tuple[int, int]:
-            # return numerator and denominator from float or two integers
-            from fractions import Fraction  # delayed import
-
-            try:
-                f = Fraction.from_float(arg)
-            except TypeError:
-                f = Fraction(arg[0], arg[1])
-            numerator, denominator = f.as_integer_ratio()
-            if numerator > 4294967295 or denominator > 4294967295:
-                s = 4294967295 / max(numerator, denominator)
-                numerator = round(numerator * s)
-                denominator = round(denominator * s)
-            return numerator, denominator
+        pack = self._pack
+        addtag = self._addtag
 
         if description is not None:
             # ImageDescription: user provided description
-            addtag(270, 2, 0, description, writeonce=True)
+            addtag(tags, 270, 2, 0, description, True)
 
         # write shape and metadata to ImageDescription
         self._metadata = {} if not metadata else metadata.copy()
@@ -2317,7 +2200,7 @@ class TiffWriter:
             )
 
             for t in imagej_metadata_tag(ijmetadata, byteorder):
-                addtag(*t)
+                addtag(tags, *t)
             description = imagej_description(
                 inputshape,
                 rgb=storedshape.contig_samples in (3, 4),
@@ -2337,13 +2220,13 @@ class TiffWriter:
 
         if description is not None:
             description = description.encode('ascii')
-            addtag(270, 2, 0, description, writeonce=True)
+            addtag(tags, 270, 2, 0, description, True)
         del description
 
         if software is None:
             software = 'tifffile.py'
         if software:
-            addtag(305, 2, 0, software, writeonce=True)
+            addtag(tags, 305, 2, 0, software, True)
         if datetime:
             if isinstance(datetime, str):
                 if len(datetime) != 19 or datetime[16] != ':':
@@ -2353,24 +2236,24 @@ class TiffWriter:
                     datetime = datetime.strftime('%Y:%m:%d %H:%M:%S')
                 except AttributeError:
                     datetime = self._now().strftime('%Y:%m:%d %H:%M:%S')
-            addtag(306, 2, 0, datetime, writeonce=True)
-        addtag(259, 3, 1, compressiontag)  # Compression
+            addtag(tags, 306, 2, 0, datetime, True)
+        addtag(tags, 259, 3, 1, compressiontag)  # Compression
         if compressiontag == 34887:
             # LERC without additional compression
-            addtag(50674, 4, 2, (4, 0))
+            addtag(tags, 50674, 4, 2, (4, 0))
         if predictor:
-            addtag(317, 3, 1, predictortag)
-        addtag(256, 4, 1, storedshape.width)  # ImageWidth
-        addtag(257, 4, 1, storedshape.length)  # ImageLength
+            addtag(tags, 317, 3, 1, predictortag)
+        addtag(tags, 256, 4, 1, storedshape.width)  # ImageWidth
+        addtag(tags, 257, 4, 1, storedshape.length)  # ImageLength
         if tile:
-            addtag(322, 4, 1, tile[-1])  # TileWidth
-            addtag(323, 4, 1, tile[-2])  # TileLength
+            addtag(tags, 322, 4, 1, tile[-1])  # TileWidth
+            addtag(tags, 323, 4, 1, tile[-2])  # TileLength
         if volumetric:
-            addtag(32997, 4, 1, storedshape.depth)  # ImageDepth
+            addtag(tags, 32997, 4, 1, storedshape.depth)  # ImageDepth
             if tile:
-                addtag(32998, 4, 1, tile[0])  # TileDepth
+                addtag(tags, 32998, 4, 1, tile[0])  # TileDepth
         if subfiletype:
-            addtag(254, 4, 1, subfiletype)  # NewSubfileType
+            addtag(tags, 254, 4, 1, subfiletype)  # NewSubfileType
         if (subifds or self._subifds) and self._subifdslevel < 0:
             if self._subifds:
                 subifds = self._subifds
@@ -2380,30 +2263,36 @@ class TiffWriter:
             else:
                 subifds = int(subifds)  # type: ignore
             self._subifds = subifds
-            addtag(330, 18 if offsetsize > 4 else 13, subifds, [0] * subifds)
+            addtag(
+                tags, 330, 18 if offsetsize > 4 else 13, subifds, [0] * subifds
+            )
         if not bilevel and not datadtype.kind == 'u':
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
             addtag(
+                tags,
                 339,
                 3,
                 storedshape.samples,
                 (sampleformat,) * storedshape.samples,
             )
         if colormap is not None:
-            addtag(320, 3, colormap.size, colormap)
-        addtag(277, 3, 1, storedshape.samples)
+            addtag(tags, 320, 3, colormap.size, colormap)
+        addtag(tags, 277, 3, 1, storedshape.samples)
         if bilevel:
             pass
         elif storedshape.samples > 1:
-            addtag(284, 3, 1, storedshape.planarconfig)  # PlanarConfiguration
-            addtag(  # BitsPerSample
+            addtag(
+                tags, 284, 3, 1, storedshape.planarconfig
+            )  # PlanarConfiguration
+            addtag(
+                tags,  # BitsPerSample
                 258,
                 3,
                 storedshape.samples,
                 (bitspersample,) * storedshape.samples,
             )
         else:
-            addtag(258, 3, 1, bitspersample)
+            addtag(tags, 258, 3, 1, bitspersample)
         if storedshape.extrasamples > 0:
             if extrasamples is not None:
                 if storedshape.extrasamples != len(extrasamples):
@@ -2411,13 +2300,14 @@ class TiffWriter:
                         'wrong number of extrasamples '
                         f'{storedshape.extrasamples} != {len(extrasamples)}'
                     )
-                addtag(338, 3, len(extrasamples), extrasamples)
+                addtag(tags, 338, 3, len(extrasamples), extrasamples)
             elif photometric == RGB and storedshape.extrasamples == 1:
                 # Unassociated alpha channel
-                addtag(338, 3, 1, 2)
+                addtag(tags, 338, 3, 1, 2)
             else:
                 # Unspecified alpha channel
                 addtag(
+                    tags,
                     338,
                     3,
                     storedshape.extrasamples,
@@ -2425,7 +2315,7 @@ class TiffWriter:
                 )
 
         if jpegtables is not None:
-            addtag(347, 7, len(jpegtables), jpegtables)
+            addtag(tags, 347, 7, len(jpegtables), jpegtables)
 
         if (
             compressiontag == 7
@@ -2445,7 +2335,7 @@ class TiffWriter:
                 raise ValueError(f'tile shape not a multiple of {maxsampling}')
             if storedshape.extrasamples > 1:
                 raise ValueError('JPEG subsampling requires RGB(A) images')
-            addtag(530, 3, 2, subsampling)  # YCbCrSubSampling
+            addtag(tags, 530, 3, 2, subsampling)  # YCbCrSubSampling
             # use PhotometricInterpretation YCBCR by default
             outcolorspace = enumarg(
                 PHOTOMETRIC, compressionargs.get('outcolorspace', 6)
@@ -2453,11 +2343,15 @@ class TiffWriter:
             compressionargs['subsampling'] = subsampling
             compressionargs['colorspace'] = photometric.name
             compressionargs['outcolorspace'] = outcolorspace.name
-            addtag(262, 3, 1, outcolorspace)
+            addtag(tags, 262, 3, 1, outcolorspace)
             # ReferenceBlackWhite is required for YCBCR
             if all(et[0] != 532 for et in extratags):
                 addtag(
-                    532, 5, 6, (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1)
+                    tags,
+                    532,
+                    5,
+                    6,
+                    (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1),
                 )
         else:
             if subsampling not in (None, (1, 1)):
@@ -2466,52 +2360,35 @@ class TiffWriter:
                 )
             subsampling = None
             maxsampling = 1
-            addtag(262, 3, 1, photometric.value)  # PhotometricInterpretation
+            addtag(
+                tags, 262, 3, 1, photometric.value
+            )  # PhotometricInterpretation
             if photometric == YCBCR:
                 # YCbCrSubSampling and ReferenceBlackWhite
-                addtag(530, 3, 2, (1, 1))
+                addtag(tags, 530, 3, 2, (1, 1))
                 if all(et[0] != 532 for et in extratags):
                     addtag(
+                        tags,
                         532,
                         5,
                         6,
                         (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1),
                     )
         if resolution is not None:
-            addtag(282, 5, 1, rational(resolution[0]))  # XResolution
-            addtag(283, 5, 1, rational(resolution[1]))  # YResolution
+            addtag(tags, 282, 5, 1, rational(resolution[0]))  # XResolution
+            addtag(tags, 283, 5, 1, rational(resolution[1]))  # YResolution
             if len(resolution) > 2:
-                unit = resolution[2]
+                unit = resolution[2]  # type: ignore
                 unit = 1 if unit is None else enumarg(RESUNIT, unit)
             elif self._imagej:
                 unit = 1
             else:
                 unit = 2
-            addtag(296, 3, 1, unit)  # ResolutionUnit
+            addtag(tags, 296, 3, 1, unit)  # ResolutionUnit
         elif not self._imagej:
-            addtag(282, 5, 1, (1, 1))  # XResolution
-            addtag(283, 5, 1, (1, 1))  # YResolution
-            addtag(296, 3, 1, 1)  # ResolutionUnit
-
-        def bytecount_format(
-            bytecounts: Sequence[int],
-            /,
-            compression=compression,
-            size: int = offsetsize,
-        ) -> str:
-            # return small bytecount format
-            if len(bytecounts) == 1:
-                return {4: 'I', 8: 'Q'}[size]
-            bytecount = bytecounts[0]
-            if compression:
-                bytecount = bytecount * 10
-            if bytecount < 2**16:
-                return 'H'
-            if bytecount < 2**32:
-                return 'I'
-            if size == 4:
-                return 'I'
-            return 'Q'
+            addtag(tags, 282, 5, 1, (1, 1))  # XResolution
+            addtag(tags, 283, 5, 1, (1, 1))  # YResolution
+            addtag(tags, 296, 3, 1, 1)  # ResolutionUnit
 
         # can save data array contiguous
         contiguous = not (compression or packints or bilevel)
@@ -2543,9 +2420,13 @@ class TiffWriter:
             databytecounts = [
                 product(tile) * storedshape.contig_samples * datadtype.itemsize
             ] * numtiles
-            bytecountformat = bytecount_format(databytecounts)
-            addtag(tagbytecounts, bytecountformat, numtiles, databytecounts)
-            addtag(tagoffsets, offsetformat, numtiles, [0] * numtiles)
+            bytecountformat = self._bytecount_format(
+                databytecounts, compressiontag
+            )
+            addtag(
+                tags, tagbytecounts, bytecountformat, numtiles, databytecounts
+            )
+            addtag(tags, tagoffsets, offsetformat, numtiles, [0] * numtiles)
             bytecountformat = f'{numtiles}{bytecountformat}'
             if dataarray is not None and not contiguous:
                 dataiter = iter_tiles(dataarray, tile, tiles)
@@ -2559,14 +2440,15 @@ class TiffWriter:
                 * storedshape.contig_samples
                 * datadtype.itemsize
             ] * count
-            bytecountformat = bytecount_format(databytecounts)
-            addtag(tagbytecounts, bytecountformat, count, databytecounts)
-            addtag(tagoffsets, offsetformat, count, [0] * count)
-            addtag(278, 4, 1, storedshape.length)  # RowsPerStrip
-            bytecountformat = bytecountformat * storedshape.separate_samples
-            if dataarray is not None and not contiguous:
-                dataiter = iter_images(dataarray)
+            bytecountformat = self._bytecount_format(
+                databytecounts, compressiontag
+            )
+            addtag(tags, tagbytecounts, bytecountformat, count, databytecounts)
+            addtag(tags, tagoffsets, offsetformat, count, [0] * count)
+            addtag(tags, 278, 4, 1, storedshape.length)  # RowsPerStrip
+            bytecountformat = f'{count}{bytecountformat}'
             rowsperstrip = storedshape.length
+            numstrips = count
 
         else:
             # use rowsperstrip
@@ -2591,7 +2473,7 @@ class TiffWriter:
                     math.ceil(rowsperstrip / maxsampling) * maxsampling
                 )
             assert rowsperstrip is not None
-            addtag(278, 4, 1, rowsperstrip)  # RowsPerStrip
+            addtag(tags, 278, 4, 1, rowsperstrip)  # RowsPerStrip
 
             numstrips1 = (
                 storedshape.length + rowsperstrip - 1
@@ -2607,9 +2489,13 @@ class TiffWriter:
             )
             for i in range(numstrips1 - 1, numstrips, numstrips1):
                 databytecounts[i] = laststripsize
-            bytecountformat = bytecount_format(databytecounts)
-            addtag(tagbytecounts, bytecountformat, numstrips, databytecounts)
-            addtag(tagoffsets, offsetformat, numstrips, [0] * numstrips)
+            bytecountformat = self._bytecount_format(
+                databytecounts, compressiontag
+            )
+            addtag(
+                tags, tagbytecounts, bytecountformat, numstrips, databytecounts
+            )
+            addtag(tags, tagoffsets, offsetformat, numstrips, [0] * numstrips)
             bytecountformat = bytecountformat * numstrips
 
             if dataarray is not None and not contiguous:
@@ -2621,7 +2507,7 @@ class TiffWriter:
         # add extra tags from user
         extratag: TagTuple
         for extratag in extratags:
-            addtag(*extratag)
+            addtag(tags, *extratag)
 
         # TODO: check TIFFReadDirectoryCheckOrder warning in files containing
         #   multiple tags of same code
@@ -2802,7 +2688,6 @@ class TiffWriter:
                     fh.write_empty(datasize)
                 else:
                     fh.write_array(dataarray)
-                    del dataarray
             elif tile:
                 if storedshape.contig_samples == 1:
                     tileshape = tile
@@ -2834,8 +2719,8 @@ class TiffWriter:
                     ):
                         tile_array = next(dataiter)
                         if tile_array is None:
-                            # databytecounts[tileindex] = 0  # not contiguous
-                            fh.write_empty(tilesize)
+                            databytecounts[tileindex] = 0
+                            # fh.write_empty(tilesize)
                             continue
                         if tile_array.nbytes != tilesize:
                             tile_array = pad_tile(
@@ -2874,6 +2759,7 @@ class TiffWriter:
 
             else:
                 # write one strip
+                # TODO: test this. Is this code reachable?
                 assert dataiter is not None
                 pagedata = next(dataiter)
                 if pagedata is None:
@@ -2897,12 +2783,12 @@ class TiffWriter:
                 ifd.seek(pos)
                 offset = dataoffset
                 for size in databytecounts:
-                    ifd.write(pack(offsetformat, offset))
+                    ifd.write(pack(offsetformat, offset if size > 0 else 0))
                     offset += size
             else:
                 ifd.write(pack(offsetformat, dataoffset))
 
-            if compressionfunc is not None:
+            if compressionfunc is not None or (tile and dataarray is None):
                 # update strip/tile bytecounts
                 assert databytecountsoffset is not None
                 offset, pos = databytecountsoffset
@@ -3205,6 +3091,142 @@ class TiffWriter:
         self._descriptiontag.overwrite(description.encode(), erase=False)
         self._descriptiontag = None
 
+    def _addtag(
+        self,
+        tags: list[tuple[int, bytes, bytes | None, bool]],
+        code: int | str,
+        dtype: int | str,
+        count: int | None,
+        value: Any,
+        writeonce: bool = False,
+        /,
+    ) -> None:
+        """Append (code, ifdentry, ifdvalue, writeonce) to tags list.
+
+        Compute ifdentry and ifdvalue bytes from code, dtype, count, value
+
+        """
+        pack = self._pack
+
+        if not isinstance(code, int):
+            code = TIFF.TAGS[code]
+        try:
+            datatype = cast(int, dtype)
+            dataformat = TIFF.DATA_FORMATS[datatype][-1]
+        except KeyError as exc:
+            try:
+                dataformat = cast(str, dtype)
+                if dataformat[0] in '<>':
+                    dataformat = dataformat[1:]
+                datatype = TIFF.DATA_DTYPES[dataformat]
+            except (KeyError, TypeError):
+                raise ValueError(f'unknown dtype {dtype}') from exc
+        del dtype
+
+        rawcount = count
+        if datatype == 2:
+            # string
+            if isinstance(value, str):
+                # enforce 7-bit ASCII on Unicode strings
+                try:
+                    value = value.encode('ascii')
+                except UnicodeEncodeError as exc:
+                    raise ValueError(
+                        'TIFF strings must be 7-bit ASCII'
+                    ) from exc
+            elif not isinstance(value, bytes):
+                raise ValueError('TIFF strings must be 7-bit ASCII')
+
+            if len(value) == 0 or value[-1] != b'\x00':
+                value += b'\x00'
+            count = len(value)
+            if code == 270:
+                self._descriptiontag = TiffTag(self, 0, 270, 2, count, None, 0)
+                rawcount = int(value.find(b'\x00\x00'))
+                if rawcount < 0:
+                    rawcount = count
+                else:
+                    # length of string without buffer
+                    rawcount = max(self.tiff.offsetsize + 1, rawcount + 1)
+                    rawcount = min(count, rawcount)
+            else:
+                rawcount = count
+            value = (value,)
+
+        elif isinstance(value, bytes):
+            # packed binary data
+            itemsize = struct.calcsize(dataformat)
+            if len(value) % itemsize:
+                raise ValueError('invalid packed binary data')
+            count = len(value) // itemsize
+            rawcount = count
+
+        elif count is None:
+            raise ValueError('invalid count')
+        else:
+            count = int(count)
+
+        if datatype in (5, 10):  # rational
+            count *= 2
+            dataformat = dataformat[-1]
+
+        ifdentry = [
+            pack('HH', code, datatype),
+            pack(self.tiff.offsetformat, rawcount),
+        ]
+
+        ifdvalue = None
+        if struct.calcsize(dataformat) * count <= self.tiff.offsetsize:
+            # value(s) can be written directly
+            valueformat = f'{self.tiff.offsetsize}s'
+            if isinstance(value, bytes):
+                ifdentry.append(pack(valueformat, value))
+            elif count == 1:
+                if isinstance(value, (tuple, list, numpy.ndarray)):
+                    value = value[0]
+                ifdentry.append(pack(valueformat, pack(dataformat, value)))
+            else:
+                ifdentry.append(
+                    pack(valueformat, pack(f'{count}{dataformat}', *value))
+                )
+        else:
+            # use offset to value(s)
+            ifdentry.append(pack(self.tiff.offsetformat, 0))
+            if isinstance(value, bytes):
+                ifdvalue = value
+            elif isinstance(value, numpy.ndarray):
+                if value.size != count:
+                    raise RuntimeError('value.size != count')
+                if value.dtype.char != dataformat:
+                    raise RuntimeError('value.dtype.char != dtype')
+                ifdvalue = value.tobytes()
+            elif isinstance(value, (tuple, list)):
+                ifdvalue = pack(f'{count}{dataformat}', *value)
+            else:
+                ifdvalue = pack(dataformat, value)
+        tags.append((code, b''.join(ifdentry), ifdvalue, writeonce))
+
+    def _pack(self, fmt: str, *val: Any) -> bytes:
+        """Return values packed to bytes according to format."""
+        if fmt[0] not in '<>':
+            fmt = self.tiff.byteorder + fmt
+        return struct.pack(fmt, *val)
+
+    def _bytecount_format(
+        self, bytecounts: Sequence[int], compression: int, /
+    ) -> str:
+        """Return small bytecount format."""
+        if len(bytecounts) == 1:
+            return self.tiff.offsetformat[1]
+        bytecount = bytecounts[0]
+        if compression > 1:
+            bytecount = bytecount * 10
+        if bytecount < 2**16:
+            return 'H'
+        if bytecount < 2**32:
+            return 'I'
+        return self.tiff.offsetformat[1]
+
     def _now(self) -> datetime.datetime:
         """Return current date and time."""
         return datetime.datetime.now()
@@ -3315,7 +3337,7 @@ class TiffFile:
 
         Parameters
         ----------
-        file : path_like or open file
+        file : path-like or binary stream
             Name of file or open file object.
             The file objects are closed in TiffFile.close().
         mode : str (optional)
@@ -3802,6 +3824,7 @@ class TiffFile:
 
     def _series_shaped(self) -> list[TiffPageSeries] | None:
         """Return image series in "shaped" file."""
+        # TODO: all series need to be shaped for this to succeed
 
         def append(
             series: list[TiffPageSeries],
@@ -4435,7 +4458,7 @@ class TiffFile:
     def _series_scn(self) -> list[TiffPageSeries] | None:
         """Return pyramidal image series in Leica SCN file."""
         # TODO: support collections
-        from xml.etree import ElementTree as etree  # delayed import
+        from xml.etree import ElementTree as etree
 
         scnxml = self.pages.first.description
         root = etree.fromstring(scnxml)
@@ -4600,7 +4623,7 @@ class TiffFile:
     def _series_ome(self) -> list[TiffPageSeries] | None:
         """Return image series in OME-TIFF file(s)."""
         # xml.etree found to be faster than lxml
-        from xml.etree import ElementTree as etree  # delayed import
+        from xml.etree import ElementTree as etree
 
         omexml = self.pages.first.description
         try:
@@ -5199,7 +5222,7 @@ class TiffFile:
         description of the first page.
 
         """
-        from xml.etree import ElementTree as etree  # delayed import
+        from xml.etree import ElementTree as etree
 
         pages = self.pages
         pages.cache = True
@@ -5415,7 +5438,7 @@ class TiffFile:
     @cached_property
     def shaped_metadata(self) -> tuple[dict[str, Any], ...] | None:
         """Return tifffile metadata from JSON descriptions as dicts."""
-        if self.shaped_description is None:
+        if self.is_shaped is None:
             return None
         result = []
         for s in self.series:
@@ -6867,7 +6890,6 @@ class TiffPage:
                 size = shape[0] * shape[1] * shape[2] * shape[3]
                 if data.ndim == 1 and data.size > size:
                     # decompression / unpacking might return too many bytes
-                    data.shape = -1  # type: ignore
                     data = data[:size]
                 if data.size == size:
                     # complete tile
@@ -7013,7 +7035,7 @@ class TiffPage:
             )
 
             def decode_jpeg(
-                data: bytes,
+                data: bytes | None,
                 index: int,
                 /,
                 *,
@@ -9032,17 +9054,23 @@ class TiffTag:
         if dtype is None:
             dtype = self.dtype
 
+        packedvalue: bytes | None = None
+        dataformat: str
         try:
             dataformat = TIFF.DATA_FORMATS[dtype]
         except KeyError as exc:
             # dtype may be a str
             try:
-                dataformat = dtype[-1:]  # type: ignore
+                dataformat = dtype  # type: ignore
                 if dataformat[0] in '<>':
+                    if dataformat[0] != tiff.byteorder:
+                        raise ValueError(
+                            'dtype byteorder does not match TIFF file'
+                        )
                     dataformat = dataformat[1:]
                 dtype = TIFF.DATA_DTYPES[dataformat]
             except (KeyError, TypeError):
-                raise ValueError(f'unknown dtype {dtype}') from exc
+                raise ValueError(f'unknown data type {dtype!r}') from exc
 
         if dtype == 2:
             # strings
@@ -9060,31 +9088,34 @@ class TiffTag:
                 value += b'\x00'
             count = len(value)
             value = (value,)
+
         elif isinstance(value, bytes):
             # pre-packed binary data
             dtsize = struct.calcsize(dataformat)
             if len(value) % dtsize:
                 raise ValueError('invalid packed binary data')
             count = len(value) // dtsize
+            packedvalue = value
             value = (value,)
+
         else:
             try:
                 count = len(value)
             except TypeError:
                 value = (value,)
                 count = 1
+            if dtype in (5, 10):
+                if count < 2 or count % 2:
+                    raise ValueError('invalid RATIONAL value')
+                count //= 2  # rational
 
-        if dtype in (5, 10):
-            if count < 2 or count % 2:
-                raise ValueError('invalid RATIONAL value')
-            count //= 2  # rational
-
-        packedvalue = struct.pack(
-            '{}{}{}'.format(
-                tiff.byteorder, count * int(dataformat[0]), dataformat[1]
-            ),
-            *value,
-        )
+        if packedvalue is None:
+            packedvalue = struct.pack(
+                '{}{}{}'.format(
+                    tiff.byteorder, count * int(dataformat[0]), dataformat[1]
+                ),
+                *value,
+            )
         newsize = len(packedvalue)
         oldsize = self.count * struct.calcsize(TIFF.DATA_FORMATS[self.dtype])
         valueoffset = self.valueoffset
@@ -10226,8 +10257,21 @@ class ZarrTiffStore(ZarrStore):
     ) -> None:
         """Write fsspec ReferenceFileSystem as JSON to file.
 
-        Url is the remote location of the TIFF file without the file name(s).
+        Parameters
+        ----------
+        jsonfile : path-like or open file
+            Name or open file handle of the output JSON file.
+        url : str
+            Remote location of the TIFF file(s) without the file name(s).
+        groupname: str (optional)
+            Zarr group name.
+        compressors: dict of int to str (optional)
+            Mapping of TIFF COMPRESSION to numcodecs codec names.
+        version : 0 or 1 (optional)
+            Version of the fsspec file to write. Default 0.
 
+        Notes
+        -----
         Raise ValueError if TIFF store cannot be represented as
         ReferenceFileSystem due to features that are not supported by zarr,
         numcodecs, or imagecodecs:
@@ -10834,7 +10878,18 @@ class ZarrFileSequenceStore(ZarrStore):
     ) -> None:
         """Write fsspec ReferenceFileSystem as JSON to file.
 
-        Url is the remote location of the files without the file names.
+        Parameters
+        ----------
+        jsonfile : path-like or open file
+            Name or open file handle of the output JSON file.
+        url : str
+            Remote location of the TIFF file(s) without the file name(s).
+        groupname: str (optional)
+            Zarr group name.
+        codec_id: str (optional)
+            Name of the numcodecs codec to read files/chunks.
+        version : 0 or 1 (optional)
+            Version of the fsspec file to write. Default 0.
 
         """
         from urllib.parse import quote
@@ -11020,7 +11075,7 @@ class FileSequence:
         ----------
         imread : function
             Array read function returning numpy array from single file.
-        files : str, path-like, or sequence thereof
+        files : path-like or sequence
             Glob filename pattern or sequence of file names. If None: '*'.
             Binary streams are not supported.
         container : str or container instance (optional)
@@ -11501,7 +11556,7 @@ class FileHandle:
 
         Parameters
         ----------
-        file : str, path-like, binary stream, or FileHandle
+        file : path-like, binary stream, or FileHandle
             File name or seekable binary stream, such as an open file, BytesIO,
             or fsspec OpenFile.
         mode : str
@@ -12956,18 +13011,6 @@ class OmeXml:
                 OmeXml._attribute(metadata, name, index_) for name in names
             )
         return ''.join(a for a in attributes if a)
-
-    @staticmethod
-    def _reference(metadata: dict[str, Any], name: str, /) -> str:
-        """Return XML formatted reference element."""
-        value = metadata.get(name, None)
-        if value is None:
-            return ''
-        try:
-            value = value['ID']
-        except KeyError:
-            pass
-        return f'<{name} ID="{OmeXml._escape(value)}"/>'
 
     @staticmethod
     def validate(
@@ -14897,10 +14940,10 @@ class _TIFF:
     @cached_property
     def GEO_KEYS(self):  # TODO: type this
         try:
-            from .tifffile_geodb import GeoKeys  # delayed import
+            from .tifffile_geodb import GeoKeys
         except ImportError:
             try:
-                from tifffile_geodb import GeoKeys  # delayed import
+                from tifffile_geodb import GeoKeys
             except ImportError:
 
                 class GeoKeys(enum.IntEnum):
@@ -14911,10 +14954,10 @@ class _TIFF:
     @cached_property
     def GEO_CODES(self):  # TODO: type this
         try:
-            from .tifffile_geodb import GEO_CODES  # delayed import
+            from .tifffile_geodb import GEO_CODES
         except ImportError:
             try:
-                from tifffile_geodb import GEO_CODES  # delayed import
+                from tifffile_geodb import GEO_CODES
             except ImportError:
                 GEO_CODES = {}
         return GEO_CODES
@@ -15596,7 +15639,7 @@ class _TIFF:
     def UIC_TAGS(self) -> list[tuple[str, Any]]:
         # map Universal Imaging Corporation MetaMorph internal tag ids to
         # name and type
-        from fractions import Fraction  # delayed import
+        from fractions import Fraction
 
         return [
             ('AutoScale', int),
@@ -15717,14 +15760,14 @@ class _TIFF:
     @cached_property
     def ALLOCATIONGRANULARITY(self) -> int:
         # alignment for writing contiguous data to TIFF
-        import mmap  # delayed import
+        import mmap
 
         return mmap.ALLOCATIONGRANULARITY
 
     @cached_property
     def MAXWORKERS(self) -> int:
         # half of CPU cores
-        import multiprocessing  # delayed import
+        import multiprocessing
 
         return max(multiprocessing.cpu_count() // 2, 1)
 
@@ -17548,7 +17591,7 @@ def metaseries_description_metadata(description: str, /) -> dict[str, Any]:
     if not description.startswith('<MetaData>'):
         raise ValueError('invalid MetaSeries image description')
 
-    from xml.etree import ElementTree as etree  # delayed import
+    from xml.etree import ElementTree as etree
 
     root = etree.fromstring(description)
     types = {
@@ -17830,22 +17873,15 @@ def streak_description_metadata(
 
     if filehandle and not filehandle.closed:
         pos = filehandle.tell()
-        try:
-            offset, count = result['Scaling']['ScalingXScalingFile']
-            filehandle.seek(offset)
-            result['Scaling']['ScalingXScaling'] = filehandle.read_array(
-                dtype='<f4', count=count
-            )
-        except Exception:
-            pass
-        try:
-            offset, count = result['Scaling']['ScalingYScalingFile']
-            filehandle.seek(offset)
-            result['Scaling']['ScalingYScaling'] = filehandle.read_array(
-                dtype='<f4', count=count
-            )
-        except Exception:
-            pass
+        for scaling in ('ScalingXScaling', 'ScalingYScaling'):
+            try:
+                offset, count = result['Scaling'][scaling + 'File']
+                filehandle.seek(offset)
+                result['Scaling'][scaling] = filehandle.read_array(
+                    dtype='<f4', count=count
+                )
+            except Exception:
+                pass
         filehandle.seek(pos)
 
     return result
@@ -18457,7 +18493,7 @@ def encode_tiles(
     if isinstance(tile, bytes):
         # pre-encoded
         yield tile
-        for i in range(numtiles):
+        for _ in range(numtiles):
             yield next(tileiter)
         return
 
@@ -18473,7 +18509,7 @@ def encode_tiles(
 
     if maxworkers is None or maxworkers < 2 or numtiles < 2:
         yield func(tile)
-        for i in range(numtiles):
+        for _ in range(numtiles):
             yield func(next(tileiter))
         return
 
@@ -18484,7 +18520,7 @@ def encode_tiles(
     if numtiles <= maxtiles:
 
         def tiles() -> Iterator[numpy.ndarray | None]:
-            for i in range(numtiles):
+            for _ in range(numtiles):
                 yield next(tileiter)
 
         yield func(tile)
@@ -18495,7 +18531,7 @@ def encode_tiles(
     with ThreadPoolExecutor(maxworkers) as executor:
         count = 1
         tile_list = [tile]
-        for i in range(numtiles):
+        for _ in range(numtiles):
             tile = next(tileiter)
             if tile is not None:
                 count += 1
@@ -19284,6 +19320,22 @@ def astype(value: Any, /, types: Sequence[Any] | None = None) -> Any:
     return value
 
 
+def rational(arg: float | tuple[int, int], /) -> tuple[int, int]:
+    """Return rational numerator and denominator from float or two integers."""
+    from fractions import Fraction
+
+    if isinstance(arg, float):
+        f = Fraction.from_float(arg)
+    else:
+        f = Fraction(arg[0], arg[1])
+    numerator, denominator = f.as_integer_ratio()
+    if numerator > 4294967295 or denominator > 4294967295:
+        s = 4294967295 / max(numerator, denominator)
+        numerator = round(numerator * s)
+        denominator = round(denominator * s)
+    return numerator, denominator
+
+
 def format_size(size: int | float, /, threshold: int | float = 1536) -> str:
     """Return file size as string from byte size.
 
@@ -19483,7 +19535,7 @@ def xml2dict(
     {'level1': {'level2': 3.5322}}
 
     """
-    from xml.etree import ElementTree as etree  # delayed import
+    from xml.etree import ElementTree as etree
 
     at = tx = ''
     if prefix:
@@ -19677,7 +19729,7 @@ def clean_whitespace(string: str, /, compact: bool = False) -> str:
 def pformat_xml(xml: str | bytes, /) -> str:
     """Return pretty formatted XML."""
     try:
-        from lxml import etree  # delayed import
+        from lxml import etree
 
         if not isinstance(xml, bytes):
             xml = xml.encode()
@@ -19735,7 +19787,7 @@ def pformat(
             arg = arg[: 4 * width] if height == 1 else pformat_xml(arg)
         # too slow
         # else:
-        #    import textwrap  # delayed import
+        #    import textwrap
         #    return '\n'.join(
         #        textwrap.wrap(arg, width=width, max_lines=height, tabsize=2)
         #    )
@@ -19743,7 +19795,7 @@ def pformat(
     elif isinstance(arg, numpy.record):
         arg = arg.pprint()
     else:
-        import pprint  # delayed import
+        import pprint
 
         arg = pprint.pformat(arg, width=width, compact=compact)
 
@@ -19983,7 +20035,29 @@ def tiff2fsspec(
     chunkmode: int | None = None,
     version: int | None = None,
 ) -> None:
-    """Write fsspec ReferenceFileSystem JSON from TIFF file."""
+    """Write fsspec ReferenceFileSystem in JSON format for data in TIFF file.
+
+    Parameters
+    ----------
+    filename : path-like
+        Name of TIFF file to reference.
+    url : str
+        Remote location of the TIFF file without the file name(s).
+    out : path-like (optional)
+        Name of the output JSON file.
+    key : int (optional)
+        Specifies pages to reference.
+    series : int (optional)
+        Specifies a series to reference.
+    level : int (optional)
+        Specifies a pyramidal level to reference.
+    chunkmode : 0 or 2 (optional)
+        Specifies to use strips/tiles (0, the default) or whole page data (2)
+        as chunks.
+    version : 0 or 1 (optional)
+        Version of the fsspec file to write. Default 0.
+
+    """
     if out is None:
         out = os.fspath(filename) + '.json'
     with TiffFile(filename) as tif:
