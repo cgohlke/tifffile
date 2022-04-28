@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.4.26
+:Version: 2022.4.28
 
 """
 
@@ -59,6 +59,7 @@ import fsspec
 import numpy
 import pytest
 import tifffile
+
 from numpy.testing import (
     assert_allclose,
     assert_array_almost_equal,
@@ -135,7 +136,6 @@ from tifffile.tifffile import (
     fluoview_description_metadata,
     format_size,
     hexdump,
-    imagecodecs,
     imagej_description,
     imagej_description_metadata,
     imagej_shape,
@@ -256,7 +256,12 @@ if not os.path.exists(PRIVATE_DIR):
     SKIP_PRIVATE = True
 
 if not SKIP_CODECS:
-    SKIP_CODECS = imagecodecs is None
+    try:
+        import imagecodecs
+
+        SKIP_CODECS = False
+    except ImportError:
+        SKIP_CODECS = True
 
 if SKIP_PYPY:
     SKIP_ZARR = True
@@ -1970,6 +1975,37 @@ def test_issue_shaped_metadata():
             assert meta[1]['shape'] == shapes[1]
             assert meta[1]['comment'] == 'a comment'
             assert meta[1]['number'] == 42
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_uic_dates(caplog):
+    """Test read MetaMorph STK metadata with invalid julian dates."""
+    # https://github.com/cgohlke/tifffile/issues/129
+    fname = private_file('issues/Cells-003_Cycle00001_Ch1_000001.ome.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_stk
+        assert tif.is_ome
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.is_memmappable
+        assert page.shape == (256, 256)
+        assert page.tags['Software'].value == 'Prairie View 5.4.64.40'
+        assert page.tags['DateTime'].value == '2019:03:18 10:13:33'
+        # assert uic tags
+        with pytest.warns(RuntimeWarning):
+            meta = tif.stk_metadata
+        assert 'no datetime before year 1' in caplog.text
+        assert meta['CreateTime'] is None
+        assert meta['LastSavedTime'] is None
+        assert meta['DatetimeCreated'] is None
+        assert meta['DatetimeModified'] is None
+        assert meta['Name'] == 'Gattaca'
+        assert meta['NumberPlanes'] == 1
+        # assert meta['TimeCreated'] ...
+        # assert meta['TimeModified'] ...
+        assert meta['Wavelengths'][0] == 1.7906976744186047
 
 
 ###############################################################################
@@ -3741,6 +3777,174 @@ def test_func_create_output_asarray(out, key):
                     del image
 
 
+def test_func_bitorder_decode():
+    """Test bitorder_decode function."""
+    from tifffile._imagecodecs import bitorder_decode
+
+    # bytes
+    assert bitorder_decode(b'\x01\x64') == b'\x80&'
+    assert bitorder_decode(b'\x01\x00\x9a\x02') == b'\x80\x00Y@'
+
+    # numpy array
+    data = numpy.array([1, 666], dtype='uint16')
+    reverse = numpy.array([128, 16473], dtype='uint16')
+    # return new array
+    assert_array_equal(bitorder_decode(data), reverse)
+    # array view not supported
+    data = numpy.array(
+        [
+            [1, 666, 1431655765, 62],
+            [2, 667, 2863311530, 32],
+            [3, 668, 1431655765, 30],
+        ],
+        dtype='uint32',
+    )
+    reverse = numpy.array(
+        [
+            [1, 666, 1431655765, 62],
+            [2, 16601, 1431655765, 32],
+            [3, 16441, 2863311530, 30],
+        ],
+        dtype='uint32',
+    )
+    with pytest.raises(NotImplementedError):
+        assert_array_equal(bitorder_decode(data[1:, 1:3]), reverse[1:, 1:3])
+
+
+@pytest.mark.parametrize(
+    'kind',
+    ['u1', 'u2', 'u4', 'u8', 'i1', 'i2', 'i4', 'i8', 'f4', 'f8', 'B'],
+)
+@pytest.mark.parametrize('byteorder', ['>', '<'])
+def test_func_delta_codec(byteorder, kind):
+    """Test delta codec functions."""
+    from tifffile._imagecodecs import delta_encode, delta_decode
+
+    # if byteorder == '>' and numpy.dtype(kind).itemsize == 1:
+    #     pytest.skip('duplicate test')
+
+    if kind[0] in 'iuB':
+        low = numpy.iinfo(kind).min
+        high = numpy.iinfo(kind).max
+        data = numpy.random.randint(
+            low, high, size=33 * 31 * 3, dtype=kind
+        ).reshape(33, 31, 3)
+    else:
+        # floating point
+        if byteorder == '>':
+            pytest.xfail('requires imagecodecs')
+        low, high = -1e5, 1e5
+        data = numpy.random.randint(
+            low, high, size=33 * 31 * 3, dtype='i4'
+        ).reshape(33, 31, 3)
+    data = data.astype(byteorder + kind)
+
+    data[16, 14] = [0, 0, 0]
+    data[16, 15] = [low, high, low]
+    data[16, 16] = [high, low, high]
+    data[16, 17] = [low, high, low]
+    data[16, 18] = [high, low, high]
+    data[16, 19] = [0, 0, 0]
+
+    if kind == 'B':
+        # data = data.reshape(-1)
+        data = data.tobytes()
+        assert delta_decode(delta_encode(data)) == data
+    else:
+        encoded = delta_encode(data, axis=-2)
+        assert encoded.dtype.byteorder == data.dtype.byteorder
+        assert_array_equal(data, delta_decode(encoded, axis=-2))
+        if not SKIP_CODECS:
+            assert_array_equal(
+                encoded, imagecodecs.delta_encode(data, axis=-2)
+            )
+
+
+@pytest.mark.parametrize('length', [0, 2, 31 * 33 * 3])
+@pytest.mark.parametrize('codec', ['lzma', 'zlib'])
+def test_func_zlib_lzma_codecs(codec, length):
+    """Test zlib and lzma codec functions."""
+    if codec == 'zlib':
+        from tifffile._imagecodecs import zlib_encode, zlib_decode
+
+        encode = zlib_encode
+        decode = zlib_decode
+    elif codec == 'lzma':
+        from tifffile._imagecodecs import lzma_encode, lzma_decode
+
+        encode = lzma_encode
+        decode = lzma_decode
+
+    if length:
+        data = numpy.random.randint(255, size=length, dtype='uint8')
+        assert decode(encode(data)) == data.tobytes()
+    else:
+        data = b''
+        assert decode(encode(data)) == data
+
+
+PACKBITS_DATA = [
+    ([], b''),
+    ([0] * 1, b'\x00\x00'),  # literal
+    ([0] * 2, b'\xff\x00'),  # replicate
+    ([0] * 3, b'\xfe\x00'),
+    ([0] * 64, b'\xc1\x00'),
+    ([0] * 127, b'\x82\x00'),
+    ([0] * 128, b'\x81\x00'),  # max replicate
+    ([0] * 129, b'\x81\x00\x00\x00'),
+    ([0] * 130, b'\x81\x00\xff\x00'),
+    ([0] * 128 * 3, b'\x81\x00' * 3),
+    ([255] * 1, b'\x00\xff'),  # literal
+    ([255] * 2, b'\xff\xff'),  # replicate
+    ([0, 1], b'\x01\x00\x01'),
+    ([0, 1, 2], b'\x02\x00\x01\x02'),
+    ([0, 1] * 32, b'\x3f' + b'\x00\x01' * 32),
+    ([0, 1] * 63 + [2], b'\x7e' + b'\x00\x01' * 63 + b'\x02'),
+    ([0, 1] * 64, b'\x7f' + b'\x00\x01' * 64),  # max literal
+    ([0, 1] * 64 + [2], b'\x7f' + b'\x00\x01' * 64 + b'\x00\x02'),
+    ([0, 1] * 64 * 5, (b'\x7f' + b'\x00\x01' * 64) * 5),
+    ([0, 1, 1], b'\x00\x00\xff\x01'),  # or b'\x02\x00\x01\x01'
+    ([0] + [1] * 128, b'\x00\x00\x81\x01'),  # or b'\x01\x00\x01\x82\x01'
+    ([0] + [1] * 129, b'\x00\x00\x81\x01\x00\x01'),  # b'\x01\x00\x01\x81\x01'
+    ([0, 1] * 64 + [2] * 2, b'\x7f' + b'\x00\x01' * 64 + b'\xff\x02'),
+    ([0, 1] * 64 + [2] * 128, b'\x7f' + b'\x00\x01' * 64 + b'\x81\x02'),
+    ([0, 0, 1], b'\x02\x00\x00\x01'),  # or b'\xff\x00\x00\x01'
+    ([0, 0] + [1, 2] * 64, b'\xff\x00\x7f' + b'\x01\x02' * 64),
+    ([0] * 128 + [1], b'\x81\x00\x00\x01'),
+    ([0] * 128 + [1, 2] * 64, b'\x81\x00\x7f' + b'\x01\x02' * 64),
+    (
+        b'\xaa\xaa\xaa\x80\x00\x2a\xaa\xaa\xaa\xaa\x80\x00'
+        b'\x2a\x22\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa',
+        b'\xfe\xaa\x02\x80\x00\x2a\xfd\xaa\x03\x80\x00\x2a\x22\xf7\xaa',
+    ),
+]
+
+
+@pytest.mark.parametrize('data', range(len(PACKBITS_DATA)))
+def test_func_packbits_decode(data):
+    """Test packbits_decode function."""
+    from tifffile._imagecodecs import packbits_decode
+
+    uncompressed, compressed = PACKBITS_DATA[data]
+    assert packbits_decode(compressed) == bytes(uncompressed)
+
+
+def test_func_packints_decode():
+    """Test packints_decode function."""
+    from tifffile._imagecodecs import packints_decode
+
+    decoded = packints_decode(b'', 'B', 1)
+    assert len(decoded) == 0
+    decoded = packints_decode(b'a', 'B', 1)
+    assert tuple(decoded) == (0, 1, 1, 0, 0, 0, 0, 1)
+    with pytest.raises(NotImplementedError):
+        decoded = packints_decode(b'ab', 'B', 2)
+        assert tuple(decoded) == (1, 2, 0, 1, 1, 2, 0, 2)
+    with pytest.raises(NotImplementedError):
+        decoded = packints_decode(b'abcd', 'B', 3)
+        assert tuple(decoded) == (3, 0, 2, 6, 1, 1, 4, 3, 3, 1)
+
+
 ###############################################################################
 
 # Test FileHandle class
@@ -4525,7 +4729,7 @@ def test_read_volumetric():
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
 def test_read_oxford():
-    """Test read 601x81, uint8, PackBits."""
+    """Test read 601x81, uint8, LZW."""
     fname = public_file('juicypixels/oxford.tif')
     with TiffFile(fname) as tif:
         assert tif.byteorder == '>'
@@ -4556,7 +4760,7 @@ def test_read_oxford():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_read_cramps():
     """Test 800x607 uint8, PackBits."""
     fname = public_file('juicypixels/cramps.tif')
@@ -4626,7 +4830,7 @@ def test_read_cramps_tile():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_read_jello():
     """Test read 256x192x3, uint16, palette, PackBits."""
     fname = public_file('juicypixels/jello.tif')
@@ -4797,7 +5001,7 @@ def test_read_strike():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_read_incomplete_tile_contig():
     """Test read PackBits compressed incomplete tile, contig RGB."""
     fname = public_file('GDAL/contig_tiled.tif')
@@ -4831,7 +5035,7 @@ def test_read_incomplete_tile_contig():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_read_incomplete_tile_separate():
     """Test read PackBits compressed incomplete tile, separate RGB."""
     fname = public_file('GDAL/separate_tiled.tif')
@@ -4897,7 +5101,7 @@ def test_read_django():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_pygame_icon():
     """Test read 128x128 RGBA uint8 PackBits."""
     fname = private_file('pygame_icon.tiff')
@@ -5447,7 +5651,7 @@ def test_read_aperio_j2k():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_lzma():
     """Test read LZMA compression."""
     # 512x512, uint8, lzma compression
@@ -10321,6 +10525,8 @@ def test_write_codecs(mode, tile, codec):
 @pytest.mark.parametrize('byteorder', ['>', '<'])
 def test_write_predictor(byteorder, dtype, tile, mode):
     """Test predictors."""
+    if dtype[0] == 'f' and SKIP_CODECS:
+        pytest.xfail('requires imagecodecs')
     tile = (32, 32) if tile else None
     f4 = imread(public_file('tifffile/gray.f4.tif'))
     if mode == 'rgb':
@@ -10393,7 +10599,7 @@ def test_write_predictor(byteorder, dtype, tile, mode):
             assert_decode_method(page)
             assert__str__(tif)
 
-        if imagecodecs.TIFF:
+        if not SKIP_CODECS and imagecodecs.TIFF:
             im = imagecodecs.imread(fname, index=None)
             assert_array_equal(im, numpy.squeeze(image))
 
@@ -11451,7 +11657,6 @@ def test_write_compression_deflate_level():
             assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
 def test_write_compression_lzma():
     """Test write LZMA compression."""
     data = WRITE_DATA
@@ -13861,7 +14066,9 @@ def test_write_fsspec_multifile(version, chunkmode):
             with TiffFile(fname) as tif:
                 data = tif.series[0].asarray()
                 with tif.series[0].aszarr(chunkmode=chunkmode) as store:
-                    store.write_fsspec(fh, url=url, version=version)
+                    store.write_fsspec(
+                        fh, url=url, version=version, templatename='f'
+                    )
         mapper = fsspec.get_mapper(
             'reference://',
             fo=jsonfile,
