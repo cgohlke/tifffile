@@ -1,7 +1,13 @@
 Revisions
 ---------
+2022.4.28
+    Pass 4837 tests.
+    Add option to specify fsspec version 1 url template name (#131).
+    Ignore invalid dates in UIC tags (#129).
+    Fix zlib_encode and lzma_encode to work with non-contiguous arrays (#128).
+    Fix delta_encode to preserve byteorder of ndarrays.
+    Move imagecodecs fallback functions to private module and add tests.
 2022.4.26
-    Pass 4779 tests.
     Fix AttributeError in TiffFile.shaped_metadata (#127).
     Fix TiffTag.overwrite with pre-packed binary value.
     Write sparse TIFF if tile iterator contains None.
