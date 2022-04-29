@@ -72,7 +72,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.4.26
+:Version: 2022.4.28
 
 Requirements
 ------------
@@ -92,8 +92,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2022.4.28
+    Pass 4837 tests.
+    Add option to specify fsspec version 1 url template name (#131).
+    Ignore invalid dates in UIC tags (#129).
+    Fix zlib_encode and lzma_encode to work with non-contiguous arrays (#128).
+    Fix delta_encode to preserve byteorder of ndarrays.
+    Move imagecodecs fallback functions to private module and add tests.
 2022.4.26
-    Pass 4779 tests.
     Fix AttributeError in TiffFile.shaped_metadata (#127).
     Fix TiffTag.overwrite with pre-packed binary value.
     Write sparse TIFF if tile iterator contains None.
@@ -582,17 +588,18 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 ...               metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                         'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
-Write a tiled, multi-resolution, pyramidal, OME-TIFF file using
-JPEG compression. Sub-resolution images are written to SubIFDs:
+Write a multi-dimensional, multi-resolution (pyramidal) OME-TIFF file using
+JPEG compressed tiles. Sub-resolution images are written to SubIFDs:
 
->>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
+>>> data = numpy.random.randint(0, 2**12, (8, 512, 512, 3), 'uint16')
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
-...     options = dict(tile=(256, 256), photometric='rgb', compression='jpeg')
+...     options = dict(photometric='rgb', tile=(128, 128), compression='jpeg',
+...                    metadata={'axes': 'TYXS'})
 ...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolutions
-...     tif.write(data[::2, ::2], subfiletype=1, **options)
-...     tif.write(data[::4, ::4], subfiletype=1, **options)
+...     tif.write(data[:, ::2, ::2], subfiletype=1, **options)
+...     tif.write(data[:, ::4, ::4], subfiletype=1, **options)
 
 Access the image levels in the pyramidal OME-TIFF file:
 
@@ -624,8 +631,8 @@ Use zarr to read parts of the tiled, pyramidal images in the TIFF file:
 >>> z
 <zarr.hierarchy.Group '/' read-only>
 >>> z[0]  # base layer
-<zarr.core.Array '/0' (1024, 1024, 3) uint8 read-only>
->>> z[0][256:512, 512:768].shape  # read a tile from the base layer
+<zarr.core.Array '/0' (8, 512, 512, 3) uint16 read-only>
+>>> z[0][2, 128:384, 256:].shape  # read a tile from the base layer
 (256, 256, 3)
 >>> store.close()
 
@@ -674,7 +681,7 @@ Open the fsspec ReferenceFileSystem as a zarr array:
 
 from __future__ import annotations
 
-__version__ = '2022.4.26'
+__version__ = '2022.4.28'
 
 __all__ = [
     'OmeXml',
@@ -754,6 +761,16 @@ import warnings
 from functools import cached_property
 from concurrent.futures import ThreadPoolExecutor
 
+import numpy
+
+try:
+    import imagecodecs
+except ImportError:
+    try:
+        from . import _imagecodecs as imagecodecs
+    except ImportError:
+        import _imagecodecs as imagecodecs
+
 from typing import (
     Any,
     BinaryIO,
@@ -775,13 +792,6 @@ from typing import (
     cast,
     overload,
 )
-
-try:
-    import imagecodecs
-except Exception:
-    imagecodecs = None
-
-import numpy
 
 try:
     from numpy.typing import ArrayLike
@@ -2089,15 +2099,12 @@ class TiffWriter:
         packints = False
         if bilevel:
             if bitspersample is not None and bitspersample != 1:
-                raise ValueError(
-                    f'bitspersample {bitspersample} must be 1 for bilevel'
-                )
+                raise ValueError(f'{bitspersample=} must be 1 for bilevel')
             bitspersample = 1
         elif compressiontag == 7 and datadtype == 'uint16':
             if bitspersample is not None and bitspersample != 12:
                 raise ValueError(
-                    f'bitspersample {bitspersample} must be 12 for JPEG '
-                    'compressed uint16'
+                    f'{bitspersample=} must be 12 for JPEG compressed uint16'
                 )
             bitspersample = 12  # use 12-bit JPEG compression
         elif bitspersample is None:
@@ -2105,23 +2112,16 @@ class TiffWriter:
         elif (
             datadtype.kind != 'u' or datadtype.itemsize > 4
         ) and bitspersample != datadtype.itemsize * 8:
-            raise ValueError(
-                f'bitspersample {bitspersample} does not match '
-                f'dtype {datadtype}'
-            )
+            raise ValueError(f'{bitspersample=} does not match {datadtype=}')
         elif not (
             bitspersample > {1: 0, 2: 8, 4: 16}[datadtype.itemsize]
             and bitspersample <= datadtype.itemsize * 8
         ):
-            raise ValueError(
-                f'bitspersample {bitspersample} out of range of '
-                f'dtype {datadtype}'
-            )
+            raise ValueError(f'{bitspersample=} out of range of {datadtype=}')
         elif compression:
             if bitspersample != datadtype.itemsize * 8:
                 raise ValueError(
-                    f'bitspersample {bitspersample} cannot be used with '
-                    'compression'
+                    f'{bitspersample=} cannot be used with compression'
                 )
         elif bitspersample != datadtype.itemsize * 8:
             packints = True
@@ -2518,7 +2518,7 @@ class TiffWriter:
         if bilevel:
             if compressiontag == 1:
 
-                def compressionfunc(data, level=None) -> bytes:
+                def compressionfunc(data) -> bytes:
                     return numpy.packbits(data, axis=-2).tobytes()
 
             elif compressiontag in (5, 32773):
@@ -2571,7 +2571,7 @@ class TiffWriter:
         elif packints:
 
             def compressionfunc(data, bps=bitspersample) -> bytes:
-                return packints_encode(data, bps, axis=-2)
+                return imagecodecs.packints_encode(data, bps, axis=-2)
 
         else:
             compressionfunc = None
@@ -4088,8 +4088,8 @@ class TiffFile:
             # planar storage, S == C, saved by Bio-Formats
             if page.shaped[0] != channels:
                 log_warning(
-                    f'{self!r} ImageJ series number of channels {channels} '
-                    f'does not match separate samples {page.shaped[0]}'
+                    f'{self!r} ImageJ series number of {channels=} '
+                    f'does not match separate samples={page.shaped[0]}'
                 )
             shape = shape[:-1] + page.shape
             axes += page.axes[1:]
@@ -5510,36 +5510,23 @@ class TiffFile:
             result['ZDistance'] = uic2tag['ZDistance']
             result['TimeCreated'] = uic2tag['TimeCreated']
             result['TimeModified'] = uic2tag['TimeModified']
-            try:
-                result['DatetimeCreated'] = numpy.array(
-                    [
-                        julian_datetime(*dt)
-                        for dt in zip(
-                            uic2tag['DateCreated'], uic2tag['TimeCreated']
-                        )
-                    ],
-                    dtype='datetime64[ns]',
-                )
-            except ValueError as exc:
-                log_warning(
-                    f'{self!r} STK DatetimeCreated failed with '
-                    f'{exc.__class__.__name__}: {exc}'
-                )
-            try:
-                result['DatetimeModified'] = numpy.array(
-                    [
-                        julian_datetime(*dt)
-                        for dt in zip(
-                            uic2tag['DateModified'], uic2tag['TimeModified']
-                        )
-                    ],
-                    dtype='datetime64[ns]',
-                )
-            except ValueError as exc:
-                log_warning(
-                    f'{self!r} STK DatetimeModified failed with '
-                    f'{exc.__class__.__name__}: {exc}'
-                )
+            for key in ('Created', 'Modified'):
+                try:
+                    result['Datetime' + key] = numpy.array(
+                        [
+                            julian_datetime(*dt)
+                            for dt in zip(
+                                uic2tag['Date' + key], uic2tag['Time' + key]
+                            )
+                        ],
+                        dtype='datetime64[ns]',
+                    )
+                except Exception as exc:
+                    result['Datetime' + key] = None
+                    log_warning(
+                        f'{self!r} STK Datetime{key} failed with '
+                        f'{exc.__class__.__name__}: {exc}'
+                    )
         return result
 
     @cached_property
@@ -7166,13 +7153,13 @@ class TiffPage:
 
             def unpack(data: bytes, /) -> numpy.ndarray:
                 # return numpy.float32 array from float24
-                return float24_decode(data, self.parent.byteorder)
+                return imagecodecs.float24_decode(data, self.parent.byteorder)
 
         else:
             # bilevel and packed integers
             def unpack(data: bytes, /) -> numpy.ndarray:
                 # return numpy array from packed integers
-                return packints_decode(
+                return imagecodecs.packints_decode(
                     data, dtype, self.bitspersample, stwidth * samples
                 )
 
@@ -7196,13 +7183,12 @@ class TiffPage:
                     shape = pad_none(shape)
                 return data, segmentindex, shape
             if self.fillorder == 2:
-                data = bitorder_decode(data)
+                data = imagecodecs.bitorder_decode(data)
             if decompress is not None:
                 # TODO: calculate correct size for packed integers
                 size = shape[0] * shape[1] * shape[2] * shape[3]
                 data = decompress(data, out=size * dtype.itemsize)
-                assert data is not None
-            data_array = unpack(data)
+            data_array = unpack(data)  # type: ignore
             # del data
             data_array = reshape(data_array, segmentindex, shape)
             data_array = data_array.astype('=' + dtype.char, copy=False)
@@ -7382,12 +7368,14 @@ class TiffPage:
                     out=out,
                 )
             if keyframe.fillorder == 2:
-                bitorder_decode(result, out=result)  # type: ignore
+                result = imagecodecs.bitorder_decode(
+                    result, out=result
+                )  # type: ignore
             if keyframe.predictor != 1:
                 # predictors without compression
                 unpredict = TIFF.UNPREDICTORS[keyframe.predictor]
                 if keyframe.predictor == 1:
-                    unpredict(result, axis=-2, out=result)
+                    result = unpredict(result, axis=-2, out=result)
                 else:
                     # floatpred cannot decode in-place
                     out = unpredict(result, axis=-2, out=result)
@@ -9223,7 +9211,7 @@ class TiffTag:
     def __str__(self) -> str:
         return self._str()
 
-    def _str(self, detail: int = 0, width: int = 79):
+    def _str(self, detail: int = 0, width: int = 79) -> str:
         """Return string containing information about TiffTag."""
         height = 1 if detail <= 0 else 8 * detail
         dtype = self.dtype_name
@@ -9249,6 +9237,7 @@ class TiffTag:
             except Exception:
                 value = pformat(value, width=width, height=height)
         if detail <= 0:
+            line += '= '
             line += value[:width]
             line = line[:width]
         else:
@@ -9447,10 +9436,10 @@ class TiffTags:
                 except Exception:
                     # delay load failed or closed file
                     continue
-                if detail < 2 and tag.code in (273, 279, 324, 325):
-                    value = pformat(value, width=width, height=detail * 4)
+                if tag.code in (273, 279, 324, 325):
+                    value = pformat(value, width=width, height=detail * 3)
                 else:
-                    value = pformat(value, width=width, height=detail * 12)
+                    value = pformat(value, width=width, height=detail * 8)
                 if tag.count > 1:
                     vlines.append(
                         f'{tag.name} {tag.dtype_name}[{tag.count}]\n{value}'
@@ -9535,7 +9524,9 @@ class TiffTagRegistry:
     def get(self, key: int, /, default: str) -> str:
         ...
 
-    def get(self, key, /, default=None):
+    def get(
+        self, key: int | str, /, default: str | None = None
+    ) -> str | int | None:
         """Return first code/name if exists, else default."""
         for d in self._list:
             if key in d:
@@ -9554,10 +9545,12 @@ class TiffTagRegistry:
     def getall(self, key: int, /, default: list[str]) -> list[str]:
         ...
 
-    def getall(self, key, /, default=None):
+    def getall(
+        self, key: int | str, /, default: list[str] | None = None
+    ) -> list[str] | list[int] | None:
         """Return list of all codes/names if exists, else default."""
         result = [d[key] for d in self._list if key in d]
-        return result if result else default
+        return result if result else default  # type: ignore
 
     @overload
     def __getitem__(self, key: int, /) -> str:
@@ -9567,7 +9560,7 @@ class TiffTagRegistry:
     def __getitem__(self, key: str, /) -> int:
         ...
 
-    def __getitem__(self, key, /):
+    def __getitem__(self, key: int | str, /) -> int | str:
         """Return first code/name. Raise KeyError if not found."""
         for d in self._list:
             if key in d:
@@ -9850,7 +9843,9 @@ class TiffPageSeries:
     ) -> list[TiffPage | TiffFrame | None]:
         ...
 
-    def __getitem__(self, key, /):
+    def __getitem__(
+        self, key: int | numpy.integer | slice | Iterable[int], /
+    ) -> TiffPage | TiffFrame | list[TiffPage | TiffFrame | None] | None:
         """Return specified page(s)."""
         if isinstance(key, (int, numpy.integer)):
             return self._getitem(int(key))
@@ -10247,8 +10242,10 @@ class ZarrTiffStore(ZarrStore):
         url: str,
         *,
         groupname: str | None = None,
+        templatename: str | None = None,
         compressors: dict[int, str | None] = None,
         version: int | None = None,
+        # experimental API:
         _shape: Sequence[int] | None = None,
         _axes: Sequence[str] | None = None,
         _index: str | None = None,
@@ -10265,6 +10262,8 @@ class ZarrTiffStore(ZarrStore):
             Remote location of the TIFF file(s) without the file name(s).
         groupname: str (optional)
             Zarr group name.
+        templatename : str (optional)
+            Version 1 url template name. Default 'u'.
         compressors: dict of int to str (optional)
             Mapping of TIFF COMPRESSION to numcodecs codec names.
         version : 0 or 1 (optional)
@@ -10384,6 +10383,8 @@ class ZarrTiffStore(ZarrStore):
         if version == 1:
             if _append:
                 raise ValueError('cannot append to version 1')
+            if templatename is None:
+                templatename = 'u'
             refs['version'] = 1
             refs['templates'] = {}
             refs['gen'] = []
@@ -10396,13 +10397,13 @@ class ZarrTiffStore(ZarrStore):
                     fname = page.keyframe.parent.filehandle.name
                     if fname in templates:
                         continue
-                    key = f'u{i}'
+                    key = f'{templatename}{i}'
                     templates[fname] = '{{%s}}' % key
                     refs['templates'][key] = url + fname
                     i += 1
             else:
                 fname = self._data[0].keyframe.parent.filehandle.name
-                key = 'u'
+                key = f'{templatename}'
                 templates[fname] = '{{%s}}' % key
                 refs['templates'][key] = url + fname
 
@@ -10871,8 +10872,10 @@ class ZarrFileSequenceStore(ZarrStore):
         url: str,
         *,
         groupname: str | None = None,
+        templatename: str | None = None,
         codec_id: str | None = None,
         version: int | None = None,
+        # experimental API:
         _append: bool = False,
         _close: bool = True,
     ) -> None:
@@ -10886,6 +10889,8 @@ class ZarrFileSequenceStore(ZarrStore):
             Remote location of the TIFF file(s) without the file name(s).
         groupname: str (optional)
             Zarr group name.
+        templatename : str (optional)
+            Version 1 url template name. Default 'u'.
         codec_id: str (optional)
             Name of the numcodecs codec to read files/chunks.
         version : 0 or 1 (optional)
@@ -10950,11 +10955,13 @@ class ZarrFileSequenceStore(ZarrStore):
         if version == 1:
             if _append:
                 raise ValueError('cannot append when using version 1')
+            if templatename is None:
+                templatename = 'u'
             refs['version'] = 1
-            refs['templates'] = {'u': url}
+            refs['templates'] = {templatename: url}
             refs['gen'] = []
             refs['refs'] = refzarr = dict()
-            url = '{{u}}'
+            url = '{{%s}}' % templatename
         else:
             refzarr = refs
 
@@ -12318,10 +12325,10 @@ class StoredShape:
         ...
 
     @overload
-    def __getitem__(self, key: slice | Sequence[int], /) -> tuple[int, ...]:
+    def __getitem__(self, key: slice, /) -> tuple[int, ...]:
         ...
 
-    def __getitem__(self, key, /):
+    def __getitem__(self, key: int | slice, /) -> int | tuple[int, ...]:
         return (
             self.frames,
             self.separate_samples,
@@ -14375,8 +14382,6 @@ class _TIFF:
 
             def __init__(self) -> None:
                 self._codecs = {1: identityfunc}
-                if imagecodecs is None:
-                    self._codecs[2] = delta_encode
 
             def __getitem__(self, key: int, /) -> Callable[..., Any]:
                 if key in self._codecs:
@@ -14449,8 +14454,6 @@ class _TIFF:
 
             def __init__(self) -> None:
                 self._codecs = {1: identityfunc}
-                if imagecodecs is None:
-                    self._codecs[2] = delta_decode
 
             def __getitem__(self, key: int, /) -> Callable[..., Any]:
                 if key in self._codecs:
@@ -14523,10 +14526,6 @@ class _TIFF:
 
             def __init__(self) -> None:
                 self._codecs = {1: identityfunc}
-                if imagecodecs is None:
-                    self._codecs[8] = zlib_encode
-                    self._codecs[32946] = zlib_encode
-                    self._codecs[34925] = lzma_encode
 
             def __getitem__(self, key: int, /) -> Callable[..., Any]:
                 if key in self._codecs:
@@ -14541,11 +14540,18 @@ class _TIFF:
                             hasattr(imagecodecs, 'DEFLATE')
                             and imagecodecs.DEFLATE
                         ):
+                            # imagecodecs built with deflate
                             codec = imagecodecs.deflate_encode
-                        elif imagecodecs.ZLIB:
+                        elif hasattr(imagecodecs, 'ZLIB') and imagecodecs.ZLIB:
                             codec = imagecodecs.zlib_encode
                         else:
-                            codec = zlib_encode
+                            # imagecodecs built without zlib
+                            try:
+                                from . import _imagecodecs
+                            except ImportError:
+                                import _imagecodecs  # type: ignore
+
+                            codec = _imagecodecs.zlib_encode
                     elif key == 32773:
                         codec = imagecodecs.packbits_encode
                     elif (
@@ -14560,10 +14566,16 @@ class _TIFF:
                     elif key == 34892:
                         codec = imagecodecs.jpeg8_encode  # DNG lossy
                     elif key == 34925:
-                        if imagecodecs.LZMA:
+                        if hasattr(imagecodecs, 'LZMA') and imagecodecs.LZMA:
                             codec = imagecodecs.lzma_encode
                         else:
-                            codec = lzma_encode
+                            # imagecodecs built without lzma
+                            try:
+                                from . import _imagecodecs
+                            except ImportError:
+                                import _imagecodecs  # type: ignore
+
+                            codec = _imagecodecs.lzma_encode
                     elif key == 34933:
                         codec = imagecodecs.png_encode
                     elif key == 34934 or key == 22610:
@@ -14580,7 +14592,7 @@ class _TIFF:
                         except ValueError:
                             msg = f'{key} is not a known COMPRESSION'
                         raise KeyError(msg)
-                except AttributeError:
+                except (AttributeError, ImportError):
                     raise KeyError(
                         f'{COMPRESSION(key)!r} '
                         "requires the 'imagecodecs' package"
@@ -14613,11 +14625,6 @@ class _TIFF:
 
             def __init__(self) -> None:
                 self._codecs = {1: identityfunc}
-                if imagecodecs is None:
-                    self._codecs[8] = zlib_decode
-                    self._codecs[32773] = packbits_decode
-                    self._codecs[32946] = zlib_decode
-                    self._codecs[34925] = lzma_decode
 
             def __getitem__(self, key: int, /) -> Callable[..., Any]:
                 if key in self._codecs:
@@ -14635,11 +14642,18 @@ class _TIFF:
                             hasattr(imagecodecs, 'DEFLATE')
                             and imagecodecs.DEFLATE
                         ):
+                            # imagecodecs built with deflate
                             codec = imagecodecs.deflate_decode
-                        elif imagecodecs.ZLIB:
+                        elif hasattr(imagecodecs, 'ZLIB') and imagecodecs.ZLIB:
                             codec = imagecodecs.zlib_decode
                         else:
-                            codec = zlib_decode
+                            # imagecodecs built without zlib
+                            try:
+                                from . import _imagecodecs
+                            except ImportError:
+                                import _imagecodecs  # type: ignore
+
+                            codec = _imagecodecs.zlib_decode
                     elif key == 32773:
                         codec = imagecodecs.packbits_decode
                     elif (
@@ -14654,10 +14668,16 @@ class _TIFF:
                     elif key == 34892:
                         codec = imagecodecs.jpeg8_decode  # DNG lossy
                     elif key == 34925:
-                        if imagecodecs.LZMA:
+                        if hasattr(imagecodecs, 'LZMA') and imagecodecs.LZMA:
                             codec = imagecodecs.lzma_decode
                         else:
-                            codec = lzma_decode
+                            # imagecodecs built without lzma
+                            try:
+                                from . import _imagecodecs
+                            except ImportError:
+                                import _imagecodecs  # type: ignore
+
+                            codec = _imagecodecs.lzma_decode
                     elif key == 34933:
                         codec = imagecodecs.png_decode
                     elif key == 34934 or key == 22610:
@@ -14674,7 +14694,7 @@ class _TIFF:
                         except ValueError:
                             msg = f'{key} is not a known COMPRESSION'
                         raise KeyError(msg)
-                except AttributeError:
+                except (AttributeError, ImportError):
                     raise KeyError(
                         f'{COMPRESSION(key)!r} '
                         "requires the 'imagecodecs' package"
@@ -15930,9 +15950,7 @@ def read_tags(
         if offset == 0:
             break
         if offset >= fh.size:
-            log_warning(
-                f'<tifffile.read_tags> invalid next page offset {offset}'
-            )
+            log_warning(f'<tifffile.read_tags> invalid next page {offset=}')
             break
         fh.seek(offset)
 
@@ -16246,7 +16264,15 @@ def read_uic_tag(
         value = value[0] / value[1]
     elif dtype is julian_datetime:
         # datetime
-        value = julian_datetime(*read_int(2))
+        value = read_int(2)
+        try:
+            value = julian_datetime(*value)
+        except Exception as exc:
+            value = None
+            log_warning(
+                f'<tifffile.read_uic_tag> failed reading {name} with '
+                f'{exc.__class__.__name__}: {exc}'
+            )
     elif dtype is read_uic_image_property:
         # ImagePropertyEx
         value = read_uic_image_property(fh)
@@ -17953,270 +17979,6 @@ def unpack_rgb(
     return result.reshape(-1)
 
 
-def float24_decode(data: bytes, /, byteorder: ByteOrder) -> numpy.ndarray:
-    """Return float32 array from float24."""
-    raise NotImplementedError('float24_decode')
-
-
-def zlib_encode(
-    data: bytes, /, level: int | None = None, *, out=None
-) -> bytes:
-    """Compress Zlib DEFLATE."""
-    import zlib
-
-    return zlib.compress(data, 6 if level is None else level)
-
-
-def zlib_decode(data: bytes, /, *, out=None) -> bytes:
-    """Decompress Zlib DEFLATE."""
-    import zlib
-
-    return zlib.decompress(data)
-
-
-def lzma_encode(
-    data: bytes, /, level: int | None = None, *, out=None
-) -> bytes:
-    """Compress LZMA."""
-    import lzma
-
-    return lzma.compress(data)
-
-
-def lzma_decode(data: bytes, /, *, out=None) -> bytes:
-    """Decompress LZMA."""
-    import lzma
-
-    return lzma.decompress(data)
-
-
-if imagecodecs is None:
-
-    @overload
-    def delta_encode(
-        data: bytes | bytearray, /, axis: int = -1, dist: int = 1, *, out=None
-    ) -> bytes:
-        ...
-
-    @overload
-    def delta_encode(
-        data: numpy.ndarray, /, axis: int = -1, dist: int = 1, *, out=None
-    ) -> numpy.ndarray:
-        ...
-
-    def delta_encode(
-        data,
-        /,
-        axis: int = -1,
-        dist: int = 1,
-        *,
-        out=None,
-    ):
-        """Encode Delta."""
-        if dist != 1:
-            raise NotImplementedError(f'dist {dist} not implemented')
-        if isinstance(data, (bytes, bytearray)):
-            data = numpy.frombuffer(data, dtype=numpy.uint8)
-            diff = numpy.diff(data, axis=0)
-            return numpy.insert(diff, 0, data[0]).tobytes()
-
-        dtype = data.dtype
-        if dtype.kind == 'f':
-            data = data.view(f'u{dtype.itemsize}')
-
-        diff = numpy.diff(data, axis=axis)
-        key: list[int | slice] = [slice(None)] * data.ndim
-        key[axis] = 0
-        diff = numpy.insert(diff, 0, data[tuple(key)], axis=axis)
-
-        if dtype.kind == 'f':
-            return diff.view(dtype)
-        return diff
-
-    @overload
-    def delta_decode(
-        data: bytes, /, axis: int, dist: int, *, out: Any
-    ) -> bytes:
-        ...
-
-    @overload
-    def delta_decode(
-        data: numpy.ndarray, /, axis: int, dist: int, *, out: Any
-    ) -> numpy.ndarray:
-        ...
-
-    def delta_decode(data, /, axis=-1, dist=1, *, out=None):
-        """Decode Delta."""
-        if dist != 1:
-            raise NotImplementedError(f'dist {dist} not implemented')
-        if out is not None and not out.flags.writeable:
-            out = None
-        if isinstance(data, (bytes, bytearray)):
-            data = numpy.frombuffer(data, dtype=numpy.uint8)
-            return numpy.cumsum(
-                data, axis=0, dtype=numpy.uint8, out=out
-            ).tobytes()
-        if data.dtype.kind == 'f':
-            view = data.view(f'u{data.dtype.itemsize}')
-            view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
-            return view.view(data.dtype)
-        return numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
-
-    @overload
-    def bitorder_decode(
-        data: bytes, /, *, out=None, _bitorder: list[Any] = []
-    ) -> bytes:
-        ...
-
-    @overload
-    def bitorder_decode(
-        data: numpy.ndarray, /, *, out=None, _bitorder: list[Any] = []
-    ) -> numpy.ndarray:
-        ...
-
-    def bitorder_decode(data, /, *, out=None, _bitorder=[]):
-        r"""Reverse bits in each byte of bytes or numpy array.
-
-        Decode data where pixels with lower column values are stored in the
-        lower-order bits of the bytes (TIFF FillOrder is LSB2MSB).
-
-        Parameters
-        ----------
-        data : bytes or ndarray
-            The data to be bit reversed. If bytes, a new bit-reversed
-            bytes is returned. Numpy arrays are bit-reversed in-place.
-
-        Examples
-        --------
-        >>> bitorder_decode(b'\x01\x64')
-        b'\x80&'
-        >>> data = numpy.array([1, 666], dtype='uint16')
-        >>> bitorder_decode(data)
-        >>> data
-        array([  128, 16473], dtype=uint16)
-
-        """
-        if not _bitorder:
-            _bitorder.append(
-                b'\x00\x80@\xc0 \xa0`\xe0\x10\x90P\xd00\xb0p\xf0\x08\x88H'
-                b'\xc8(\xa8h\xe8\x18\x98X\xd88\xb8x\xf8\x04\x84D\xc4$\xa4d'
-                b'\xe4\x14\x94T\xd44\xb4t\xf4\x0c\x8cL\xcc,\xacl\xec\x1c\x9c'
-                b'\\\xdc<\xbc|\xfc\x02\x82B\xc2"\xa2b\xe2\x12\x92R\xd22'
-                b'\xb2r\xf2\n\x8aJ\xca*\xaaj\xea\x1a\x9aZ\xda:\xbaz\xfa'
-                b'\x06\x86F\xc6&\xa6f\xe6\x16\x96V\xd66\xb6v\xf6\x0e\x8eN'
-                b'\xce.\xaen\xee\x1e\x9e^\xde>\xbe~\xfe\x01\x81A\xc1!\xa1a'
-                b'\xe1\x11\x91Q\xd11\xb1q\xf1\t\x89I\xc9)\xa9i\xe9\x19'
-                b'\x99Y\xd99\xb9y\xf9\x05\x85E\xc5%\xa5e\xe5\x15\x95U\xd55'
-                b'\xb5u\xf5\r\x8dM\xcd-\xadm\xed\x1d\x9d]\xdd=\xbd}\xfd'
-                b'\x03\x83C\xc3#\xa3c\xe3\x13\x93S\xd33\xb3s\xf3\x0b\x8bK'
-                b'\xcb+\xabk\xeb\x1b\x9b[\xdb;\xbb{\xfb\x07\x87G\xc7\'\xa7g'
-                b'\xe7\x17\x97W\xd77\xb7w\xf7\x0f\x8fO\xcf/\xafo\xef\x1f\x9f_'
-                b'\xdf?\xbf\x7f\xff'
-            )
-            _bitorder.append(numpy.frombuffer(_bitorder[0], dtype=numpy.uint8))
-        if isinstance(data, bytes):
-            return data.translate(_bitorder[0])
-        try:
-            view = data.view('uint8')
-            numpy.take(_bitorder[1], view, out=view)
-            return data
-        except ValueError:
-            raise NotImplementedError('slices of arrays not supported')
-        return None
-
-    def packints_encode(
-        data: numpy.ndarray, /, bitspersample: int, axis: int = -1, *, out=None
-    ) -> bytes:
-        """Tightly pack integers."""
-        raise NotImplementedError('packints_encode')
-
-    def packints_decode(
-        data: bytes,
-        /,
-        dtype: numpy.dtype | str,
-        bitspersample: int,
-        runlen: int = 0,
-        *,
-        out=None,
-    ) -> numpy.ndarray:
-        """Decompress bytes to array of integers.
-
-        This implementation only handles itemsizes 1, 8, 16, 32, and 64 bits.
-        Install the imagecodecs package for decoding other integer sizes.
-
-        Parameters
-        ----------
-        data : byte str
-            Data to decompress.
-        dtype : numpy.dtype or str
-            A numpy boolean or integer type.
-        bitspersample : int
-            Number of bits per integer.
-        runlen : int
-            Number of consecutive integers, after which to start at next byte.
-
-        Examples
-        --------
-        >>> packints_decode(b'a', 'B', 1)
-        array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
-
-        """
-        if bitspersample == 1:  # bitarray
-            data_array = numpy.frombuffer(data, '|B')
-            data_array = numpy.unpackbits(data_array)
-            if runlen % 8:
-                data_array = data_array.reshape(-1, runlen + (8 - runlen % 8))
-                data_array = data_array[:, :runlen].reshape(-1)
-            return data_array.astype(dtype)
-        if bitspersample in (8, 16, 32, 64):
-            return numpy.frombuffer(data, dtype)
-        raise NotImplementedError(
-            f'unpacking {bitspersample}-bit integers '
-            f'to {numpy.dtype(dtype)} not supported'
-        )
-
-    def packbits_decode(encoded: bytes, /, *, out=None) -> bytes:
-        r"""Decompress PackBits encoded byte string.
-
-        >>> packbits_decode(b'\x80\x80')  # NOP
-        b''
-        >>> packbits_decode(b'\x02123')
-        b'123'
-        >>> packbits_decode(
-        ...   b'\xfe\xaa\x02\x80\x00\x2a\xfd\xaa\x03\x80\x00\x2a\x22\xf7\xaa'
-        ...     )[:-5]
-        b'\xaa\xaa\xaa\x80\x00*\xaa\xaa\xaa\xaa\x80\x00*"\xaa\xaa\xaa\xaa\xaa'
-
-        """
-        out = []
-        out_extend = out.extend
-        i = 0
-        try:
-            while True:
-                n = ord(encoded[i : i + 1]) + 1
-                i += 1
-                if n > 129:
-                    # replicate
-                    out_extend(encoded[i : i + 1] * (258 - n))
-                    i += 1
-                elif n < 129:
-                    # literal
-                    out_extend(encoded[i : i + n])
-                    i += n
-        except TypeError:
-            pass
-        return bytes(out)
-
-else:
-    bitorder_decode = imagecodecs.bitorder_decode
-    packints_decode = imagecodecs.packints_decode
-    packints_encode = imagecodecs.packints_encode
-    try:
-        float24_decode = imagecodecs.float24_decode
-    except AttributeError:
-        pass
-
-
 def apply_colormap(
     image: numpy.ndarray, colormap: numpy.ndarray, /, contig: bool = True
 ) -> numpy.ndarray:
@@ -18656,7 +18418,9 @@ def reshape_nd(data_or_shape: numpy.ndarray, ndim: int, /) -> numpy.ndarray:
     ...
 
 
-def reshape_nd(data_or_shape, ndim, /):
+def reshape_nd(
+    data_or_shape: tuple[int, ...] | numpy.ndarray, ndim: int, /
+) -> tuple[int, ...] | numpy.ndarray:
     """Return image array or shape with at least ndim dimensions.
 
     Prepend 1s to image shape as necessary.
@@ -18673,12 +18437,17 @@ def reshape_nd(data_or_shape, ndim, /):
     (1, 2, 3)
 
     """
-    is_shape = isinstance(data_or_shape, tuple)
-    shape = data_or_shape if is_shape else data_or_shape.shape
+    if isinstance(data_or_shape, tuple):
+        shape = data_or_shape
+    else:
+        shape = data_or_shape.shape
     if len(shape) >= ndim:
         return data_or_shape
     shape = (1,) * (ndim - len(shape)) + shape
-    return shape if is_shape else data_or_shape.reshape(shape)
+    if isinstance(data_or_shape, tuple):
+        return shape
+    else:
+        return data_or_shape.reshape(shape)
 
 
 def squeeze_axes(
@@ -18808,7 +18577,13 @@ def subresolution(
     ...
 
 
-def subresolution(a, b, /, p=2, n=16):
+def subresolution(
+    a: TiffPage | TiffPageSeries,
+    b: TiffPage | TiffPageSeries,
+    /,
+    p: int = 2,
+    n: int = 16,
+) -> int | None:
     """Return level of subresolution of series or page b vs a."""
     if a.axes != b.axes or a.dtype != b.dtype:
         return None
@@ -19188,35 +18963,46 @@ def matlabstr2py(string: str, /) -> Any:
 
 @overload
 def stripnull(
-    string: bytes, /, *, null: bytes = b'\x00', first: bool = True
+    string: bytes, /, null: bytes | None = None, *, first: bool = True
 ) -> bytes:
     ...
 
 
 @overload
 def stripnull(
-    string: str, /, *, null: str | bytes = b'\x00', first: bool = True
+    string: str, /, null: str | None = None, *, first: bool = True
 ) -> str:
     ...
 
 
-def stripnull(string, /, *, null=b'\x00', first=True):
+def stripnull(
+    string: str | bytes,
+    /,
+    null: str | bytes | None = None,
+    *,
+    first: bool = True,
+) -> str | bytes:
     r"""Return string truncated at first null character.
 
-    Clean NULL terminated C strings. For Unicode strings use null='\0'.
+    Clean NULL terminated C strings.
 
-    >>> stripnull(b'string\x00\x00')
-    b'string'
-    >>> stripnull(b'string\x00string\x00\x00', first=False)
-    b'string\x00string'
-    >>> stripnull('string\x00', null='\0')
+    >>> stripnull(b'bytes\x00\x00')
+    b'bytes'
+    >>> stripnull(b'bytes\x00bytes\x00\x00', first=False)
+    b'bytes\x00bytes'
+    >>> stripnull('string\x00')
     'string'
 
     """
+    if null is None:
+        if isinstance(string, bytes):
+            null = b'\x00'
+        else:
+            null = '\0'
     if first:
-        i = string.find(null)
+        i = string.find(null)  # type: ignore
         return string if i < 0 else string[:i]
-    null = null[0]
+    null = null[0]  # type: ignore
     i = len(string)
     while i:
         i -= 1
@@ -19251,7 +19037,10 @@ def stripascii(string: bytes, /) -> bytes:
 
 @overload
 def asbool(
-    value: str, /, true: Sequence[str] | None, false: Sequence[str] | None
+    value: str,
+    /,
+    true: Sequence[str] | None = None,
+    false: Sequence[str] | None = None,
 ) -> bool:
     ...
 
@@ -19260,13 +19049,18 @@ def asbool(
 def asbool(
     value: bytes,
     /,
-    true: Sequence[bytes] | None,
-    false: Sequence[bytes] | None,
+    true: Sequence[bytes] | None = None,
+    false: Sequence[bytes] | None = None,
 ) -> bool:
     ...
 
 
-def asbool(value, /, true=None, false=None) -> bool:
+def asbool(
+    value: str | bytes,
+    /,
+    true: Sequence[str | bytes] | None = None,
+    false: Sequence[str | bytes] | None = None,
+) -> bool | bytes:
     """Return string as bool if possible, else raise TypeError.
 
     >>> asbool(b' False ')
@@ -19284,15 +19078,15 @@ def asbool(value, /, true=None, false=None) -> bool:
             isbytes = True
         elif value == 'true':
             return True
+    elif value in true:
+        return True
     if false is None:
         if isbytes or isinstance(value, bytes):
             if value == b'false':
                 return False
         elif value == 'false':
             return False
-    if value in true:
-        return True
-    if value in false:
+    elif value in false:
         return False
     raise TypeError
 
@@ -19324,10 +19118,11 @@ def rational(arg: float | tuple[int, int], /) -> tuple[int, int]:
     """Return rational numerator and denominator from float or two integers."""
     from fractions import Fraction
 
-    if isinstance(arg, float):
-        f = Fraction.from_float(arg)
+    if isinstance(arg, collections.abc.Sequence):
+        f = Fraction(arg[0], arg[1])  # type: ignore
     else:
-        f = Fraction(arg[0], arg[1])
+        f = Fraction.from_float(arg)
+
     numerator, denominator = f.as_integer_ratio()
     if numerator > 4294967295 or denominator > 4294967295:
         s = 4294967295 / max(numerator, denominator)
@@ -19455,7 +19250,8 @@ def julian_datetime(
 
     """
     if julianday <= 1721423:
-        raise ValueError('no datetime before year 1')
+        # return datetime.datetime.min  # ?
+        raise ValueError(f'no datetime before year 1 ({julianday=})')
 
     a = julianday + 1
     if a > 2299160:
@@ -20722,7 +20518,9 @@ def main() -> int:
     if not settings.quiet:
         print('Generating report:', end='   ', flush=True)
         timer.start()
-        info = tif._str(detail=int(settings.detail))
+        info = tif._str(
+            detail=int(settings.detail), width=os.get_terminal_size()[0] - 1
+        )
         print(timer)
         print()
         print(info)
