@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.4.26
+:Version: 2022.4.28
 
 Requirements
 ------------
@@ -62,8 +62,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2022.4.28
+    Pass 4837 tests.
+    Add option to specify fsspec version 1 url template name (#131).
+    Ignore invalid dates in UIC tags (#129).
+    Fix zlib_encode and lzma_encode to work with non-contiguous arrays (#128).
+    Fix delta_encode to preserve byteorder of ndarrays.
+    Move imagecodecs fallback functions to private module and add tests.
 2022.4.26
-    Pass 4779 tests.
     Fix AttributeError in TiffFile.shaped_metadata (#127).
     Fix TiffTag.overwrite with pre-packed binary value.
     Write sparse TIFF if tile iterator contains None.
@@ -552,17 +558,18 @@ Write two numpy arrays to a multi-series OME-TIFF file:
 ...               metadata={'axes': 'ZYX', 'SignificantBits': 10,
 ...                         'Plane': {'PositionZ': [0.0, 1.0, 2.0, 3.0]}})
 
-Write a tiled, multi-resolution, pyramidal, OME-TIFF file using
-JPEG compression. Sub-resolution images are written to SubIFDs:
+Write a multi-dimensional, multi-resolution (pyramidal) OME-TIFF file using
+JPEG compressed tiles. Sub-resolution images are written to SubIFDs:
 
->>> data = numpy.arange(1024*1024*3, dtype='uint8').reshape((1024, 1024, 3))
+>>> data = numpy.random.randint(0, 2**12, (8, 512, 512, 3), 'uint16')
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
-...     options = dict(tile=(256, 256), photometric='rgb', compression='jpeg')
+...     options = dict(photometric='rgb', tile=(128, 128), compression='jpeg',
+...                    metadata={'axes': 'TYXS'})
 ...     tif.write(data, subifds=2, **options)
 ...     # save pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolutions
-...     tif.write(data[::2, ::2], subfiletype=1, **options)
-...     tif.write(data[::4, ::4], subfiletype=1, **options)
+...     tif.write(data[:, ::2, ::2], subfiletype=1, **options)
+...     tif.write(data[:, ::4, ::4], subfiletype=1, **options)
 
 Access the image levels in the pyramidal OME-TIFF file:
 
@@ -594,8 +601,8 @@ Use zarr to read parts of the tiled, pyramidal images in the TIFF file:
 >>> z
 <zarr.hierarchy.Group '/' read-only>
 >>> z[0]  # base layer
-<zarr.core.Array '/0' (1024, 1024, 3) uint8 read-only>
->>> z[0][256:512, 512:768].shape  # read a tile from the base layer
+<zarr.core.Array '/0' (8, 512, 512, 3) uint16 read-only>
+>>> z[0][2, 128:384, 256:].shape  # read a tile from the base layer
 (256, 256, 3)
 >>> store.close()
 
