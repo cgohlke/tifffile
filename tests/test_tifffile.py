@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.4.28
+:Version: 2022.5.4
 
 """
 
@@ -340,12 +340,19 @@ def assert__str__(tif, detail=3):
     for i in range(detail + 1):
         tif._str(detail=i)
     repr(tif)
+    str(tif)
     repr(tif.pages)
+    str(tif.pages)
     if len(tif.pages) > 0:
         repr(tif.pages[0])
+        str(tif.pages[0])
+        str(tif.pages[0].tags)
+        tif.pages[0].flags
     repr(tif.series)
+    str(tif.series)
     if len(tif.series) > 0:
         repr(tif.series[0])
+        str(tif.series[0])
 
 
 def assert__repr__(obj):
@@ -838,6 +845,11 @@ def test_issue_valueoffset(byteorder):
                     page.dataoffsets[0]
                     == unpack(tif.byteorder + 'I', fh.read(4))[0]
                 )
+                tag = page.tags['ImageLength']
+                assert tag.name == 'ImageLength'
+                assert tag.dtype_name == 'LONG'
+                assert tag.dataformat == '1I'
+                assert tag.valuebytecount == 4
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
@@ -2006,6 +2018,293 @@ def test_issue_uic_dates(caplog):
         # assert meta['TimeCreated'] ...
         # assert meta['TimeModified'] ...
         assert meta['Wavelengths'][0] == 1.7906976744186047
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_subfiletype_zero(caplog):
+    """Test write NewSubfileType=0."""
+    # https://github.com/cgohlke/tifffile/issues/132
+    fname = private_file('issues/subfiletype_zero.tif')
+    imwrite(fname, [[0]], subfiletype=0)
+    with TiffFile(fname) as tif:
+        assert tif.pages[0].tags['NewSubfileType'].value == 0
+
+
+class TestExceptions:
+    """Test various Exceptions."""
+
+    data = random_data(numpy.uint16, (5, 13, 17))
+
+    @pytest.fixture(scope='class')
+    def fname(self):
+        with TempFileName('exceptions') as fname:
+            yield fname
+
+    def test_nofiles(self):
+        # no files found
+        with pytest.raises(ValueError):
+            imread('*.exceptions')
+
+    def test_memmap(self, fname):
+        # not memory-mappable
+        imwrite(fname, self.data, compression=8)
+        with pytest.raises(ValueError):
+            memmap(fname)
+        with pytest.raises(ValueError):
+            memmap(fname, page=0)
+
+    def test_dimensions(self, fname):
+        # dimensions too large
+        with pytest.raises(ValueError):
+            imwrite(fname, shape=(4294967296, 32), dtype=numpy.uint8)
+
+    def test_no_shape_dtype_empty(self, fname):
+        # shape and dtype missing for empty array
+        with pytest.raises(ValueError):
+            imwrite(fname)
+
+    def test_no_shape_dtype_iter(self, fname):
+        # shape and dtype missing for iterator
+        with pytest.raises(ValueError):
+            imwrite(fname, iter(self.data))
+
+    def test_no_shape_dtype(self, fname):
+        # shape and dtype missing
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.write()
+
+    def test_no_shape(self, fname):
+        # shape missing
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.write(iter(self.data), dtype='u2')
+
+    def test_no_dtype(self, fname):
+        # dtype missing
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.write(iter(self.data), shape=(5, 13, 17))
+
+    def test_mismatch_dtype(self, fname):
+        # dtype wrong
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, dtype='f4')
+
+    def test_mismatch_shape(self, fname):
+        # shape wrong
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, shape=(2, 13, 17))
+
+    def test_byteorder(self, fname):
+        # invalid byteorder
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, byteorder='?')
+
+    def test_truncate_compression(self, fname):
+        # truncate cannot be used with compression, packints, or tiles
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, compression=8, truncate=True)
+
+    def test_compression(self, fname):
+        # invalid compression
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, compression=(8, None, None, None))
+
+    def test_predictor_dtype(self, fname):
+        # cannot apply predictor to dtype
+        with pytest.raises(ValueError):
+            imwrite(
+                fname, self.data.astype('F'), predictor=True, compression=8
+            )
+
+    def test_ome_imagedepth(self, fname):
+        # OME-TIFF does not support ImageDepth
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, ome=True, volumetric=True)
+
+    def test_imagej_dtype(self, fname):
+        # ImageJ does not support dtype
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data.astype('f8'), imagej=True)
+
+    def test_imagej_imagedepth(self, fname):
+        # ImageJ does not support ImageDepth
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, imagej=True, volumetric=True)
+
+    def test_imagej_float_rgb(self, fname):
+        # ImageJ does not support float with rgb
+        with pytest.raises(ValueError):
+            imwrite(
+                fname,
+                self.data[..., :3].astype('f4'),
+                imagej=True,
+                photometric='rgb',
+            )
+
+    def test_imagej_planar(self, fname):
+        # ImageJ does not support planar
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, imagej=True, planarconfig='separate')
+
+    def test_colormap_shape(self, fname):
+        # invalid colormap shape
+        with pytest.raises(ValueError):
+            imwrite(
+                fname,
+                self.data.astype('u1'),
+                photometric='palette',
+                colormap=numpy.empty((3, 254), 'u2'),
+            )
+
+    def test_colormap_dtype(self, fname):
+        # invalid colormap dtype
+        with pytest.raises(ValueError):
+            imwrite(
+                fname,
+                self.data.astype('u1'),
+                photometric='palette',
+                colormap=numpy.empty((3, 255), 'i2'),
+            )
+
+    def test_palette_dtype(self, fname):
+        # invalid dtype for palette mode
+        with pytest.raises(ValueError):
+            imwrite(
+                fname,
+                self.data.astype('u4'),
+                photometric='palette',
+                colormap=numpy.empty((3, 255), 'u2'),
+            )
+
+    def test_cfa_shape(self, fname):
+        # invalid shape for CFA
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, photometric='cfa')
+
+    def test_subfiletype_mask(self, fname):
+        # invalid SubfileType MASK
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, subfiletype=0b100)
+
+    def test_bitspersample_bilevel(self, fname):
+        # invalid bitspersample for bilevel
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data.astype('?'), bitspersample=2)
+
+    def test_bitspersample_jpeg(self, fname):
+        # invalid bitspersample for jpeg
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, compression='jpeg', bitspersample=13)
+
+    def test_datetime(self, fname):
+        # invalid datetime
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, datetime='date')
+
+    def test_rgb(self, fname):
+        # not a RGB image
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data[:2], photometric='rgb')
+
+    def test_extrasamples(self, fname):
+        # invalid extrasamples
+        with pytest.raises(ValueError):
+            imwrite(
+                fname, self.data, photometric='rgb', extrasamples=(0, 1, 2)
+            )
+
+    def test_subsampling(self, fname):
+        # invalid subsampling
+        with pytest.raises(ValueError):
+            imwrite(
+                fname,
+                self.data[..., :3],
+                photometric='rgb',
+                compression=7,
+                subsampling=(3, 3),
+            )
+
+    def test_compress_bilevel(self, fname):
+        # cannot compress bilevel image
+        with pytest.raises(NotImplementedError):
+            imwrite(fname, self.data.astype('?'), compression=8)
+
+    def test_description_unicode(self, fname):
+        # strings must be 7-bit ASCII
+        with pytest.raises(ValueError):
+            imwrite(fname, self.data, description='mu: \u03BC')
+
+    def test_compression_contiguous(self, fname):
+        # contiguous cannot be used with compression, tiles
+        with TiffWriter(fname) as tif:
+            tif.write(self.data[0])
+            with pytest.raises(ValueError):
+                tif.write(self.data[1], contiguous=True, compression=8)
+
+    def test_imagej_contiguous(self, fname):
+        # ImageJ format does not support non-contiguous series
+        with TiffWriter(fname, imagej=True) as tif:
+            tif.write(self.data[0])
+            with pytest.raises(ValueError):
+                tif.write(self.data[1], contiguous=False)
+
+    def test_subifds_subifds(self, fname):
+        # SubIFDs in SubIFDs are not supported
+        with TiffWriter(fname) as tif:
+            tif.write(self.data[0], subifds=1)
+            with pytest.raises(ValueError):
+                tif.write(self.data[1], subifds=1)
+
+    def test_subifds_truncate(self, fname):
+        # SubIFDs cannot be used with truncate
+        with TiffWriter(fname) as tif:
+            tif.write(self.data, subifds=1, truncate=True)
+            with pytest.raises(ValueError):
+                tif.write(self.data[:, ::2, ::2])
+
+    def test_subifds_imwrite(self, fname):
+        # imwrite cannot be used to write SubIFDs
+        with pytest.raises(TypeError):
+            imwrite(fname, self.data, subifds=1)
+
+    def test_iter_bytes(self, fname):
+        # iterator contains wrong number of bytes
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.write(
+                    iter([b'abc']),
+                    shape=(13, 17),
+                    dtype=numpy.uint8,
+                    rowsperstrip=13,
+                )
+
+    def test_iter_dtype(self, fname):
+        # iterator contains wrong dtype
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.write(
+                    iter(self.data),
+                    shape=(5, 13, 17),
+                    dtype=numpy.uint8,
+                    rowsperstrip=13,
+                )
+
+        with TiffWriter(fname) as tif:
+            with pytest.raises(ValueError):
+                tif.write(
+                    iter(self.data),
+                    shape=(5, 13, 17),
+                    dtype=numpy.uint8,
+                    rowsperstrip=5,
+                    compression=8,
+                )
+
+    # def test_extratags(self, fname):
+    #     # invalid dtype or count
+    #     with pytest.raises(ValueError):
+    #         imwrite(fname, data, extratags=[()])
 
 
 ###############################################################################
@@ -6120,14 +6419,27 @@ def test_read_100000_pages_movie():
         assert series.dtype == numpy.uint16
         assert series.axes == 'TYX'
         # assert page properties
-        page = tif.pages[100]
-        assert isinstance(page, TiffFrame)  # uniform=True
-        assert page.shape == (64, 64)
-        page = tif.pages[0]
-        assert page.imagewidth == 64
-        assert page.imagelength == 64
-        assert page.bitspersample == 16
-        assert page.is_contiguous
+        frame = tif.pages[100]
+        assert isinstance(frame, TiffFrame)  # uniform=True
+        assert frame.shape == (64, 64)
+        frame = tif.pages[0]
+        assert frame.imagewidth == 64
+        assert frame.imagelength == 64
+        assert frame.bitspersample == 16
+        assert frame.compression == 1
+        assert frame.shape == (64, 64)
+        assert frame.shaped == (1, 1, 64, 64, 1)
+        assert frame.ndim == 2
+        assert frame.size == 4096
+        assert frame.nbytes == 8192
+        assert frame.axes == 'YX'
+        assert frame._nextifd() == 819200206
+        assert frame.is_final
+        assert frame.is_contiguous
+        assert frame.is_memmappable
+        assert frame.hash
+        assert frame.decode
+        assert frame.aszarr()
         # assert ImageJ tags
         tags = tif.imagej_metadata
         assert tags['ImageJ'] == '1.48g'
@@ -13040,19 +13352,18 @@ def test_write_tiled_pages():
             assert__str__(tif)
 
 
-def test_write_tileiter():
+@pytest.mark.parametrize('compression', [1, 8])
+def test_write_iter_tiles(compression):
     """Test write tiles from iterator."""
-    data = numpy.arange(3 * 4 * 16 * 16, dtype=numpy.uint16).reshape(
-        (3 * 4, 16, 16)
-    )
+    data = random_data(numpy.uint16, (12, 16, 16))
 
     def tiles():
         for i in range(data.shape[0]):
             yield data[i]
 
-    with TempFileName('write_tileiter') as fname:
+    with TempFileName(f'iter_tiles_{compression}') as fname:
 
-        with pytest.raises(StopIteration):
+        with pytest.raises((StopIteration, RuntimeError)):
             # missing tiles
             imwrite(
                 fname,
@@ -13060,15 +13371,16 @@ def test_write_tileiter():
                 shape=(43, 81),
                 tile=(16, 16),
                 dtype=numpy.uint16,
+                compression=compression,
             )
 
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueError):
             # missing parameters
-            imwrite(fname, tiles())
+            imwrite(fname, tiles(), compression=compression)
 
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueError):
             # missing parameters
-            imwrite(fname, tiles(), shape=(43, 81))
+            imwrite(fname, tiles(), shape=(43, 81), compression=compression)
 
         with pytest.raises(ValueError):
             # dtype mismatch
@@ -13078,16 +13390,27 @@ def test_write_tileiter():
                 shape=(43, 61),
                 tile=(16, 16),
                 dtype=numpy.uint32,
+                compression=compression,
             )
 
         with pytest.raises(ValueError):
             # shape mismatch
             imwrite(
-                fname, tiles(), shape=(43, 61), tile=(8, 8), dtype=numpy.uint16
+                fname,
+                tiles(),
+                shape=(43, 61),
+                tile=(8, 8),
+                dtype=numpy.uint16,
+                compression=compression,
             )
 
         imwrite(
-            fname, tiles(), shape=(43, 61), tile=(16, 16), dtype=numpy.uint16
+            fname,
+            tiles(),
+            shape=(43, 61),
+            tile=(16, 16),
+            dtype=numpy.uint16,
+            compression=compression,
         )
 
         with TiffFile(fname) as tif:
@@ -13095,22 +13418,23 @@ def test_write_tileiter():
             assert page.shape == (43, 61)
             assert page.tilelength == 16
             assert page.tilewidth == 16
+            assert page.compression == compression
             image = page.asarray()
             assert_array_equal(image[:16, :16], data[0])
             for i, segment in enumerate(page.segments()):
                 assert_array_equal(numpy.squeeze(segment[0]), data[i])
 
 
-def test_write_tileiter_separate():
+@pytest.mark.parametrize('compression', [1, 8])
+def test_write_iter_tiles_separate(compression):
     """Test write separate tiles from iterator."""
-    data = numpy.arange(2 * 3 * 4 * 16 * 16, dtype=numpy.uint16)
-    data = data.reshape((2 * 3 * 4, 16, 16))
+    data = random_data(numpy.uint16, (24, 16, 16))
 
     def tiles():
         for i in range(data.shape[0]):
             yield data[i]
 
-    with TempFileName('write_tile_iter_separate') as fname:
+    with TempFileName(f'iter_tiles_separate_{compression}') as fname:
 
         imwrite(
             fname,
@@ -13119,7 +13443,7 @@ def test_write_tileiter_separate():
             tile=(16, 16),
             dtype=numpy.uint16,
             planarconfig=SEPARATE,
-            compression=ADOBE_DEFLATE,
+            compression=compression,
         )
 
         with TiffFile(fname) as tif:
@@ -13136,15 +13460,13 @@ def test_write_tileiter_separate():
 
 
 @pytest.mark.parametrize('compression', [1, 8])
-def test_write_tileiter_none(compression):
+def test_write_iter_tiles_none(compression):
     """Test write tiles from iterator with missing tiles.
 
-    Missing tiles are not written with tileoffset=0 and tilebytecount=0.
+    Missing tiles are not with tileoffset=0 and tilebytecount=0.
 
     """
-    data = numpy.arange(3 * 4 * 16 * 16, dtype=numpy.uint16).reshape(
-        (3 * 4, 16, 16)
-    )
+    data = random_data(numpy.uint16, (12, 16, 16))
 
     def tiles():
         for i in range(data.shape[0]):
@@ -13154,7 +13476,7 @@ def test_write_tileiter_none(compression):
             else:
                 yield data[i]
 
-    with TempFileName(f'write_tileiter_none_{compression}') as fname:
+    with TempFileName(f'iter_tiles_none_{compression}') as fname:
         imwrite(
             fname,
             tiles(),
@@ -13180,14 +13502,95 @@ def test_write_tileiter_none(compression):
 
 
 @pytest.mark.parametrize('compression', [1, 8])
+def test_write_iter_tiles_bytes(compression):
+    """Test write tiles from iterator of bytes."""
+    data = random_data(numpy.uint16, (5, 3, 15, 17))
+
+    with TempFileName(f'iter_tiles_bytes_{compression}') as fname:
+        imwrite(
+            fname + 'f',
+            data,
+            tile=(16, 16),
+            compression=compression,
+            planarconfig='separate',
+            photometric='rgb',
+        )
+
+        def tiles():
+            with TiffFile(fname + 'f') as tif:
+                fh = tif.filehandle
+                for page in tif.pages:
+                    for offset, bytecount in zip(
+                        page.dataoffsets, page.databytecounts
+                    ):
+                        fh.seek(offset)
+                        strip = fh.read(bytecount)
+                        yield strip
+
+        imwrite(
+            fname,
+            tiles(),
+            shape=data.shape,
+            dtype=data.dtype,
+            tile=(16, 16),
+            compression=compression,
+            planarconfig='separate',
+            photometric='rgb',
+        )
+        assert_array_equal(imread(fname), data)
+
+
+@pytest.mark.parametrize('compression', [1, 8])
 @pytest.mark.parametrize('rowsperstrip', [5, 16])
-def test_write_pageiter_none(compression, rowsperstrip):
+def test_write_iter_strips_bytes(compression, rowsperstrip):
+    """Test write strips from iterator of bytes."""
+    data = random_data(numpy.uint16, (5, 3, 16, 16))
+
+    with TempFileName(
+        f'iter_strips_bytes_{compression}{rowsperstrip}'
+    ) as fname:
+        imwrite(
+            fname + 'f',
+            data,
+            rowsperstrip=rowsperstrip,
+            compression=compression,
+            planarconfig='separate',
+            photometric='rgb',
+        )
+
+        def strips():
+            with TiffFile(fname + 'f') as tif:
+                fh = tif.filehandle
+                for page in tif.pages:
+                    for offset, bytecount in zip(
+                        page.dataoffsets, page.databytecounts
+                    ):
+                        fh.seek(offset)
+                        strip = fh.read(bytecount)
+                        yield strip
+
+        imwrite(
+            fname,
+            strips(),
+            shape=data.shape,
+            dtype=data.dtype,
+            rowsperstrip=rowsperstrip,
+            compression=compression,
+            planarconfig='separate',
+            photometric='rgb',
+        )
+        assert_array_equal(imread(fname), data)
+
+
+@pytest.mark.parametrize('compression', [1, 8])
+@pytest.mark.parametrize('rowsperstrip', [5, 16])
+def test_write_iter_pages_none(compression, rowsperstrip):
     """Test write pages from iterator with missing pages.
 
     Missing pages are written as zeros.
 
     """
-    data = numpy.arange(12 * 16 * 16, dtype=numpy.uint16).reshape((12, 16, 16))
+    data = random_data(numpy.uint16, (12, 16, 16))
 
     def pages():
         for i in range(data.shape[0]):
@@ -13197,9 +13600,7 @@ def test_write_pageiter_none(compression, rowsperstrip):
             else:
                 yield data[i]
 
-    with TempFileName(
-        f'write_pageiter_none_{compression}{rowsperstrip}'
-    ) as fname:
+    with TempFileName(f'iter_pages_none_{compression}{rowsperstrip}') as fname:
         imwrite(
             fname,
             pages(),
@@ -14878,12 +15279,11 @@ def test_write_ome_copy():
 @pytest.mark.skipif(
     SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
 )
-@pytest.mark.xfail  # TODO: should pass once strip generators are supported
 def test_write_geotiff_copy():
     """Test write a copy of striped, compressed GeoTIFF."""
 
     def strips(page):
-        # return iterator over compressed tiles in page
+        # return iterator over compressed strips in page
         assert not page.is_tiled
         fh = page.parent.filehandle
         for offset, bytecount in zip(page.dataoffsets, page.databytecounts):
@@ -14925,13 +15325,14 @@ def test_write_geotiff_copy():
             with TiffFile(fname) as tif:
                 assert tif.is_geotiff
                 assert len(tif.pages) == 1
-                assert tif.nodata == -32767
-                assert tif.pages[0].tags['ModelPixelScaleTag'].value == (
+                page = tif.pages[0]
+                assert page.nodata == -32767
+                assert page.tags['ModelPixelScaleTag'].value == (
                     30.0,
                     30.0,
                     0.0,
                 )
-                assert tif.pages[0].tags['ModelTiepointTag'].value == (
+                assert page.tags['ModelTiepointTag'].value == (
                     0.0,
                     0.0,
                     0.0,
@@ -15573,7 +15974,7 @@ def test_dependent_opentile():
         assert md5(tile).hexdigest() == 'fec8116d05485df513f4f41e13eaa994'
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_DASK, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_DASK, reason=REASON)
 def test_dependent_aicsimageio():
     """Test aicsimageio package."""
     # https://github.com/AllenCellModeling/aicsimageio
@@ -15727,6 +16128,23 @@ def test_dependent_imageio():
             md = r.get_meta_data(1)
             assert 'description' in md
             assert md['description'] == 'another desc'
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_dependent_pims():
+    """Test PIMS package."""
+    # https://github.com/soft-matter/pims
+    try:
+        from pims import TiffStack_tifffile
+    except ImportError:
+        pytest.skip('pims or dependencies missing')
+
+    fname = private_file('pims/tiff_stack.tif')
+
+    ims = TiffStack_tifffile(fname)
+    assert_array_equal(ims.get_frame(2), imread(fname, key=2))
+    repr(ims)
+    ims.close()
 
 
 ###############################################################################
