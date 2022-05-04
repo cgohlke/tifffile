@@ -42,7 +42,7 @@ For command line usage run ``python -m tifffile --help``
 
 :License: BSD 3-Clause
 
-:Version: 2022.4.28
+:Version: 2022.5.4
 
 Requirements
 ------------
@@ -62,8 +62,14 @@ This release has been tested with the following requirements and dependencies
 
 Revisions
 ---------
+2022.5.4
+    Pass 4887 tests.
+    Allow to write NewSubfileType=0 (#132).
+    Support writing iterators of strip or tile bytes.
+    Convert iterables (not iterators) to numpy arrays when writing.
+    Explicitly specify optional keyword parameters for imread and imwrite.
+    Return number of written bytes from FileHandle write functions.
 2022.4.28
-    Pass 4837 tests.
     Add option to specify fsspec version 1 url template name (#131).
     Ignore invalid dates in UIC tags (#129).
     Fix zlib_encode and lzma_encode to work with non-contiguous arrays (#128).
