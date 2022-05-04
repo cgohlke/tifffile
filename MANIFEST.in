@@ -9,6 +9,7 @@ include tests/conftest.py
 include tests/test_tifffile.py
 
 include examples/earthbigdata.py
+include examples/issue125.py
 
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
