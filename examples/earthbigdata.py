@@ -259,7 +259,7 @@ The regex pattern and categories are used to parse the file names for chunk
 indices.
 
 Note: the created TiffSequence cannot be used to access any files. The file
-names do not refer to exising files. The baseurl is later used to get
+names do not refer to existing files. The baseurl is later used to get
 the real location of the files.
 """
 
