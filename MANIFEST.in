@@ -11,6 +11,10 @@ include tests/test_tifffile.py
 include examples/earthbigdata.py
 include examples/issue125.py
 
+include docs/conf.py
+include docs/make.py
+include docs/_static/custom.css
+
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
 recursive-exclude * *-
