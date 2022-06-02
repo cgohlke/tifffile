@@ -1,12 +1,12 @@
 # tifffile/examples/issues125.py
 
-"""Create a fsspec ReferenceFileSystem for a sequence of TIFF files on S3
+"""Create a Fsspec ReferenceFileSystem for a sequence of TIFF files on S3
 
-This Python script uses the tifffile and fsspec libraries to create a
+This Python script uses the Tifffile and Fsspec libraries to create a
 multiscale ReferenceFileSystem JSON file for a sequence of cloud optimized
 GeoTIFF (COG) files stored on S3. The tiles of the COG files are used as
-chunks. No additional numcodecs codec needs to be registered since the COG
-files use zlib compression. A xarray dataset is created from the
+chunks. No additional Numcodecs codec needs to be registered since the COG
+files use Zlib compression. A Xarray dataset is created from the
 ReferenceFileSystem file and a subset of the dataset is ploted.
 
 See https://github.com/cgohlke/tifffile/issues/125
