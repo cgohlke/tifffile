@@ -44,10 +44,10 @@ Updated on April 8, 2022
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
 [fsspec ReferenceFileSystem](https://github.com/fsspec/kerchunk) file in
-JSON format for the [earthbigdata](
+JSON format for the [Earthbigdata](
 http://sentinel-1-global-coherence-earthbigdata.s3-website-us-west-2.amazonaws.com
 ) set, which consists of 1,033,422 GeoTIFF files stored on AWS.
-The ReferenceFileSystem is used to create a multi-dimensional xarray dataset.
+The ReferenceFileSystem is used to create a multi-dimensional Xarray dataset.
 
 See discussion at [kerchunk/issues/78](
 https://github.com/fsspec/kerchunk/issues/78).
@@ -70,7 +70,7 @@ import zarr
 """
 ## Get a list of all remote TIFF files
 
-Call the aws command line app to recursively list all files in the earthbigdata
+Call the AWS command line app to recursively list all files in the Earthbigdata
 set. Cache the output in a local file. Filter the list for TIFF files and
 remove the common path.
 """
@@ -93,8 +93,8 @@ print('Number of TIFF files:', len(tiff_files))
 """
 ## Define metadata to describe the dataset
 
-Define labels, coordinate arrays, file name regex patterns, and categories for
-all dimensions in the earthbigdata set.
+Define labels, coordinate arrays, file name regular expression patterns, and
+categories for all dimensions in the Earthbigdata set.
 """
 
 # %%
@@ -189,7 +189,7 @@ jsonfile = open('earthbigdata.json', 'w', newline='\n')
 """
 ## Write the coordinate arrays
 
-Add the coordinate arrays to a zarr group, convert it to a fsspec
+Add the coordinate arrays to a Zarr group, convert it to a fsspec
 ReferenceFileSystem JSON string, and write it to the open file.
 """
 
@@ -197,11 +197,17 @@ ReferenceFileSystem JSON string, and write it to the open file.
 coordinates = {}  # type: ignore
 zarrgroup = zarr.open_group(coordinates)
 zarrgroup.array(
-    longitude_label, data=longitude_coordinates, dtype='float32'
+    longitude_label,
+    data=longitude_coordinates,
+    dtype='float32',
+    # compression='zlib',
 ).attrs['_ARRAY_DIMENSIONS'] = [longitude_label]
 
 zarrgroup.array(
-    latitude_label, data=latitude_coordinates, dtype='float32'
+    latitude_label,
+    data=latitude_coordinates,
+    dtype='float32',
+    # compression='zlib',
 ).attrs['_ARRAY_DIMENSIONS'] = [latitude_label]
 
 zarrgroup.array(
@@ -255,11 +261,11 @@ jsonfile.write(coordinates_json[:-2])  # skip the last newline and brace
 ## Create a TiffSequence from a list of file names
 
 Filter the list of GeoTIFF files for files containing coherence 'COH' data.
-The regex pattern and categories are used to parse the file names for chunk
-indices.
+The regular expression pattern and categories are used to parse the file names
+for chunk indices.
 
 Note: the created TiffSequence cannot be used to access any files. The file
-names do not refer to exising files. The baseurl is later used to get
+names do not refer to existing files. The `baseurl` is later used to get
 the real location of the files.
 """
 
@@ -285,7 +291,7 @@ fileseq = tifffile.TiffSequence(
 assert len(fileseq.files) == 444821
 assert fileseq.files_missing == 5119339
 assert fileseq.shape == (161, 360, 4, 4, 6)
-assert fileseq.labels == (
+assert fileseq.dims == (
     'latitude',
     'longitude',
     'season',
@@ -299,9 +305,9 @@ print(fileseq)
 """
 ## Create a ZarrTiffStore from the TiffSequence
 
-Define 'axestiled' to tile the latitude and longitude dimensions of the
+Define `axestiled` to tile the latitude and longitude dimensions of the
 TiffSequence with the first and second image/chunk dimensions.
-Define extra 'zattrs' to create a xarray compatible store.
+Define extra `zattrs` to create a Xarray compatible store.
 """
 
 # %%
@@ -326,8 +332,8 @@ print(store)
 """
 ## Append the ZarrTiffStore to the open ReferenceFileSystem file
 
-Use the mode name to create a zarr subgroup.
-Use the 'imagecodecs_tiff' numcodecs compatible codec for decoding TIFF files.
+Use the mode name to create a Zarr subgroup.
+Use the `imagecodecs_tiff` Numcodecs compatible codec for decoding TIFF files.
 """
 
 # %%
@@ -344,7 +350,7 @@ store.write_fsspec(
 """
 ## Repeat for the other modes
 
-Repeat the TiffSequence->aszarr->write_fsspec workflow for the other modes.
+Repeat the `TiffSequence->aszarr->write_fsspec` workflow for the other modes.
 """
 
 # %%
@@ -446,9 +452,9 @@ jsonfile.close()
 
 # %% [markdown]
 """
-## Use the fsspec ReferenceFileSystem file to create a xarray dataset
+## Use the fsspec ReferenceFileSystem file to create a Xarray dataset
 
-Register imagecodecs.numcodecs before using the ReferenceFileSystem.
+Register `imagecodecs.numcodecs` before using the ReferenceFileSystem.
 """
 
 # %%
@@ -458,7 +464,7 @@ imagecodecs.numcodecs.register_codecs()
 """
 ### Create a fsspec mapper instance from the ReferenceFileSystem file
 
-Specify the 'target_protocol' to load a local file.
+Specify the `target_protocol` to load a local file.
 """
 
 # %%
@@ -471,9 +477,9 @@ mapper = fsspec.get_mapper(
 
 # %% [markdown]
 """
-### Create a xarray dataset from the mapper
+### Create a Xarray dataset from the mapper
 
-Use 'mask_and_scale' to disable conversion to floating point.
+Use `mask_and_scale` to disable conversion to floating point.
 """
 
 # %%
@@ -499,7 +505,7 @@ print(socal)
 ### Plot a selection of the dataset
 
 The few GeoTIFF files comprising the selection are transparently downloaded,
-decoded, and stitched to an in-memory numpy array and plotted using matplotlib.
+decoded, and stitched to an in-memory NumPy array and plotted using Matplotlib.
 """
 
 # %%
