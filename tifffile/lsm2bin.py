@@ -3,7 +3,7 @@
 
 """Convert TZCYX LSM file to series of BIN files.
 
-Usage: lsm2bin lsm_filename [bin_filename]
+Usage: ``lsm2bin lsm_filename [bin_filename]``
 
 """
 
