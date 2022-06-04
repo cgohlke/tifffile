@@ -3,7 +3,7 @@
 
 """Print or replace ImageDescription in first page of TIFF file.
 
-Usage: tiffcomment [--set comment] file
+Usage: ``tiffcomment [--set comment] file``
 
 """
 
