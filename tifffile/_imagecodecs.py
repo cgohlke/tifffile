@@ -31,7 +31,7 @@
 
 """Fallback imagecodecs codecs.
 
-This module provides alternative, pure Python and numpy implementations of
+This module provides alternative, pure Python and NumPy implementations of
 some functions of the `imagecodecs`_ package. The functions may raise
 NotImplementedError.
 
@@ -240,20 +240,18 @@ def bitorder_decode(
     Decode data where pixels with lower column values are stored in the
     lower-order bits of the bytes (TIFF FillOrder is LSB2MSB).
 
-    Parameters
-    ----------
-    data : bytes or ndarray
-        The data to be bit reversed. If bytes, a new bit-reversed
-        bytes is returned. Numpy arrays are bit-reversed in-place.
+    Parameters:
+        data:
+            Data to bit-reversed. If bytes type, a new bit-reversed
+            bytes is returned. NumPy arrays are bit-reversed in-place.
 
-    Examples
-    --------
-    >>> bitorder_decode(b'\x01\x64')
-    b'\x80&'
-    >>> data = numpy.array([1, 666], dtype='uint16')
-    >>> bitorder_decode(data)
-    >>> data
-    array([  128, 16473], dtype=uint16)
+    Examples:
+        >>> bitorder_decode(b'\x01\x64')
+        b'\x80&'
+        >>> data = numpy.array([1, 666], dtype='uint16')
+        >>> bitorder_decode(data)
+        >>> data
+        array([  128, 16473], dtype=uint16)
 
     """
     if not _bitorder:
@@ -299,23 +297,21 @@ def packints_decode(
     """Decompress bytes to array of integers.
 
     This implementation only handles itemsizes 1, 8, 16, 32, and 64 bits.
-    Install the imagecodecs package for decoding other integer sizes.
+    Install the Imagecodecs package for decoding other integer sizes.
 
-    Parameters
-    ----------
-    data : byte str
-        Data to decompress.
-    dtype : numpy.dtype or str
-        A numpy boolean or integer type.
-    bitspersample : int
-        Number of bits per integer.
-    runlen : int
-        Number of consecutive integers, after which to start at next byte.
+    Parameters:
+        data:
+            Data to decompress.
+        dtype:
+            Numpy boolean or integer type.
+        bitspersample:
+            Number of bits per integer.
+        runlen:
+            Number of consecutive integers after which to start at next byte.
 
-    Examples
-    --------
-    >>> packints_decode(b'a', 'B', 1)
-    array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
+    Examples:
+        >>> packints_decode(b'a', 'B', 1)
+        array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
 
     """
     if bitspersample == 1:  # bitarray
