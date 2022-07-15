@@ -5811,7 +5811,16 @@ class TiffFile:
         if not self.is_fei:
             return None
         tags = self.pages.first.tags
-        return tags.valueof(34680, tags.valueof(34682))  # FEI_SFEG, FEI_HELIOS
+        result = {}
+        try:
+            result.update(tags.valueof(34680))  # FEI_SFEG
+        except Exception:
+            pass
+        try:
+            result.update(tags.valueof(34682))  # FEI_HELIOS
+        except Exception:
+            pass
+        return result
 
     @property
     def sem_metadata(self) -> dict[str, Any] | None:
