@@ -29,7 +29,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-"""TIFF codec for numcodecs based on tifffile."""
+"""TIFF codec for the Numcodecs package."""
+
+from __future__ import annotations
 
 __all__ = ['register_codec', 'Tiff']
 
@@ -42,7 +44,7 @@ import tifffile
 
 
 class Tiff(Codec):
-    """TIFF codec for numcodecs."""
+    """TIFF codec for Numcodecs."""
 
     codec_id = 'tifffile'
 
@@ -52,7 +54,6 @@ class Tiff(Codec):
         key=None,
         series=None,
         level=None,
-        maxworkers=None,
         # TiffWriter
         bigtiff=None,
         byteorder=None,
@@ -61,37 +62,40 @@ class Tiff(Codec):
         # TiffWriter.write
         photometric=None,
         planarconfig=None,
+        extrasamples=None,
         volumetric=None,
         tile=None,
-        truncate=False,
         rowsperstrip=None,
         compression=None,
+        compressionargs=None,
         predictor=None,
         subsampling=None,
         metadata={},
         extratags=(),
+        truncate=False,
+        maxworkers=None,
     ):
         self.key = key
         self.series = series
         self.level = level
-        self.maxworkers = maxworkers
-
         self.bigtiff = bigtiff
         self.byteorder = byteorder
         self.imagej = imagej
         self.ome = ome
-
         self.photometric = photometric
         self.planarconfig = planarconfig
+        self.extrasamples = extrasamples
         self.volumetric = volumetric
         self.tile = tile
-        self.truncate = truncate
         self.rowsperstrip = rowsperstrip
         self.compression = compression
+        self.compressionargs = compressionargs
         self.predictor = predictor
         self.subsampling = subsampling
         self.metadata = metadata
         self.extratags = extratags
+        self.truncate = truncate
+        self.maxworkers = maxworkers
 
     def encode(self, buf):
         """Return TIFF file as bytes."""
@@ -107,22 +111,24 @@ class Tiff(Codec):
                     buf,
                     photometric=self.photometric,
                     planarconfig=self.planarconfig,
+                    extrasamples=self.extrasamples,
                     volumetric=self.volumetric,
                     tile=self.tile,
-                    truncate=self.truncate,
                     rowsperstrip=self.rowsperstrip,
                     compression=self.compression,
+                    compressionargs=self.compressionargs,
                     predictor=self.predictor,
                     subsampling=self.subsampling,
                     metadata=self.metadata,
                     extratags=self.extratags,
+                    truncate=self.truncate,
                     maxworkers=self.maxworkers,
                 )
             result = fh.getvalue()
         return result
 
     def decode(self, buf, out=None):
-        """Return decoded image as numpy array."""
+        """Return decoded image as NumPy array."""
         with BytesIO(buf) as fh:
             with tifffile.TiffFile(fh) as tif:
                 result = tif.asarray(
@@ -136,5 +142,5 @@ class Tiff(Codec):
 
 
 def register_codec(cls=Tiff, codec_id=None):
-    """Register Tiff codec with numcodecs."""
+    """Register :py:class:`Tiff` codec with Numcodecs."""
     registry.register_codec(cls, codec_id=codec_id)
