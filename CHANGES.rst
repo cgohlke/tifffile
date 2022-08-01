@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2022.7.31
+
+- Pass 4907 tests.
+- Fix reading corrupted WebP compressed segments missing alpha channel (#122).
+- Fix regression reading compressed ImageJ files.
+
 2022.7.28
 
-- Pass 4906 tests.
 - Rename FileSequence.labels attribute to dims (breaking).
 - Rename tifffile_geodb module to geodb (breaking).
 - Rename TiffFile._astuple method to astuple (breaking).
