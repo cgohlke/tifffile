@@ -24,7 +24,8 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.7.28
+:Version: 2022.7.31
+:DOI: 10.5281/zenodo.6795860
 
 Installation
 ------------
@@ -46,7 +47,7 @@ This release has been tested with the following requirements and dependencies
 - `CPython 3.8.10, 3.9.13, 3.10.5, 3.11.0b5 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
 - `NumPy 1.21.5 <https://pypi.org/project/numpy/>`_
-- `Imagecodecs 2022.7.27 <https://pypi.org/project/imagecodecs/>`_
+- `Imagecodecs 2022.7.31 <https://pypi.org/project/imagecodecs/>`_
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib 3.5.2 <https://pypi.org/project/matplotlib/>`_
   (required for plotting)
@@ -58,9 +59,14 @@ This release has been tested with the following requirements and dependencies
 Revisions
 ---------
 
+2022.7.31
+
+- Pass 4907 tests.
+- Fix reading corrupted WebP compressed segments missing alpha channel (#122).
+- Fix regression reading compressed ImageJ files.
+
 2022.7.28
 
-- Pass 4906 tests.
 - Rename FileSequence.labels attribute to dims (breaking).
 - Rename tifffile_geodb module to geodb (breaking).
 - Rename TiffFile._astuple method to astuple (breaking).
@@ -386,19 +392,35 @@ color components, tiling, Zlib compression level 8, horizontal differencing
 predictor, and additional metadata:
 
 >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
->>> imwrite('temp.tif', data, bigtiff=True, photometric='rgb',
-...         planarconfig='separate', tile=(32, 32),
-...         compression='zlib', compressionargs={'level': 8},
-...         predictor=True, metadata={'axes': 'TZCYX'})
+>>> imwrite(
+...     'temp.tif',
+...     data,
+...     bigtiff=True,
+...     photometric='rgb',
+...     planarconfig='separate',
+...     tile=(32, 32),
+...     compression='zlib',
+...     compressionargs={'level': 8},
+...     predictor=True,
+...     metadata={'axes': 'TZCYX'}
+... )
 
 Write a 10 fps time series of volumes with xyz voxel size 2.6755x2.6755x3.9474
 micron^3 to an ImageJ hyperstack formatted TIFF file:
 
 >>> volume = numpy.random.randn(6, 57, 256, 256).astype('float32')
->>> imwrite('temp.tif', volume, imagej=True,
-...         resolution=(1./2.6755, 1./2.6755),
-...         metadata={'spacing': 3.947368, 'unit': 'um',
-...                   'finterval': 1/10, 'axes': 'TZYX'})
+>>> imwrite(
+...     'temp.tif',
+...     volume,
+...     imagej=True,
+...     resolution=(1./2.6755, 1./2.6755),
+...     metadata={
+...         'spacing': 3.947368,
+...         'unit': 'um',
+...         'finterval': 1/10,
+...         'axes': 'TZYX'
+...     }
+... )
 
 Read the volume and metadata from the ImageJ file:
 
@@ -419,8 +441,10 @@ Create a TIFF file containing an empty image and write to the memory-mapped
 NumPy array (note: this does not work with compression or tiling):
 
 >>> memmap_image = memmap(
-...     'temp.tif', shape=(256, 256, 3), dtype='float32',
-...      photometric='rgb'
+...     'temp.tif',
+...     shape=(256, 256, 3),
+...     dtype='float32',
+...     photometric='rgb'
 ... )
 >>> type(memmap_image)
 <class 'numpy.memmap'>
@@ -472,8 +496,14 @@ Create a TIFF file from a generator of tiles:
 ...     for y in range(0, data.shape[0], tileshape[0]):
 ...         for x in range(0, data.shape[1], tileshape[1]):
 ...             yield data[y : y + tileshape[0], x : x + tileshape[1]]
->>> imwrite('temp.tif', tiles(data, (16, 16)), tile=(16, 16),
-...         shape=data.shape, dtype=data.dtype, photometric='rgb')
+>>> imwrite(
+...     'temp.tif',
+...     tiles(data, (16, 16)),
+...     tile=(16, 16),
+...     shape=data.shape,
+...     dtype=data.dtype,
+...     photometric='rgb'
+... )
 
 Write a multi-dimensional, multi-resolution (pyramidal), multi-series OME-TIFF
 file with metadata. Sub-resolution images are written to SubIFDs. A thumbnail
@@ -484,22 +514,29 @@ image is written as a separate image series:
 >>> pixelsize = 0.29  # micrometer
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
 ...     metadata={
-...          'axes': 'TCYXS',  'SignificantBits': 10,
-...          'Channel': {'Name': ['Channel 1', 'Channel 2']},
-...          'TimeIncrement': 0.1, 'TimeIncrementUnit': 's',
-...          'PhysicalSizeX': pixelsize, 'PhysicalSizeXUnit': 'µm',
-...          'PhysicalSizeY': pixelsize, 'PhysicalSizeYUnit': 'µm'}
+...         'axes': 'TCYXS',
+...         'SignificantBits': 10,
+...         'Channel': {'Name': ['Channel 1', 'Channel 2']},
+...         'TimeIncrement': 0.1,
+...         'TimeIncrementUnit': 's',
+...         'PhysicalSizeX': pixelsize,
+...         'PhysicalSizeXUnit': 'µm',
+...         'PhysicalSizeY': pixelsize,
+...         'PhysicalSizeYUnit': 'µm',
+...     }
 ...     options = dict(
 ...         photometric='rgb',
 ...         tile=(128, 128),
 ...         compression='jpeg',
-...         resolutionunit='CENTIMETER')
+...         resolutionunit='CENTIMETER'
+...     )
 ...     tif.write(
 ...         data,
 ...         subifds=subresolutions,
 ...         resolution=(1e4 / pixelsize, 1e4 / pixelsize),
 ...         metadata=metadata,
-...         **options)
+...         **options
+...     )
 ...     # save pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolution images
 ...     for level in range(subresolutions):
@@ -508,7 +545,8 @@ image is written as a separate image series:
 ...             data[..., ::mag, ::mag, :],
 ...             subfiletype=1,
 ...             resolution=(1e4 / mag / pixelsize, 1e4 / mag / pixelsize),
-...             **options)
+...             **options
+...         )
 ...     # add a thumbnail image as a separate series
 ...     # it is recognized by QuPath as an associated image
 ...     thumbnail = (data[0, 0, ::8, ::8] >> 2).astype('uint8')
@@ -567,7 +605,8 @@ Open the fsspec ReferenceFileSystem as a Zarr group:
 >>> import imagecodecs.numcodecs
 >>> imagecodecs.numcodecs.register_codecs()
 >>> mapper = fsspec.get_mapper(
-...     'reference://', fo='temp.ome.tif.json', target_protocol='file')
+...     'reference://', fo='temp.ome.tif.json', target_protocol='file'
+... )
 >>> z = zarr.open(mapper, mode='r')
 >>> z
 <zarr.hierarchy.Group '/' read-only>
@@ -575,9 +614,14 @@ Open the fsspec ReferenceFileSystem as a Zarr group:
 Create an OME-TIFF file containing an empty, tiled image series and write
 to it via the Zarr interface (note: this does not work with compression):
 
->>> imwrite('temp.ome.tif', shape=(8, 800, 600), dtype='uint16',
-...         photometric='minisblack', tile=(128, 128),
-...         metadata={'axes': 'CYX'})
+>>> imwrite(
+...     'temp.ome.tif',
+...     shape=(8, 800, 600),
+...     dtype='uint16',
+...     photometric='minisblack',
+...     tile=(128, 128),
+...     metadata={'axes': 'CYX'}
+... )
 >>> store = imread('temp.ome.tif', mode='r+', aszarr=True)
 >>> z = zarr.open(store, mode='r+')
 >>> z
@@ -599,7 +643,8 @@ Read an image stack from a series of TIFF files with a file name pattern
 as NumPy or Zarr arrays:
 
 >>> image_sequence = TiffSequence(
-...     'temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)')
+...     'temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)'
+... )
 >>> image_sequence.shape
 (1, 2)
 >>> image_sequence.axes
@@ -623,10 +668,11 @@ Open the fsspec ReferenceFileSystem as a Zarr array:
 >>> import tifffile.numcodecs
 >>> tifffile.numcodecs.register_codec()
 >>> mapper = fsspec.get_mapper(
-...     'reference://', fo='temp.json', target_protocol='file')
+...     'reference://', fo='temp.json', target_protocol='file'
+... )
 >>> zarr.open(mapper, mode='r')
 <zarr.core.Array (1, 2, 64, 64) float64 read-only>
 
-Tifffile can be used from the command line to inspect TIFF files:
+Inspect the TIFF file from the command line::
 
-    ``python -m tifffile --help``
+    $ python -m tifffile temp.ome.tif
