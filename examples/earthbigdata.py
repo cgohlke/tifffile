@@ -36,10 +36,9 @@
 """
 # Create a fsspec ReferenceFileSystem for a large set of remote GeoTIFF files
 
-by [Christoph Gohlke](https://www.lfd.uci.edu/~gohlke/),
-Laboratory for Fluorescence Dynamics, University of California, Irvine
+by [Christoph Gohlke](https://www.cgohlke.com)
 
-Updated on April 8, 2022
+Updated on July 31, 2022
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
