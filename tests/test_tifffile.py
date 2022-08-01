@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.7.28
+:Version: 2022.7.31
 
 """
 
@@ -611,7 +611,7 @@ def test_issue_bad_description(caplog):
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_bad_ascii(caplog):
-    """Test coercing invalid ASCII to bytes."""
+    """Test coerce invalid ASCII to bytes."""
     # ImageID is not ASCII but bytes
     # https://github.com/blink1073/tifffile/pull/38
     fname = private_file('issues/tifffile_013_tagfail.tif')
@@ -869,7 +869,7 @@ def test_issue_pages_number():
 
 
 def test_issue_pages_iterator():
-    """Test iterating over pages in series."""
+    """Test iterate over pages in series."""
     data = random_data(numpy.int8, (8, 219, 301))
     with TempFileName('page_iterator') as fname:
         imwrite(fname, data[0])
@@ -890,7 +890,7 @@ def test_issue_pages_iterator():
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
-            # test reading series 1
+            # test read series 1
             series = tif.series[1]
             assert len(series._pages) == 1
             assert len(series.pages) == 8
@@ -903,7 +903,7 @@ def test_issue_pages_iterator():
 
 
 def test_issue_tile_partial():
-    """Test writing single tiles larger than image data."""
+    """Test write single tiles larger than image data."""
     # https://github.com/cgohlke/tifffile/issues/3
     data = random_data(numpy.uint8, (3, 15, 15, 15))
     with TempFileName('tile_partial_2d') as fname:
@@ -1022,7 +1022,7 @@ def test_issue_tiles_pad(samples, compression):
 
 
 def test_issue_fcontiguous():
-    """Test writing F-contiguous arrays."""
+    """Test write F-contiguous arrays."""
     # https://github.com/cgohlke/tifffile/issues/24
     data = numpy.asarray(random_data(numpy.uint8, (31, 33)), order='F')
     with TempFileName('fcontiguous') as fname:
@@ -1082,7 +1082,7 @@ def test_issue_pathlib():
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_issue_lzw_corrupt():
-    """Test decoding corrupted LZW segment raises RuntimeError."""
+    """Test decode corrupted LZW segment raises RuntimeError."""
     # reported by S Richter on 2020.2.17
     fname = private_file('issues/lzw_corrupt.tiff')
     with pytest.raises(RuntimeError):
@@ -1091,7 +1091,7 @@ def test_issue_lzw_corrupt():
 
 
 def test_issue_iterable_compression():
-    """Test writing iterable of pages with compression."""
+    """Test write iterable of pages with compression."""
     # https://github.com/cgohlke/tifffile/issues/20
     data = numpy.random.rand(10, 10, 10) * 127
     data = data.astype(numpy.int8)
@@ -1151,7 +1151,7 @@ def test_issue_write_separated():
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_mmap():
-    """Test reading from mmap object with no readinto function.."""
+    """Test read from mmap object with no readinto function.."""
     fname = public_file('OME/bioformats-artificial/4D-series.ome.tiff')
     with open(fname, 'rb') as fh:
         mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
@@ -1614,9 +1614,9 @@ def test_issue_filesequence_file_parameter():
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_imagej_prop():
-    """Test reading and writing ImageJ prop metadata type."""
+    """Test read and write ImageJ prop metadata type."""
     # https://github.com/cgohlke/tifffile/issues/103
-    # also test writing indexed ImageJ file
+    # also test write indexed ImageJ file
 
     fname = private_file('issues/triple-sphere-big-distance=035.tif')
     with tifffile.TiffFile(fname) as tif:
@@ -1651,7 +1651,7 @@ def test_issue_imagej_prop():
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_missing_dataoffset(caplog):
-    """Test reading file with missing data offset."""
+    """Test read file with missing data offset."""
     fname = private_file('gdal/bigtiff_header_extract.tif')
     with tifffile.TiffFile(fname) as tif:
         page = tif.pages[0]
@@ -1669,7 +1669,7 @@ def test_issue_missing_dataoffset(caplog):
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_imagej_metadatabytecounts():
-    """Test reading ImageJ file with many IJMetadataByteCounts."""
+    """Test read ImageJ file with many IJMetadataByteCounts."""
     # https://github.com/cgohlke/tifffile/issues/111
     fname = private_file('imagej/issue111.tif')
     with tifffile.TiffFile(fname) as tif:
@@ -1681,7 +1681,7 @@ def test_issue_imagej_metadatabytecounts():
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_issue_description_bytes(caplog):
-    """Test reading file with imagedescription bytes."""
+    """Test read file with imagedescription bytes."""
     # https://github.com/cgohlke/tifffile/issues/112
     with TempFileName('issue_description_bytes') as fname:
         imwrite(
@@ -1704,7 +1704,7 @@ def test_issue_description_bytes(caplog):
 
 
 def test_issue_imagej_colormap():
-    """Test writing 32-bit imagej file with colormap."""
+    """Test write 32-bit imagej file with colormap."""
     # https://github.com/cgohlke/tifffile/issues/115
     colormap = numpy.vstack(
         [
@@ -1733,23 +1733,21 @@ def test_issue_imagej_colormap():
     SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.WEBP, reason=REASON
 )
 @pytest.mark.parametrize('name', ['tile', 'strip'])
-def test_issue_corrupted_segment(name, caplog):
-    """Test reading files with corrupted segments."""
+def test_issue_webp_rgba(name, caplog):
+    """Test read WebP segments with missing alpha channel."""
     # https://github.com/cgohlke/tifffile/issues/122
-    # WebP encoded segments are missing alpha channel
     fname = private_file(f'issues/CMU-1-Small-Region.{name}.webp.tiff')
     with tifffile.TiffFile(fname) as tif:
         page = tif.pages[0]
         assert page.compression == WEBP
         assert page.shape == (2967, 2220, 4)
-        with pytest.raises(TiffFileError):
-            assert page.asarray().sum() == 0
+        assert tuple(page.asarray()[25, 25]) == (246, 244, 245, 255)
         assert f'corrupted {name}' not in caplog.text
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
 def test_issue_tiffslide():
-    """Test no ValueError when closing TiffSlide with zarr group."""
+    """Test no ValueError when closing TiffSlide with Zarr group."""
     # https://github.com/bayer-science-for-a-better-life/tiffslide/issues/25
     try:
         from tiffslide import TiffSlide
@@ -1765,7 +1763,7 @@ def test_issue_tiffslide():
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
 def test_issue_xarray():
-    """Test reading zarr store with fsspec and xarray."""
+    """Test read Zarr store with fsspec and xarray."""
     try:
         import xarray
     except ImportError:
@@ -1822,7 +1820,7 @@ def test_issue_xarray():
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
 def test_issue_xarray_multiscale():
-    """Test reading multiscale zarr store with fsspec and xarray."""
+    """Test read multiscale Zarr store with fsspec and xarray."""
     try:
         import xarray
     except ImportError:
@@ -2089,7 +2087,7 @@ def test_issue_resolution():
             )
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_issue_ome_jpeg_colorspace():
     """Test colorspace of JPEG segments encoded by BioFormats."""
     # https://forum.image.sc/t/69862
@@ -2104,6 +2102,28 @@ def test_issue_ome_jpeg_colorspace():
         assert series.keyframe.is_jfif
         assert series.shape == (1028, 1437, 3)
         assert tuple(series.asarray()[800, 200]) == (207, 166, 198)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_imagej_compressed():
+    """Test read ImageJ hyperstack with compression."""
+    # regression in tifffile 2022.7.28
+    fname = private_file('imagej/imagej_compressed.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_imagej
+        assert len(tif.pages) == 120
+        series = tif.series[0]
+        assert series.kind == 'ImageJ'
+        assert series.axes == 'ZCYX'
+        assert series.shape == (60, 2, 256, 256)
+        assert series.sizes == {
+            'depth': 60,
+            'channel': 2,
+            'height': 256,
+            'width': 256,
+        }
+        assert series.keyframe.compression == ADOBE_DEFLATE
+        assert series.asarray()[59, 1, 55, 87] == 5643
 
 
 class TestExceptions:
@@ -4645,14 +4665,14 @@ def test_filehandle_fsspec_openfile():
     with fsspec.open(FILEHANDLE_NAME, 'rb') as fhandle:
         with FileHandle(fhandle) as fh:
             assert fh.name == 'test_FileHandle.bin'
-            assert fh.is_file
+            # assert fh.is_file  # no longer works as of fsspec 2022.7 ?
             assert_filehandle(fh)
         assert not fhandle.closed
 
 
 ###############################################################################
 
-# Test reading specific files
+# Test read specific files
 
 if SKIP_EXTENDED or SKIP_PRIVATE:
     TIGER_FILES = []
@@ -11481,7 +11501,7 @@ def test_write_zeroshape(shaped, data, repeat, shape):
 @pytest.mark.parametrize('tiled', [False, True])
 @pytest.mark.parametrize('ome', [False, True])
 def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
-    """Test writing SubIFDs."""
+    """Test write SubIFDs."""
     if repeats > 1 and (compressed or tiled or ome):
         pytest.xfail('contiguous not working with compression, tiles, ome')
 
@@ -12826,7 +12846,7 @@ def test_write_write_bigendian():
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
-            # test reading data
+            # test read data
             image = tif.asarray()
             assert_array_equal(data, image)
             assert_aszarr_method(tif, image)
@@ -14848,7 +14868,7 @@ def test_write_multithreaded():
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
 def test_write_zarr():
-    """Test write to TIFF via zarr interface."""
+    """Test write to TIFF via Zarr interface."""
     with TempFileName('write_zarr', ext='.ome.tif') as fname:
         with TiffWriter(fname, bigtiff=True) as tif:
             tif.write(
@@ -15135,7 +15155,7 @@ def test_write_tiff2fsspec():
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
 def test_write_numcodecs():
-    """Test write zarr with numcodecs.Tiff."""
+    """Test write Zarr with numcodecs.Tiff."""
     from tifffile import numcodecs
 
     data = numpy.arange(256 * 256 * 3, dtype=numpy.uint16).reshape(256, 256, 3)
@@ -15163,7 +15183,7 @@ def test_write_numcodecs():
 
 ###############################################################################
 
-# Test ImageJ writing
+# Test write ImageJ
 
 
 @pytest.mark.skipif(SKIP_EXTENDED, reason=REASON)
@@ -15723,7 +15743,7 @@ def test_write_ome_methods(method):
 
 @pytest.mark.parametrize('contiguous', [True, False])
 def test_write_ome_manual(contiguous):
-    """Test writing OME-TIFF manually."""
+    """Test write OME-TIFF manually."""
     data = numpy.random.randint(0, 255, (19, 31, 21), numpy.uint8)
 
     with TempFileName(f'write_ome__manual{int(contiguous)}.ome') as fname:
