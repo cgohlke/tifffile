@@ -60,6 +60,7 @@ members = [
     'natural_sorted',
     'parse_filenames',
     'matlabstr2py',
+    'strptime',
     'imagej_metadata_tag',
     # imagej_description
     # 'read_scanimage_metadata',
