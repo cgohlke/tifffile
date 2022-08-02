@@ -4864,6 +4864,8 @@ class TiffFile:
             if index == len(self.pages):
                 break
             page = self.pages[index]
+            if name == 'Label' and page.subfiletype == 9:
+                name = 'Macro'
             series.append(
                 TiffPageSeries(
                     [page],
