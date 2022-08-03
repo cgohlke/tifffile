@@ -54,7 +54,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.7.31
+:Version: 2022.8.3
 :DOI: 10.5281/zenodo.6795860
 
 Installation
@@ -74,7 +74,7 @@ Requirements
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython 3.8.10, 3.9.13, 3.10.5, 3.11.0b5 <https://www.python.org>`_
+- `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0b5 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
 - `NumPy 1.21.5 <https://pypi.org/project/numpy/>`_
 - `Imagecodecs 2022.7.31 <https://pypi.org/project/imagecodecs/>`_
@@ -89,9 +89,14 @@ This release has been tested with the following requirements and dependencies
 Revisions
 ---------
 
+2022.8.3
+
+- Pass 4909 tests.
+- Fix regression writing default resolutionunit (#145).
+- Add strptime function parsing common datetime formats.
+
 2022.7.31
 
-- Pass 4907 tests.
 - Fix reading corrupted WebP compressed segments missing alpha channel (#122).
 - Fix regression reading compressed ImageJ files.
 
@@ -711,7 +716,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2022.7.31'
+__version__ = '2022.8.3'
 
 __all__ = [
     'TiffFile',
@@ -770,6 +775,7 @@ __all__ = [
     'format_size',
     'hexdump',
     'matlabstr2py',
+    'strptime',
     'natural_sorted',
     'nullfunc',
     'parse_filenames',
@@ -2612,7 +2618,7 @@ class TiffWriter:
 
         if resolutionunit is not None:
             resolutionunit = enumarg(RESUNIT, resolutionunit)
-        elif self._imagej:
+        elif self._imagej or resolution is None:
             resolutionunit = RESUNIT.NONE
         else:
             resolutionunit = RESUNIT.INCH
@@ -4860,10 +4866,14 @@ class TiffFile:
             )
             index += 1
         # Label, Macro; subfiletype 1, 9
-        for name in ('Label', 'Macro'):
+        for _ in range(2):
             if index == len(self.pages):
                 break
             page = self.pages[index]
+            if page.subfiletype == 9:  # type: ignore
+                name = 'Macro'
+            else:
+                name = 'Label'
             series.append(
                 TiffPageSeries(
                     [page],
@@ -8415,14 +8425,12 @@ class TiffPage:
     def datetime(self) -> datetime.datetime | None:
         """Date and time of image creation."""
         value = self.tags.valueof(306)
-        print(value, type(value))
         if value is None:
             return None
-        for fmt in ('%Y:%m:%d %H:%M:%S',):
-            try:
-                return datetime.datetime.strptime(value, fmt)
-            except Exception:
-                pass
+        try:
+            return strptime(value)
+        except Exception:
+            pass
         return None
 
     @property
@@ -19460,7 +19468,7 @@ def pilatus_description_metadata(description: str, /) -> dict[str, Any]:
         name = line[0]
         if line[0] not in TIFF.PILATUS_HEADER:
             try:
-                result['DateTime'] = datetime.datetime.strptime(
+                result['DateTime'] = strptime(
                     ' '.join(line), '%Y-%m-%dT%H %M %S.%f'
                 )
             except Exception:
@@ -19554,7 +19562,7 @@ def metaseries_description_metadata(description: str, /) -> dict[str, Any]:
         'float': float,
         'int': int,
         'bool': lambda x: asbool(x, 'on', 'off'),
-        'time': lambda x: datetime.datetime.strptime(x, '%Y%m%d %H:%M:%S.%f'),
+        'time': lambda x: strptime(x, '%Y%m%d %H:%M:%S.%f'),
         'guid': lambda x: uuid.UUID(x),
         # 'float-array':
         # 'colorref':
@@ -21006,6 +21014,56 @@ def matlabstr2py(matlabstr: str, /) -> Any:
             d[k] = parse(v)
         return d
     return parse(matlabstr)
+
+
+def strptime(
+    datetime_string: str, format: str | None = None, /
+) -> datetime.datetime:
+    """Return datetime corresponding to date string using common formats.
+
+    Parameters:
+        datetime_string:
+            String representation of date and time.
+        format:
+            Format of `datetime_string`.
+            By default, several datetime formats commonly found in TIFF files
+            are parsed.
+
+    Raises:
+        ValueError: `datetime_string` does not match any format.
+
+    Examples:
+        >>> strptime('2022:08:01 22:23:24')
+        datetime.datetime(2022, 8, 1, 22, 23, 24)
+
+    """
+    formats = {
+        '%Y:%m:%d %H:%M:%S': 1,  # TIFF6 specification
+        '%Y%m%d %H:%M:%S.%f': 2,  # MetaSeries
+        '%Y-%m-%dT%H %M %S.%f': 3,  # Pilatus
+        '%Y-%m-%dT%H:%M:%S.%f': 4,  # ISO
+        '%Y-%m-%dT%H:%M:%S': 5,  # ISO, microsecond is 0
+        '%Y:%m:%d %H:%M:%S.%f': 6,
+        '%d/%m/%Y %H:%M:%S': 7,
+        '%d/%m/%Y %H:%M:%S.%f': 8,
+        '%m/%d/%Y %I:%M:%S %p': 9,
+        '%m/%d/%Y %I:%M:%S.%f %p': 10,
+        '%Y%m%d %H:%M:%S': 11,
+        '%Y/%m/%d %H:%M:%S': 12,
+        '%Y/%m/%d %H:%M:%S.%f': 13,
+        '%Y-%m-%dT%H:%M:%S%z': 14,
+        '%Y-%m-%dT%H:%M:%S.%f%z': 15,
+    }
+    if format is not None:
+        formats[format] = 0  # higest priority; replaces existing key if any
+    for format, _ in sorted(formats.items(), key=lambda item: item[1]):
+        try:
+            return datetime.datetime.strptime(datetime_string, format)
+        except ValueError:
+            pass
+    raise ValueError(
+        f'time data {datetime_string!r} does not match any format'
+    )
 
 
 @overload
