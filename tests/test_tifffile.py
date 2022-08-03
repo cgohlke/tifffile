@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.7.31
+:Version: 2022.8.3
 
 """
 
@@ -86,6 +86,7 @@ try:
         FileSequence,
         Timer,
         lazyattr,
+        strptime,
         natural_sorted,
         stripnull,
         memmap,
@@ -149,6 +150,7 @@ from tifffile.tifffile import (
     lazyattr,
     lsm2bin,
     matlabstr2py,
+    strptime,
     memmap,
     metaseries_description_metadata,
     natural_sorted,
@@ -2087,6 +2089,36 @@ def test_issue_resolution():
             )
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_resolutionunit():
+    """Test write resolutionunit defaults."""
+    # https://github.com/cgohlke/tifffile/issues/145
+
+    with TempFileName('resolutionunit_none') as fname:
+        imwrite(fname, [[0]], resolution=None, resolutionunit=None)
+        with TiffFile(fname) as tif:
+            page = tif.pages[0]
+            assert tif.pages[0].tags['ResolutionUnit'].value == RESUNIT.NONE
+            assert page.resolutionunit == RESUNIT.NONE
+            assert page.resolution == (1, 1)
+
+    with TempFileName('resolutionunit_inch') as fname:
+        imwrite(fname, [[0]], resolution=(1, 1), resolutionunit=None)
+        with TiffFile(fname) as tif:
+            page = tif.pages[0]
+            assert tif.pages[0].tags['ResolutionUnit'].value == RESUNIT.INCH
+            assert page.resolutionunit == RESUNIT.INCH
+            assert page.resolution == (1, 1)
+
+    with TempFileName('resolutionunit_imagej') as fname:
+        imwrite(fname, [[0]], dtype='float32', imagej=True, resolution=(1, 1))
+        with TiffFile(fname) as tif:
+            page = tif.pages[0]
+            assert tif.pages[0].tags['ResolutionUnit'].value == RESUNIT.NONE
+            assert page.resolutionunit == RESUNIT.NONE
+            assert page.resolution == (1, 1)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_issue_ome_jpeg_colorspace():
     """Test colorspace of JPEG segments encoded by BioFormats."""
@@ -3752,6 +3784,14 @@ def test_func_matlabstr2py():
     assert p['Zeros.Empty'] == [[]]
     assert p['false'] is False
     assert p['true'] is True
+
+
+def test_func_strptime():
+    """Test strptime function."""
+    now = datetime.datetime.now().replace(microsecond=0)
+    assert strptime(now.isoformat()) == now
+    assert strptime(now.strftime('%Y:%m:%d %H:%M:%S')) == now
+    assert strptime(now.strftime('%Y%m%d %H:%M:%S.%f')) == now
 
 
 def test_func_hexdump():
