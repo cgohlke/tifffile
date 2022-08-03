@@ -24,7 +24,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.7.31
+:Version: 2022.8.3
 :DOI: 10.5281/zenodo.6795860
 
 Installation
@@ -44,7 +44,7 @@ Requirements
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython 3.8.10, 3.9.13, 3.10.5, 3.11.0b5 <https://www.python.org>`_
+- `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0b5 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
 - `NumPy 1.21.5 <https://pypi.org/project/numpy/>`_
 - `Imagecodecs 2022.7.31 <https://pypi.org/project/imagecodecs/>`_
@@ -59,9 +59,14 @@ This release has been tested with the following requirements and dependencies
 Revisions
 ---------
 
+2022.8.3
+
+- Pass 4909 tests.
+- Fix regression writing default resolutionunit (#145).
+- Add strptime function parsing common datetime formats.
+
 2022.7.31
 
-- Pass 4907 tests.
 - Fix reading corrupted WebP compressed segments missing alpha channel (#122).
 - Fix regression reading compressed ImageJ files.
 
