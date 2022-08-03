@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2022.8.3
+
+- Pass 4909 tests.
+- Fix regression writing default resolutionunit (#145).
+- Add strptime function parsing common datetime formats.
+
 2022.7.31
 
-- Pass 4907 tests.
 - Fix reading corrupted WebP compressed segments missing alpha channel (#122).
 - Fix regression reading compressed ImageJ files.
 
