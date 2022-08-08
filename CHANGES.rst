@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2022.8.8
+
+- Pass 4914 tests.
+- Fix regression using imread out argument (#147).
+- Fix imshow show argument.
+- Support fsspec OpenFile.
+
 2022.8.3
 
-- Pass 4909 tests.
 - Fix regression writing default resolutionunit (#145).
 - Add strptime function parsing common datetime formats.
 
