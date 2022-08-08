@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.8.3
+:Version: 2022.8.8
 
 """
 
@@ -2035,6 +2035,32 @@ def test_issue_subfiletype_zero():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_imagej_zct_order(caplog):
+    """Test read ImageJ hyperstack with non-TZC order."""
+    # https://forum.image.sc/t/69430
+    fname = private_file(
+        'ImageJ/order/d220708_HybISS_AS_cycles1to5_NoBridgeProbes_'
+        'dim3x3__3_MMStack_2-Pos_000_000.ome.tif'
+    )
+    data = imread(fname, series=5)
+
+    fname = private_file(
+        'ImageJ/order/d220708_HybISS_AS_cycles1to5_NoBridgeProbes_'
+        'dim3x3__3_MMStack_2-Pos_000_001.ome.tif'
+    )
+    with TiffFile(fname) as tif:
+        assert tif.is_ome
+        assert tif.is_imagej
+        assert tif.imagej_metadata['order'] == 'zct'
+        with caplog.at_level(logging.DEBUG):
+            series = tif.series[0]
+            assert 'OME series is BinaryOnly' in caplog.text
+        assert series.axes == 'CZYX'
+        assert series.kind == 'ImageJ'
+        assert_array_equal(series.asarray(), data)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_fei_sfeg_metadata():
     """Test read FEI_SFEG metadata."""
     # https://github.com/cgohlke/tifffile/pull/141
@@ -2156,6 +2182,50 @@ def test_issue_imagej_compressed():
         }
         assert series.keyframe.compression == ADOBE_DEFLATE
         assert series.asarray()[59, 1, 55, 87] == 5643
+
+
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
+def test_issue_jpeg_rgb():
+    """Test write JPEG compression in RGB mode."""
+    # https://github.com/cgohlke/tifffile/issues/146
+    # requires imagecodecs > 2022.7.31
+    data = imread(public_file('tifffile/rgb.tif'))
+    assert data.shape == (32, 31, 3)
+    with TempFileName('jpeg_rgb') as fname:
+        imwrite(
+            fname,
+            data,
+            photometric='rgb',
+            subsampling=(1, 1),
+            compression='jpeg',
+            compressionargs={'level': 95, 'outcolorspace': 'rgb'},
+        )
+        with TiffFile(fname) as tif:
+            page = tif.pages[0]
+            assert page.shape == data.shape
+            assert page.photometric == RGB
+            assert page.compression == JPEG
+            assert not page.is_jfif
+            image = page.asarray()
+        assert_array_equal(image, imagecodecs.imread(fname))
+
+
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+def test_issue_imread_out():
+    """Test imread supports out argument."""
+    # https://github.com/cgohlke/tifffile/issues/147
+    fname = public_file('tifffile/rgb.tif')
+    image = imread(fname, out=None)
+    assert isinstance(image, numpy.ndarray)
+    data = imread(fname, out='memmap')
+    assert isinstance(data, numpy.core.memmap)
+    assert_array_equal(data, image)
+
+    image = imread([fname, fname], out=None)
+    assert isinstance(image, numpy.ndarray)
+    data = imread([fname, fname], out='memmap')
+    assert isinstance(data, numpy.core.memmap)
+    assert_array_equal(data, image)
 
 
 class TestExceptions:
@@ -4696,16 +4766,42 @@ def test_filehandle_unc_path():
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
-def test_filehandle_fsspec_openfile():
-    """Test FileHandle from fsspec OpenFile."""
-    try:
-        import fsspec
-    except ImportError:
-        pytest.skip('fsspec not found')
+def test_filehandle_fsspec_localfileopener():
+    """Test FileHandle from fsspec LocalFileOpener."""
+    fsspec = pytest.importorskip('fsspec')
     with fsspec.open(FILEHANDLE_NAME, 'rb') as fhandle:
         with FileHandle(fhandle) as fh:
             assert fh.name == 'test_FileHandle.bin'
-            # assert fh.is_file  # no longer works as of fsspec 2022.7 ?
+            assert fh.is_file  # fails with fsspec 2022.7
+            assert_filehandle(fh)
+        assert not fhandle.closed
+
+
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+def test_filehandle_fsspec_openfile():
+    """Test FileHandle from fsspec OpenFile."""
+    fsspec = pytest.importorskip('fsspec')
+    fhandle = fsspec.open(FILEHANDLE_NAME, 'rb')
+    with FileHandle(fhandle) as fh:
+        assert fh.name == 'test_FileHandle.bin'
+        assert fh.is_file
+        assert_filehandle(fh)
+    fhandle.close()
+
+
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_HTTP, reason=REASON)
+def test_filehandle_fsspec_http():
+    """Test FileHandle from HTTP via fsspec."""
+    fsspec = pytest.importorskip('fsspec')
+    with open(FILEHANDLE_NAME, 'rb') as fh:
+        data = fh.read()
+    with TempFileName('test_FileHandle', ext='.bin') as fname:
+        with open(fname, 'wb') as fh:
+            data = fh.write(data)
+    with fsspec.open(URL + 'test/test_FileHandle.bin', 'rb') as fhandle:
+        with FileHandle(fhandle) as fh:
+            assert fh.name == 'test_FileHandle.bin'
+            assert not fh.is_file
             assert_filehandle(fh)
         assert not fhandle.closed
 
@@ -8929,9 +9025,7 @@ def test_read_ome_companion(caplog):
             assert tif.series[0].kind == 'Generic'
             assert 'OME series is BinaryOnly' in caplog.text
 
-    with open(
-        private_file('OME/companion/multifile.companion.ome'), 'r'
-    ) as fh:
+    with open(private_file('OME/companion/multifile.companion.ome')) as fh:
         omexml = fh.read()
     with TiffFile(fname, omexml=omexml) as tif:
         assert tif.is_ome
