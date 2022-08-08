@@ -54,7 +54,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.8.3
+:Version: 2022.8.8
 :DOI: 10.5281/zenodo.6795860
 
 Installation
@@ -63,7 +63,7 @@ Installation
 Install the tifffile package and recommended dependencies from the
 Python Package Index::
 
-    python -m pip install -U tifffile imagecodecs matplotlib lxml zarr
+    python -m pip install -U tifffile imagecodecs matplotlib lxml zarr fsspec
 
 Tifffile is also available in other package repositories such as Anaconda,
 Debian, and MSYS2.
@@ -74,24 +74,28 @@ Requirements
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0b5 <https://www.python.org>`_
+- `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0rc1 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
 - `NumPy 1.21.5 <https://pypi.org/project/numpy/>`_
-- `Imagecodecs 2022.7.31 <https://pypi.org/project/imagecodecs/>`_
+- `Imagecodecs 2022.8.8 <https://pypi.org/project/imagecodecs/>`_
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib 3.5.2 <https://pypi.org/project/matplotlib/>`_
   (required for plotting)
 - `Lxml 4.9.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-- `Zarr 2.12.0 <https://pypi.org/project/zarr/>`_
-  (required for opening Zarr stores)
 
 Revisions
 ---------
 
+2022.8.8
+
+- Pass 4914 tests.
+- Fix regression using imread out argument (#147).
+- Fix imshow show argument.
+- Support fsspec OpenFile.
+
 2022.8.3
 
-- Pass 4909 tests.
 - Fix regression writing default resolutionunit (#145).
 - Add strptime function parsing common datetime formats.
 
@@ -716,7 +720,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2022.8.3'
+__version__ = '2022.8.8'
 
 __all__ = [
     'TiffFile',
@@ -894,6 +898,7 @@ def imread(
     zattrs: dict[str, Any] | None = None,
     multiscales: bool | None = None,
     omexml: str | None = None,
+    out: OutputType = None,
     _multifile: bool | None = None,
     _useframes: bool | None = None,
     **kwargs,
@@ -920,6 +925,9 @@ def imread(
         chunkmode, fillvalue, zattrs, multiscales:
             Passed to :py:class:`ZarrTiffStore`
             or :py:class:`ZarrFileSequenceStore`.
+        out:
+            Passed to :py:meth:`TiffFile.asarray`
+            or :py:meth:`TiffSequence.asarray`.
         **kwargs:
             Additional arguments passed to :py:attr:`FileSequence.imread`.
 
@@ -983,6 +991,7 @@ def imread(
                     level=level,
                     squeeze=squeeze,
                     maxworkers=maxworkers,
+                    out=out,
                 )
 
     elif isinstance(files, (FileHandle, BinaryIO)):
@@ -1020,6 +1029,7 @@ def imread(
         return imseq.asarray(
             axestiled=axestiled,
             ioworkers=ioworkers,
+            out=out,
             **imread_kwargs,
         )
 
@@ -1602,7 +1612,7 @@ class TiffWriter:
                 Compressors may require certain data shapes, types or value
                 ranges. For example, JPEG compression requires grayscale or
                 RGB(A), uint8 or 12-bit uint16.
-                JPEG compression is experimental. JPEG markers and tags
+                JPEG compression is experimental. JPEG markers and TIFF tags
                 may not match.
                 Only a limited set of compression schemes are implemented.
                 'ZLIB' is short for ADOBE_DEFLATE.
@@ -2585,15 +2595,16 @@ class TiffWriter:
             compressionargs['colorspace'] = photometric.name
             compressionargs['outcolorspace'] = outcolorspace.name
             addtag(tags, 262, 3, 1, outcolorspace)
-            # ReferenceBlackWhite is required for YCBCR
-            if all(et[0] != 532 for et in extratags):
-                addtag(
-                    tags,
-                    532,
-                    5,
-                    6,
-                    (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1),
-                )
+            if outcolorspace == YCBCR:
+                # ReferenceBlackWhite is required for YCBCR
+                if all(et[0] != 532 for et in extratags):
+                    addtag(
+                        tags,
+                        532,
+                        5,
+                        6,
+                        (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1),
+                    )
         else:
             if subsampling not in (None, (1, 1)):
                 log_warning(
@@ -10025,7 +10036,7 @@ class TiffTag:
             tiff = self.parent.tiff
             dataformat = TIFF.DATA_FORMATS[self.dtype]
             count = self.count * int(dataformat[0])
-            fmt = '{}{}{}'.format(tiff.byteorder, count, dataformat[1])
+            fmt = f'{tiff.byteorder}{count}{dataformat[1]}'
             try:
                 if self.dtype == 2:
                     # ASCII
@@ -12986,6 +12997,7 @@ class FileHandle:
 
         if isinstance(self._file, os.PathLike):
             self._file = os.fspath(self._file)
+
         if isinstance(self._file, str):
             # file name
             self._file = os.path.realpath(self._file)
@@ -13012,7 +13024,7 @@ class FileHandle:
             self._mode = self._file._mode
             self._dir = self._file._dir
         elif hasattr(self._file, 'seek'):
-            # binary stream: open file, BytesIO, fsspec OpenFile
+            # binary stream: open file, BytesIO, fsspec LocalFileOpener
             # cast to BinaryIO even it might not be
             self._fh = cast(BinaryIO, self._file)
             try:
@@ -13027,15 +13039,44 @@ class FileHandle:
                 try:
                     self._dir, self._name = os.path.split(self._fh.name)
                 except AttributeError:
-                    self._name = 'Unnamed binary stream'
+                    try:
+                        self._dir, self._name = os.path.split(
+                            self._fh.path  # type: ignore
+                        )
+                    except AttributeError:
+                        self._name = 'Unnamed binary stream'
             try:
                 self._mode = self._fh.mode
             except AttributeError:
                 pass
+        elif hasattr(self._file, 'open'):
+            # fsspec OpenFile
+            _file: Any = self._file
+            self._fh = cast(BinaryIO, _file.open())
+            try:
+                self._fh.tell()
+            except Exception:
+                self._fh.close()
+                raise ValueError('OpenFile is not seekable')
+
+            if self._offset < 0:
+                self._offset = self._fh.tell()
+            self._close = True
+            if not self._name:
+                try:
+                    self._dir, self._name = os.path.split(_file.path)
+                except AttributeError:
+                    self._name = 'Unnamed binary stream'
+            try:
+                self._mode = _file.mode
+            except AttributeError:
+                pass
+
         else:
             raise ValueError(
-                'the first parameter must be a file name, '
-                'seekable binary stream, or FileHandle'
+                'the first parameter must be a file name '
+                'or seekable binary file object, '
+                f'not {type(self._file)!r}'
             )
 
         assert self._fh is not None
@@ -22602,8 +22643,8 @@ def imshow(
         for axis, ctrl in enumerate(sliders):
             ctrl.on_changed(lambda k, a=axis: on_changed(k, a))
 
-        if show:
-            pyplot.show()
+    if show:
+        pyplot.show()
 
     return figure, subplot, image
 
