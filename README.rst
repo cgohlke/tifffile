@@ -24,7 +24,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.8.3
+:Version: 2022.8.8
 :DOI: 10.5281/zenodo.6795860
 
 Installation
@@ -33,7 +33,7 @@ Installation
 Install the tifffile package and recommended dependencies from the
 Python Package Index::
 
-    python -m pip install -U tifffile imagecodecs matplotlib lxml zarr
+    python -m pip install -U tifffile imagecodecs matplotlib lxml zarr fsspec
 
 Tifffile is also available in other package repositories such as Anaconda,
 Debian, and MSYS2.
@@ -44,24 +44,28 @@ Requirements
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0b5 <https://www.python.org>`_
+- `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0rc1 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
 - `NumPy 1.21.5 <https://pypi.org/project/numpy/>`_
-- `Imagecodecs 2022.7.31 <https://pypi.org/project/imagecodecs/>`_
+- `Imagecodecs 2022.8.8 <https://pypi.org/project/imagecodecs/>`_
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib 3.5.2 <https://pypi.org/project/matplotlib/>`_
   (required for plotting)
 - `Lxml 4.9.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
-- `Zarr 2.12.0 <https://pypi.org/project/zarr/>`_
-  (required for opening Zarr stores)
 
 Revisions
 ---------
 
+2022.8.8
+
+- Pass 4914 tests.
+- Fix regression using imread out argument (#147).
+- Fix imshow show argument.
+- Support fsspec OpenFile.
+
 2022.8.3
 
-- Pass 4909 tests.
 - Fix regression writing default resolutionunit (#145).
 - Add strptime function parsing common datetime formats.
 
