@@ -58,7 +58,7 @@ if 'sdist' in sys.argv:
         re.MULTILINE | re.DOTALL,
     ).strip()
 
-    with open('CHANGES.rst', 'r') as fh:
+    with open('CHANGES.rst') as fh:
         old = fh.read()
 
     old = old.split(revisions.splitlines()[-1])[-1]
