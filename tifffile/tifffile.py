@@ -54,7 +54,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.8.8
+:Version: 2022.8.12
 :DOI: 10.5281/zenodo.6795860
 
 Installation
@@ -76,10 +76,10 @@ This release has been tested with the following requirements and dependencies
 
 - `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0rc1 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
-- `NumPy 1.21.5 <https://pypi.org/project/numpy/>`_
+- `NumPy 1.22.4 <https://pypi.org/project/numpy/>`_
 - `Imagecodecs 2022.8.8 <https://pypi.org/project/imagecodecs/>`_
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib 3.5.2 <https://pypi.org/project/matplotlib/>`_
+- `Matplotlib 3.5.3 <https://pypi.org/project/matplotlib/>`_
   (required for plotting)
 - `Lxml 4.9.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
@@ -87,9 +87,15 @@ This release has been tested with the following requirements and dependencies
 Revisions
 ---------
 
+2022.8.12
+
+- Pass 4918 tests.
+- Fix writing ImageJ format with hyperstack argument.
+- Fix writing description with metadata disabled.
+- Add option to disable writing shaped metadata in TiffWriter.
+
 2022.8.8
 
-- Pass 4914 tests.
 - Fix regression using imread out argument (#147).
 - Fix imshow show argument.
 - Support fsspec OpenFile.
@@ -259,7 +265,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **GeoTIFF sparse** files allow strip or tile offsets and byte counts to be 0.
   Such segments are implicitly set to 0 or the NODATA value on reading.
   Tifffile can read GeoTIFF sparse files.
-- **Tifffile shaped** files store the array shape and user provided metadata
+- **Tifffile shaped** files store the array shape and user-provided metadata
   of multi-dimensional image series in JSON format in the ImageDescription tag
   of the first page of the series. The format allows for multiple series,
   subifds, sparse segments with zero offset and bytecount, and truncated
@@ -500,8 +506,9 @@ Memory-map and read contiguous image data in the TIFF file:
 1.0
 >>> del memmap_image
 
-Write two NumPy arrays to a multi-series TIFF file (note: this format is not
-recognized by common TIFF readers; better use OME-TIFF format):
+Write two NumPy arrays to a multi-series TIFF file (note: other TIFF readers
+will not recognize the two series; use the OME-TIFF format for better
+interoperability):
 
 >>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
 >>> series1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
@@ -720,7 +727,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2022.8.8'
+__version__ = '2022.8.12'
 
 __all__ = [
     'TiffFile',
@@ -1046,6 +1053,7 @@ def imwrite(
     byteorder: ByteOrder | None = None,
     imagej: bool = False,
     ome: bool | None = None,
+    shaped: bool | None = None,
     append: bool = False,
     shape: Sequence[int] | None = None,
     dtype: numpy.dtype | str | None = None,
@@ -1091,7 +1099,7 @@ def imwrite(
             Passed to :py:class:`TiffWriter`.
         data, shape, dtype:
             Passed to :py:meth:`TiffWriter.write`.
-        append, byteorder, bigtiff, imagej, ome:
+        append, byteorder, bigtiff, imagej, ome, shaped:
             Passed to :py:class:`TiffWriter`.
         photometric, planarconfig, extrasamples, volumetric, tile, \
         rowsperstrip, bitspersample, compression, compressionargs, predictor, \
@@ -1142,6 +1150,7 @@ def imwrite(
         append=append,
         imagej=imagej,
         ome=ome,
+        shaped=shaped,
     ) as tif:
         result = tif.write(
             data,
@@ -1288,9 +1297,9 @@ class TiffFileError(Exception):
 class TiffWriter:
     """Write NumPy arrays to TIFF file.
 
-    TiffWriter's main purpose is saving multi-dimensional NumPy arrays as TIFF,
-    not to create any possible TIFF format. Specifically, ExifIFD and GPSIFD
-    tags are not supported.
+    TiffWriter's main purpose is saving multi-dimensional NumPy arrays in
+    TIFF containers, not to create any possible TIFF format.
+    Specifically, ExifIFD and GPSIFD tags are not supported.
 
     TiffWriter instances must be closed with :py:meth:`TiffWriter.close`,
     which is automatically called when using the 'with' context manager.
@@ -1311,7 +1320,7 @@ class TiffWriter:
             If `append` is *True*, the existing file's format is used.
         byteorder:
             Endianness of TIFF format. One of '<', '>', '=', or '|'.
-            By default, this is the system's native byte order.
+            The default is the system's native byte order.
         append:
             If `file` is existing standard TIFF file, append image data
             and tags to file.
@@ -1332,8 +1341,16 @@ class TiffWriter:
             Write OME-TIFF compatible file.
             By default, the OME-TIFF format is used if the file name extension
             contains '.ome.', `imagej` is not enabled, and the `description`
-            argument in the first call of the write function is not specified.
+            argument in the first call of :py:meth:`TiffWriter.write` is not
+            specified.
             Refer to the OME model for restrictions of this format.
+        shaped:
+            Write tifffile "shaped" compatible file.
+            The shape of multi-dimensional images is stored in JSON format in
+            a ImageDescription tag of the first page of a series.
+            This is the default format used by tifffile unless `imagej` or
+            `ome` are enabled or ``metadata=None`` is passed to
+            :py:meth:`TiffWriter.write`.
 
     Raises:
         ValueError:
@@ -1347,8 +1364,9 @@ class TiffWriter:
 
     _fh: FileHandle
     _omexml: OmeXml | None
-    _ome: bool | None
-    _imagej: bool
+    _ome: bool | None  # writing OME-TIFF format
+    _imagej: bool  # writing ImageJ format
+    _tifffile: bool  # writing Tifffile shaped format
     _truncate: bool
     _metadata: dict[str, Any] | None
     _colormap: numpy.ndarray | None
@@ -1377,6 +1395,7 @@ class TiffWriter:
         append: bool = False,
         imagej: bool = False,
         ome: bool | None = None,
+        shaped: bool | None = None,
     ) -> None:
         if append:
             # determine if file is an existing TIFF file that can be extended
@@ -1446,6 +1465,10 @@ class TiffWriter:
         self._imagej = False if self._ome else bool(imagej)
         if self._imagej:
             self._ome = False
+        if self._ome or self._imagej:
+            self._tifffile = False
+        else:
+            self._tifffile = True if shaped is None else bool(shaped)
 
         if imagej and bigtiff:
             warnings.warn(
@@ -1530,20 +1553,18 @@ class TiffWriter:
                 are not supported.
             shape:
                 Shape of image to write.
-                By default, the value is inferred from the `data` argument
-                if possible.
+                The default is inferred from the `data` argument if possible.
                 A ValueError is raised if the value is incompatible with
                 the `data` or other arguments.
             dtype:
                 NumPy data type of image to write.
-                By default, the value is inferred from the `data` argument
-                if possible.
+                The default is inferred from the `data` argument if possible.
                 A ValueError is raised if the value is incompatible with
                 the `data` argument.
             photometric:
                 Color space of image.
-                By default, the value is inferred from the data shape,
-                dtype, and the `colormap` argument.
+                The default is inferred from the data shape, dtype, and the
+                `colormap` argument.
                 A UserWarning is logged if RGB color space is auto-detected.
                 Specify this parameter to silence the warning and to avoid
                 ambiguities.
@@ -1561,8 +1582,8 @@ class TiffWriter:
                 planes.
                 *CONTIG*: the last dimension contains samples.
                 *SEPARATE*: the 3rd or 4th last dimension contains samples.
-                By default, the value is inferred from the data shape
-                and `photometric` mode.
+                The default is inferred from the data shape and `photometric`
+                mode.
                 If this parameter is set, extra samples are used to store
                 grayscale images.
                 The value is written to the PlanarConfiguration tag.
@@ -1596,7 +1617,7 @@ class TiffWriter:
                 The value is written to the RowsPerStrip tag.
             bitspersample:
                 Number of bits per sample.
-                By default, this is the number of bits of the data's dtype.
+                The default is the number of bits of the data's dtype.
                 Different values per samples are not supported.
                 Unsigned integer data are packed into bytes as tightly as
                 possible.
@@ -1680,8 +1701,7 @@ class TiffWriter:
                 bitspersample must be 1).
             software:
                 Name of software used to create file.
-                Must be 7-bit ASCII.
-                By default, or if *True*, use 'tifffile.py'.
+                Must be 7-bit ASCII. The default is 'tifffile.py'.
                 Unless *False*, the value is written to the Software tag of
                 the first page of a series.
             subifds:
@@ -1699,7 +1719,8 @@ class TiffWriter:
                 Additional metadata describing image, written along
                 with shape information in JSON, OME-XML, or ImageJ formats
                 in ImageDescription or IJMetadata tags.
-                If *None*, no shape information in JSON format is written to
+                If *None* or the `shaped` argument to :py:class:`TiffWriter`
+                is *False*, no information in JSON format is written to
                 the ImageDescription tag.
                 If ImageJ format, values for keys 'Info', 'Labels', 'Ranges',
                 'LUTs', 'Plot', 'ROI', and 'Overlays' are written in
@@ -1959,7 +1980,15 @@ class TiffWriter:
                 self._ome = '.ome.' in fh.extension
             else:
                 self._ome = False
-        self._truncate = False if self._ome else bool(truncate)
+
+        if self._tifffile or self._imagej:
+            self._truncate = bool(truncate)
+        elif truncate:
+            raise ValueError(
+                'truncate can only be used with imagej or shaped formats'
+            )
+        else:
+            self._truncate = False
 
         if self._truncate and (compression or packints or tile):
             raise ValueError(
@@ -2456,17 +2485,20 @@ class TiffWriter:
                 **self._metadata,
             )
             description += '\x00' * 64  # add buffer for in-place update
-        elif metadata or metadata == {}:
+        elif self._tifffile and (metadata or metadata == {}):
             if self._truncate:
                 self._metadata.update(truncated=True)
-            description = json_description(inputshape, **self._metadata)
+            description = shaped_description(inputshape, **self._metadata)
             description += '\x00' * 16  # add buffer for in-place update
         # elif metadata is None and self._truncate:
         #     raise ValueError('cannot truncate without writing metadata')
         else:
             description = None
 
-        if description is not None:
+        if description is None:
+            # disable shaped format if user disabled metadata
+            self._tifffile = False
+        else:
             description = description.encode('ascii')
             addtag(tags, 270, 2, 0, description, True)
         del description
@@ -3440,9 +3472,12 @@ class TiffWriter:
                 colormaped=colormapped,
                 **self._metadata,
             )
+        elif not self._tifffile:
+            self._descriptiontag = None
+            return
         else:
             assert self._metadata is not None
-            description = json_description(self._datashape, **self._metadata)
+            description = shaped_description(self._datashape, **self._metadata)
 
         self._descriptiontag.overwrite(description.encode(), erase=False)
         self._descriptiontag = None
@@ -3675,9 +3710,9 @@ class TiffFile:
             Name of file in case `file` is file handle.
         offset:
             Start position of embedded file.
-            By default, this is the current file position.
+            The default is the current file position.
         size:
-            Size of embedded file. By default, this is the number of bytes
+            Size of embedded file. The default is the number of bytes
             from the `offset` to the end of the file.
         omexml:
             OME metadata in XML format, e.g., from external companion file
@@ -3913,8 +3948,8 @@ class TiffFile:
                 Specifies which level of multi-resolution series to return
                 as array. The default is 0.
             squeeze:
-                If *True*, all length-1 dimensions (except X and Y) are
-                squeezed out from array.
+                If *True*, remove all length-1 dimensions (except X and Y)
+                from array.
                 If *False*, single pages are returned as 5D array of shape
                 :py:attr:`TiffPage.shaped`.
                 For series, the shape of the returned array also includes
@@ -4236,8 +4271,8 @@ class TiffFile:
         return series
 
     def _series_shaped(self) -> list[TiffPageSeries] | None:
-        """Return image series in "shaped" file."""
-        # TODO: all series need to be shaped for this to succeed
+        """Return image series in tifffile "shaped" formatted file."""
+        # TODO: all series need to have JSON metadata for this to succeed
 
         def append(
             series: list[TiffPageSeries],
@@ -4325,7 +4360,7 @@ class TiffFile:
                 # read metadata
                 axes = None
                 shape = None
-                metadata = json_description_metadata(
+                metadata = shaped_description_metadata(
                     keyframe.shaped_description
                 )
                 name = metadata.get('name', '')
@@ -5900,7 +5935,7 @@ class TiffFile:
                 or page.shaped_description is None
             ):
                 continue
-            result.append(json_description_metadata(page.shaped_description))
+            result.append(shaped_description_metadata(page.shaped_description))
         return tuple(result)
 
     @property
@@ -7993,13 +8028,13 @@ class TiffPage:
                 If a *string* or *open file*, the file used to create a
                 memory-mapped array.
             squeeze:
-                By default, all length-1 dimensions (except X and Y)
-                are squeezed out from array.
-                If *False*, the shape of the returned array is the normalized
-                5-dimensional shape (TiffPage.shaped).
+                Remove all length-1 dimensions (except X and Y) from
+                image array.
+                If *False*, return the image array with normalized
+                5-dimensional shape :py:attr:`TiffPage.shaped`.
             lock:
                 Reentrant lock to synchronize seeks and reads from file.
-                By default, the lock of the parent's file handle is used.
+                The default is the lock of the parent's file handle.
             maxworkers:
                 Maximum number of threads to concurrently decode segments.
                 By default, up to half the CPU cores are used.
@@ -8369,10 +8404,10 @@ class TiffPage:
         Parameters:
             unit:
                 Unit of measurement of returned values.
-                By default, this is the value of the ResolutionUnit tag.
+                The default is the value of the ResolutionUnit tag.
             scale:
                 Factor to convert resolution values to meter unit.
-                By default, this is determined from the ResolutionUnit tag.
+                The default is determined from the ResolutionUnit tag.
 
         """
         scales = {
@@ -8551,16 +8586,14 @@ class TiffPage:
         if self.is_contiguous or self.dtype is None:
             return 0
         if self.compression in TIFF.IMAGE_COMPRESSIONS:
-
             return min(TIFF.MAXWORKERS, len(self.dataoffsets))
         bytecount = product(self.chunks) * self.dtype.itemsize
         if bytecount < 2048:
             # disable multi-threading for small segments
             return 0
-        if self.compression != 1 or self.fillorder != 1 or self.predictor != 1:
-            if self.compression == 5 and bytecount < 14336:
-                # disable multi-threading for small LZW compressed segments
-                return 0
+        if self.compression == 5 and bytecount < 14336:
+            # disable multi-threading for small LZW compressed segments
+            return 0
         if len(self.dataoffsets) < 4:
             return 1
         if self.compression != 1 or self.fillorder != 1 or self.predictor != 1:
@@ -9765,10 +9798,10 @@ class TiffTag:
                 TiffFile instance tag is read from.
             offset:
                 Position of tag structure in file.
-                By default, this is the position of the file handle.
+                The default is the position of the file handle.
             header:
                 Tag structure as bytes.
-                By default, this is read from the file.
+                The default is read from the file.
             validate:
                 Raise TiffFileError if data type or value offset are invalid.
 
@@ -11391,7 +11424,7 @@ class ZarrTiffStore(ZarrStore):
         zattrs:
             Additional attributes to store in `.zattrs`.
         multiscales:
-            If True, create a multiscales compatible Zarr group store.
+            Create a multiscales compatible Zarr group store.
             By default, create a Zarr array store for pages and non-pyramidal
             series.
         lock:
@@ -12439,7 +12472,7 @@ class FileSequence:
             Name or open instance of ZIP file in which files are stored.
         sort:
             Function to sort file names if `files` is a pattern.
-            By default, the :py:func:`natural_sorted` function is used.
+            The default is :py:func:`natural_sorted`.
             If *False*, disable sorting.
         parse:
             Function to parse sequence of sorted file names to dims, shape,
@@ -12930,10 +12963,10 @@ class FileHandle:
             Name of file in case `file` is binary stream.
         offset:
             Start position of embedded file.
-            By default, this is the current file position.
+            The default is the current file position.
         size:
             Size of embedded file.
-            By default, this is the number of bytes from `offset` to
+            The default is the number of bytes from `offset` to
             the end of the file.
 
     """
@@ -14238,7 +14271,8 @@ class OmeXml:
                 contig_samples).
             axes:
                 Character codes for dimensions in `shape`.
-                By default, axes are matched to the `shape` in reverse order
+                By default, `axes` is determined from the DimensionOrder
+                metadata attribute or matched to the `shape` in reverse order
                 of TZC(S)YX(S) based on `storedshape`.
                 The following codes are supported: 'S' sample, 'X' width,
                 'Y' length, 'Z' depth, 'C' channel, 'T' time, 'A' angle,
@@ -14247,7 +14281,7 @@ class OmeXml:
                 Additional OME-XML attributes or elements to be stored.
 
                 Image/Pixels:
-                    Name, AcquisitionDate, Description,
+                    Name, AcquisitionDate, Description, DimensionOrder,
                     PhysicalSizeX, PhysicalSizeXUnit,
                     PhysicalSizeY, PhysicalSizeYUnit,
                     PhysicalSizeZ, PhysicalSizeZUnit,
@@ -17727,7 +17761,8 @@ def read_tags(
             Map of tag codes to names.
             E.g., :py:class:`_TIFF.GPS_TAGS` or :py:class:`_TIFF.IOP_TAGS`.
         maxifds:
-            Maximum number of IFDs to read. By default, the whole IFD chain.
+            Maximum number of IFDs to read.
+            By default, read the whole IFD chain.
         customtags:
             Mapping of tag codes to functions reading special tag value from
             file.
@@ -19154,7 +19189,7 @@ def imagej_description(
         hyperstack = True
         append.append('hyperstack=true')
     else:
-        append.append(f'hyperstack={bool(hyperstack)}')
+        append.append(f'hyperstack={bool(hyperstack)}'.lower())
     if shape[2] > 1:
         result.append(f'channels={shape[2]}')
     if mode is None and not rgb and not colormaped:
@@ -19378,12 +19413,12 @@ def ndpi_jpeg_tile(jpeg: bytes, /) -> tuple[int, int, bytes]:
     return tilelength, tilewidth, jpegheader
 
 
-def json_description(shape: Sequence[int], /, **metadata) -> str:
+def shaped_description(shape: Sequence[int], /, **metadata) -> str:
     """Return JSON image description from data shape and other metadata.
 
     Return UTF-8 encoded JSON.
 
-    >>> json_description((256, 256, 3), axes='YXS')  # doctest: +SKIP
+    >>> shaped_description((256, 256, 3), axes='YXS')  # doctest: +SKIP
     '{"shape": [256, 256, 3], "axes": "YXS"}'
 
     """
@@ -19391,15 +19426,15 @@ def json_description(shape: Sequence[int], /, **metadata) -> str:
     return json.dumps(metadata)  # .encode()
 
 
-def json_description_metadata(description: str, /) -> dict[str, Any]:
+def shaped_description_metadata(description: str, /) -> dict[str, Any]:
     """Return metatata from JSON formatted image description.
 
-    Raise ValuError if `description` is of unknown format.
+    Raise ValueError if `description` is of unknown format.
 
     >>> description = '{"shape": [256, 256, 3], "axes": "YXS"}'
-    >>> json_description_metadata(description)  # doctest: +SKIP
+    >>> shaped_description_metadata(description)  # doctest: +SKIP
     {'shape': [256, 256, 3], 'axes': 'YXS'}
-    >>> json_description_metadata('shape=(256, 256, 3)')
+    >>> shaped_description_metadata('shape=(256, 256, 3)')
     {'shape': (256, 256, 3)}
 
     """
@@ -20026,7 +20061,7 @@ def parse_filenames(
             Map of index group matches to integer indices.
             `{'axislabel': {'category': index}}`
         _shape:
-            Shape of file sequence. By default, the shape is
+            Shape of file sequence. The default is
             `maximum - minimum + 1` of the parsed indices for each dimension.
 
     Returns:
@@ -22175,7 +22210,7 @@ def tiff2fsspec(
             Remote location of TIFF file without file name(s).
         out:
             Name of output JSON file.
-            By default, this is the `filename` with a '.json' extension.
+            The default is the `filename` with a '.json' extension.
         key, series, level, chunkmode, fillvalue, zattrs, squeeze, maxworkers:
             Passed to :py:meth:`TiffFile.aszarr`.
         groupname, version:
@@ -22218,7 +22253,7 @@ def lsm2bin(
             Name of LSM file to convert.
         binfile:
             Common name of output BIN files.
-            By default, the name of the LSM file without extension.
+            The default is the name of the LSM file without extension.
         tile:
             Y and X dimension sizes of BIN files.
             The default is (256, 256).
@@ -22329,8 +22364,8 @@ def imshow(
             Number of bits per channel in integer RGB images.
         interpolation:
             Image interpolation method used in `matplotlib.imshow`.
-            By default, 'nearest' is used for image dimensions > 512,
-            else 'bilinear'.
+           The default is 'nearest' for image dimensions > 512,
+           else 'bilinear'.
         cmap:
             Colormap mapping non-RGBA scalar data to colors.
             See `matplotlib.colors.Colormap`.
