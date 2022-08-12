@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2022.8.12
+
+- Pass 4918 tests.
+- Fix writing ImageJ format with hyperstack argument.
+- Fix writing description with metadata disabled.
+- Add option to disable writing shaped metadata in TiffWriter.
+
 2022.8.8
 
-- Pass 4914 tests.
 - Fix regression using imread out argument (#147).
 - Fix imshow show argument.
 - Support fsspec OpenFile.
