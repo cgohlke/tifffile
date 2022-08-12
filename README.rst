@@ -24,7 +24,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.8.8
+:Version: 2022.8.12
 :DOI: 10.5281/zenodo.6795860
 
 Installation
@@ -46,10 +46,10 @@ This release has been tested with the following requirements and dependencies
 
 - `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0rc1 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
-- `NumPy 1.21.5 <https://pypi.org/project/numpy/>`_
+- `NumPy 1.22.4 <https://pypi.org/project/numpy/>`_
 - `Imagecodecs 2022.8.8 <https://pypi.org/project/imagecodecs/>`_
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib 3.5.2 <https://pypi.org/project/matplotlib/>`_
+- `Matplotlib 3.5.3 <https://pypi.org/project/matplotlib/>`_
   (required for plotting)
 - `Lxml 4.9.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
@@ -57,9 +57,15 @@ This release has been tested with the following requirements and dependencies
 Revisions
 ---------
 
+2022.8.12
+
+- Pass 4918 tests.
+- Fix writing ImageJ format with hyperstack argument.
+- Fix writing description with metadata disabled.
+- Add option to disable writing shaped metadata in TiffWriter.
+
 2022.8.8
 
-- Pass 4914 tests.
 - Fix regression using imread out argument (#147).
 - Fix imshow show argument.
 - Support fsspec OpenFile.
@@ -229,7 +235,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **GeoTIFF sparse** files allow strip or tile offsets and byte counts to be 0.
   Such segments are implicitly set to 0 or the NODATA value on reading.
   Tifffile can read GeoTIFF sparse files.
-- **Tifffile shaped** files store the array shape and user provided metadata
+- **Tifffile shaped** files store the array shape and user-provided metadata
   of multi-dimensional image series in JSON format in the ImageDescription tag
   of the first page of the series. The format allows for multiple series,
   subifds, sparse segments with zero offset and bytecount, and truncated
@@ -470,8 +476,9 @@ Memory-map and read contiguous image data in the TIFF file:
 1.0
 >>> del memmap_image
 
-Write two NumPy arrays to a multi-series TIFF file (note: this format is not
-recognized by common TIFF readers; better use OME-TIFF format):
+Write two NumPy arrays to a multi-series TIFF file (note: other TIFF readers
+will not recognize the two series; use the OME-TIFF format for better
+interoperability):
 
 >>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
 >>> series1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
