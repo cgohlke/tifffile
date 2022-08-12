@@ -10,7 +10,7 @@ if os.environ.get('VSCODE_CWD'):
     )
 
 if os.environ.get('SKIP_CODECS', None):
-    sys.modules['imagecodecs'] = None
+    sys.modules['imagecodecs'] = None  # type: ignore
 
 
 def pytest_report_header(config):
@@ -28,6 +28,14 @@ def pytest_report_header(config):
         except ImportError:
             zarr = 'N/A'
         try:
+            from dask import __version__ as dask
+        except ImportError:
+            dask = 'N/A'
+        try:
+            from xarray import __version__ as xarray
+        except ImportError:
+            xarray = 'N/A'
+        try:
             from fsspec import __version__ as fsspec
         except ImportError:
             fsspec = 'N/A'
@@ -36,6 +44,8 @@ def pytest_report_header(config):
             f'imagecodecs-{imagecodecs}, '
             f'numpy-{numpy}, '
             f'zarr-{zarr}, '
+            f'dask-{dask}, '
+            f'xarray-{xarray}, '
             f'fsspec-{fsspec}\n'
             f'test config: {config()}'
         )
