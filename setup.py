@@ -27,7 +27,7 @@ version += ('.' + buildnumber) if buildnumber else ''
 description = search(r'"""(.*)\.(?:\r\n|\r|\n)', code)
 
 readme = search(
-    r'(?:\r\n|\r|\n){2}r"""(.*)"""(?:\r\n|\r|\n){2}[__version__|from]',
+    r'(?:\r\n|\r|\n){2}r"""(.*)"""(?:\r\n|\r|\n){2}from __future__',
     code,
     re.MULTILINE | re.DOTALL,
 )
@@ -91,8 +91,8 @@ setup(
             'imagecodecs>=2022.2.22',
             'matplotlib>=3.3',
             'lxml',
-            # 'zarr',
-            # 'fsspec'
+            'zarr',
+            'fsspec'
         ]
     },
     tests_require=[
