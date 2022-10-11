@@ -13,7 +13,7 @@ path = os.environ.get('PATH')
 if path:
     os.environ['PATH'] = os.path.join(sys.exec_prefix, 'Scripts') + ';' + path
 
-import tifffile
+import tifffile  # noqa
 
 members = [
     'imread',
@@ -62,7 +62,7 @@ members = [
     'matlabstr2py',
     'strptime',
     'imagej_metadata_tag',
-    # imagej_description
+    'imagej_description',
     # 'read_scanimage_metadata',
     # 'read_micromanager_metadata',
     'create_output',
