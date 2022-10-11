@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2022.8.12
+:Version: 2022.10.10
 
 """
 
@@ -68,43 +68,45 @@ from numpy.testing import (
 )
 
 try:
-    from tifffile import *
+    from tifffile import *  # noqa
 
     STAR_IMPORTED = (
-        TIFF,
-        imwrite,
-        imread,
-        imshow,
-        TiffWriter,
-        TiffReader,
-        TiffFile,
-        TiffFileError,
-        TiffSequence,
-        TiffPage,
-        TiffFrame,
-        FileHandle,
-        FileSequence,
-        Timer,
-        lazyattr,
-        strptime,
-        natural_sorted,
-        stripnull,
-        memmap,
-        repeat_nd,
-        format_size,
-        product,
-        create_output,
-        askopenfilename,
-        read_scanimage_metadata,
-        read_micromanager_metadata,
-        OmeXmlError,
-        OmeXml,
+        TIFF,  # noqa
+        imwrite,  # noqa
+        imread,  # noqa
+        imshow,  # noqa
+        TiffWriter,  # noqa
+        TiffReader,  # noqa
+        TiffFile,  # noqa
+        TiffFileError,  # noqa
+        TiffSequence,  # noqa
+        TiffPage,  # noqa
+        TiffFrame,  # noqa
+        FileHandle,  # noqa
+        FileSequence,  # noqa
+        Timer,  # noqa
+        lazyattr,  # noqa
+        strptime,  # noqa
+        natural_sorted,  # noqa
+        stripnull,  # noqa
+        memmap,  # noqa
+        repeat_nd,  # noqa
+        format_size,  # noqa
+        product,  # noqa
+        create_output,  # noqa
+        askopenfilename,  # noqa
+        read_scanimage_metadata,  # noqa
+        read_micromanager_metadata,  # noqa
+        OmeXmlError,  # noqa
+        OmeXml,  # noqa
     )  # type: tuple[object, ...]
 except NameError:
     STAR_IMPORTED = ()
 
-from tifffile.tifffile import (
+from tifffile.tifffile import (  # noqa
     TIFF,
+    COMPRESSION,
+    RESUNIT,
     FileCache,
     FileHandle,
     FileSequence,
@@ -503,13 +505,13 @@ def test_issue_imread_kwargs_legacy():
     with TempFileName('issue_imread_kwargs_legacy') as fname:
         imwrite(fname, data, photometric=MINISBLACK)
         with pytest.raises(TypeError):
-            image = imread(fname, fastij=True)
+            imread(fname, fastij=True)
         with pytest.raises(TypeError):
-            image = imread(fname, movie=True)
+            imread(fname, movie=True)
         with pytest.raises(TypeError):
-            image = imread(fname, multifile=True)
+            imread(fname, multifile=True)
         with pytest.raises(TypeError):
-            image = imread(fname, multifile_close=True)
+            imread(fname, multifile_close=True)
 
         with pytest.raises(TypeError):
             TiffFile(fname, fastij=True)
@@ -1757,7 +1759,7 @@ def test_issue_tiffslide():
     except ImportError:
         pytest.skip('tiffslide missing')
 
-    fname = private_file(f'AperioSVS/CMU-1.svs')
+    fname = private_file('AperioSVS/CMU-1.svs')
     with TiffSlide(fname) as slide:
         _ = slide.ts_zarr_grp
         arr = slide.read_region((100, 200), 0, (256, 256), as_array=True)
@@ -1908,7 +1910,6 @@ def test_issue_xarray_multiscale():
 @pytest.mark.parametrize('resolution', [(1, 0), (0, 0)])
 def test_issue_invalid_resolution(resolution):
     # https://github.com/imageio/imageio/blob/master/tests/test_tifffile.py
-    from fractions import Fraction
 
     data = numpy.zeros((20, 10), dtype=numpy.uint8)
 
@@ -2067,10 +2068,12 @@ def test_issue_imagej_zct_order(caplog):
 def test_issue_fei_sfeg_metadata():
     """Test read FEI_SFEG metadata."""
     # https://github.com/cgohlke/tifffile/pull/141
-    pytest.skip('no test file')
-    fname = private_file('issues/issue_fei_sfeg_metadata.tif')
+    # FEI_SFEG tag value is a base64 encoded XML string with BOM header
+    fname = private_file('issues/Helios-AutoSliceAndView.tif')
     with TiffFile(fname) as tif:
-        assert tif.pages[0].fei_metadata
+        fei = tif.fei_metadata
+        assert fei['User']['User'] == 'Supervisor'
+        assert fei['System']['DisplayHeight'] == 0.324
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -2242,11 +2245,11 @@ def test_issue_imagej_hyperstack_arg():
             imagej=True,
             metadata={'hyperstack': True, 'axes': 'TZYX'},
         )
-    with TiffFile(fname) as tif:
-        assert tif.is_imagej
-        assert 'hyperstack=true' in tif.pages[0].description
-        assert tif.imagej_metadata['hyperstack']
-        assert tif.series[0].axes == 'TZYX'
+        with TiffFile(fname) as tif:
+            assert tif.is_imagej
+            assert 'hyperstack=true' in tif.pages[0].description
+            assert tif.imagej_metadata['hyperstack']
+            assert tif.series[0].axes == 'TZYX'
 
 
 def test_issue_description_overwrite():
@@ -2271,13 +2274,105 @@ def test_issue_description_overwrite():
                     contiguous=True,
                 )
                 description = None
+        with TiffFile(fname) as tif:
+            assert tif.is_ome
+            assert tif.pages[0].description == omexml.tostring()
+            assert tif.series[0].kind == 'OME'
+            assert tif.series[0].axes == 'ZYX'
+            assert_array_equal(tif.asarray(), data)
 
-    with TiffFile(fname) as tif:
-        assert tif.is_ome
-        assert tif.pages[0].description == omexml.tostring()
-        assert tif.series[0].kind == 'OME'
-        assert tif.series[0].axes == 'ZYX'
-        assert_array_equal(tif.asarray(), data)
+
+def test_issue_svs_description():
+    """Test svs_description_metadata function."""
+    # https://github.com/cgohlke/tifffile/issues/149
+    assert svs_description_metadata(
+        'Aperio Image Library vFS90 01\r\n'
+        '159712x44759 [0,100 153271x44659] (256x256) JPEG/RGB Q=30'
+        '|AppMag = 40'
+        '|StripeWidth = 992'
+        '|ScanScope ID = SS1475'
+        '|Filename = 12-0893-1'
+        '|Title = Mag = 40X, compression quality =30'
+        '|Date = 11/20/12'
+        '|Time = 01:06:12'
+        '|Time Zone = GMT-05:00'
+        '|User = 8ce982e3-6ea2-4715-8af3-9874e823e6d9'
+        '|MPP = 0.2472'
+        '|Left = 19.730396'
+        '|Top = 15.537785'
+        '|LineCameraSkew = 0.001417'
+        '|LineAreaXOffset = 0.014212'
+        '|LineAreaYOffset = -0.004733'
+        '|Focus Offset = 0.000000'
+        '|DSR ID = 152.19.62.167'
+        '|ImageID = 311112'
+        '|Exposure Time = 109'
+        '|Exposure Scale = 0.000001'
+        '|DisplayColor = 0'
+        '|OriginalWidth = 159712'
+        '|OriginalHeight = 44759'
+        '|ICC Profile = ScanScope v1'
+    ) == {
+        'Header': (
+            'Aperio Image Library vFS90 01\r\n'
+            '159712x44759 [0,100 153271x44659] (256x256) JPEG/RGB Q=30'
+        ),
+        'AppMag': 40,
+        'StripeWidth': 992,
+        'ScanScope ID': 'SS1475',
+        'Filename': '12-0893-1',
+        'Title': 'Mag = 40X, compression quality =30',
+        'Date': '11/20/12',
+        'Time': '01:06:12',
+        'Time Zone': 'GMT-05:00',
+        'User': '8ce982e3-6ea2-4715-8af3-9874e823e6d9',
+        'MPP': 0.2472,
+        'Left': 19.730396,
+        'Top': 15.537785,
+        'LineCameraSkew': 0.001417,
+        'LineAreaXOffset': 0.014212,
+        'LineAreaYOffset': -0.004733,
+        'Focus Offset': 0.0,
+        'DSR ID': '152.19.62.167',
+        'ImageID': 311112,
+        'Exposure Time': 109,
+        'Exposure Scale': 0.000001,
+        'DisplayColor': 0,
+        'OriginalWidth': 159712,
+        'OriginalHeight': 44759,
+        'ICC Profile': 'ScanScope v1',
+    }
+
+    assert svs_description_metadata(
+        'Aperio Image Library v11.0.37\r\n60169x38406 (256x256) JPEG/RGB Q=70'
+        '|Patient=CS-10-SI_HE'
+        '|Accession='
+        '|User='
+        '|Date=10/12/2012'
+        '|Time=04:55:13 PM'
+        '|Copyright=Hamamatsu Photonics KK'
+        '|AppMag=20'
+        '|Webslide Files=5329'
+    ) == {
+        'Header': (
+            'Aperio Image Library v11.0.37\r\n'
+            '60169x38406 (256x256) JPEG/RGB Q=70'
+        ),
+        'Patient': 'CS-10-SI_HE',
+        'Accession': '',
+        'User': '',
+        'Date': '10/12/2012',
+        'Time': '04:55:13 PM',
+        'Copyright': 'Hamamatsu Photonics KK',
+        'AppMag': 20,
+        'Webslide Files': 5329,
+    }
+
+
+def test_issue_iterator_recursion():
+    """Test no RecursionError writing large number of tiled pages."""
+    with TempFileName('iterator_recursion') as fname:
+        imwrite(fname, shape=(1024, 54, 64), dtype=numpy.uint8, tile=(32, 32))
 
 
 class TestExceptions:
@@ -5290,6 +5385,7 @@ def test_read_iss_vista():
         assert series.dtype == numpy.int16
         assert series.axes == 'IYX'  # ZYX
         assert series.kind == 'Uniform'
+        assert type(series.pages[3]) == TiffFrame
         assert_aszarr_method(series)
         assert__str__(tif)
 
@@ -9590,6 +9686,7 @@ def test_read_andor_light_sheet_512p():
         assert series.dtype == numpy.uint16
         assert series.axes == 'IYX'
         assert series.kind == 'Uniform'
+        assert type(series.pages[2]) == TiffFrame
         # assert data
         data = tif.asarray()
         assert data.shape == (100, 512, 512)
@@ -10217,6 +10314,44 @@ def test_read_imagej_invalid_hyperstack():
         ijtags = tif.imagej_metadata
         assert ijtags['hyperstack']
         assert ijtags['images'] == 48
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_scifio():
+    """Test read SCIFIO file using ImageJ metadata."""
+    # https://github.com/AllenCellModeling/aicsimageio/issues/436
+    # read
+    fname = private_file('scifio/2MF1P2_glia.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_imagej
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 343  # not a hyperstack
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages[0]
+        assert page.photometric == MINISBLACK
+        assert page.imagewidth == 1024
+        assert page.imagelength == 1024
+        assert page.bitspersample == 8
+        assert page.is_contiguous
+        # assert series properties
+        series = tif.series[0]
+        assert series.kind == 'ImageJ'
+        assert series.dataoffset is None  # not contiguous
+        assert series.shape == (343, 1024, 1024)
+        assert series.dtype == numpy.uint8
+        assert series.axes == 'IYX'
+        assert type(series.pages[2]) == TiffFrame
+        # assert ImageJ tags
+        ijtags = tif.imagej_metadata
+        assert ijtags['SCIFIO'] == '0.42.0'
+        assert ijtags['hyperstack']
+        assert ijtags['images'] == 343
+        # assert data
+        # data = series.asarray()
+        # assert data[192, 740, 420] == 2
+        # assert_aszarr_method(series, data)
         assert__str__(tif)
 
 
@@ -11052,6 +11187,21 @@ def test_read_ndtiffstorage():
         assert meta['Axes']['exposure'] == 3
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_ndtiffv3():
+    """Test read NDTiffStorage v3 metadata."""
+    fname = private_file(
+        'NDTiff_test_data/v3/ndtiffv3.0_test/ndtiffv3.0_test_NDTiffStack.tif'
+    )
+    with TiffFile(fname) as tif:
+        assert tif.is_micromanager
+        assert tif.is_ndtiff
+        meta = tif.pages[-1].tags['MicroManagerMetadata'].value
+        assert meta['Axes'] == {'channel': 1, 'time': 4}
+        meta = tif.micromanager_metadata
+        assert meta['Summary']['PixelType'] == 'GRAY16'
+
+
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
 def test_read_zarr():
     """Test read TIFF with zarr."""
@@ -11164,7 +11314,7 @@ def test_read_astrotiff(caplog):
         # assert data and metadata
         assert tuple(page.asarray()[545, 1540]) == (10401, 11804, 12058)
         meta = tif.astrotiff_metadata
-        assert meta['SIMPLE'] == True
+        assert meta['SIMPLE']
         assert meta['APTDIA'] == 100.0
         assert meta['APTDIA:COMMENT'] == 'Aperture diameter of telescope in mm'
         assert__str__(tif)
@@ -11270,9 +11420,9 @@ def test_read_xarray_page_properties():
         ycoords = numpy.linspace(
             0, 33 / resolution[1], 33, endpoint=False, dtype=numpy.float32
         )
-        zcoords = numpy.linspace(
-            0, 7 / 1, 7, endpoint=False, dtype=numpy.float32
-        )
+        # zcoords = numpy.linspace(
+        #     0, 7 / 1, 7, endpoint=False, dtype=numpy.float32
+        # )
         with TiffFile(fname) as tif:
             # gray
             page = tif.pages[0]
@@ -12346,7 +12496,7 @@ def test_write_description_tag_nometadata():
             assert len(tif.pages) == 2
             assert tif.pages[0].description == description
             assert 'ImageDescription' not in tif.pages[1].tags
-            assert tif.pages[0].tags.get('ImageDescription', index=1) == None
+            assert tif.pages[0].tags.get('ImageDescription', index=1) is None
             assert tif.series[0].kind == 'Generic'
             assert__str__(tif)
 
@@ -12362,7 +12512,7 @@ def test_write_description_tag_notshaped():
             assert len(tif.pages) == 2
             assert tif.pages[0].description == description
             assert 'ImageDescription' not in tif.pages[1].tags
-            assert tif.pages[0].tags.get('ImageDescription', index=1) == None
+            assert tif.pages[0].tags.get('ImageDescription', index=1) is None
             assert tif.series[0].kind == 'Generic'
             assert__str__(tif)
 
@@ -12609,7 +12759,6 @@ def test_write_compress_args(args):
     """Test compress parameter no longer works in 2022.4.22."""
     i = args[0]
     compressargs = args[1:]
-    compressed = compressargs[0] != 0
     if len(compressargs) == 1:
         compressargs = compressargs[0]
 
@@ -12923,7 +13072,7 @@ def test_write_compression_jetraw():
     # Jetraw requires initialization
     imagecodecs.jetraw_init()
 
-    with TempFileName(f'compression_jetraw') as fname:
+    with TempFileName('compression_jetraw') as fname:
         try:
             imwrite(
                 fname,
@@ -13491,7 +13640,7 @@ def test_write_extrasamples_gray():
     """Test write grayscale with extrasamples contig."""
     data = random_data(numpy.uint8, (301, 219, 2))
     with TempFileName('extrasamples_gray') as fname:
-        imwrite(fname, data, extrasamples=UNASSALPHA)
+        imwrite(fname, data, extrasamples=[UNASSALPHA])
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -13513,7 +13662,7 @@ def test_write_extrasamples_gray_planar():
     """Test write planar grayscale with extrasamples."""
     data = random_data(numpy.uint8, (2, 301, 219))
     with TempFileName('extrasamples_gray_planar') as fname:
-        imwrite(fname, data, planarconfig=SEPARATE, extrasamples=UNASSALPHA)
+        imwrite(fname, data, planarconfig=SEPARATE, extrasamples=[UNASSALPHA])
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -13588,6 +13737,7 @@ def test_write_extrasamples_assocalpha():
             assert len(tif.pages) == 1
             page = tif.pages[0]
             assert page.is_contiguous
+            assert page.planarconfig == CONTIG
             assert page.photometric == RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
@@ -13614,6 +13764,7 @@ def test_write_extrasamples_mix():
             assert len(tif.pages) == 1
             page = tif.pages[0]
             assert page.is_contiguous
+            assert page.planarconfig == CONTIG
             assert page.photometric == RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
@@ -15183,7 +15334,7 @@ def test_write_multiple_series():
 def test_write_multithreaded():
     """Test write large tiled multithreaded."""
     data = numpy.arange(4001 * 6003 * 3).astype('uint8').reshape(4001, 6003, 3)
-    with TempFileName(f'multithreaded') as fname:
+    with TempFileName('multithreaded') as fname:
         imwrite(fname, data, tile=(512, 512), compression='PNG', maxworkers=6)
         # assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16133,6 +16284,70 @@ def test_write_ome_manual(contiguous):
 
 
 @pytest.mark.skipif(
+    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.JPEG,
+    reason=REASON,
+)
+def test_rewrite_ome():
+    """Test rewrite multi-series, pyramidal OME-TIFF."""
+    # https://github.com/cgohlke/tifffile/issues/156
+    # - data loss in case of JPEG recompression; copy tiles verbatim
+    # - OME metadata not copied; use ometypes library after writing
+    # - tifffile does not support multi-file OME-TIFF writing
+    fname = public_file('tifffile/multiscene_pyramidal.ome.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_ome
+        with TempFileName('rewrite_ome', ext='.ome.tif') as fname_copy:
+            with TiffWriter(
+                fname_copy,
+                bigtiff=tif.is_bigtiff,
+                byteorder=tif.byteorder,
+                ome=tif.is_ome,
+            ) as copy:
+                for series in tif.series:
+                    subifds = len(series.levels) - 1
+                    metadata = {'axes': series.axes}
+                    for level in series.levels:
+                        keyframe = level.keyframe
+                        copy.write(
+                            level.asarray(),
+                            planarconfig=keyframe.planarconfig,
+                            photometric=keyframe.photometric,
+                            extrasamples=keyframe.extrasamples,
+                            tile=keyframe.tile,
+                            rowsperstrip=keyframe.rowsperstrip,
+                            compression=keyframe.compression,
+                            predictor=keyframe.predictor,
+                            subsampling=keyframe.subsampling,
+                            datetime=keyframe.datetime,
+                            resolution=keyframe.resolution,
+                            resolutionunit=keyframe.resolutionunit,
+                            subfiletype=keyframe.subfiletype,
+                            colormap=keyframe.colormap,
+                            subifds=subifds,
+                            metadata=metadata,
+                        )
+                        subifds = None
+                        metadata = None
+            # verify
+            with TiffFile(fname_copy) as copy:
+                assert copy.byteorder == tif.byteorder
+                assert copy.is_bigtiff == tif.is_bigtiff
+                assert copy.is_imagej == tif.is_imagej
+                assert copy.is_ome == tif.is_ome
+                assert len(tif.series) == len(copy.series)
+                for series, series_copy in zip(tif.series, copy.series):
+                    assert len(series.levels) == len(series_copy.levels)
+                    metadata = {'axes': series.axes}
+                    for level, level_copy in zip(
+                        series.levels, series_copy.levels
+                    ):
+                        assert len(level.pages) == len(level_copy.pages)
+                        assert level.shape == level_copy.shape
+                        assert level.dtype == level_copy.dtype
+                        assert level.keyframe.hash == level_copy.keyframe.hash
+
+
+@pytest.mark.skipif(
     SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG or SKIP_LARGE,
     reason=REASON,
 )
@@ -16151,7 +16366,7 @@ def test_write_ome_copy():
         assert svs.is_svs
         levels = svs.series[0].levels
 
-        with TempFileName('_write_ome_copy', ext='.ome.tif') as fname:
+        with TempFileName('write_ome_copy', ext='.ome.tif') as fname:
 
             with TiffWriter(fname, ome=True, bigtiff=True) as tif:
                 level = levels[0]
@@ -16237,7 +16452,7 @@ def test_write_geotiff_copy():
         assert geotiff.is_geotiff
         assert len(geotiff.pages) == 1
 
-        with TempFileName('_write_geotiff_copy') as fname:
+        with TempFileName('write_geotiff_copy') as fname:
 
             with TiffWriter(
                 fname, byteorder=geotiff.byteorder, bigtiff=geotiff.is_bigtiff
@@ -16877,7 +17092,7 @@ def test_dependent_tiffslide():
     with TiffSlide(fname) as slide:
         region = slide.read_region((300, 400), 0, (512, 512), as_array=True)
         assert tuple(region[150, 200]) == (243, 246, 246)
-        thumb = slide.get_thumbnail((200, 200))
+        slide.get_thumbnail((200, 200))
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE or SKIP_WIN, reason=REASON)
@@ -16936,8 +17151,6 @@ def test_dependent_aicsimageio():
     """Test aicsimageio package."""
     # https://github.com/AllenCellModeling/aicsimageio
     try:
-        import zarr
-        import xarray
         import aicsimageio
     except ImportError:
         pytest.skip('aicsimageio or dependencies missing')
