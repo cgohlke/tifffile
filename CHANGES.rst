@@ -1,9 +1,19 @@
 Revisions
 ---------
 
+2022.10.10
+
+- Pass 4925 tests.
+- Fix RecursionError in peek_iterator.
+- Fix reading NDTiffv3 summary settings.
+- Fix svs_description_metadata parsing (#149).
+- Fix ImportError if Python was built without zlib or lzma.
+- Fix bool of COMPRESSION and PREDICTOR instances.
+- Deprecate non-sequence extrasamples arguments.
+- Parse SCIFIO metadata as ImageJ.
+
 2022.8.12
 
-- Pass 4918 tests.
 - Fix writing ImageJ format with hyperstack argument.
 - Fix writing description with metadata disabled.
 - Add option to disable writing shaped metadata in TiffWriter.
