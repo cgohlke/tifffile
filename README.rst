@@ -24,19 +24,37 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.8.12
+:Version: 2022.10.10
 :DOI: 10.5281/zenodo.6795860
 
-Installation
-------------
+Quickstart
+----------
 
-Install the tifffile package and recommended dependencies from the
+Install the tifffile package and all dependencies from the
 Python Package Index::
 
-    python -m pip install -U tifffile imagecodecs matplotlib lxml zarr fsspec
+    python -m pip install -U tifffile[all]
 
 Tifffile is also available in other package repositories such as Anaconda,
 Debian, and MSYS2.
+
+Print the console script usage::
+
+    python -m tifffile --help
+
+View image and metadata stored in a TIFF file::
+
+    python -m tifffile file.tif
+
+The tifffile library is documented via docstrings.
+
+See `Examples`_ for using the programming interface.
+
+Source code and support are available on
+`GitHub <https://github.com/cgohlke/tifffile>`_.
+
+Support is also provided on the
+`image.sc <https://forum.image.sc/tag/tifffile>`_ forum.
 
 Requirements
 ------------
@@ -44,22 +62,36 @@ Requirements
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython 3.8.10, 3.9.13, 3.10.6, 3.11.0rc1 <https://www.python.org>`_
+- `CPython 3.8.10, 3.9.13, 3.10.7, 3.11.0rc2 <https://www.python.org>`_
   (AMD64 platforms, 32-bit platforms are deprecated)
-- `NumPy 1.22.4 <https://pypi.org/project/numpy/>`_
-- `Imagecodecs 2022.8.8 <https://pypi.org/project/imagecodecs/>`_
+- `NumPy 1.23.3 <https://pypi.org/project/numpy/>`_
+- `Imagecodecs 2022.9.26 <https://pypi.org/project/imagecodecs/>`_
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib 3.5.3 <https://pypi.org/project/matplotlib/>`_
+- `Matplotlib 3.6.1 <https://pypi.org/project/matplotlib/>`_
   (required for plotting)
 - `Lxml 4.9.1 <https://pypi.org/project/lxml/>`_
   (required only for validating and printing XML)
+- `Zarr 2.13.3 <https://pypi.org/project/zarr/>`_
+  (required only for opening Zarr stores)
+- `Fsspec 2022.8.2 <https://pypi.org/project/fsspec/>`_
+  (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2022.10.10
+
+- Pass 4925 tests.
+- Fix RecursionError in peek_iterator.
+- Fix reading NDTiffv3 summary settings.
+- Fix svs_description_metadata parsing (#149).
+- Fix ImportError if Python was built without zlib or lzma.
+- Fix bool of COMPRESSION and PREDICTOR instances.
+- Deprecate non-sequence extrasamples arguments.
+- Parse SCIFIO metadata as ImageJ.
+
 2022.8.12
 
-- Pass 4918 tests.
 - Fix writing ImageJ format with hyperstack argument.
 - Fix writing description with metadata disabled.
 - Add option to disable writing shaped metadata in TiffWriter.
@@ -266,8 +298,9 @@ TIFF files from Python are
 `slideio <https://gitlab.com/bioslide/slideio>`_,
 `tiffslide <https://github.com/bayer-science-for-a-better-life/tiffslide>`_,
 `tifftools <https://github.com/DigitalSlideArchive/tifftools>`_,
-`tyf <https://github.com/Moustikitos/tyf>`_, and
-`xtiff <https://github.com/BodenmillerGroup/xtiff>`_.
+`tyf <https://github.com/Moustikitos/tyf>`_,
+`xtiff <https://github.com/BodenmillerGroup/xtiff>`_, and
+`ndtiff <https://github.com/micro-manager/NDTiffStorage>`_.
 
 References
 ----------
@@ -424,6 +457,7 @@ Write a 10 fps time series of volumes with xyz voxel size 2.6755x2.6755x3.9474
 micron^3 to an ImageJ hyperstack formatted TIFF file:
 
 >>> volume = numpy.random.randn(6, 57, 256, 256).astype('float32')
+>>> image_labels = [f'{i}' for i in range(volume.shape[0] * volume.shape[1])]
 >>> imwrite(
 ...     'temp.tif',
 ...     volume,
@@ -433,7 +467,9 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
 ...         'spacing': 3.947368,
 ...         'unit': 'um',
 ...         'finterval': 1/10,
-...         'axes': 'TZYX'
+...         'fps': 10.0,
+...         'axes': 'TZYX',
+...         'Labels': image_labels,
 ...     }
 ... )
 
