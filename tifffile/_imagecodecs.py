@@ -55,40 +55,73 @@ __all__ = [
     'zlib_encode',
 ]
 
-import lzma
-import zlib
-
 from typing import Any, Literal, overload
 
 import numpy
 
+try:
+    import lzma
 
-def zlib_encode(
-    data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
-) -> bytes:
-    """Compress Zlib DEFLATE."""
-    if isinstance(data, numpy.ndarray):
-        data = data.tobytes()
-    return zlib.compress(data, 6 if level is None else level)
+    def lzma_encode(
+        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+    ) -> bytes:
+        """Compress LZMA."""
+        if isinstance(data, numpy.ndarray):
+            data = data.tobytes()
+        return lzma.compress(data)
+
+    def lzma_decode(data: bytes, /, *, out=None) -> bytes:
+        """Decompress LZMA."""
+        return lzma.decompress(data)
+
+except ImportError:
+    # Python was built without lzma
+    def lzma_encode(
+        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+    ) -> bytes:
+        """Raise ImportError."""
+        import lzma  # noqa
+
+        return b''
+
+    def lzma_decode(data: bytes, /, *, out=None) -> bytes:
+        """Raise ImportError."""
+        import lzma  # noqa
+
+        return b''
 
 
-def zlib_decode(data: bytes, /, *, out=None) -> bytes:
-    """Decompress Zlib DEFLATE."""
-    return zlib.decompress(data)
+try:
+    import zlib
 
+    def zlib_encode(
+        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+    ) -> bytes:
+        """Compress Zlib DEFLATE."""
+        if isinstance(data, numpy.ndarray):
+            data = data.tobytes()
+        return zlib.compress(data, 6 if level is None else level)
 
-def lzma_encode(
-    data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
-) -> bytes:
-    """Compress LZMA."""
-    if isinstance(data, numpy.ndarray):
-        data = data.tobytes()
-    return lzma.compress(data)
+    def zlib_decode(data: bytes, /, *, out=None) -> bytes:
+        """Decompress Zlib DEFLATE."""
+        return zlib.decompress(data)
 
+except ImportError:
+    # Python was built without zlib
 
-def lzma_decode(data: bytes, /, *, out=None) -> bytes:
-    """Decompress LZMA."""
-    return lzma.decompress(data)
+    def zlib_encode(
+        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+    ) -> bytes:
+        """Raise ImportError."""
+        import zlib  # noqa
+
+        return b''
+
+    def zlib_decode(data: bytes, /, *, out=None) -> bytes:
+        """Raise ImportError."""
+        import zlib  # noqa
+
+        return b''
 
 
 def packbits_decode(encoded: bytes, /, *, out=None) -> bytes:
