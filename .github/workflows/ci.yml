@@ -1,0 +1,38 @@
+name: Tifffile CI
+
+on:
+  push:
+  pull_request:
+    branches: ["master"]
+
+jobs:
+  CI:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-latest", "windows-latest"]
+        python: ["3.8", "3.9", "3.10"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python ${{ matrix.python }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}:python-${{ matrix.python }}:pip-cache
+
+    - name: Install packages
+      run: pip install fsspec lxml imagecodecs zarr dask pytest-cov .
+
+    - name: Run tests
+      env:
+        SKIP_LARGE: 1
+      run: pytest -v --cov=tifffile --cov-report=term-missing --durations=0 tests/
