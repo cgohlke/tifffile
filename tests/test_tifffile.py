@@ -184,23 +184,34 @@ from tifffile.tifffile import (  # noqa
     xml2dict,
 )
 
-# skip certain tests
-SKIP_LARGE = False  # skip tests requiring large memory
-SKIP_EXTENDED = False
-SKIP_PUBLIC = False  # skip public files
-SKIP_PRIVATE = False  # skip private files
-SKIP_VALIDATE = True  # skip validate written files with jhove
-SKIP_CODECS = False
-SKIP_ZARR = False
-SKIP_DASK = False
-SKIP_HTTP = False
-SKIP_PYPY = 'PyPy' in sys.version
-SKIP_WIN = sys.platform != 'win32'
-SKIP_BE = sys.byteorder == 'big'
-REASON = 'skipped'
+HERE = os.path.dirname(__file__)
+TEMP_DIR = os.path.join(HERE, '_tmp')
+PRIVATE_DIR = os.path.join(HERE, 'data', 'private')
+PUBLIC_DIR = os.path.join(HERE, 'data', 'public')
 
-if sys.maxsize < 2**32:
-    SKIP_LARGE = True
+
+# skip certain tests
+def skip(key, default):
+    return os.getenv(key, default) in (True, 1, "1")
+
+
+# skip tests requiring large memory
+SKIP_LARGE = skip("SKIP_LARGE", sys.maxsize < 2**32)
+SKIP_EXTENDED = skip("SKIP_EXTENDED", False)
+# skip public files
+SKIP_PUBLIC = skip("SKIP_PUBLIC", not os.path.exists(PUBLIC_DIR))
+# skip private files
+SKIP_PRIVATE = skip("SKIP_PRIVATE", not os.path.exists(PRIVATE_DIR))
+# skip validate written files with jhove
+SKIP_VALIDATE = skip("SKIP_VALIDATE", True)
+SKIP_CODECS = skip("SKIP_CODECS", False)
+SKIP_ZARR = skip("SKIP_ZARR", False)
+SKIP_DASK = skip("SKIP_DASK", False)
+SKIP_HTTP = skip("SKIP_HTTP", False)
+SKIP_PYPY = skip("SKIP_PYPY", 'PyPy' in sys.version)
+SKIP_WIN = skip("SKIP_WIN", sys.platform != 'win32')
+SKIP_BE = skip("SKIP_BE", sys.byteorder == 'big')
+REASON = 'skipped'
 
 MINISBLACK = TIFF.PHOTOMETRIC.MINISBLACK
 MINISWHITE = TIFF.PHOTOMETRIC.MINISWHITE
@@ -237,28 +248,16 @@ FILE_FLAGS = ['is_' + a for a in TIFF.FILE_FLAGS]
 FILE_FLAGS += [name for name in dir(TiffFile) if name.startswith('is_')]
 PAGE_FLAGS = [name for name in dir(TiffPage) if name.startswith('is_')]
 
-HERE = os.path.dirname(__file__)
-# HERE = os.path.join(HERE, 'tests')
-TEMP_DIR = os.path.join(HERE, '_tmp')
-PRIVATE_DIR = os.path.join(HERE, 'data', 'private')
-PUBLIC_DIR = os.path.join(HERE, 'data', 'public')
-
 URL = 'http://localhost:8386/'  # TEMP_DIR
 
 if not SKIP_HTTP:
     try:
         urllib.request.urlopen(URL, timeout=0.2)
     except urllib.error.URLError:
-        SKIP_HTTP = False
+        SKIP_HTTP = True
 
 if not os.path.exists(TEMP_DIR):
     TEMP_DIR = tempfile.gettempdir()
-
-if not os.path.exists(PUBLIC_DIR):
-    SKIP_PUBLIC = True
-
-if not os.path.exists(PRIVATE_DIR):
-    SKIP_PRIVATE = True
 
 if not SKIP_CODECS:
     try:
