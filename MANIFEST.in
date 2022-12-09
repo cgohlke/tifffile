@@ -15,6 +15,11 @@ include docs/conf.py
 include docs/make.py
 include docs/_static/custom.css
 
+exclude *.cmd
+recursive-exclude doc *
+recursive-exclude test *
+recursive-exclude tests *
+
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
 recursive-exclude * *-
