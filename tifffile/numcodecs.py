@@ -1,6 +1,6 @@
 # tifffile/numcodecs.py
 
-# Copyright (c) 2021-2022, Christoph Gohlke
+# Copyright (c) 2021-2023, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
