@@ -7,7 +7,7 @@ multiscale ReferenceFileSystem JSON file for a sequence of cloud optimized
 GeoTIFF (COG) files stored on S3. The tiles of the COG files are used as
 chunks. No additional Numcodecs codec needs to be registered since the COG
 files use Zlib compression. A Xarray dataset is created from the
-ReferenceFileSystem file and a subset of the dataset is ploted.
+ReferenceFileSystem file and a subset of the dataset is plotted.
 
 See https://github.com/cgohlke/tifffile/issues/125
 
