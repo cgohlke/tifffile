@@ -53,4 +53,4 @@ def pytest_report_header(config):
         pass
 
 
-collect_ignore = ['_tmp', 'data']
+collect_ignore = ['_tmp', 'data', 'data-']
