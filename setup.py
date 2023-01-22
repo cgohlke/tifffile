@@ -83,16 +83,17 @@ setup(
     packages=['tifffile'],
     python_requires='>=3.8',
     install_requires=[
-        'numpy>=1.19.2',
-        # 'imagecodecs>=2022.2.22',
+        'numpy',
+        # 'imagecodecs>=2023.1.23',
     ],
     extras_require={
         'all': [
-            'imagecodecs>=2022.2.22',
-            'matplotlib>=3.3',
+            'imagecodecs>=2023.1.23',
+            'matplotlib',
+            'defusedxml',
             'lxml',
             'zarr',
-            'fsspec'
+            'fsspec',
         ]
     },
     tests_require=[
@@ -108,6 +109,8 @@ setup(
         'dask',
         'xarray',
         'fsspec',
+        'defusedxml',
+        'ndtiff',
     ],
     entry_points={
         'console_scripts': [
