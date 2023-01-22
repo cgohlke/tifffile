@@ -65,6 +65,7 @@ members = [
     'imagej_description',
     # 'read_scanimage_metadata',
     # 'read_micromanager_metadata',
+    # 'read_ndtiff_index',
     'create_output',
     'hexdump',
     'xml2dict',
