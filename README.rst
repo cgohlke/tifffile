@@ -6,9 +6,10 @@ Tifffile is a Python library to
 (1) store NumPy arrays in TIFF (Tagged Image File Format) files, and
 (2) read image and metadata from TIFF-like files used in bioimaging.
 
-Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, STK, LSM, SGI,
-NIHImage, ImageJ, MicroManager, FluoView, ScanImage, SEQ, GEL, SVS, SCN, SIS,
-BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and GeoTIFF files.
+Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
+SGI, NIHImage, ImageJ, MicroManager NDTiff, FluoView, ScanImage, SEQ, GEL,
+SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and
+GeoTIFF files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -17,6 +18,11 @@ Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
 compatible files in multi-page, volumetric, pyramidal, memory-mappable,
 tiled, predicted, or compressed form.
 
+Many compression and predictor schemes are supported via the imagecodecs
+library, including LZW, PackBits, Deflate, PIXTIFF, LZMA, LERC, Zstd,
+JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR, JPEG XL, WebP, PNG, Jetraw,
+24-bit floating-point, and floating-point horizontal differencing.
+
 Tifffile can also be used to inspect TIFF structures, read image data from
 multi-dimensional file sequences, write fsspec ReferenceFileSystem for
 TIFF files and image file sequences, patch TIFF tag values, and parse
@@ -24,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2022.10.10
+:Version: 2023.1.23
 :DOI: 10.5281/zenodo.6795860
 
 Quickstart
@@ -59,29 +65,48 @@ Support is also provided on the
 Requirements
 ------------
 
-This release has been tested with the following requirements and dependencies
+This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython 3.8.10, 3.9.13, 3.10.7, 3.11.0rc2 <https://www.python.org>`_
+- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.9, 3.11.1
   (AMD64 platforms, 32-bit platforms are deprecated)
-- `NumPy 1.23.3 <https://pypi.org/project/numpy/>`_
-- `Imagecodecs 2022.9.26 <https://pypi.org/project/imagecodecs/>`_
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.1.23
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib 3.6.1 <https://pypi.org/project/matplotlib/>`_
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.6.3
   (required for plotting)
-- `Lxml 4.9.1 <https://pypi.org/project/lxml/>`_
+- `Lxml <https://pypi.org/project/lxml/>`_ 4.9.2
   (required only for validating and printing XML)
-- `Zarr 2.13.3 <https://pypi.org/project/zarr/>`_
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.13.6
   (required only for opening Zarr stores)
-- `Fsspec 2022.8.2 <https://pypi.org/project/fsspec/>`_
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.1.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.1.23
+
+- Pass 4949 tests.
+- Support reading NDTiffStorage.
+- Support reading PIXTIFF compression.
+- Support LERC with Zstd or Deflate compression.
+- Do not write duplicate and select extratags.
+- Allow to write uncompressed image data beyond 4 GB in classic TIFF.
+- Add option to specify chunkshape and dtype in FileSequence.asarray.
+- Add option for imread to write to output in FileSequence.asarray (#172).
+- Add function to read GDAL structural metadata.
+- Add function to read NDTiff.index files.
+- Fix IndexError accessing TiffFile.mdgel_metadata in non-MDGEL files.
+- Fix unclosed file ResourceWarning in TiffWriter.
+- Fix non-bool predictor arguments (#167).
+- Relax detection of OME-XML (#173).
+- Rename some TiffFrame parameters (breaking).
+- Deprecate squeeze_axes (will change signature).
+- Use defusexml in xml2dict.
+
 2022.10.10
 
-- Pass 4925 tests.
 - Fix RecursionError in peek_iterator.
 - Fix reading NDTiffv3 summary settings.
 - Fix svs_description_metadata parsing (#149).
@@ -142,53 +167,6 @@ Revisions
 
 2022.5.4
 
-- Allow to write NewSubfileType=0 (#132).
-- Support writing iterators of strip or tile bytes.
-- Convert iterables (not iterators) to NumPy arrays when writing.
-- Explicitly specify optional keyword parameters for imread and imwrite.
-- Return number of written bytes from FileHandle write functions.
-
-2022.4.28
-
-- Add option to specify fsspec version 1 URL template name (#131).
-- Ignore invalid dates in UIC tags (#129).
-- Fix zlib_encode and lzma_encode to work with non-contiguous arrays (#128).
-- Fix delta_encode to preserve byteorder of ndarrays.
-- Move Imagecodecs fallback functions to private module and add tests.
-
-2022.4.26
-
-- Fix AttributeError in TiffFile.shaped_metadata (#127).
-- Fix TiffTag.overwrite with pre-packed binary value.
-- Write sparse TIFF if tile iterator contains None.
-- Raise ValueError when writing photometric mode with too few samples.
-- Improve test coverage.
-
-2022.4.22
-
-- Add type hints for Python 3.10 (WIP).
-- Fix Mypy errors (breaking).
-- Mark many parameters positional-only or keyword-only (breaking).
-- Remove deprecated pages parameter from imread (breaking).
-- Remove deprecated compress and ijmetadata write parameters (breaking).
-- Remove deprecated fastij and movie parameters from TiffFile (breaking).
-- Remove deprecated multifile parameters from TiffFile (breaking).
-- Remove deprecated tif parameter from TiffTag.overwrite (breaking).
-- Remove deprecated file parameter from FileSequence.asarray (breaking).
-- Remove option to pass imread class to FileSequence (breaking).
-- Remove optional parameters from __str__ functions (breaking).
-- Rename TiffPageSeries.offset to dataoffset (breaking)
-- Change TiffPage.pages to None if no SubIFDs are present (breaking).
-- Change TiffPage.index to int (breaking).
-- Change TiffPage.is_contiguous, is_imagej, and is_shaped to bool (breaking).
-- Add TiffPage imagej_description and shaped_description properties.
-- Add TiffFormat abstract base class.
-- Deprecate lazyattr and use functools.cached_property instead (breaking).
-- Julian_datetime raises ValueError for dates before year 1 (breaking).
-- Regressed import time due to typing.
-
-2022.4.8
-
 - ...
 
 Refer to the CHANGES file for older revisions.
@@ -225,8 +203,15 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **OME-TIFF** files store up to 8-dimensional image data in one or multiple
   TIFF or BigTIFF files. The UTF-8 encoded OME-XML metadata found in the
   ImageDescription tag of the first IFD defines the position of TIFF IFDs in
-  the high dimensional image data. Tifffile can read OME-TIFF files and write
-  NumPy arrays to single-file OME-TIFF.
+  the high dimensional image data. Tifffile can read OME-TIFF files (except
+  multi-file pyramidal) and write NumPy arrays to single-file OME-TIFF.
+- **Micro-Manager NDTiff** stores multi-dimensional image data in one
+  or more classic TIFF files. Metadata contained in a separate NDTiff.index
+  binary file defines the position of the TIFF IFDs in the image array.
+  Each TIFF file also contains metadata in a non-TIFF binary structure at
+  offset 8. Downsampled image data of pyramidal datasets are stored in
+  separate folders. Tifffile can read NDTiff files. Version 0 and 1 series,
+  tiling, stitching, and multi-resolution pyramids are not supported.
 - **Carl Zeiss LSM** files store all IFDs below 4 GB and wrap around 32-bit
   StripOffsets pointing to image data above 4 GB. The StripOffsets of each
   series and position require separate unwrapping. The StripByteCounts tag
@@ -340,6 +325,7 @@ References
   https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
   Roche-Digital-Pathology-BIF-Whitepaper.pdf
 - Astro-TIFF specification. https://astro-tiff.sourceforge.io/
+- NDTiffStorage. https://github.com/micro-manager/NDTiffStorage
 
 Examples
 --------
@@ -355,12 +341,20 @@ Read the image from the TIFF file as NumPy array:
 >>> image.shape
 (256, 256, 3)
 
+Use the `photometric` and `planarconfig` arguments to write a 3x3x3 NumPy
+array to an interleaved RGB, a planar RGB, or a multi-page grayscale TIFF:
+
+>>> data = numpy.random.randint(0, 255, (3, 3, 3), 'uint8')
+>>> imwrite('temp.tif', data, photometric='rgb')
+>>> imwrite('temp.tif', data, photometric='rgb', planarconfig='separate')
+>>> imwrite('temp.tif', data, photometric='minisblack')
+
 Write a 3-dimensional NumPy array to a multi-page, 16-bit grayscale TIFF file:
 
 >>> data = numpy.random.randint(0, 2**12, (64, 301, 219), 'uint16')
 >>> imwrite('temp.tif', data, photometric='minisblack')
 
-Read the whole image stack from the TIFF file as NumPy array:
+Read the whole image stack from the multi-page TIFF file as NumPy array:
 
 >>> image_stack = imread('temp.tif')
 >>> image_stack.shape
@@ -517,7 +511,7 @@ will not recognize the two series; use the OME-TIFF format for better
 interoperability):
 
 >>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
->>> series1 = numpy.random.randint(0, 1023, (4, 256, 256), 'uint16')
+>>> series1 = numpy.random.randint(0, 255, (4, 256, 256), 'uint16')
 >>> with TiffWriter('temp.tif') as tif:
 ...     tif.write(series0, photometric='rgb')
 ...     tif.write(series1, photometric='minisblack')
@@ -558,23 +552,24 @@ Create a TIFF file from a generator of tiles:
 ... )
 
 Write a multi-dimensional, multi-resolution (pyramidal), multi-series OME-TIFF
-file with metadata. Sub-resolution images are written to SubIFDs. A thumbnail
-image is written as a separate image series:
+file with metadata. Sub-resolution images are written to SubIFDs. Write a
+thumbnail image as a separate image series:
 
->>> data = numpy.random.randint(0, 1023, (8, 2, 512, 512, 3), 'uint16')
+>>> data = numpy.random.randint(0, 255, (8, 2, 512, 512, 3), 'uint8')
 >>> subresolutions = 2
 >>> pixelsize = 0.29  # micrometer
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
 ...     metadata={
 ...         'axes': 'TCYXS',
 ...         'SignificantBits': 10,
-...         'Channel': {'Name': ['Channel 1', 'Channel 2']},
 ...         'TimeIncrement': 0.1,
 ...         'TimeIncrementUnit': 's',
 ...         'PhysicalSizeX': pixelsize,
 ...         'PhysicalSizeXUnit': 'µm',
 ...         'PhysicalSizeY': pixelsize,
 ...         'PhysicalSizeYUnit': 'µm',
+...         'Channel': {'Name': ['Channel 1', 'Channel 2']},
+...         'Plane': {'PositionX': [0.0] * 16, 'PositionXUnit': ['µm'] * 16}
 ...     }
 ...     options = dict(
 ...         photometric='rgb',
@@ -634,7 +629,7 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 >>> z
 <zarr.hierarchy.Group '/' read-only>
 >>> z[0]  # base layer
-<zarr.core.Array '/0' (8, 2, 512, 512, 3) uint16 read-only>
+<zarr.core.Array '/0' (8, 2, 512, 512, 3) uint8 read-only>
 >>> z[0][2, 0, 128:384, 256:].shape  # read a tile from the base layer
 (256, 256, 3)
 >>> store.close()
