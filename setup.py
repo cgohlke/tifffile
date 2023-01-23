@@ -7,7 +7,7 @@ import re
 
 from setuptools import setup
 
-buildnumber = '1'
+buildnumber = ''
 
 
 def search(pattern, code, flags=0):
