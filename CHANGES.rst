@@ -1,9 +1,28 @@
 Revisions
 ---------
 
+2023.1.23
+
+- Pass 4949 tests.
+- Support reading NDTiffStorage.
+- Support reading PIXTIFF compression.
+- Support LERC with Zstd or Deflate compression.
+- Do not write duplicate and select extratags.
+- Allow to write uncompressed image data beyond 4 GB in classic TIFF.
+- Add option to specify chunkshape and dtype in FileSequence.asarray.
+- Add option for imread to write to output in FileSequence.asarray (#172).
+- Add function to read GDAL structural metadata.
+- Add function to read NDTiff.index files.
+- Fix IndexError accessing TiffFile.mdgel_metadata in non-MDGEL files.
+- Fix unclosed file ResourceWarning in TiffWriter.
+- Fix non-bool predictor arguments (#167).
+- Relax detection of OME-XML (#173).
+- Rename some TiffFrame parameters (breaking).
+- Deprecate squeeze_axes (will change signature).
+- Use defusexml in xml2dict.
+
 2022.10.10
 
-- Pass 4925 tests.
 - Fix RecursionError in peek_iterator.
 - Fix reading NDTiffv3 summary settings.
 - Fix svs_description_metadata parsing (#149).
