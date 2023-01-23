@@ -3,18 +3,6 @@ include README.rst
 include CHANGES.rst
 include ACKNOWLEDGEMENTS.rst
 
-# include tiffile.py
-# include setup_tiffile.py
-include tests/conftest.py
-include tests/test_tifffile.py
-
-include examples/earthbigdata.py
-include examples/issue125.py
-
-include docs/conf.py
-include docs/make.py
-include docs/_static/custom.css
-
 exclude *.cmd
 recursive-exclude doc *
 recursive-exclude test *
@@ -28,3 +16,10 @@ recursive-exclude test/_tmp *
 
 include tests/conftest.py
 include tests/test_tifffile.py
+
+include examples/earthbigdata.py
+include examples/issue125.py
+
+include docs/conf.py
+include docs/make.py
+include docs/_static/custom.css
