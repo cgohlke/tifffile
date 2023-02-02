@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.1.23
+:Version: 2023.2.2
 
 """
 
@@ -8577,6 +8577,75 @@ def test_read_ndpi_jpegxr():
 @pytest.mark.skipif(
     SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
 )
+def test_read_ndpi_layers():
+    """Test read Hamamatsu NDPI slide with 5 layers."""
+    fname = private_file('HamamatsuNDPI/hamamatsu_5-layers.ndpi')
+    with TiffFile(fname) as tif:
+        assert tif.is_ndpi
+        assert len(tif.pages) == 37
+        assert len(tif.series) == 3
+        for page in tif.pages:
+            assert page.ndpi_tags['Model'] == 'C10730-12'
+
+        for page in tif.pages[:4]:
+            assert page.is_ndpi
+            assert page.tags['PhotometricInterpretation'].value == YCBCR
+            assert page.tags['BitsPerSample'].value == (8, 8, 8)
+            assert page.samplesperpixel == 3
+            assert page.bitspersample == 8
+            assert page.photometric == YCBCR
+            assert page.compression == TIFF.COMPRESSION.JPEG
+
+        # first page
+        page = tif.pages[0]
+        assert page.shape == (12032, 11520, 3)
+        assert page.databytecounts[0] == 1634
+        assert page.ndpi_tags['CaptureMode'] == 0
+        assert page.ndpi_tags['Magnification'] == 20.0
+        if not SKIP_ZARR:
+            with page.aszarr() as store:
+                data = zarr.open(store, mode='r')
+                assert list(data[10000, 10000]) == [232, 215, 225]
+        # last page
+        page = tif.pages[-1]
+        assert page.is_ndpi
+        assert page.photometric == MINISBLACK
+        assert page.compression == NONE
+        assert page.shape == (196, 575)
+        assert page.ndpi_tags['Magnification'] == -2.0
+        # first series
+        series = tif.series[0]
+        assert series.kind == 'ndpi'
+        assert series.name == 'Baseline'
+        assert series.shape == (7, 12032, 11520, 3)
+        assert series.is_pyramidal
+        assert len(series.levels) == 5
+        assert len(series.pages) == 7
+        # pyramid levels
+        assert series.levels[1].shape == (7, 6016, 5760, 3)
+        assert series.levels[2].shape == (7, 3008, 2880, 3)
+        assert series.levels[3].shape == (7, 1504, 1440, 3)
+        assert series.levels[4].shape == (7, 752, 720, 3)
+        data = series.levels[3].asarray()
+        assert_array_equal(
+            data[:, 1000, 1000],
+            [
+                [234, 217, 225],
+                [231, 213, 225],
+                [233, 215, 227],
+                [234, 217, 225],
+                [234, 216, 228],
+                [233, 216, 224],
+                [232, 214, 226],
+            ],
+        )
+        assert_aszarr_method(series.levels[3], data)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+)
 def test_read_svs_cmu1():
     """Test read Aperio SVS slide, JPEG and LZW."""
     fname = private_file('AperioSVS/CMU-1.svs')
@@ -9377,7 +9446,7 @@ def test_read_ome_multi_image_pixels():
         assert len(tif.pages) == 86
         assert len(tif.series) == 3
         # assert page properties
-        for (i, axes, shape) in (
+        for i, axes, shape in (
             (0, 'CTYX', (2, 7, 555, 431)),
             (1, 'TZYX', (6, 2, 461, 348)),
             (2, 'TZCYX', (4, 5, 3, 239, 517)),
@@ -11572,10 +11641,14 @@ def test_read_ndtiff_v2():
         assert series.axes == 'TCYX'
         data = series.asarray()
         if not SKIP_NDTIFF:
-            expected = ndtiff.Dataset(
-                os.path.join(os.path.dirname(fname), '..')
-            ).as_array(axes=['time', 'channel'])
-            assert_array_equal(data, expected)
+            ndt = ndtiff.Dataset(os.path.join(os.path.dirname(fname), '..'))
+            try:
+                assert_array_equal(
+                    data, ndt.as_array(axes=['time', 'channel'])
+                )
+            finally:
+                ndt.close()
+
         assert_aszarr_method(tif, data)
         assert__str__(tif)
 
@@ -11602,10 +11675,11 @@ def test_read_ndtiff_tiled():
         assert series.axes == 'JKYX'
         data = series.asarray()
         if not SKIP_NDTIFF:
-            expected = ndtiff.Dataset(
-                os.path.join(os.path.dirname(fname), '..')
-            ).as_array(axes=['row', 'column'])
-            assert_array_equal(data, expected)
+            ndt = ndtiff.Dataset(os.path.join(os.path.dirname(fname), '..'))
+            try:
+                assert_array_equal(data, ndt.as_array(axes=['row', 'column']))
+            finally:
+                ndt.close()
         assert_aszarr_method(tif, data)
         assert__str__(tif)
 
@@ -11632,10 +11706,13 @@ def test_read_ndtiff_v3():
         assert series.axes == 'TCYX'
         data = series.asarray()
         if not SKIP_NDTIFF:
-            expected = ndtiff.Dataset(os.path.dirname(fname)).as_array(
-                axes=['time', 'channel']
-            )
-            assert_array_equal(data, expected)
+            ndt = ndtiff.Dataset(os.path.dirname(fname))
+            try:
+                assert_array_equal(
+                    data, ndt.as_array(axes=['time', 'channel'])
+                )
+            finally:
+                ndt.close()
         assert_aszarr_method(tif, data)
         assert__str__(tif)
 
@@ -11664,10 +11741,12 @@ def test_read_ndtiff_tcz():
         data = series.asarray(squeeze=True)
         assert data.shape == (8, 2, 7, 512, 512)
         if not SKIP_NDTIFF:
-            expected = ndtiff.Dataset(os.path.dirname(fname)).as_array(
+            ndt = ndtiff.Dataset(os.path.dirname(fname))
+            try:
                 # axes=['position', 'time', 'channel', 'z']
-            )
-            assert_array_equal(data, numpy.squeeze(expected))
+                assert_array_equal(data, numpy.squeeze(ndt.as_array()))
+            finally:
+                ndt.close()
         assert_aszarr_method(tif, data)
         assert__str__(tif)
 
@@ -11695,10 +11774,13 @@ def test_read_ndtiff_multichannel():
         assert series.axes == 'TCZYX'
         data = series.asarray()
         if not SKIP_NDTIFF:
-            expected = ndtiff.Dataset(os.path.dirname(fname)).as_array(
-                axes=['time', 'channel', 'z']
-            )
-            assert_array_equal(data, expected)
+            ndt = ndtiff.Dataset(os.path.dirname(fname))
+            try:
+                assert_array_equal(
+                    data, ndt.as_array(axes=['time', 'channel', 'z'])
+                )
+            finally:
+                ndt.close()
         assert_aszarr_method(tif, data)
         assert__str__(tif)
 
@@ -14885,7 +14967,6 @@ def test_write_iter_tiles(compression):
             yield data[i]
 
     with TempFileName(f'iter_tiles_{compression}') as fname:
-
         with pytest.raises((StopIteration, RuntimeError)):
             # missing tiles
             imwrite(
@@ -14958,7 +15039,6 @@ def test_write_iter_tiles_separate(compression):
             yield data[i]
 
     with TempFileName(f'iter_tiles_separate_{compression}') as fname:
-
         imwrite(
             fname,
             tiles(),
@@ -16399,7 +16479,6 @@ def test_write_imagej_roundtrip():
     assert_valid_tiff(fname)
 
     with TempFileName('imagej_ijmetadata_roundtrip') as fname:
-
         imwrite(fname, data, byteorder='>', imagej=True, metadata=ijmetadata)
 
         with TiffFile(fname) as tif:
@@ -16687,7 +16766,6 @@ def test_write_ome_methods(method):
         yield from data.reshape(-1, *data.shape[-2:])
 
     with TempFileName(f'write_ome_{method}.ome') as fname:
-
         if method == 'xml':
             # use original XML metadata
             metadata = xml2dict(omexml)
@@ -16792,7 +16870,6 @@ def test_write_ome_manual(contiguous):
     data = numpy.random.randint(0, 255, (19, 31, 21), numpy.uint8)
 
     with TempFileName(f'write_ome__manual{int(contiguous)}.ome') as fname:
-
         with TiffWriter(fname) as tif:
             # successively write image data to TIFF pages
             # disable tifffile from writing any metadata
@@ -16920,7 +16997,6 @@ def test_write_ome_copy():
         levels = svs.series[0].levels
 
         with TempFileName('write_ome_copy', ext='.ome.tif') as fname:
-
             with TiffWriter(fname, ome=True, bigtiff=True) as tif:
                 level = levels[0]
                 assert len(level.pages) == 1
@@ -17006,7 +17082,6 @@ def test_write_geotiff_copy():
         assert len(geotiff.pages) == 1
 
         with TempFileName('write_geotiff_copy') as fname:
-
             with TiffWriter(
                 fname, byteorder=geotiff.byteorder, bigtiff=geotiff.is_bigtiff
             ) as tif:
@@ -17776,7 +17851,6 @@ def test_dependent_imageio():
     filename3 = public_file('imageio/test_tiff2.tiff')
 
     with TempFileName('depend_imageio') as fname1:
-
         # one image
         imwrite(fname1, data)
         im = imread(fname1)
