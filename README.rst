@@ -30,29 +30,27 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.1.23
-:DOI: 10.5281/zenodo.6795860
+:Version: 2023.2.2
+:DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
 ----------
 
 Install the tifffile package and all dependencies from the
-Python Package Index::
+`Python Package Index <https://pypi.org/project/tifffile/>`_::
 
     python -m pip install -U tifffile[all]
 
 Tifffile is also available in other package repositories such as Anaconda,
 Debian, and MSYS2.
 
-Print the console script usage::
+The tifffile library is type annotated and documented via docstrings::
+
+    python -c "import tifffile; help(tifffile)"
+
+Tifffile can be used as a console script to inspect and preview TIFF files::
 
     python -m tifffile --help
-
-View image and metadata stored in a TIFF file::
-
-    python -m tifffile file.tif
-
-The tifffile library is documented via docstrings.
 
 See `Examples`_ for using the programming interface.
 
@@ -85,9 +83,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.2.2
+
+- Pass 4950 tests.
+- Fix regression reading layered NDPI files.
+- Add option to specify offset in FileHandle.read_array.
+
 2023.1.23
 
-- Pass 4949 tests.
 - Support reading NDTiffStorage.
 - Support reading PIXTIFF compression.
 - Support LERC with Zstd or Deflate compression.
@@ -342,7 +345,7 @@ Read the image from the TIFF file as NumPy array:
 (256, 256, 3)
 
 Use the `photometric` and `planarconfig` arguments to write a 3x3x3 NumPy
-array to an interleaved RGB, a planar RGB, or a multi-page grayscale TIFF:
+array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 
 >>> data = numpy.random.randint(0, 255, (3, 3, 3), 'uint8')
 >>> imwrite('temp.tif', data, photometric='rgb')
@@ -584,7 +587,7 @@ thumbnail image as a separate image series:
 ...         metadata=metadata,
 ...         **options
 ...     )
-...     # save pyramid levels to the two subifds
+...     # write pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolution images
 ...     for level in range(subresolutions):
 ...         mag = 2**(level + 1)
