@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2023.2.2
+
+- Pass 4950 tests.
+- Fix regression reading layered NDPI files.
+- Add option to specify offset in FileHandle.read_array.
+
 2023.1.23
 
-- Pass 4949 tests.
 - Support reading NDTiffStorage.
 - Support reading PIXTIFF compression.
 - Support LERC with Zstd or Deflate compression.
@@ -622,7 +627,7 @@ Revisions
 2018.11.6
 
 - Rename imsave function to imwrite.
-- Readd Python implementations of packints, delta, and bitorder codecs.
+- Re-add Python implementations of packints, delta, and bitorder codecs.
 - Fix TiffFrame.compression AttributeError.
 
 2018.10.18
