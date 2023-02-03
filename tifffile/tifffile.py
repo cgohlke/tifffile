@@ -60,29 +60,27 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.1.23
-:DOI: 10.5281/zenodo.6795860
+:Version: 2023.2.2
+:DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
 ----------
 
 Install the tifffile package and all dependencies from the
-Python Package Index::
+`Python Package Index <https://pypi.org/project/tifffile/>`_::
 
     python -m pip install -U tifffile[all]
 
 Tifffile is also available in other package repositories such as Anaconda,
 Debian, and MSYS2.
 
-Print the console script usage::
+The tifffile library is type annotated and documented via docstrings::
+
+    python -c "import tifffile; help(tifffile)"
+
+Tifffile can be used as a console script to inspect and preview TIFF files::
 
     python -m tifffile --help
-
-View image and metadata stored in a TIFF file::
-
-    python -m tifffile file.tif
-
-The tifffile library is documented via docstrings.
 
 See `Examples`_ for using the programming interface.
 
@@ -115,9 +113,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.2.2
+
+- Pass 4950 tests.
+- Fix regression reading layered NDPI files.
+- Add option to specify offset in FileHandle.read_array.
+
 2023.1.23
 
-- Pass 4949 tests.
 - Support reading NDTiffStorage.
 - Support reading PIXTIFF compression.
 - Support LERC with Zstd or Deflate compression.
@@ -372,7 +375,7 @@ Read the image from the TIFF file as NumPy array:
 (256, 256, 3)
 
 Use the `photometric` and `planarconfig` arguments to write a 3x3x3 NumPy
-array to an interleaved RGB, a planar RGB, or a multi-page grayscale TIFF:
+array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 
 >>> data = numpy.random.randint(0, 255, (3, 3, 3), 'uint8')
 >>> imwrite('temp.tif', data, photometric='rgb')
@@ -614,7 +617,7 @@ thumbnail image as a separate image series:
 ...         metadata=metadata,
 ...         **options
 ...     )
-...     # save pyramid levels to the two subifds
+...     # write pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolution images
 ...     for level in range(subresolutions):
 ...         mag = 2**(level + 1)
@@ -758,7 +761,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.1.23'
+__version__ = '2023.2.2'
 
 __all__ = [
     'TiffFile',
@@ -3048,7 +3051,6 @@ class TiffWriter:
         # if not compressed or multi-tiled, write the first IFD and then
         # all data contiguously; else, write all IFDs and data interleaved
         for pageindex in range(1 if contiguous else storedshape.frames):
-
             ifdpos = fhpos
             if ifdpos % 2:
                 # position of IFD must begin on a word boundary
@@ -4166,9 +4168,11 @@ class TiffFile:
                 shape = series.get_shape(squeeze)
                 if out is not None:
                     out = create_output(out, shape, series.dtype)
-                self.filehandle.seek(series.dataoffset)
                 result = self.filehandle.read_array(
-                    typecode, series.size, out=out
+                    typecode,
+                    series.size,
+                    series.dataoffset,
+                    out=out,
                 )
         elif len(pages) == 1:
             page0 = pages[0]
@@ -4453,7 +4457,6 @@ class TiffFile:
             series: list[TiffPageSeries],
             /,
         ) -> list[TiffPageSeries] | None:
-
             shape: tuple[int, ...] | None
             reshape: tuple[int, ...]
             page: TiffPage | TiffFrame | None
@@ -4861,7 +4864,7 @@ class TiffFile:
         for s in series:
             s.kind = 'ndpi'
             if s.axes[0] == 'I':
-                s._set_dimensions(s.shape, 'Z' + s.axes[1:], s.coords, True)
+                s._set_dimensions(s.shape, 'Z' + s.axes[1:], None, True)
             if s.is_pyramidal:
                 name = s.keyframe.tags.valueof(65427)
                 s.name = 'Baseline' if name is None else name
@@ -5664,7 +5667,6 @@ class TiffFile:
             metabytecount,
             metacompression,
         ) in read_ndtiff_index(indexfile):
-
             if filename in keyframes:
                 # create virtual frame from index
                 pageindex += 1  # TODO
@@ -6661,7 +6663,7 @@ class TiffFormat:
 class TiffPages:
     """Sequence of TIFF image file directories (IFD chain).
 
-    Instances of TiffPages have a state (cache, keyframe, etc.) and are not
+    TiffPages instances have a state (cache, keyframe, etc.) and are not
     thread-safe.
 
     Parameters:
@@ -7233,6 +7235,8 @@ class TiffPages:
 @final
 class TiffPage:
     """TIFF image file directory (IFD).
+
+    TiffPage instances are not thread-safe.
 
     Parameters:
         parent:
@@ -7909,7 +7913,6 @@ class TiffPage:
         _, imdepth, imlength, imwidth, samples = self.shaped
 
         if self.is_tiled:
-
             width = (imwidth + stwidth - 1) // stwidth
             length = (imlength + stlength - 1) // stlength
             depth = (imdepth + stdepth - 1) // stdepth
@@ -8451,15 +8454,6 @@ class TiffPage:
         fh = self.parent.filehandle
         if lock is None:
             lock = fh.lock
-        with lock:
-            closed = fh.closed
-            if closed:
-                # this is an inefficient resort in case a user calls
-                # asarray of a TiffPage or TiffFrame with a closed FileHandle.
-                warnings.warn(
-                    f'{self!r} reading array from closed file', UserWarning
-                )
-                fh.open()
 
         if (
             isinstance(out, str)
@@ -8468,6 +8462,12 @@ class TiffPage:
         ):
             # direct memory map array in file
             with lock:
+                closed = fh.closed
+                if closed:
+                    warnings.warn(
+                        f'{self!r} reading array from closed file', UserWarning
+                    )
+                    fh.open()
                 result = fh.memmap_array(
                     keyframe.parent.byteorder + keyframe._dtype.char,
                     keyframe.shaped,
@@ -8481,6 +8481,12 @@ class TiffPage:
             if out is not None:
                 out = create_output(out, keyframe.shaped, keyframe._dtype)
             with lock:
+                closed = fh.closed
+                if closed:
+                    warnings.warn(
+                        f'{self!r} reading array from closed file', UserWarning
+                    )
+                    fh.open()
                 fh.seek(self.dataoffsets[0])
                 result = fh.read_array(
                     keyframe.parent.byteorder + keyframe._dtype.char,
@@ -8511,6 +8517,12 @@ class TiffPage:
         ):
             # decode the whole NDPI JPEG strip
             with lock:
+                closed = fh.closed
+                if closed:
+                    warnings.warn(
+                        f'{self!r} reading array from closed file', UserWarning
+                    )
+                    fh.open()
                 fh.seek(self.tags[273].value[0])  # StripOffsets
                 data = fh.read(self.tags[279].value[0])  # StripByteCounts
             decompress = TIFF.DECOMPRESSORS[self.compression]
@@ -8521,8 +8533,16 @@ class TiffPage:
 
         else:
             # decode individual strips or tiles
+            with lock:
+                closed = fh.closed
+                if closed:
+                    warnings.warn(
+                        f'{self!r} reading array from closed file', UserWarning
+                    )
+                    fh.open()
+                keyframe.decode  # init TiffPage.decode function under lock
+
             result = create_output(out, keyframe.shaped, keyframe._dtype)
-            keyframe.decode  # init TiffPage.decode function
 
             def func(
                 decoderesult: tuple[
@@ -9679,6 +9699,8 @@ class TiffFrame:
     Virtual frames just reference the image data in the file. They do not
     have an IFD structure in the file.
 
+    TiffFrame instances are not thread-safe.
+
     Parameters:
         parent:
             TiffFile instance to read frame from.
@@ -10109,6 +10131,8 @@ class TiffFrame:
 @final
 class TiffTag:
     """TIFF tag structure.
+
+    TiffTag instances are not thread-safe.
 
     Parameters:
         parent:
@@ -11298,7 +11322,6 @@ class TiffPageSeries:
         squeeze: bool = True,
         transform: Callable[[numpy.ndarray], numpy.ndarray] | None = None,
     ) -> None:
-
         self._shape = ()
         self._shape_squeezed = ()
         self._axes = ''
@@ -13428,8 +13451,10 @@ class FileHandle:
     - re-open closed files (for multi-file formats, such as OME-TIFF).
     - read and write NumPy arrays and records from file-like objects.
 
-    When initialized from another file handle, do not use it unless this
-    FileHandle is closed.
+    When initialized from another file handle, do not use the other handle
+    unless this FileHandle is closed.
+
+    FileHandle instances are not thread-safe.
 
     Parameters:
         file:
@@ -13737,6 +13762,7 @@ class FileHandle:
         self,
         dtype: numpy.dtype | str,
         count: int = -1,
+        offset: int = 0,
         *,
         out: numpy.ndarray | None = None,
     ) -> numpy.ndarray:
@@ -13747,6 +13773,8 @@ class FileHandle:
                 Data type of array to read.
             count:
                 Number of items to read. By default, all items are read.
+            offset:
+                Start position of array-data in file.
             out:
                 NumPy array to read into. By default, a new array is created.
 
@@ -13765,6 +13793,10 @@ class FileHandle:
             raise ValueError('size mismatch')
 
         assert self._fh is not None
+
+        if offset:
+            self._fh.seek(self._offset + offset)
+
         try:
             n = self._fh.readinto(result)  # type: ignore
         except AttributeError:
@@ -13875,9 +13907,10 @@ class FileHandle:
         lock: threading.RLock | NullContext | None = None,
         buffersize: int | None = None,
         flat: bool = True,
-    ) -> Iterator[tuple[bytes | None, int]] | Iterator[
-        list[tuple[bytes | None, int]]
-    ]:
+    ) -> (
+        Iterator[tuple[bytes | None, int]]
+        | Iterator[list[tuple[bytes | None, int]]]
+    ):
         """Return iterator over segments read from file and their indices.
 
         The purpose of this function is to
@@ -15544,7 +15577,6 @@ class PredictorCodec(collections.abc.Mapping):
                         )
 
             elif key == 34894:
-
                 if self._encode:
 
                     def codec(data, axis=-1, out=None):
@@ -15560,7 +15592,6 @@ class PredictorCodec(collections.abc.Mapping):
                         )
 
             elif key == 34895:
-
                 if self._encode:
 
                     def codec(data, axis=-1, out=None):
@@ -21549,6 +21580,7 @@ def stack_pages(
     /,
     *,
     tiled: TiledSequence | None = None,
+    lock: threading.RLock | NullContext | None = None,
     maxworkers: int | None = None,
     out: OutputType = None,
     **kwargs,
@@ -21560,6 +21592,8 @@ def stack_pages(
             TIFF pages or frames to stack.
         tiled:
             Organize pages in non-overlapping grid.
+        lock:
+            Reentrant lock to synchronize seeks and reads from file.
         maxworkers:
             Maximum number of threads to concurrently decode pages or segments.
         out:
@@ -21621,10 +21655,14 @@ def stack_pages(
     kwargs['maxworkers'] = page_maxworkers
 
     fh = page0.parent.filehandle
-    haslock = fh.has_lock
-    if not haslock and maxworkers > 1 or page_maxworkers > 1:
-        fh.set_lock(True)
-    filecache = FileCache(size=max(4, maxworkers), lock=fh.lock)
+    if lock is None:
+        haslock = fh.has_lock
+        if not haslock and maxworkers > 1 or page_maxworkers > 1:
+            fh.set_lock(True)
+        lock = fh.lock
+    else:
+        haslock = True
+    filecache = FileCache(size=max(4, maxworkers), lock=lock)
 
     if tiled is None:
 
@@ -21639,7 +21677,7 @@ def stack_pages(
             # read, decode, and copy page data
             if page is not None:
                 filecache.open(page.parent.filehandle)
-                page.asarray(lock=filecache.lock, out=out[index], **kwargs)
+                page.asarray(lock=lock, out=out[index], **kwargs)
                 filecache.close(page.parent.filehandle)
 
         if maxworkers < 2:
@@ -21652,6 +21690,7 @@ def stack_pages(
                     pass
 
     else:
+        # TODO: not used or tested
 
         def func_tiled(
             page: TiffPage | TiffFrame | None,
@@ -21664,7 +21703,7 @@ def stack_pages(
             # read, decode, and copy page data
             if page is not None:
                 filecache.open(page.parent.filehandle)
-                out[index] = page.asarray(lock=filecache.lock, **kwargs)
+                out[index] = page.asarray(lock=lock, **kwargs)
                 filecache.close(page.parent.filehandle)
 
         if maxworkers < 2:
