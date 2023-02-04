@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.2.2
+:Version: 2023.2.3
 
 """
 
@@ -8572,6 +8572,45 @@ def test_read_ndpi_jpegxr():
         assert data[1000, 1000] == 1095
         assert_aszarr_method(series.levels[3], data)
         assert__str__(tif)
+
+
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_LARGE or SKIP_CODECS or not imagecodecs.JPEG,
+    reason=REASON,
+)
+def test_read_ndpi_databytecounts():
+    """Test read Hamamatsu NDPI slide databytecounts do not overflow."""
+    # https://forum.image.sc/t/some-ndpi-files-not-opening-in-qupath-v0-4-1
+    fname = private_file('HamamatsuNDPI/doesnt_work.ndpi')
+    with TiffFile(fname) as tif:
+        assert tif.is_ndpi
+        assert len(tif.pages) == 23
+        assert len(tif.series) == 3
+        # first series
+        series = tif.series[0]
+        assert series.kind == 'ndpi'
+        assert series.name == 'Baseline'
+        assert series.shape == (3, 60928, 155648, 3)
+        assert series.is_pyramidal
+        assert len(series.levels) == 7
+        assert len(series.pages) == 3
+        # pyramid levels
+        assert series.levels[1].shape == (3, 30464, 77824, 3)
+        assert series.levels[2].shape == (3, 15232, 38912, 3)
+        assert series.levels[3].shape == (3, 7616, 19456, 3)
+        assert series.levels[4].shape == (3, 3808, 9728, 3)
+        assert series.levels[5].shape == (3, 1904, 4864, 3)
+        assert series.levels[6].shape == (3, 952, 2432, 3)
+        # 3rd z-slice in base layer
+        page = series.pages[2]
+        assert page.index == 14
+        assert page.shape == (60928, 155648, 3)
+        assert page.dataoffsets[-1] == 4718518695
+        assert page.databytecounts[-1] == 4338
+        assert page.ndpi_tags['Magnification'] == 40.0
+        assert page.ndpi_tags['FocusTime'] == 13
+        assert page.ndpi_tags['ScannerSerialNumber'] == '680057'
+        assert tuple(page.asarray()[60000, 150000]) == (216, 221, 217)
 
 
 @pytest.mark.skipif(
