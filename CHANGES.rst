@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2023.2.3
+
+- Pass 4951 tests.
+- Fix overflow in calculation of databytecounts for large NDPI files.
+
 2023.2.2
 
-- Pass 4950 tests.
 - Fix regression reading layered NDPI files.
 - Add option to specify offset in FileHandle.read_array.
 
