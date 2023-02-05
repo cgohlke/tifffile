@@ -51,7 +51,7 @@ tiled, predicted, or compressed form.
 Many compression and predictor schemes are supported via the imagecodecs
 library, including LZW, PackBits, Deflate, PIXTIFF, LZMA, LERC, Zstd,
 JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR, JPEG XL, WebP, PNG, Jetraw,
-24-bit floating-point, and floating-point horizontal differencing.
+24-bit floating-point, and horizontal differencing.
 
 Tifffile can also be used to inspect TIFF structures, read image data from
 multi-dimensional file sequences, write fsspec ReferenceFileSystem for
@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.2.2
+:Version: 2023.2.3
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -113,9 +113,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.2.3
+
+- Pass 4951 tests.
+- Fix overflow in calculation of databytecounts for large NDPI files.
+
 2023.2.2
 
-- Pass 4950 tests.
 - Fix regression reading layered NDPI files.
 - Add option to specify offset in FileHandle.read_array.
 
@@ -670,14 +674,16 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 Load the base layer from the Zarr store as a dask array:
 
 >>> import dask.array
->>> with imread('temp.ome.tif', aszarr=True) as store:
-...     dask.array.from_zarr(store, 0)
+>>> store = imread('temp.ome.tif', aszarr=True)
+>>> dask.array.from_zarr(store, 0)
 dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
+>>> store.close()
 
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
->>> with imread('temp.ome.tif', aszarr=True) as store:
-...     store.write_fsspec('temp.ome.tif.json', url='file://')
+>>> store = imread('temp.ome.tif', aszarr=True)
+>>> store.write_fsspec('temp.ome.tif.json', url='file://')
+>>> store.close()
 
 Open the fsspec ReferenceFileSystem as a Zarr group:
 
@@ -732,15 +738,15 @@ as NumPy or Zarr arrays:
 >>> data = image_sequence.asarray()
 >>> data.shape
 (1, 2, 64, 64)
->>> with image_sequence.aszarr() as store:
-...     zarr.open(store, mode='r')
+>>> store = image_sequence.aszarr()
+>>> zarr.open(store, mode='r')
 <zarr.core.Array (1, 2, 64, 64) float64 read-only>
 >>> image_sequence.close()
 
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
->>> with image_sequence.aszarr() as store:
-...     store.write_fsspec('temp.json', url='file://')
+>>> store = image_sequence.aszarr()
+>>> store.write_fsspec('temp.json', url='file://')
 
 Open the fsspec ReferenceFileSystem as a Zarr array:
 
@@ -761,7 +767,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.2.2'
+__version__ = '2023.2.3'
 
 __all__ = [
     'TiffFile',
@@ -7253,6 +7259,7 @@ class TiffPage:
     """
 
     # instance attributes
+
     tags: TiffTags
     """Tags belonging to page."""
 
@@ -7294,6 +7301,7 @@ class TiffPage:
     _index: tuple[int, ...]  # index of page in IFD tree
 
     # default properties; might be updated from tags
+
     subfiletype: int = 0
     """:py:class:`FILETYPE` kind of image."""
 
@@ -7740,13 +7748,13 @@ class TiffPage:
         mcustarts = tags.valueof(65426)
         if mcustarts is not None and self.is_ndpi:
             # use NDPI JPEG McuStarts as tile offsets
+            mcustarts = mcustarts.astype('int64')
             high = tags.valueof(65432)
             if high is not None:
                 # McuStartsHighBytes
                 high = high.astype('uint64')
                 high <<= 32
-                mcustarts = mcustarts.astype('uint64')
-                mcustarts += high
+                mcustarts += high.astype('int64')
             fh.seek(self.dataoffsets[0])
             jpegheader = fh.read(mcustarts[0])
             try:
@@ -7761,10 +7769,13 @@ class TiffPage:
                     f'{exc.__class__.__name__}: {exc}'
                 )
             else:
-                self.databytecounts = (
-                    mcustarts[1:] - mcustarts[:-1]
-                ).tolist() + [self.databytecounts[0] - int(mcustarts[-1])]
-                self.dataoffsets = (mcustarts + self.dataoffsets[0]).tolist()
+                # TODO: optimize tuple(ndarray.tolist())
+                databytecounts = numpy.diff(
+                    mcustarts, append=self.databytecounts[0]
+                )
+                self.databytecounts = tuple(databytecounts.tolist())
+                mcustarts += self.dataoffsets[0]
+                self.dataoffsets = tuple(mcustarts.tolist())
 
     @cached_property
     def decode(
@@ -8512,6 +8523,7 @@ class TiffPage:
             and keyframe is self
             and 273 in self.tags  # striped ...
             and self.is_tiled  # but reported as tiled
+            # TODO: imagecodecs can decode larger JPEG
             and self.imagewidth <= 65500
             and self.imagelength <= 65500
         ):
@@ -8527,7 +8539,10 @@ class TiffPage:
                 data = fh.read(self.tags[279].value[0])  # StripByteCounts
             decompress = TIFF.DECOMPRESSORS[self.compression]
             result = decompress(
-                data, bitspersample=self.bitspersample, out=out
+                data,
+                bitspersample=self.bitspersample,
+                out=out,
+                # shape=(self.imagelength, self.imagewidth)
             )
             del data
 
@@ -12929,7 +12944,7 @@ class FileSequence:
     """Names of dimensions in shape."""
 
     indices: tuple[tuple[int, ...]]
-    """ND indices of files in shape."""
+    """Indices of files in shape."""
 
     _container: Any  # TODO: container type?
 
