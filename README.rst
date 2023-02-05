@@ -21,7 +21,7 @@ tiled, predicted, or compressed form.
 Many compression and predictor schemes are supported via the imagecodecs
 library, including LZW, PackBits, Deflate, PIXTIFF, LZMA, LERC, Zstd,
 JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR, JPEG XL, WebP, PNG, Jetraw,
-24-bit floating-point, and floating-point horizontal differencing.
+24-bit floating-point, and horizontal differencing.
 
 Tifffile can also be used to inspect TIFF structures, read image data from
 multi-dimensional file sequences, write fsspec ReferenceFileSystem for
@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.2.2
+:Version: 2023.2.3
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -83,9 +83,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.2.3
+
+- Pass 4951 tests.
+- Fix overflow in calculation of databytecounts for large NDPI files.
+
 2023.2.2
 
-- Pass 4950 tests.
 - Fix regression reading layered NDPI files.
 - Add option to specify offset in FileHandle.read_array.
 
@@ -640,14 +644,16 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 Load the base layer from the Zarr store as a dask array:
 
 >>> import dask.array
->>> with imread('temp.ome.tif', aszarr=True) as store:
-...     dask.array.from_zarr(store, 0)
+>>> store = imread('temp.ome.tif', aszarr=True)
+>>> dask.array.from_zarr(store, 0)
 dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
+>>> store.close()
 
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
->>> with imread('temp.ome.tif', aszarr=True) as store:
-...     store.write_fsspec('temp.ome.tif.json', url='file://')
+>>> store = imread('temp.ome.tif', aszarr=True)
+>>> store.write_fsspec('temp.ome.tif.json', url='file://')
+>>> store.close()
 
 Open the fsspec ReferenceFileSystem as a Zarr group:
 
@@ -702,15 +708,15 @@ as NumPy or Zarr arrays:
 >>> data = image_sequence.asarray()
 >>> data.shape
 (1, 2, 64, 64)
->>> with image_sequence.aszarr() as store:
-...     zarr.open(store, mode='r')
+>>> store = image_sequence.aszarr()
+>>> zarr.open(store, mode='r')
 <zarr.core.Array (1, 2, 64, 64) float64 read-only>
 >>> image_sequence.close()
 
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
->>> with image_sequence.aszarr() as store:
-...     store.write_fsspec('temp.json', url='file://')
+>>> store = image_sequence.aszarr()
+>>> store.write_fsspec('temp.json', url='file://')
 
 Open the fsspec ReferenceFileSystem as a Zarr array:
 
