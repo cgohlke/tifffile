@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.2.3
+:Version: 2023.2.27
 
 """
 
@@ -468,6 +468,7 @@ def test_issue_star_import():
     assert lsm2bin not in STAR_IMPORTED
 
 
+@pytest.mark.skipif(__doc__ is None, reason='__doc__ is None')
 def test_issue_version_mismatch():
     """Test 'tifffile.__version__' matches docstrings."""
     ver = ':Version: ' + tifffile.__version__
@@ -3097,7 +3098,7 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
-    numtags = 649
+    numtags = 654
     tags = TIFF.TAGS
     assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
@@ -5147,7 +5148,7 @@ def test_read_tigers(fname):
         # elif 'palette' in fname:
         #     dtype = numpy.uint16
         elif databits == 1:
-            dtype = numpy.bool8
+            dtype = numpy.bool_
         elif databits <= 8:
             dtype = numpy.uint8
         elif databits <= 16:
@@ -6584,7 +6585,7 @@ def test_read_jpeg_cmyk(fname):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG12, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG8, reason=REASON
 )
 def test_read_jpeg12_mandril():
     """Test read JPEG 12-bit compression."""
@@ -7319,7 +7320,7 @@ def test_read_chart_bl():
         # assert series properties
         series = tif.series[0]
         assert series.shape == (18710, 13228)
-        assert series.dtype == numpy.bool8
+        assert series.dtype == numpy.bool_
         assert series.axes == 'YX'
         assert series.kind == 'generic'
         # assert data
@@ -7327,9 +7328,9 @@ def test_read_chart_bl():
         assert isinstance(data, numpy.ndarray)
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (18710, 13228)
-        assert data.dtype == numpy.bool8
-        assert data[0, 0] is numpy.bool8(True)
-        assert data[5000, 5000] is numpy.bool8(False)
+        assert data.dtype == numpy.bool_
+        assert data[0, 0] is numpy.bool_(True)
+        assert data[5000, 5000] is numpy.bool_(False)
         if not SKIP_LARGE:
             assert_aszarr_method(tif, data)
         assert__str__(tif)
@@ -9546,6 +9547,9 @@ def test_read_ome_multi_image_nouuid():
             assert not series.is_multifile
             # assert data
             data = tif.asarray(series=i)
+            assert_array_equal(
+                data, imread(fname, series=i, is_micromanager=False)
+            )
             assert isinstance(data, numpy.ndarray)
             assert data.shape == (10, 256, 256)
             assert data.dtype == numpy.uint16
@@ -10871,6 +10875,56 @@ def test_read_fluoview_120816_bf_f0000():
         assert round(abs(data[1, 2, 128, 128] - 8317), 7) == 0
         # too slow: assert_aszarr_method(series, data)
         assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+def test_read_micromanager(caplog):
+    """Test read MicroManager 2.0 multifile, multi-position dataset."""
+    # TODO: what version of MicroManager does not write corrupted files?
+    # second ImageDescription tag is defective: supposed to be ImageJ metadata
+    # MicroManager headers are defective
+    # MicroManager display settings are defective/truncated
+    fname = private_file('MicroManager/NDTiff.index/_4_MMStack_Pos0.ome.tif')
+    with TiffFile(fname) as tif:
+        assert 'coercing invalid ASCII to bytes' in caplog.text
+        assert tif.is_ome
+        assert tif.is_micromanager
+        assert not tif.is_imagej
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 8092
+        assert len(tif.series) == 2
+        assert 'failed to read display settings' in caplog.text
+        assert 'failed to read comments: invalid header' in caplog.text
+        # assert page properties
+        for i in (0, 1):
+            series = tif.series[i]
+            page = series.pages[0]
+            assert page.is_ome
+            assert page.is_micromanager
+            assert page.is_contiguous
+            assert page.compression == NONE
+            assert page.imagewidth == 512
+            assert page.imagelength == 512
+            assert page.bitspersample == 16
+            assert page.samplesperpixel == 1
+            # assert series properties
+            assert series.shape == (91, 48, 2, 512, 512)
+            assert series.axes == 'TZCYX'
+            assert series.kind == 'ome'
+            assert series.is_multifile
+            # assert data
+            data = tif.asarray(series=i)
+            assert data[48, 23, 1, 253, 257] == 1236
+            if i == 0:
+                continue  # full test takes several minutes
+            # assert_array_equal(
+            #     data, imread(fname, series=i, is_micromanager=False)
+            # )
+            assert isinstance(data, numpy.ndarray)
+            assert data.shape == (91, 48, 2, 512, 512)
+            assert data.dtype == numpy.uint16
+            assert_aszarr_method(series, data)
+            assert__str__(tif)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
@@ -12276,6 +12330,10 @@ def test_write_codecs(mode, tile, codec):
     if mode in ('gray', 'planar') and codec == 'webp':
         pytest.xfail("WebP doesn't support grayscale or planar mode")
     level = {'webp': -1, 'jpeg': 99}.get(codec, None)
+    if level:
+        compressionargs = {'level': level}
+    else:
+        compressionargs = None
     tile = (16, 16) if tile else None
     data = numpy.load(public_file('tifffile/rgb.u1.npy'))
     if mode == 'rgb':
@@ -12299,7 +12357,7 @@ def test_write_codecs(mode, tile, codec):
             fname,
             data,
             compression=codec,
-            compressionargs={'level': level},
+            compressionargs=compressionargs,
             tile=tile,
             photometric=photometric,
             planarconfig=planarconfig,
@@ -13750,7 +13808,7 @@ def test_write_compression_jetraw():
 
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
-@pytest.mark.parametrize('dtype', [numpy.int8, numpy.uint8, numpy.bool8])
+@pytest.mark.parametrize('dtype', [numpy.int8, numpy.uint8, numpy.bool_])
 @pytest.mark.parametrize('tile', [None, (16, 16)])
 def test_write_compression_packbits(dtype, tile):
     """Test write PackBits compression."""
