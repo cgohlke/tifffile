@@ -37,9 +37,9 @@ Tifffile is a Python library to
 (2) read image and metadata from TIFF-like files used in bioimaging.
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
-SGI, NIHImage, ImageJ, MicroManager NDTiff, FluoView, ScanImage, SEQ, GEL,
-SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and
-GeoTIFF files.
+SGI, NIHImage, ImageJ, Micro-Manager NDTiff, FluoView, ScanImage, SEQ, GEL,
+SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
+and GeoTIFF files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.2.3
+:Version: 2023.2.27
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,7 +96,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.9, 3.11.1
+- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.10, 3.11.2
   (AMD64 platforms, 32-bit platforms are deprecated)
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.1.23
@@ -105,7 +105,7 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.13.6
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.14.2
   (required only for opening Zarr stores)
 - `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.1.0
   (required only for opening ReferenceFileSystem files)
@@ -113,9 +113,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.2.27
+
+- Pass 4952 tests.
+- Use Micro-Manager indexmap offsets to create virtual TiffFrames.
+- Fixes for future imagecodecs.
+
 2023.2.3
 
-- Pass 4951 tests.
 - Fix overflow in calculation of databytecounts for large NDPI files.
 
 2023.2.2
@@ -362,6 +367,11 @@ References
   https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
   Roche-Digital-Pathology-BIF-Whitepaper.pdf
 - Astro-TIFF specification. https://astro-tiff.sourceforge.io/
+- Aperio Technologies, Inc. Digital Slides and Third-Party Data Interchange.
+  Aperio_Digital_Slides_and_Third-party_data_interchange.pdf
+- PerkinElmer image format.
+  https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/
+  PKI_Image%20Format.docx
 - NDTiffStorage. https://github.com/micro-manager/NDTiffStorage
 
 Examples
@@ -767,7 +777,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.2.3'
+__version__ = '2023.2.27'
 
 __all__ = [
     'TiffFile',
@@ -878,9 +888,9 @@ try:
 except ImportError:
     # load pure Python implementation of some codecs
     try:
-        from . import _imagecodecs as imagecodecs
+        from . import _imagecodecs as imagecodecs  # type: ignore
     except ImportError:
-        import _imagecodecs as imagecodecs
+        import _imagecodecs as imagecodecs  # type: ignore
 
 from typing import TYPE_CHECKING, BinaryIO, cast, final, overload
 
@@ -987,12 +997,14 @@ def imread(
             Passed to :py:meth:`TiffFile.asarray`
             or :py:meth:`TiffSequence.asarray`.
         **kwargs:
-            Additional arguments passed to :py:attr:`FileSequence.imread`.
+            Additional arguments passed to :py:class:`TiffFile` or
+            :py:attr:`FileSequence.imread`.
 
     Returns:
-        Images from specified pages. Zarr store instances must be
-        closed after use. See :py:meth:`TiffPage.asarray` for operations that
-        are applied (or not) to the image data stored in the file.
+        Images from specified files, series, or pages.
+        Zarr store instances must be closed after use.
+        See :py:meth:`TiffPage.asarray` for operations that are applied
+        (or not) to the image data stored in the file.
 
     """
     is_flags = parse_kwargs(kwargs, *(k for k in kwargs if k[:3] == 'is_'))
@@ -4279,7 +4291,8 @@ class TiffFile:
         """Series of pages with compatible shape and data type.
 
         Side effect: after accessing this property, `TiffFile.pages` might
-        contain `TiffPage` and `TiffFrame` instances.
+        contain `TiffPage` and `TiffFrame` instead of only `TiffPage`
+        instances.
 
         """
         if not self.pages:
@@ -5268,10 +5281,26 @@ class TiffFile:
         size: int
         ifds: list[TiffPage | TiffFrame | None]
 
-        self.pages.cache = True
-        self.pages.useframes = True
-        self.pages.set_keyframe(0)
-        self.pages._load(None)
+        def load_pages(tif: TiffFile) -> None:
+            # load pages from Micro-Manager indexmap offsets or IFD chain
+            mmeta = tif.micromanager_metadata
+            if mmeta is not None and 'IndexMap' in mmeta:
+                try:
+                    tif.pages._load_micromanager_indexmap(
+                        mmeta['IndexMap']['Offset'].tolist()
+                    )
+                    return
+                except Exception as exc:
+                    log_warning(
+                        f'{tif!r} TiffPages._load_micromanager_indexmap '
+                        f'failed with {exc.__class__.__name__}: {exc}'
+                    )
+            tif.pages.cache = True
+            tif.pages.useframes = True
+            tif.pages.set_keyframe(0)
+            tif.pages._load(None)
+
+        load_pages(self)
 
         root_uuid = root.attrib.get('UUID', None)
         self._files = {root_uuid: self}
@@ -5405,10 +5434,7 @@ class TiffFile:
                                 tif = TiffFile(
                                     os.path.join(dirname, fname), _parent=self
                                 )
-                                tif.pages.cache = True
-                                tif.pages.useframes = True
-                                tif.pages.set_keyframe(0)
-                                tif.pages._load(None)
+                                load_pages(tif)
                             except (OSError, FileNotFoundError, ValueError):
                                 if files_missing == 0:
                                     log_warning(
@@ -5522,6 +5548,7 @@ class TiffFile:
                     continue
 
                 # set keyframe on all IFDs
+                # each series must contain a TiffPage used as keyframe
                 keyframes: dict[str, TiffPage] = {
                     keyframe.parent.filehandle.name: keyframe
                 }
@@ -5655,6 +5682,7 @@ class TiffFile:
             3: ('uint16', 10),  # 10bit monochrome
             4: ('uint16', 12),  # 12bit monochrome
             5: ('uint16', 14),  # 14bit monochrome
+            6: ('uint16', 11),  # 11bit monochrome
         }
 
         indices: dict[tuple[int, ...], TiffPage | TiffFrame] = {}
@@ -5787,6 +5815,8 @@ class TiffFile:
 
         # if all(i == 0 for i in axesoverlap.values()):
         #     axesoverlap = {}
+
+        self.is_uniform = True
 
         return [
             TiffPageSeries(
@@ -6490,7 +6520,7 @@ class TiffFile:
 
     @cached_property
     def micromanager_metadata(self) -> dict[str, Any] | None:
-        """Non-TIFF MicroManager metadata."""
+        """Non-TIFF Micro-Manager metadata."""
         if not self.is_micromanager:
             return None
         return read_micromanager_metadata(self._fh)
@@ -6921,6 +6951,70 @@ class TiffPages:
                 )
                 pages[i] = page
         self._cached = True
+
+    def _load_micromanager_indexmap(
+        self, offsets: Sequence[int], /, *, usekeyframe: bool = False
+    ) -> None:
+        """Load virtual TiffFrames from Micro-Manager page offsets.
+
+        For all but first page, `page.dataoffsets[0] == page.offset + 162`.
+
+        """
+        assert self.parent is not None
+        offsets = sorted(offsets)
+        firstpage = cast(TiffPage, self.pages[0])
+        if not firstpage.is_contiguous:
+            raise ValueError('data not contiguous')
+        if firstpage.offset != offsets[0]:
+            raise ValueError(
+                'first page offset ' f'{firstpage.offset} != {offsets[0]}'
+            )
+        filesize = (
+            self.parent.filehandle.size - firstpage.databytecounts[0] - 162
+        )
+        keyframe = firstpage if usekeyframe else None
+        npages = len(self.pages)
+        databytecounts = (0,)  # real value comes from keyframe
+        for index, offset in enumerate(offsets):
+            if index == 0:
+                continue
+            # if index < npages:
+            #     page_or_offset = self.pages[index]
+            #     if isinstance(page_or_offset, int):
+            #         if offset != page_or_offset:
+            #             raise ValueError(
+            #                 f'pages[{index}].offset '
+            #                 f'{page_or_offset} != {offset}'
+            #             )
+            #     elif offset != page_or_offset.offset:
+            #         raise ValueError(
+            #             f'pages[{index}].offset '
+            #             f'{page_or_offset.offset} != {offset}'
+            #         )
+            #     elif isinstance(page_or_offset, TiffPage):
+            #         # page already loaded
+            #         continue
+            if 0 < offset <= filesize:
+                dataoffsets = (offset + 162,)
+            else:
+                # assume file is truncated
+                dataoffsets = databytecounts
+                offset = 0
+            frame = TiffFrame(
+                self.parent,
+                index=index,
+                offset=offset,
+                dataoffsets=dataoffsets,
+                databytecounts=databytecounts,
+                keyframe=keyframe,
+            )
+            if index < npages:
+                self.pages[index] = frame
+            else:
+                self.pages.append(frame)
+        self._cache = True
+        self._cached = True
+        self._indexed = True
 
     def _load_virtual_frames(self) -> None:
         """Calculate virtual TiffFrames."""
@@ -7891,16 +7985,8 @@ class TiffPage:
 
         if self.compression == 50001 and self.samplesperpixel == 4:
             # WebP segments may be missing all-opaque alpha channel
-            # TODO: use hasalpha=True with imagecodecs > 2022.7.27
-            def decompress_webp_rgba(data, numthreads=None, out=None):
-                decoded = imagecodecs.webp_decode(
-                    data, numthreads=numthreads, out=out
-                )
-                if decoded.shape[2] == 3:
-                    decoded = numpy.pad(
-                        decoded, [(0, 0), (0, 0), (0, 1)], constant_values=255
-                    )
-                return decoded
+            def decompress_webp_rgba(data, out=None):
+                return imagecodecs.webp_decode(data, hasalpha=True, out=out)
 
             decompress = decompress_webp_rgba
 
@@ -8267,14 +8353,16 @@ class TiffPage:
 
             def unpack(data: bytes, /) -> numpy.ndarray:
                 # return numpy.float32 array from float24
-                return imagecodecs.float24_decode(data, self.parent.byteorder)
+                return imagecodecs.float24_decode(
+                    data, byteorder=self.parent.byteorder
+                )
 
         else:
             # bilevel and packed integers
             def unpack(data: bytes, /) -> numpy.ndarray:
                 # return NumPy array from packed integers
                 return imagecodecs.packints_decode(
-                    data, dtype, self.bitspersample, stwidth * samples
+                    data, dtype, self.bitspersample, runlen=stwidth * samples
                 )
 
         def decode_other(
@@ -9711,7 +9799,7 @@ class TiffFrame:
     `subifds`, and `jpegtables` are assumed to be identical with a specified
     TiffPage instance, the keyframe.
     TiffFrame instances have no `tag` property.
-    Virtual frames just reference the image data in the file. They do not
+    Virtual frames just reference the image data in the file. They may not
     have an IFD structure in the file.
 
     TiffFrame instances are not thread-safe.
@@ -9796,7 +9884,7 @@ class TiffFrame:
 
         if dataoffsets is not None and databytecounts is not None:
             # initialize "virtual frame" from offsets and bytecounts
-            self.offset = 0
+            self.offset = 0 if offset is None else offset
             self.dataoffsets = dataoffsets
             self.databytecounts = databytecounts
             self._keyframe = keyframe
@@ -15392,6 +15480,7 @@ class CompressionCodec(collections.abc.Mapping):
     def __getitem__(self, key: int, /) -> Callable[..., Any]:
         if key in self._codecs:
             return self._codecs[key]
+        codec: Callable[..., Any]
         try:
             # TODO: enable CCITTRLE decoder for future imagecodecs
             # if key == 2:
@@ -15550,6 +15639,7 @@ class PredictorCodec(collections.abc.Mapping):
     def __getitem__(self, key: int, /) -> Callable[..., Any]:
         if key in self._codecs:
             return self._codecs[key]
+        codec: Callable[..., Any]
         try:
             if key == 2:
                 if self._encode:
@@ -16743,6 +16833,11 @@ class _TIFF:
                 (52533, 'IlluminantData1'),  # DNG 1.6
                 (52534, 'IlluminantData2'),  # DNG 1.6
                 (53535, 'IlluminantData3'),  # DNG 1.6
+                (55000, 'AperioUnknown55000'),
+                (55001, 'AperioMagnification'),
+                (55002, 'AperioMPP'),
+                (55003, 'AperioScanScopeID'),
+                (55004, 'AperioDate'),
                 (59932, 'Padding'),
                 (59933, 'OffsetSchema'),
                 # Reusable Tags 65000-65535
@@ -16997,7 +17092,7 @@ class _TIFF:
                 (65431, '65431'),
                 (65432, 'McuStartsHighBytes'),
                 (65433, '65433'),
-                (65434, 'Fluorescence'),  # FilterSetName
+                (65434, 'Fluorescence'),  # FilterSetName, Channel
                 (65435, 'ExposureRatio'),
                 (65436, 'RedMultiplier'),
                 (65437, 'GreenMultiplier'),
@@ -19371,7 +19466,7 @@ def read_scanimage_metadata(
 
 
 def read_micromanager_metadata(fh: FileHandle | BinaryIO, /) -> dict[str, Any]:
-    """Read MicroManager non-TIFF settings from file.
+    """Read Micro-Manager non-TIFF settings from file.
 
     The settings can be used to read image data without parsing the TIFF file.
 
@@ -19386,7 +19481,7 @@ def read_micromanager_metadata(fh: FileHandle | BinaryIO, /) -> dict[str, Any]:
             index_offset,
         ) = struct.unpack(byteorder + 'II', fh.read(8))
     except Exception:
-        raise ValueError('not a MicroManager TIFF file')
+        raise ValueError('not a Micro-Manager TIFF file')
 
     if index_header == 483729:
         # NDTiff >= v2
@@ -19520,7 +19615,7 @@ def read_ndtiff_index(
 ) -> Iterator[
     tuple[dict[str, int | str], str, int, int, int, int, int, int, int, int]
 ]:
-    """Return iterator over fields in MicroManager NDTiff.index file.
+    """Return iterator over fields in Micro-Manager NDTiff.index file.
 
     Parameters:
         file: Path of NDTiff.index file.
