@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2023.2.27
+
+- Pass 4952 tests.
+- Use Micro-Manager indexmap offsets to create virtual TiffFrames.
+- Fixes for future imagecodecs.
+
 2023.2.3
 
-- Pass 4951 tests.
 - Fix overflow in calculation of databytecounts for large NDPI files.
 
 2023.2.2
