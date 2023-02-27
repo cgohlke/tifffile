@@ -7,9 +7,9 @@ Tifffile is a Python library to
 (2) read image and metadata from TIFF-like files used in bioimaging.
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
-SGI, NIHImage, ImageJ, MicroManager NDTiff, FluoView, ScanImage, SEQ, GEL,
-SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI), NDPI, and
-GeoTIFF files.
+SGI, NIHImage, ImageJ, Micro-Manager NDTiff, FluoView, ScanImage, SEQ, GEL,
+SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
+and GeoTIFF files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.2.3
+:Version: 2023.2.27
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,7 +66,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.9, 3.11.1
+- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.10, 3.11.2
   (AMD64 platforms, 32-bit platforms are deprecated)
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.1.23
@@ -75,7 +75,7 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.13.6
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.14.2
   (required only for opening Zarr stores)
 - `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.1.0
   (required only for opening ReferenceFileSystem files)
@@ -83,9 +83,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.2.27
+
+- Pass 4952 tests.
+- Use Micro-Manager indexmap offsets to create virtual TiffFrames.
+- Fixes for future imagecodecs.
+
 2023.2.3
 
-- Pass 4951 tests.
 - Fix overflow in calculation of databytecounts for large NDPI files.
 
 2023.2.2
@@ -332,6 +337,11 @@ References
   https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
   Roche-Digital-Pathology-BIF-Whitepaper.pdf
 - Astro-TIFF specification. https://astro-tiff.sourceforge.io/
+- Aperio Technologies, Inc. Digital Slides and Third-Party Data Interchange.
+  Aperio_Digital_Slides_and_Third-party_data_interchange.pdf
+- PerkinElmer image format.
+  https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/
+  PKI_Image%20Format.docx
 - NDTiffStorage. https://github.com/micro-manager/NDTiffStorage
 
 Examples
