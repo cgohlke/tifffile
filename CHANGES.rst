@@ -1,6 +1,12 @@
 Revisions
 ---------
 
+2023.2.28
+
+- Pass 4952 tests.
+- Fix reading some Micro-Manager metadata from corrupted files.
+- Speed up reading Micro-Manager indexmap for creation of OME series.
+
 2023.2.27
 
 - Pass 4952 tests.
