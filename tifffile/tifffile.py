@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.2.27
+:Version: 2023.2.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -112,6 +112,12 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2023.2.28
+
+- Pass 4952 tests.
+- Fix reading some Micro-Manager metadata from corrupted files.
+- Speed up reading Micro-Manager indexmap for creation of OME series.
 
 2023.2.27
 
@@ -777,7 +783,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.2.27'
+__version__ = '2023.2.28'
 
 __all__ = [
     'TiffFile',
@@ -5281,20 +5287,19 @@ class TiffFile:
         size: int
         ifds: list[TiffPage | TiffFrame | None]
 
-        def load_pages(tif: TiffFile) -> None:
+        def load_pages(tif: TiffFile, /) -> None:
             # load pages from Micro-Manager indexmap offsets or IFD chain
-            mmeta = tif.micromanager_metadata
-            if mmeta is not None and 'IndexMap' in mmeta:
-                try:
-                    tif.pages._load_micromanager_indexmap(
-                        mmeta['IndexMap']['Offset'].tolist()
-                    )
-                    return
-                except Exception as exc:
-                    log_warning(
-                        f'{tif!r} TiffPages._load_micromanager_indexmap '
-                        f'failed with {exc.__class__.__name__}: {exc}'
-                    )
+            if tif.is_micromanager:
+                pageoffsets = read_micromanager_pageoffsets(tif.filehandle)
+                if pageoffsets is not None:
+                    try:
+                        tif.pages._load_micromanager_frames(pageoffsets)
+                        return
+                    except Exception as exc:
+                        log_warning(
+                            f'{tif!r} TiffPages._load_micromanager_frames '
+                            f'failed with {exc.__class__.__name__}: {exc}'
+                        )
             tif.pages.cache = True
             tif.pages.useframes = True
             tif.pages.set_keyframe(0)
@@ -6952,7 +6957,7 @@ class TiffPages:
                 pages[i] = page
         self._cached = True
 
-    def _load_micromanager_indexmap(
+    def _load_micromanager_frames(
         self, offsets: Sequence[int], /, *, usekeyframe: bool = False
     ) -> None:
         """Load virtual TiffFrames from Micro-Manager page offsets.
@@ -19465,6 +19470,37 @@ def read_scanimage_metadata(
     return frame_data, roi_data, version
 
 
+def read_micromanager_pageoffsets(
+    fh: FileHandle | BinaryIO, /
+) -> list[int] | None:
+    """Read Micro-Manager indexmap offsets from file."""
+    fh.seek(0)
+    data = fh.read(16)
+    try:
+        byteorder = {b'II': '<', b'MM': '>'}[data[:2]]
+        (
+            index_header,
+            index_offset,
+        ) = struct.unpack(byteorder + 'II', data[8:])
+        if index_header != 54773648:
+            return None
+        fh.seek(index_offset)
+        header, count = struct.unpack(byteorder + 'II', fh.read(8))
+        if header != 3453623:
+            raise ValueError('invalid header')
+        data = fh.read(count * 20)
+        indexmap = numpy.frombuffer(
+            data, dtype=byteorder + 'u4', count=count * 5
+        )
+        return indexmap[4::5].tolist()
+    except Exception as exc:
+        log_warning(
+            '<tifffile.read_micromanager_pageoffsets> '
+            f'failed to read index map: {exc}'
+        )
+    return None
+
+
 def read_micromanager_metadata(fh: FileHandle | BinaryIO, /) -> dict[str, Any]:
     """Read Micro-Manager non-TIFF settings from file.
 
@@ -19547,9 +19583,9 @@ def read_micromanager_metadata(fh: FileHandle | BinaryIO, /) -> dict[str, Any]:
         if header != 3453623:
             raise ValueError('invalid header')
         data = fh.read(count * 20)
-        if len(data) != count * 20:
-            raise ValueError('not enough data')
-        indexmap = numpy.frombuffer(data, dtype=byteorder + 'u4')
+        indexmap = numpy.frombuffer(
+            data, dtype=byteorder + 'u4', count=count * 5
+        )
         indexmap = indexmap.reshape(count, 5)
         # TODO: return micromanager_metadata IndexMap as ndarray?
         result['IndexMap'] = {
@@ -19571,11 +19607,17 @@ def read_micromanager_metadata(fh: FileHandle | BinaryIO, /) -> dict[str, Any]:
         fh.seek(display_offset)
         header, count = struct.unpack(byteorder + 'II', fh.read(8))
         if header != 347834724:
-            raise ValueError(f'invalid header {header}')
+            # display_offset might be wrapped at 4 GB
+            fh.seek(display_offset + 2**32)
+            header, count = struct.unpack(byteorder + 'II', fh.read(8))
+            if header != 347834724:
+                raise ValueError('invalid display header')
         data = fh.read(count)
         if len(data) != count:
             raise ValueError('not enough data')
         result['DisplaySettings'] = json.loads(stripnull(data).decode())
+    except json.decoder.JSONDecodeError:
+        pass  # ignore frequent truncated JSON data
     except Exception as exc:
         log_warning(
             '<tifffile.read_micromanager_metadata> '
@@ -19589,7 +19631,11 @@ def read_micromanager_metadata(fh: FileHandle | BinaryIO, /) -> dict[str, Any]:
             fh.seek(comments_offset)
             header, count = struct.unpack(byteorder + 'II', fh.read(8))
             if header != 84720485:
-                raise ValueError(f'invalid header {header}')
+                # comments_offset might be wrapped at 4 GB
+                fh.seek(comments_offset + 2**32)
+                header, count = struct.unpack(byteorder + 'II', fh.read(8))
+                if header != 84720485:
+                    raise ValueError('invalid comments header')
             data = fh.read(count)
             if len(data) != count:
                 raise ValueError('not enough data')
