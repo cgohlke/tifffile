@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.2.27
+:Version: 2023.2.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -82,6 +82,12 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2023.2.28
+
+- Pass 4952 tests.
+- Fix reading some Micro-Manager metadata from corrupted files.
+- Speed up reading Micro-Manager indexmap for creation of OME series.
 
 2023.2.27
 
