@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.2.27
+:Version: 2023.2.28
 
 """
 
@@ -1199,7 +1199,7 @@ def test_issue_micromanager(caplog):
         assert tif.is_ome
         assert tif.is_imagej
         assert 'DisplaySettings' not in tif.micromanager_metadata
-        assert 'failed to read display settings' in caplog.text
+        assert 'failed to read display settings' not in caplog.text
         series = tif.series[0]
         assert series.shape == (50, 5, 3, 256, 256)
 
@@ -10893,8 +10893,8 @@ def test_read_micromanager(caplog):
         assert tif.byteorder == '<'
         assert len(tif.pages) == 8092
         assert len(tif.series) == 2
-        assert 'failed to read display settings' in caplog.text
-        assert 'failed to read comments: invalid header' in caplog.text
+        assert 'failed to read display settings' not in caplog.text
+        assert 'failed to read comments: invalid header' not in caplog.text
         # assert page properties
         for i in (0, 1):
             series = tif.series[i]
