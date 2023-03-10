@@ -40,7 +40,22 @@ from io import BytesIO
 from numcodecs import registry
 from numcodecs.abc import Codec
 
-import tifffile
+from .tifffile import TiffWriter, TiffFile
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+    from .tifffile import (
+        ByteOrder,
+        TagTuple,
+        PHOTOMETRIC,
+        PLANARCONFIG,
+        EXTRASAMPLE,
+        COMPRESSION,
+        PREDICTOR,
+    )
 
 
 class Tiff(Codec):
@@ -51,29 +66,29 @@ class Tiff(Codec):
     def __init__(
         self,
         # TiffFile.asarray
-        key=None,
-        series=None,
-        level=None,
+        key: int | slice | Iterable[int] | None = None,
+        series: int | None = None,
+        level: int | None = None,
         # TiffWriter
-        bigtiff=None,
-        byteorder=None,
-        imagej=False,
-        ome=None,
+        bigtiff: bool = False,
+        byteorder: ByteOrder | None = None,
+        imagej: bool = False,
+        ome: bool | None = None,
         # TiffWriter.write
-        photometric=None,
-        planarconfig=None,
-        extrasamples=None,
-        volumetric=None,
-        tile=None,
-        rowsperstrip=None,
-        compression=None,
-        compressionargs=None,
-        predictor=None,
-        subsampling=None,
-        metadata={},
-        extratags=(),
-        truncate=False,
-        maxworkers=None,
+        photometric: PHOTOMETRIC | int | str | None = None,
+        planarconfig: PLANARCONFIG | int | str | None = None,
+        extrasamples: Sequence[EXTRASAMPLE | int | str] | None = None,
+        volumetric: bool = False,
+        tile: Sequence[int] | None = None,
+        rowsperstrip: int | None = None,
+        compression: COMPRESSION | int | str | None = None,
+        compressionargs: dict[str, Any] | None = None,
+        predictor: PREDICTOR | int | str | bool | None = None,
+        subsampling: tuple[int, int] | None = None,
+        metadata: dict[str, Any] | None = {},
+        extratags: Sequence[TagTuple] | None = None,
+        truncate: bool = False,
+        maxworkers: int | None = None,
     ):
         self.key = key
         self.series = series
@@ -100,7 +115,7 @@ class Tiff(Codec):
     def encode(self, buf):
         """Return TIFF file as bytes."""
         with BytesIO() as fh:
-            with tifffile.TiffWriter(
+            with TiffWriter(
                 fh,
                 bigtiff=self.bigtiff,
                 byteorder=self.byteorder,
@@ -130,7 +145,7 @@ class Tiff(Codec):
     def decode(self, buf, out=None):
         """Return decoded image as NumPy array."""
         with BytesIO(buf) as fh:
-            with tifffile.TiffFile(fh) as tif:
+            with TiffFile(fh) as tif:
                 result = tif.asarray(
                     key=self.key,
                     series=self.series,
@@ -141,6 +156,6 @@ class Tiff(Codec):
         return result
 
 
-def register_codec(cls=Tiff, codec_id=None):
+def register_codec(cls: Codec = Tiff, codec_id: str | None = None) -> None:
     """Register :py:class:`Tiff` codec with Numcodecs."""
     registry.register_codec(cls, codec_id=codec_id)
