@@ -7,9 +7,9 @@ Tifffile is a Python library to
 (2) read image and metadata from TIFF-like files used in bioimaging.
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
-SGI, NIHImage, ImageJ, Micro-Manager NDTiff, FluoView, ScanImage, SEQ, GEL,
+SGI, NIHImage, ImageJ, MMStack, NDTiff, FluoView, ScanImage, SEQ, GEL,
 SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
-and GeoTIFF files.
+and GeoTIFF formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.2.28
+:Version: 2023.3.15
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,32 +66,39 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.10, 3.11.2
-  (AMD64 platforms, 32-bit platforms are deprecated)
+- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.10, 3.11.2, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.1.23
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.6.3
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.1
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.2
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.14.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.1.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.3.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.3.15
+
+- Pass 4980 tests.
+- Fix corruption using tile generators with prediction/compression (#185).
+- Add parser for Micro-Manager MMStack series (breaking).
+- Return micromanager_metadata IndexMap as numpy array (breaking).
+- Revert optimizations for Micro-Manager OME series.
+- Do not use numcodecs zstd in write_fsspec (kerchunk issue 317).
+- More type annotations.
+
 2023.2.28
 
-- Pass 4952 tests.
 - Fix reading some Micro-Manager metadata from corrupted files.
 - Speed up reading Micro-Manager indexmap for creation of OME series.
 
 2023.2.27
 
-- Pass 4952 tests.
 - Use Micro-Manager indexmap offsets to create virtual TiffFrames.
 - Fixes for future imagecodecs.
 
@@ -230,6 +237,11 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   offset 8. Downsampled image data of pyramidal datasets are stored in
   separate folders. Tifffile can read NDTiff files. Version 0 and 1 series,
   tiling, stitching, and multi-resolution pyramids are not supported.
+- **Micro-Manager MMStack** stores 6-dimensional image data in one or more
+  classic TIFF files. Metadata contained in non-TIFF binary structures and
+  JSON strings define the image stack dimensions and the position of the image
+  frame data in the file and the image stack. The TIFF structures and metadata
+  are often corrupted or wrong. Tifffile can read MMStack files.
 - **Carl Zeiss LSM** files store all IFDs below 4 GB and wrap around 32-bit
   StripOffsets pointing to image data above 4 GB. The StripOffsets of each
   series and position require separate unwrapping. The StripByteCounts tag
@@ -273,7 +285,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **Tifffile shaped** files store the array shape and user-provided metadata
   of multi-dimensional image series in JSON format in the ImageDescription tag
   of the first page of the series. The format allows for multiple series,
-  subifds, sparse segments with zero offset and bytecount, and truncated
+  SubIFDs, sparse segments with zero offset and byte count, and truncated
   series, where only the first page of a series is present, and the image data
   are stored contiguously. No other software besides Tifffile supports the
   truncated format.
@@ -490,7 +502,7 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
 ...     }
 ... )
 
-Read the volume and metadata from the ImageJ file:
+Read the volume and metadata from the ImageJ hyperstack file:
 
 >>> with TiffFile('temp.tif') as tif:
 ...     volume = tif.asarray()
@@ -505,6 +517,13 @@ Read the volume and metadata from the ImageJ file:
 >>> imagej_metadata['frames']
 6
 
+Memory-map the contiguous image data in the ImageJ hyperstack file:
+
+>>> memmap_volume = memmap('temp.tif')
+>>> memmap_volume.shape
+(6, 57, 256, 256)
+>>> del memmap_volume
+
 Create a TIFF file containing an empty image and write to the memory-mapped
 NumPy array (note: this does not work with compression or tiling):
 
@@ -518,15 +537,6 @@ NumPy array (note: this does not work with compression or tiling):
 <class 'numpy.memmap'>
 >>> memmap_image[255, 255, 1] = 1.0
 >>> memmap_image.flush()
->>> del memmap_image
-
-Memory-map and read contiguous image data in the TIFF file:
-
->>> memmap_image = memmap('temp.tif')
->>> memmap_image.shape
-(256, 256, 3)
->>> memmap_image[255, 255, 1]
-1.0
 >>> del memmap_image
 
 Write two NumPy arrays to a multi-series TIFF file (note: other TIFF readers
