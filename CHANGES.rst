@@ -1,15 +1,23 @@
 Revisions
 ---------
 
+2023.3.15
+
+- Pass 4980 tests.
+- Fix corruption using tile generators with prediction/compression (#185).
+- Add parser for Micro-Manager MMStack series (breaking).
+- Return micromanager_metadata IndexMap as numpy array (breaking).
+- Revert optimizations for Micro-Manager OME series.
+- Do not use numcodecs zstd in write_fsspec (kerchunk issue 317).
+- More type annotations.
+
 2023.2.28
 
-- Pass 4952 tests.
 - Fix reading some Micro-Manager metadata from corrupted files.
 - Speed up reading Micro-Manager indexmap for creation of OME series.
 
 2023.2.27
 
-- Pass 4952 tests.
 - Use Micro-Manager indexmap offsets to create virtual TiffFrames.
 - Fixes for future imagecodecs.
 
