@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.3.15
+:Version: 2023.3.21
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,7 +98,7 @@ This revision was tested with the following requirements and dependencies
 
 - `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.10, 3.11.2, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.1.23
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.3.16
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.1
   (required for plotting)
@@ -112,9 +112,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.3.21
+
+- Pass 4981 tests.
+- Fix reading MMstack with missing data (#187).
+
 2023.3.15
 
-- Pass 4980 tests.
 - Fix corruption using tile generators with prediction/compression (#185).
 - Add parser for Micro-Manager MMStack series (breaking).
 - Return micromanager_metadata IndexMap as numpy array (breaking).
@@ -793,7 +797,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.3.15'
+__version__ = '2023.3.21'
 
 __all__ = [
     'TiffFile',
@@ -3212,10 +3216,7 @@ class TiffWriter:
 
             elif tile:
                 # write tiles
-                if storedshape.contig_samples == 1:
-                    tileshape = tile
-                else:
-                    tileshape = tile + (storedshape.contig_samples,)
+                tileshape = tile + (storedshape.contig_samples,)
                 tilesize = product(tileshape) * datadtype.itemsize
 
                 if dataiter is None:
@@ -5837,9 +5838,14 @@ class TiffFile:
         elif size > indexmap.shape[0]:
             # other files missing: squeeze shape
             old_shape = shape
-            min_index = numpy.min(indexmap[:, :4], axis=0).tolist()
-            max_index = numpy.max(indexmap[:, :4], axis=0).tolist()
-            shape = tuple(j - i + 1 for i, j in zip(min_index, max_index))
+            min_index = numpy.min(indexmap[:, :4], axis=0)
+            max_index = numpy.max(indexmap[:, :4], axis=0)
+            indexmap = indexmap.copy()
+            indexmap[:, :4] -= min_index
+            shape = tuple(
+                j - i + 1
+                for i, j in zip(min_index.tolist(), max_index.tolist())
+            )
             shape = tuple(shape[i] for i in indexmap_order)
             size = product(shape)
             pages = [None] * size
