@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2023.3.21
+
+- Pass 4981 tests.
+- Fix reading MMstack with missing data (#187).
+
 2023.3.15
 
-- Pass 4980 tests.
 - Fix corruption using tile generators with prediction/compression (#185).
 - Add parser for Micro-Manager MMStack series (breaking).
 - Return micromanager_metadata IndexMap as numpy array (breaking).
