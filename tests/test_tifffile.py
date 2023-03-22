@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.3.15
+:Version: 2023.3.21
 
 """
 
@@ -2481,7 +2481,9 @@ def test_issue_tile_generator(compression, predictor, samples):
     if compression == 'none' and predictor != 'none':
         pytest.xfail('cannot use predictor without compression')
 
-    data = numpy.empty((32, 32, samples) if samples else (32, 32), numpy.uint8)
+    data = numpy.empty(
+        (27, 23, samples) if samples else (27, 23, 1), numpy.uint8
+    )
     data[:] = 199
     data[7:9, 11:13] = 13
     data[22:25, 19:22] = 11
@@ -2504,14 +2506,14 @@ def test_issue_tile_generator(compression, predictor, samples):
             compression=compression,
             predictor=predictor,
         )
-        assert_array_equal(imread(fname), data[:27, :23].squeeze())
+        assert_array_equal(imread(fname), data.squeeze())
         if (
             imagecodecs is None
             or not imagecodecs.TIFF
             or (compression == 'packbits' and predictor == 'horizontal')
         ):
             return
-        assert_array_equal(imagecodecs.imread(fname), data[:27, :23].squeeze())
+        assert_array_equal(imagecodecs.imread(fname), data.squeeze())
 
 
 class TestExceptions:
@@ -11983,6 +11985,50 @@ def test_read_mmstack_bytesio(caplog):
         assert data.dtype == numpy.uint16
         assert data[59, 1, 151, 186] == 599
         assert_aszarr_method(series, data)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+def test_read_mmstack_missing_sbs(caplog):
+    """Test read MicroManager dataset with missing data."""
+    # https://github.com/cgohlke/tifffile/issues/187
+    fname = private_file('MMStack/10X_c1-SBS-1_A1_Tile-102.sbs.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_micromanager
+        assert tif.is_mmstack
+        assert tif.is_ome
+        assert tif.is_imagej
+        assert not tif.is_ndtiff
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 5
+        assert len(tif.series) == 1
+        assert 'MMStack file name is invalid' in caplog.text
+        assert 'MMStack series is missing files' in caplog.text
+        # assert metadata
+        meta = tif.micromanager_metadata
+        assert meta is not None
+        assert meta['MajorVersion'] == 0
+        assert meta['Summary']['MicroManagerVersion'].startswith('1.4.23 2019')
+        assert meta['Summary']['Prefix'] == '10X_c1-SBS-1_1'
+        assert meta['IndexMap'].shape == (5, 5)
+        assert meta['Comments']['Summary'] == ''
+        assert meta['DisplaySettings'][0]['Name'] == 'DAPI_10p'
+        # assert series properties
+        series = tif.series[0]
+        assert len(series) == 5
+        assert series.shape == (5, 1024, 1024)
+        assert series.axes == 'CYX'
+        assert series.kind == 'mmstack'
+        assert not series.is_multifile
+        # assert data
+        data = tif.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.shape == (5, 1024, 1024)
+        assert data.dtype == numpy.uint16
+        assert data[3, 151, 186] == 542
+        assert_aszarr_method(series, data)
+        # test OME
+        assert_array_equal(data, imread(fname, is_mmstack=False))
         assert__str__(tif)
 
 
