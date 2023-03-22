@@ -17174,7 +17174,6 @@ class _TIFF:
                 258,  # BitsPerSample
                 259,  # Compression
                 262,  # PhotometricInterpretation
-                266,  # FillOrder
                 273,  # StripOffsets
                 277,  # SamplesPerPixel
                 278,  # RowsPerStrip
