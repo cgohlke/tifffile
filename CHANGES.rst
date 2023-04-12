@@ -1,9 +1,18 @@
 Revisions
 ---------
 
+2023.4.12
+
+- Pass 4988 tests.
+- Do not write duplicate ImageDescription tags from extratags (breaking).
+- Support multifocal SVS files (#193).
+- Log warning when filtering out extratags.
+- Fix writing OME-TIFF with image description in extratags.
+- Ignore invalid predictor tag value if prediction is not used.
+- Raise KeyError if ZarrStore is missing requested chunk.
+
 2023.3.21
 
-- Pass 4981 tests.
 - Fix reading MMstack with missing data (#187).
 
 2023.3.15
