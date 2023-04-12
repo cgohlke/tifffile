@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.3.21
+:Version: 2023.4.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,7 +96,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.10, 3.11.2, 64-bit
+- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.11, 3.11.3, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.3.16
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -106,15 +106,24 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.14.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.3.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.4.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.4.12
+
+- Pass 4988 tests.
+- Do not write duplicate ImageDescription tags from extratags (breaking).
+- Support multifocal SVS files (#193).
+- Log warning when filtering out extratags.
+- Fix writing OME-TIFF with image description in extratags.
+- Ignore invalid predictor tag value if prediction is not used.
+- Raise KeyError if ZarrStore is missing requested chunk.
+
 2023.3.21
 
-- Pass 4981 tests.
 - Fix reading MMstack with missing data (#187).
 
 2023.3.15
@@ -797,7 +806,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.3.21'
+__version__ = '2023.4.12'
 
 __all__ = [
     'TiffFile',
@@ -1831,7 +1840,9 @@ class TiffWriter:
                 4. writeonce (bool): If *True*, write tag to first page
                    of a series only.
 
-                Duplicate and select tags in TIFF.TAG_FILTERED are not written.
+                Duplicate and select tags in TIFF.TAG_FILTERED are not written
+                if the extratag is specified by integer code.
+                Extratags cannot be used to write IFD type tags.
 
             contiguous:
                 If *False* (default), write data to a new series.
@@ -2588,7 +2599,8 @@ class TiffWriter:
         self._metadata = {} if not metadata else metadata.copy()
         if self._omexml is not None:
             if len(self._omexml.images) == 0:
-                description = ''  # rewritten later at end of file
+                # rewritten later at end of file
+                description = '\x00\x00\x00\x00'
             else:
                 description = None
         elif self._imagej:
@@ -2628,7 +2640,12 @@ class TiffWriter:
             description += '\x00' * 16  # add buffer for in-place update
         # elif metadata is None and self._truncate:
         #     raise ValueError('cannot truncate without writing metadata')
-        else:
+        elif description is not None:
+            if not isinstance(description, bytes):
+                description = description.encode('ascii')
+            self._descriptiontag = TiffTag(
+                self, 0, 270, 2, len(description), description, 0
+            )
             description = None
 
         if description is None:
@@ -2637,6 +2654,9 @@ class TiffWriter:
         else:
             description = description.encode('ascii')
             addtag(tags, 270, 2, 0, description, True)
+            self._descriptiontag = TiffTag(
+                self, 0, 270, 2, len(description), description, 0
+            )
         del description
 
         if software is None:
@@ -2976,11 +2996,10 @@ class TiffWriter:
         extratag: TagTuple
         tagset = {t[0] for t in tags}
         tagset.update(TIFF.TAG_FILTERED)
-        if 270 in tagset:
-            # allow duplicate ImageDescription
-            tagset.remove(270)
         for extratag in extratags:
-            if extratag[0] not in tagset:
+            if extratag[0] in tagset:
+                log_warning(f'{self!r} not writing extratag {extratag[0]}')
+            else:
                 addtag(tags, *extratag)
         del tagset
         del extratags
@@ -3147,11 +3166,17 @@ class TiffWriter:
                         elif code == tagbytecounts:
                             databytecountsoffset = offset, pos
                         elif code == 270:
-                            assert self._descriptiontag is not None
-                            self._descriptiontag.offset = (
-                                ifdpos + tagoffset + tagindex * tagsize
-                            )
-                            self._descriptiontag.valueoffset = ifdpos + pos
+                            if (
+                                self._descriptiontag is not None
+                                and self._descriptiontag.offset == 0
+                                and value.startswith(
+                                    self._descriptiontag.value
+                                )
+                            ):
+                                self._descriptiontag.offset = (
+                                    ifdpos + tagoffset + tagindex * tagsize
+                                )
+                                self._descriptiontag.valueoffset = ifdpos + pos
                         elif code == 330:
                             subifdsoffsets = offset, pos
                     elif code == tagoffsets:
@@ -3159,13 +3184,17 @@ class TiffWriter:
                     elif code == tagbytecounts:
                         databytecountsoffset = offset, None
                     elif code == 270:
-                        assert self._descriptiontag is not None
-                        self._descriptiontag.offset = (
-                            ifdpos + tagoffset + tagindex * tagsize
-                        )
-                        self._descriptiontag.valueoffset = (
-                            self._descriptiontag.offset + offsetsize + 4
-                        )
+                        if (
+                            self._descriptiontag is not None
+                            and self._descriptiontag.offset == 0
+                            and self._descriptiontag.value in tag[1][-4:]
+                        ):
+                            self._descriptiontag.offset = (
+                                ifdpos + tagoffset + tagindex * tagsize
+                            )
+                            self._descriptiontag.valueoffset = (
+                                self._descriptiontag.offset + offsetsize + 4
+                            )
                     elif code == 330:
                         subifdsoffsets = offset, None
                 ifdsize = ifd.tell()
@@ -3710,11 +3739,10 @@ class TiffWriter:
             elif not isinstance(value, bytes):
                 raise ValueError('TIFF strings must be 7-bit ASCII')
 
-            if len(value) == 0 or value[-1] != b'\x00':
+            if len(value) == 0 or value[-1:] != b'\x00':
                 value += b'\x00'
             count = len(value)
             if code == 270:
-                self._descriptiontag = TiffTag(self, 0, 270, 2, count, None, 0)
                 rawcount = int(value.find(b'\x00\x00'))
                 if rawcount < 0:
                     rawcount = count
@@ -5069,53 +5097,74 @@ class TiffFile:
         self.pages.set_keyframe(0)
         self.pages._load()
 
-        # Baseline
-        index = 0
-        page = self.pages[index]
-        series.append(
-            TiffPageSeries(
-                [page],
-                page.shape,
-                page.dtype,
-                page.axes,
-                name='Baseline',
-                kind='svs',
-            )
-        )
-        # Thumbnail
-        index += 1
-        if index == len(self.pages):
+        # baseline
+        firstpage = self.pages.first
+        if len(self.pages) == 1:
             self.is_uniform = False
-            return series
-        page = self.pages[index]
-        series.append(
-            TiffPageSeries(
-                [page],
-                page.shape,
-                page.dtype,
-                page.axes,
-                name='Thumbnail',
-                kind='svs',
-            )
+            return [
+                TiffPageSeries(
+                    [firstpage],
+                    firstpage.shape,
+                    firstpage.dtype,
+                    firstpage.axes,
+                    name='Baseline',
+                    kind='svs',
+                )
+            ]
+
+        # thumbnail
+        page = self.pages[1]
+        thumnail = TiffPageSeries(
+            [page],
+            page.shape,
+            page.dtype,
+            page.axes,
+            name='Thumbnail',
+            kind='svs',
         )
-        # Resolutions
-        # TODO: resolutions not by two
-        index += 1
+
+        # resolutions and focal planes
+        levels = {firstpage.shape: [firstpage]}
+        index = 2
         while index < len(self.pages):
             page = cast(TiffPage, self.pages[index])
             if not page.is_tiled or page.is_reduced:
                 break
-            series[0].levels.append(
+            if page.shape in levels:
+                levels[page.shape].append(page)
+            else:
+                levels[page.shape] = [page]
+            index += 1
+
+        zsize = len(levels[firstpage.shape])
+        if not all(len(level) == zsize for level in levels.values()):
+            log_warning(f'{self!r} SVS series focal planes do not match')
+            zsize = 1
+        baseline = TiffPageSeries(
+            levels[firstpage.shape],
+            (zsize,) + firstpage.shape,
+            firstpage.dtype,
+            'Z' + firstpage.axes,
+            name='Baseline',
+            kind='svs',
+        )
+        for shape, level in levels.items():
+            if shape == firstpage.shape:
+                continue
+            page = level[0]
+            baseline.levels.append(
                 TiffPageSeries(
-                    [page],
-                    page.shape,
+                    level,
+                    (zsize,) + page.shape,
                     page.dtype,
-                    page.axes,
+                    'Z' + page.axes,
                     name='Resolution',
                     kind='svs',
                 )
             )
-            index += 1
+        series.append(baseline)
+        series.append(thumnail)
+
         # Label, Macro; subfiletype 1, 9
         for _ in range(2):
             if index == len(self.pages):
@@ -5662,20 +5711,31 @@ class TiffFile:
                 found_keyframe = False
                 ifds = []
                 for page in aseries.pages:
-                    if page is None or page.subifds is None:
+                    if (
+                        page is None
+                        or page.subifds is None
+                        or page.subifds[level] < 8
+                    ):
                         ifds.append(None)
                         continue
                     page.parent.filehandle.seek(page.subifds[level])
                     if page.keyframe == page:
-                        ifd = keyframe = TiffPage(self, (page.index, level))
+                        ifd = keyframe = TiffPage(
+                            self, (page.index, level + 1)
+                        )
                         found_keyframe = True
                     elif not found_keyframe:
                         raise RuntimeError('no keyframe found')
                     else:
                         ifd = TiffFrame(
-                            self, (page.index, level), keyframe=keyframe
+                            self, (page.index, level + 1), keyframe=keyframe
                         )
                     ifds.append(ifd)
+                if all(ifd_or_none is None for ifd_or_none in ifds):
+                    log_warning(
+                        f'{self!r} OME series level {level + 1} is empty'
+                    )
+                    break
                 # fix shape
                 shape = list(aseries.get_shape(False))
                 axes = aseries.get_axes(False)
@@ -8137,11 +8197,17 @@ class TiffPage:
             else:
                 unpredict = TIFF.UNPREDICTORS[self.predictor]
         except KeyError as exc:
+            if self.compression not in TIFF.IMAGE_COMPRESSIONS:
 
-            def decode_raise_predictor(*args, exc=str(exc)[1:-1], **kwargs):
-                raise ValueError(f'{exc}')
+                def decode_raise_predictor(
+                    *args, exc=str(exc)[1:-1], **kwargs
+                ):
+                    raise ValueError(f'{exc}')
 
-            return cache(decode_raise_predictor)
+                return cache(decode_raise_predictor)
+
+            log_warning(f'{self!r} ignoring predictor {self.predictor}')
+            unpredict = None
 
         if self.tags.get(339) is not None:
             tag = self.tags[339]  # SampleFormat
@@ -10898,7 +10964,7 @@ class TiffTag:
                     ) from exc
             elif not isinstance(value, bytes):
                 raise ValueError('TIFF strings must be 7-bit ASCII')
-            if len(value) == 0 or value[-1] != b'\x00':
+            if len(value) == 0 or value[-1:] != b'\x00':
                 value += b'\x00'
             count = len(value)
             value = (value,)
@@ -12026,7 +12092,14 @@ class ZarrStore(collections.abc.MutableMapping):
         return len(self._store)
 
     def __contains__(self, key: object, /) -> bool:
-        return key in self._store
+        if key in self._store:
+            return True
+        assert isinstance(key, str)
+        return self._contains(key)
+
+    def _contains(self, key: str, /) -> bool:
+        """Return if key is in store."""
+        raise NotImplementedError
 
     def __delitem__(self, key: object, /) -> None:
         raise PermissionError('ZarrStore is read-only')
@@ -12662,23 +12735,26 @@ class ZarrTiffStore(ZarrStore):
         if not hasattr(jsonfile, 'write'):
             fh.close()
 
+    def _contains(self, key: str, /) -> bool:
+        """Return if key is in store."""
+        try:
+            _, page, _, offset, bytecount = self._parse_key(key)
+        except KeyError:
+            return False
+        return (
+            page is not None
+            and offset is not None
+            and bytecount is not None
+            and offset > 0
+            and bytecount > 0
+        )
+
     def _getitem(self, key: str, /) -> NDArray[Any]:
         """Return chunk from file."""
         keyframe, page, chunkindex, offset, bytecount = self._parse_key(key)
 
-        if self._chunkmode:
-            chunks = keyframe.shape
-        else:
-            chunks = keyframe.chunks
-
         if page is None or offset == 0 or bytecount == 0:
-            assert keyframe.dtype is not None
-            chunk = ZarrStore._empty_chunk(
-                chunks, keyframe.dtype, self._fillvalue
-            )
-            if self._transform is not None:
-                chunk = self._transform(chunk)
-            return chunk
+            raise KeyError(key)
 
         fh = page.parent.filehandle
 
@@ -12709,6 +12785,10 @@ class ZarrTiffStore(ZarrStore):
         if self._transform is not None:
             chunk = self._transform(chunk)
 
+        if self._chunkmode:
+            chunks = keyframe.shape
+        else:
+            chunks = keyframe.chunks
         if chunk.size != product(chunks):
             raise RuntimeError(f'{chunk.size} != {product(chunks)}')
         return chunk  # .tobytes()
@@ -12996,17 +13076,21 @@ class ZarrFileSequenceStore(ZarrStore):
             }
         )
 
+    def _contains(self, key: str, /) -> bool:
+        """Return if key is in store."""
+        try:
+            indices = tuple(int(i) for i in key.split('.'))
+        except Exception:
+            return False
+        return indices in self._lookup
+
     def _getitem(self, key: str, /) -> NDArray[Any]:
         """Return chunk from file."""
         indices = tuple(int(i) for i in key.split('.'))
         filename = self._lookup.get(indices, None)
         if filename is None:
-            chunk = ZarrStore._empty_chunk(
-                self._chunks, self._dtype, self._fillvalue
-            )
-        else:
-            chunk = self._imread(filename, **self._kwargs)
-        return chunk
+            raise KeyError(key)
+        return self._imread(filename, **self._kwargs)
 
     def _setitem(self, key: str, value: bytes, /) -> None:
         raise PermissionError('ZarrStore is read-only')
@@ -17188,8 +17272,12 @@ class _TIFF:
                 330,  # SubIFDs,
                 338,  # ExtraSamples
                 339,  # SampleFormat
+                400,  # GlobalParametersIFD
                 32997,  # ImageDepth
                 32998,  # TileDepth
+                34665,  # ExifTag
+                34853,  # GPSTag
+                40965,  # InteroperabilityTag
             )
         )
 
