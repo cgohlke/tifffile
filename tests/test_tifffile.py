@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.3.21
+:Version: 2023.4.12
 
 """
 
@@ -1724,8 +1724,8 @@ def test_issue_description_bytes(caplog):
             [[0]],
             description='1st description',
             extratags=[
-                (270, 1, None, b'\1\128\0', True),
-                (270, 1, None, b'\2\128\0', True),
+                ('ImageDescription', 1, None, b'\1\128\0', True),
+                ('ImageDescription', 1, None, b'\2\128\0', True),
             ],
             metadata=False,
         )
@@ -2514,6 +2514,43 @@ def test_issue_tile_generator(compression, predictor, samples):
         ):
             return
         assert_array_equal(imagecodecs.imread(fname), data.squeeze())
+
+
+def test_issue_extratags_filter(caplog):
+    """Test filtering extratags."""
+    # https://github.com/cgohlke/tifffile/pull/188
+    with TempFileName('extratags_filter') as fname:
+        imwrite(
+            fname,
+            shape=(10, 10),
+            dtype='u1',
+            extratags=[
+                (322, 3, 1, 2, False),  # TileWidth is filtered
+                (34665, 13, 1, 0, False),  # ExifIFD is filtered
+                (270, 2, 0, 'second description', True),  # filtered
+                ('FillOrder', 3, 1, 1, True),  # by name should go through
+            ],
+        )
+        assert 'extratag 322' in caplog.text
+        assert 'extratag 34665' in caplog.text
+        with TiffFile(fname) as tif:
+            tags = tif.pages.first.tags
+            assert 322 not in tags
+            assert 34665 not in tags
+            assert tags.get(270, index=1) is None
+            assert tags[266].value == 1
+
+
+def test_issue_invalid_predictor(caplog):
+    """Test decoding JPEG compression with invalid predictor tag."""
+    fname = private_file('issues/invalid_predictor.tiff')
+    with TiffFile(fname) as tif:
+        page = tif.pages.first
+        assert page.predictor == 58240
+        assert page.compression == 7
+        data = page.asarray()
+        assert 'ignoring predictor' in caplog.text
+        assert data.shape == (1275, 1650, 4)
 
 
 class TestExceptions:
@@ -11926,6 +11963,7 @@ def test_read_mmstack_missing(caplog):
         assert meta['DisplaySettings'][0]['Name'] == 'Dual-GFP'
         # assert series properties
         series = tif.series[0]
+        assert series[-1] is None  # missing page
         assert len(series) == 126
         assert series.shape == (63, 2, 264, 320)
         assert series.axes == 'TCYX'
@@ -11937,7 +11975,14 @@ def test_read_mmstack_missing(caplog):
         assert data.shape == (63, 2, 264, 320)
         assert data.dtype == numpy.uint16
         assert data[59, 1, 151, 186] == 599
-        assert_aszarr_method(series, data)
+        # assert zarr
+        if not SKIP_ZARR and zarr is not None:
+            with series.aszarr(fillvalue=100) as store:
+                assert '1.1.0.0' in store
+                assert '62.1.0.0' not in store  # missing page
+                z = zarr.open(store, mode='r')
+                assert z[62, 1, 0, 0] == 100
+                assert_array_equal(data[:62], z[:62])
         # test OME and ImageJ
         assert_array_equal(data, imread(fname, is_mmstack=False))
         assert_array_equal(data, imread(fname, is_mmstack=False, is_ome=False))
@@ -13444,7 +13489,7 @@ def test_write_extratags():
     description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
     pagename = 'Page name'
     extratags = [
-        (270, 's', 0, description, True),
+        ('ImageDescription', 's', 0, description, True),
         ('PageName', 's', 0, pagename, False),
         (50001, 'b', 1, b'1', True),
         (50002, 'b', 2, b'12', True),
@@ -13583,6 +13628,20 @@ def test_write_datetime_tag(dt):
             assert__str__(tif)
 
 
+def test_write_software_tag():
+    """Test write Software tag."""
+    data = random_data(numpy.uint8, (2, 219, 301))
+    software = 'test_tifffile.py'
+    with TempFileName('software_tag') as fname:
+        imwrite(fname, data, software=software)
+        assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 2
+            assert tif.pages.first.software == software
+            assert 'Software' not in tif.pages[1].tags
+            assert__str__(tif)
+
+
 def test_write_description_tag():
     """Test write two description tags."""
     data = random_data(numpy.uint8, (2, 219, 301))
@@ -13634,18 +13693,107 @@ def test_write_description_tag_notshaped():
             assert__str__(tif)
 
 
-def test_write_software_tag():
-    """Test write Software tag."""
-    data = random_data(numpy.uint8, (2, 219, 301))
-    software = 'test_tifffile.py'
-    with TempFileName('software_tag') as fname:
-        imwrite(fname, data, software=software)
-        assert_valid_tiff(fname)
+def test_write_description_ome():
+    """Test write multiple imagedescription tags to OME."""
+    # https://forum.image.sc/t/79471
+    with TempFileName('description_ome') as fname:
+        with pytest.warns(UserWarning):
+            imwrite(
+                fname,
+                shape=(2, 32, 32),
+                dtype='uint8',
+                ome=True,
+                description='description',  # not written
+                extratags=[('ImageDescription', 2, None, 'extratags', False)],
+            )
         with TiffFile(fname) as tif:
-            assert len(tif.pages) == 2
-            assert tif.pages.first.software == software
-            assert 'Software' not in tif.pages[1].tags
-            assert__str__(tif)
+            assert tif.is_ome
+            page = tif.pages.first
+            assert page.description.startswith('<?xml')
+            assert page.description1 == 'extratags'
+            assert tif.pages[1].description == 'extratags'
+
+
+def test_write_description_imagej():
+    """Test write multiple imagedescription tags."""
+    with TempFileName('description_imagej') as fname:
+        with pytest.warns(UserWarning):
+            imwrite(
+                fname,
+                shape=(2, 32, 32),
+                dtype='uint8',
+                imagej=True,
+                description='description',  # not written
+                extratags=[('ImageDescription', 2, None, 'extratags', False)],
+            )
+        with TiffFile(fname) as tif:
+            assert tif.is_imagej
+            page = tif.pages.first
+            assert page.description.startswith('ImageJ=')
+            assert page.description1 == 'extratags'
+            assert tif.pages[1].description == 'extratags'
+
+
+def test_write_description_shaped():
+    """Test write multiple imagedescription tags to shaped."""
+    with TempFileName('description_shaped') as fname:
+        imwrite(
+            fname,
+            shape=(2, 32, 32),
+            dtype='uint8',
+            description='description',  # written
+            extratags=[('ImageDescription', 2, None, 'extratags', False)],
+        )
+        with TiffFile(fname) as tif:
+            assert tif.is_shaped
+            page = tif.pages.first
+            assert page.description == 'description'
+            assert page.description1.startswith('{')
+            assert page.tags.getall(270)[2].value == 'extratags'
+            assert tif.pages[1].description == 'extratags'
+
+
+def test_write_description_overwrite():
+    """Test overwrite imagedescription tag."""
+    with TempFileName('description_overwrite') as fname:
+        with TiffWriter(fname) as tif:
+            tif.write(
+                shape=(2, 32, 32),
+                dtype='uint8',
+                description='description',  # overwritten
+                extratags=[('ImageDescription', 2, None, 'extratags', False)],
+                metadata=None,
+            )
+            tif.overwrite_description('overwritten description')
+        with TiffFile(fname) as tif:
+            assert not tif.is_shaped
+            page = tif.pages.first
+            assert page.description == 'overwritten description'
+            assert page.description1 == 'extratags'
+            assert tif.pages[1].description == 'extratags'
+
+
+def test_write_description_extratags():
+    """Test write imagedescription tags using extratag."""
+    with TempFileName('description_extratags') as fname:
+        with TiffWriter(fname) as tif:
+            tif.write(
+                shape=(2, 32, 32),
+                dtype='uint8',
+                extratags=[
+                    (270, 2, None, 'description 0', False),
+                    ('ImageDescription', 2, None, 'description 1', False),
+                ],
+                metadata=None,
+            )
+        with TiffFile(fname) as tif:
+            assert not tif.is_shaped
+            page = tif.pages.first
+            assert page.description == 'description 0'
+            assert page.description1 == 'description 1'
+            page = tif.pages[1]
+            assert page.description == 'description 0'
+            assert page.description1 == 'description 1'
 
 
 def test_write_resolution_float():
@@ -18299,7 +18447,7 @@ def test_dependent_opentile():
 
         import turbojpeg
         from opentile.geometry import Point
-        from opentile.ndpi_tiler import NdpiTiler
+        from opentile.formats import NdpiTiler
     except ImportError:
         pytest.skip('opentile missing')
 
