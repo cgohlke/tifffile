@@ -2541,6 +2541,7 @@ def test_issue_extratags_filter(caplog):
             assert tags[266].value == 1
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_invalid_predictor(caplog):
     """Test decoding JPEG compression with invalid predictor tag."""
     fname = private_file('issues/invalid_predictor.tiff')
