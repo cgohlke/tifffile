@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.3.21
+:Version: 2023.4.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,7 +66,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.10, 3.11.2, 64-bit
+- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.11, 3.11.3, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.3.16
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -76,15 +76,24 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.14.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.3.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.4.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.4.12
+
+- Pass 4988 tests.
+- Do not write duplicate ImageDescription tags from extratags (breaking).
+- Support multifocal SVS files (#193).
+- Log warning when filtering out extratags.
+- Fix writing OME-TIFF with image description in extratags.
+- Ignore invalid predictor tag value if prediction is not used.
+- Raise KeyError if ZarrStore is missing requested chunk.
+
 2023.3.21
 
-- Pass 4981 tests.
 - Fix reading MMstack with missing data (#187).
 
 2023.3.15
