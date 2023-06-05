@@ -14912,7 +14912,7 @@ class StoredShape:
         if self.separate_samples > 1:
             return 2  # PLANARCONFIG.SEPARATE
         if self.contig_samples > 1:
-            return 1  # PLANARCONFIG.SEPARATE
+            return 1  # PLANARCONFIG.CONTIG
         return None
 
     def __len__(self) -> int:
