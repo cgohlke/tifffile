@@ -59,7 +59,6 @@ import urllib.error
 import urllib.request
 from io import BytesIO
 
-import fsspec
 import numpy
 import pytest
 from numpy.testing import (
@@ -1802,8 +1801,9 @@ def test_issue_xarray():
     """Test read Zarr store with fsspec and xarray."""
     try:
         import xarray
+        import fsspec
     except ImportError:
-        pytest.skip('xarray missing')
+        pytest.skip('xarray or fsspec missing')
 
     data = numpy.random.randint(0, 2**8, (5, 31, 33, 3), numpy.uint8)
 
@@ -1859,8 +1859,9 @@ def test_issue_xarray_multiscale():
     """Test read multiscale Zarr store with fsspec and xarray."""
     try:
         import xarray
+        import fsspec
     except ImportError:
-        pytest.skip('xarray missing')
+        pytest.skip('xarray or fsspec missing')
 
     data = numpy.random.randint(0, 2**8, (8, 3, 128, 128), numpy.uint8)
 
@@ -16729,7 +16730,7 @@ def test_write_zarr():
                     z[100, 20] = 106
 
 
-def assert_fsspec(url, data, target_protocol='http'):
+def assert_fsspec(fsspec, url, data, target_protocol='http'):
     """Assert fsspec ReferenceFileSystem from local http server."""
     mapper = fsspec.get_mapper(
         'reference://', fo=url, target_protocol=target_protocol
@@ -16750,6 +16751,7 @@ def assert_fsspec(url, data, target_protocol='http'):
 @pytest.mark.parametrize('version', [0, 1])
 def test_write_fsspec(version):
     """Test write fsspec for multi-series OME-TIFF."""
+    fsspec = pytest.importorskip('fsspec')
     try:
         from imagecodecs.numcodecs import register_codecs
     except ImportError:
@@ -16798,26 +16800,26 @@ def test_write_fsspec(version):
                 store.write_fsspec(
                     fname + f'.v{version}.s0.json', URL, version=version
                 )
-                assert_fsspec(URL + filename + f'.v{version}.s0.json', data0)
+                assert_fsspec(fsspec, URL + filename + f'.v{version}.s0.json', data0)
 
             with tif.series[1].aszarr() as store:
                 assert not store.is_multiscales
                 store.write_fsspec(
                     fname + f'.v{version}.s1.json', URL, version=version
                 )
-                assert_fsspec(URL + filename + f'.v{version}.s1.json', data1)
+                assert_fsspec(fsspec, URL + filename + f'.v{version}.s1.json', data1)
 
             with tif.series[2].aszarr() as store:
                 store.write_fsspec(
                     fname + f'.v{version}.s2.json', URL, version=version
                 )
-                assert_fsspec(URL + filename + f'.v{version}.s2.json', data2)
+                assert_fsspec(fsspec, URL + filename + f'.v{version}.s2.json', data2)
 
             with tif.series[3].aszarr(chunkmode=2) as store:
                 store.write_fsspec(
                     fname + f'.v{version}.s3.json', URL, version=version
                 )
-                assert_fsspec(URL + filename + f'.v{version}.s3.json', data1)
+                assert_fsspec(fsspec, URL + filename + f'.v{version}.s3.json', data1)
 
             with tif.series[3].aszarr() as store:
                 with pytest.raises(ValueError):
@@ -16837,11 +16839,12 @@ def test_write_fsspec(version):
                         # codec not available: 'imagecodecs_jpeg'
                         # this fails if imagecodecs-numcodecs is installed
                         assert_fsspec(
-                            URL + filename + f'.v{version}.s4.json', data1
+                            fsspec, URL + filename + f'.v{version}.s4.json', data1
                         )
                 if register_codecs is not None:
                     register_codecs('imagecodecs_jpeg', verbose=False)
                     assert_fsspec(
+                        fsspec,
                         URL + filename + f'.v{version}.s4.json',
                         tif.series[4].asarray(),
                     )
@@ -16852,6 +16855,7 @@ def test_write_fsspec(version):
 @pytest.mark.parametrize('chunkmode', [0, 2])
 def test_write_fsspec_multifile(version, chunkmode):
     """Test write fsspec for multi-file OME series."""
+    fsspec = pytest.importorskip('fsspec')
     fname = public_file('OME/multifile/multifile-Z1.ome.tiff')
     url = os.path.dirname(fname).replace('\\', '/')
     with TempFileName(
@@ -16882,6 +16886,7 @@ def test_write_fsspec_multifile(version, chunkmode):
 def test_write_fsspec_sequence(version):
     """Test write fsspec for multi-file sequence."""
     # https://bbbc.broadinstitute.org/BBBC006
+    fsspec = pytest.importorskip('fsspec')
     categories = {'p': {chr(i + 97): i for i in range(25)}}
     ptrn = r'(?:_(z)_(\d+)).*_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
     fnames = private_file('BBBC/BBBC006_v1_images_z_00/*.tif')
@@ -16921,6 +16926,7 @@ def test_write_fsspec_sequence(version):
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
 def test_write_tiff2fsspec():
     """Test tiff2fsspec function."""
+    fsspec = pytest.importorskip('fsspec')
     fname = public_file('tifffile/multiscene_pyramidal.ome.tif')
     url = os.path.dirname(fname).replace('\\', '/')
     data = imread(fname, series=0, level=1, maxworkers=1)
