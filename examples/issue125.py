@@ -27,7 +27,7 @@ fs = fsspec.filesystem('s3', **remote_options)
 files = [f's3://{f}' for f in fs.ls('/rsignellbucket1/lcmap/cog')]
 
 # write the ReferenceFileSystem of each file to a JSON file
-with open('issue125.json', 'w', newline='\n') as jsonfile:
+with open('issue125.json', 'w', encoding='utf-8', newline='\n') as jsonfile:
     for i, filename in enumerate(tifffile.natural_sorted(files)):
         url, name = filename.rsplit('/', 1)
         with fs.open(filename) as fh:
