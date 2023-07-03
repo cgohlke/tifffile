@@ -311,10 +311,10 @@ def bitorder_decode(
         view = data.view('uint8')
         numpy.take(_bitorder[1], view, out=view)
         return data
-    except ValueError:
+    except ValueError as exc:
         raise NotImplementedError(
             "bitorder_decode of slices requires the 'imagecodecs' package"
-        )
+        ) from exc
     return None
 
 
