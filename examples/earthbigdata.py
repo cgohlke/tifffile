@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Updated on July 31, 2022
+Updated on July 4, 2023
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -48,7 +48,7 @@ http://sentinel-1-global-coherence-earthbigdata.s3-website-us-west-2.amazonaws.c
 ) set, which consists of 1,033,422 GeoTIFF files stored on AWS.
 The ReferenceFileSystem is used to create a multi-dimensional Xarray dataset.
 
-See discussion at [kerchunk/issues/78](
+Refer to the discussion at [kerchunk/issues/78](
 https://github.com/fsspec/kerchunk/issues/78).
 """
 
@@ -81,7 +81,7 @@ if not os.path.exists('earthbigdata.txt'):
         ' --recursive > earthbigdata.txt'
     )
 
-with open('earthbigdata.txt') as fh:
+with open('earthbigdata.txt', encoding='utf-8') as fh:
     tiff_files = [
         line.split()[-1][11:] for line in fh.readlines() if '.tif' in line
     ]
@@ -182,7 +182,7 @@ flightdirection_pattern = (
 """
 
 # %%
-jsonfile = open('earthbigdata.json', 'w', newline='\n')
+jsonfile = open('earthbigdata.json', 'w', encoding='utf-8', newline='\n')
 
 # %% [markdown]
 """
