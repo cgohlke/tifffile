@@ -1,9 +1,18 @@
 Revisions
 ---------
 
+2023.7.4
+
+- Pass 4992 tests.
+- Add option to return selection from imread (#200).
+- Fix reading OME series with missing trailing frames (#199).
+- Fix fsspec reference for WebP compressed segments missing alpha channel.
+- Fix linting issues.
+- Detect files written by Agilent Technologies.
+- Drop support for Python 3.8 and numpy < 1.21 (NEP29).
+
 2023.4.12
 
-- Pass 4988 tests.
 - Do not write duplicate ImageDescription tags from extratags (breaking).
 - Support multifocal SVS files (#193).
 - Log warning when filtering out extratags.
@@ -982,4 +991,4 @@ Revisions
 2012.7.25
 
 - Read ImageJ tags.
-- ...
+- …
