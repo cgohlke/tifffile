@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.4.12
+:Version: 2023.7.4
 
 """
 
@@ -59,7 +59,6 @@ import urllib.error
 import urllib.request
 from io import BytesIO
 
-import fsspec
 import numpy
 import pytest
 from numpy.testing import (
@@ -195,14 +194,14 @@ PRIVATE_DIR = os.path.join(HERE, 'data', 'private')
 PUBLIC_DIR = os.path.join(HERE, 'data', 'public')
 
 IS_BE = sys.byteorder == 'big'
-IS_PYPY = 'PyPy' in sys.version
+IS_PYPY = 'pypy' in sys.version.lower()
 IS_WIN = sys.platform == 'win32'
 IS_CG = os.environ.get('COMPUTERNAME', '').startswith('CG-T')
 
 
 # skip certain tests
 def skip(key, default):
-    return os.getenv(key, default) in (True, 1, '1')
+    return os.getenv(key, default) in {True, 1, '1'}
 
 
 # skip tests requiring large memory
@@ -262,7 +261,7 @@ URL = 'http://localhost:8386/'  # TEMP_DIR
 if not SKIP_HTTP:
     try:
         urllib.request.urlopen(URL + '/test/test.txt', timeout=0.2)
-    except urllib.error.URLError:
+    except (urllib.error.URLError, TimeoutError):
         SKIP_HTTP = True
 
 if not os.path.exists(TEMP_DIR):
@@ -286,8 +285,10 @@ if SKIP_ZARR:
 else:
     try:
         import zarr  # type: ignore
+        import fsspec  # type: ignore
     except ImportError:
         zarr = None
+        fsspec = None  # type: ignore
         SKIP_ZARR = True
 
 if SKIP_DASK:
@@ -1781,6 +1782,41 @@ def test_issue_webp_rgba(name, caplog):
         assert f'corrupted {name}' not in caplog.text
 
 
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_ZARR or SKIP_CODECS or not imagecodecs.WEBP,
+    reason=REASON,
+)
+def test_issue_webp_fsspec():
+    """Test read WebP segments with missing alpha channel via fsspec."""
+    try:
+        from imagecodecs.numcodecs import register_codecs
+    except ImportError:
+        register_codecs = None
+    else:
+        register_codecs('imagecodecs_webp', verbose=False)
+
+    fname = private_file('issues/CMU-1-Small-Region.tile.webp.tiff')
+    url = os.path.dirname(fname).replace('\\', '/')
+    data = imread(fname, series=0)
+    with TempFileName('webp_fsspec', ext='.json') as jsonfile:
+        tiff2fsspec(
+            fname,
+            url,
+            out=jsonfile,
+            series=0,
+            level=0,
+            version=0,
+        )
+        mapper = fsspec.get_mapper(
+            'reference://',
+            fo=jsonfile,
+            target_protocol='file',
+            remote_protocol='file',
+        )
+        zobj = zarr.open(mapper, mode='r')
+        assert_array_equal(zobj[:], data)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
 def test_issue_tiffslide():
     """Test no ValueError when closing TiffSlide with Zarr group."""
@@ -2541,6 +2577,7 @@ def test_issue_extratags_filter(caplog):
             assert tags[266].value == 1
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_invalid_predictor(caplog):
     """Test decoding JPEG compression with invalid predictor tag."""
     fname = private_file('issues/invalid_predictor.tiff')
@@ -2551,6 +2588,39 @@ def test_issue_invalid_predictor(caplog):
         data = page.asarray()
         assert 'ignoring predictor' in caplog.text
         assert data.shape == (1275, 1650, 4)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_ome_missing_frames(caplog):
+    """Test read OME TIFF with missing pages at end."""
+    # https://github.com/cgohlke/tifffile/issues/199
+    fname = private_file('issues/stack_t24_y2048_x2448.tiff')
+    with TiffFile(fname) as tif:
+        assert tif.is_ome
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 16
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages.first
+        assert page.photometric == MINISBLACK
+        assert page.imagewidth == 2448
+        assert page.imagelength == 2048
+        assert page.bitspersample == 8
+        assert not page.is_contiguous
+        # assert series properties
+        series = tif.series[0]
+        assert len(series._pages) == 24
+        assert len(series.pages) == 24
+        assert series[16] is None
+        assert series[23] is None
+        assert series.shape == (24, 2048, 2448)
+        assert series.dtype == numpy.uint8
+        assert series.axes == 'TYX'
+        assert series.kind == 'ome'
+        data = series.asarray()
+        assert_aszarr_method(tif, data)
+        assert_aszarr_method(tif, data, chunkmode='page')
+        assert__str__(tif)
 
 
 class TestExceptions:
@@ -3179,7 +3249,7 @@ def test_class_tifftags():
             assert len(tags.keys()) == len(tags.items()) - 1
             assert set(tags.keys()) == {i[0] for i in tags.items()}
             assert list(tags.values()) == [i[1] for i in tags.items()]
-            assert list(tags.values()) == [t for t in tags]
+            assert list(tags.values()) == list(tags)
 
             tag270 = tags[270]
             del tags[270]
@@ -3208,7 +3278,7 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
-    numtags = 654
+    numtags = 656
     tags = TIFF.TAGS
     assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
@@ -4733,7 +4803,7 @@ def test_func_bitorder_decode():
     )
     if int(numpy.__version__.split('.')[1]) < 23:
         with pytest.raises(NotImplementedError):
-            bitorder_decode(data[1:, 1:3]), reverse[1:, 1:3]
+            bitorder_decode(data[1:, 1:3])
     else:
         assert_array_equal(bitorder_decode(data[1:, 1:3]), reverse[1:, 1:3])
 
@@ -5130,10 +5200,9 @@ def test_filehandle_unc_path():
         assert_filehandle(fh)
 
 
-@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
 def test_filehandle_fsspec_localfileopener():
     """Test FileHandle from fsspec LocalFileOpener."""
-    fsspec = pytest.importorskip('fsspec')
     with fsspec.open(FILEHANDLE_NAME, 'rb') as fhandle:
         with FileHandle(fhandle) as fh:
             assert fh.name == 'test_FileHandle.bin'
@@ -5142,10 +5211,9 @@ def test_filehandle_fsspec_localfileopener():
         assert not fhandle.closed
 
 
-@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
 def test_filehandle_fsspec_openfile():
     """Test FileHandle from fsspec OpenFile."""
-    fsspec = pytest.importorskip('fsspec')
     fhandle = fsspec.open(FILEHANDLE_NAME, 'rb')
     with FileHandle(fhandle) as fh:
         assert fh.name == 'test_FileHandle.bin'
@@ -5154,10 +5222,9 @@ def test_filehandle_fsspec_openfile():
     fhandle.close()
 
 
-@pytest.mark.skipif(SKIP_PUBLIC or SKIP_HTTP, reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_HTTP or SKIP_ZARR, reason=REASON)
 def test_filehandle_fsspec_http():
     """Test FileHandle from HTTP via fsspec."""
-    fsspec = pytest.importorskip('fsspec')
     with open(FILEHANDLE_NAME, 'rb') as fh:
         data = fh.read()
     with TempFileName('test_FileHandle', ext='.bin') as fname:
@@ -5643,7 +5710,7 @@ def test_read_iss_vista():
         assert series.dtype == numpy.int16
         assert series.axes == 'IYX'  # ZYX
         assert series.kind == 'uniform'
-        assert type(series.pages[3]) == TiffFrame
+        assert isinstance(series.pages[3], TiffFrame)
         assert_aszarr_method(series)
         assert__str__(tif)
 
@@ -8184,6 +8251,7 @@ def test_read_stk_zseries():
         )
         # assert series properties
         series = tif.series[0]
+        assert series.is_truncated
         assert series.shape == (11, 256, 320)
         assert series.dtype == numpy.uint16
         assert series.axes == 'ZYX'
@@ -8236,6 +8304,7 @@ def test_read_stk_zser24():
         )
         # assert series properties
         series = tif.series[0]
+        assert series.is_truncated
         assert series.shape == (11, 128, 160, 3)
         assert series.dtype == numpy.uint8
         assert series.axes == 'ZYXS'
@@ -8559,7 +8628,7 @@ def test_read_ndpi_cmu2():
     reason=REASON,
 )
 def test_read_ndpi_4gb():
-    """Test read > 4GB Hamamatsu NDPI slide, JPEG 103680x188160."""
+    """Test read > 4 GB Hamamatsu NDPI slide, JPEG 103680x188160."""
     fname = private_file('HamamatsuNDPI/103680x188160.ndpi')
     with TiffFile(fname) as tif:
         assert tif.is_ndpi
@@ -8945,7 +9014,7 @@ def test_read_scn_collection():
             assert series.kind == 'scn'
             assert series.axes == 'CZYX'
             assert series.shape[:2] == (4, 8)
-            assert len(series.levels) in (2, 3, 4, 5)
+            assert len(series.levels) in {2, 3, 4, 5}
             assert len(series.pages) == 32
         # third series
         series = tif.series[2]
@@ -9858,7 +9927,9 @@ def test_read_ome_companion(caplog):
             assert tif.series[0].kind == 'generic'
             assert 'OME series is BinaryOnly' in caplog.text
 
-    with open(private_file('OME/companion/multifile.companion.ome')) as fh:
+    with open(
+        private_file('OME/companion/multifile.companion.ome'), encoding='utf-8'
+    ) as fh:
         omexml = fh.read()
     with TiffFile(fname, omexml=omexml) as tif:
         assert tif.is_ome
@@ -10281,7 +10352,7 @@ def test_read_andor_light_sheet_512p():
         assert series.dtype == numpy.uint16
         assert series.axes == 'IYX'
         assert series.kind == 'uniform'
-        assert type(series.pages[2]) == TiffFrame
+        assert isinstance(series.pages[2], TiffFrame)
         # assert data
         data = tif.asarray()
         assert data.shape == (100, 512, 512)
@@ -10949,7 +11020,7 @@ def test_read_scifio():
         assert series.shape == (343, 1024, 1024)
         assert series.dtype == numpy.uint8
         assert series.axes == 'IYX'
-        assert type(series.pages[2]) == TiffFrame
+        assert isinstance(series.pages[2], TiffFrame)
         # assert ImageJ tags
         ijmeta = tif.imagej_metadata
         assert ijmeta is not None
@@ -11801,12 +11872,12 @@ def test_read_fei_metadata():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE or SKIP_ZARR, reason=REASON)
 def test_read_mmstack_multifile(caplog):
     """Test read MicroManager 2.0 multi-file, multi-position dataset."""
     # TODO: what version of MicroManager does not write corrupted files?
-    # second ImageDescription tag value is beyond 4GB
-    # MicroManager headers are beyond 4GB
+    # second ImageDescription tag value is beyond 4 GB
+    # MicroManager headers are beyond 4 GB
     # MicroManager display settings are truncated
     fname = private_file('MMStack/NDTiff.index/_4_MMStack_Pos0.ome.tif')
     with TiffFile(fname) as tif:
@@ -12508,6 +12579,73 @@ def test_read_streak():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_agilent():
+    """Test read Agilent Technologies file."""
+    fname = private_file('Agilent/SG11410002_253174651388_S001.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_agilent
+        assert not tif.is_mdgel
+        assert len(tif.pages) == 4
+        assert len(tif.series) == 2
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_contiguous
+        assert page.photometric == MINISBLACK
+        assert page.imagewidth == 20334
+        assert page.imagelength == 7200
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        assert page.tags[285].value == 'Red'
+        assert page.tags[37702].value == 'Unknown'
+        # assert data
+        series = tif.series[0]
+        assert series.shape == (2, 7200, 20334)
+        assert series.asarray()[1, 277, 341] == 24
+        series = tif.series[1]
+        assert series.shape == (2, 2400, 6778)
+        assert series.asarray()[1, 277, 341] == 634
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
+@pytest.mark.parametrize('chunkmode', [0, 2])
+def test_read_selection(chunkmode):
+    """Test read selection via imread."""
+    fname = public_file('tifffile/multiscene_pyramidal.ome.tif')
+    selection = (8, slice(16, 17), slice(None), slice(51, 99), slice(51, 99))
+    # series 0
+    assert_array_equal(
+        imread(fname)[8, 16:17, :, 51:99, 51:99],
+        imread(fname, selection=selection),
+    )
+    # level 1
+    assert_array_equal(
+        imread(fname, series=0, level=1)[8, 16:17, :, 51:99, 51:99],
+        imread(fname, series=0, level=1, selection=selection),
+    )
+    # page 99
+    assert_array_equal(
+        imread(fname, key=99)[51:99, 51:99],
+        imread(fname, key=99, selection=(slice(51, 99), slice(51, 99))),
+    )
+    # series 1
+    assert_array_equal(
+        imread(fname, series=1)[51:99, 51:99],
+        imread(fname, series=1, selection=(slice(51, 99), slice(51, 99))),
+    )
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_selection_filesequence():
+    """Test read selection from file sequence via imread."""
+    fname = private_file('TiffSequence/*.tif')
+    assert_array_equal(
+        imread(fname)[5:8, 51:99, 51:99],
+        imread(fname, selection=(slice(5, 8), slice(51, 99), slice(51, 99))),
+    )
+
+
 def test_read_xarray_page_properties():
     """Test read TiffPage xarray properties."""
     dtype = numpy.uint8
@@ -12738,13 +12876,12 @@ def test_write(data, byteorder, bigtiff, dtype, shape, tile):
                             photometric=photometric,
                         )
                     return
-                else:
-                    tif.write(
-                        shape=shape,
-                        dtype=dtype,
-                        tile=tile,
-                        photometric=photometric,
-                    )
+                tif.write(
+                    shape=shape,
+                    dtype=dtype,
+                    tile=tile,
+                    photometric=photometric,
+                )
                 assert__repr__(tif)
             with TiffFile(fname) as tif:
                 assert__str__(tif)
@@ -12804,7 +12941,7 @@ def test_write_invalid_samples(samples):
 @pytest.mark.parametrize('mode', ['gray', 'rgb', 'planar'])
 def test_write_codecs(mode, tile, codec):
     """Test write various compression."""
-    if mode in ('gray', 'planar') and codec == 'webp':
+    if mode in {'gray', 'planar'} and codec == 'webp':
         pytest.xfail("WebP doesn't support grayscale or planar mode")
     level = {'webp': -1, 'jpeg': 99}.get(codec, None)
     if level:
@@ -12846,7 +12983,7 @@ def test_write_codecs(mode, tile, codec):
             page = tif.pages.first
             assert not page.is_contiguous
             assert page.compression == enumarg(TIFF.COMPRESSION, codec)
-            assert page.photometric in (photometric, YCBCR)
+            assert page.photometric in {photometric, YCBCR}
             if planarconfig is not None:
                 assert page.planarconfig == planarconfig
             assert page.imagewidth == 31
@@ -12854,7 +12991,7 @@ def test_write_codecs(mode, tile, codec):
             assert page.samplesperpixel == 1 if mode == 'gray' else 3
             # samplesperpixel = page.samplesperpixel
             image = tif.asarray()
-            if codec in ('jpeg',):
+            if codec == 'jpeg':
                 assert_allclose(data, image, atol=10)
             else:
                 assert_array_equal(data, image)
@@ -12862,7 +12999,7 @@ def test_write_codecs(mode, tile, codec):
             assert__str__(tif)
         if (
             imagecodecs.TIFF
-            and codec not in ('png', 'jpegxr', 'jpeg2000', 'jpegxl')
+            and codec not in {'png', 'jpegxr', 'jpeg2000', 'jpegxl'}
             and mode != 'planar'
         ):
             im = imagecodecs.imread(fname, index=None)
@@ -13423,6 +13560,7 @@ def test_write_truncate():
             assert '"shape": [4, 5, 6, 1]' in page.description
             assert '"truncated": true' in page.description
             series = tif.series[0]
+            assert series.is_truncated
             assert series.kind == 'shaped'
             assert series.shape == shape
             assert len(series._pages) == 1
@@ -13990,7 +14128,7 @@ def test_write_compression_args(args):
     """Test compression parameter."""
     i = args[0]
     compressionargs = args[1:]
-    compressed = compressionargs[0] not in (0, 1, NONE)
+    compressed = compressionargs[0] not in {0, 1, NONE}
     if len(compressionargs) == 1:
         compressionargs = compressionargs[0]
 
@@ -15915,7 +16053,7 @@ def test_write_pyramids():
         with TiffWriter(fname) as tif:
             # use pages
             tif.write(data, tile=(16, 16), photometric=RGB)
-            # interrupt pyramid, e.g. thumbnail
+            # interrupt pyramid, for example thumbnail
             tif.write(data[0, :, :, 0])
             # pyramid levels
             tif.write(
@@ -16729,6 +16867,7 @@ def test_write_zarr():
                     z[100, 20] = 106
 
 
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
 def assert_fsspec(url, data, target_protocol='http'):
     """Assert fsspec ReferenceFileSystem from local http server."""
     mapper = fsspec.get_mapper(
@@ -16858,7 +16997,7 @@ def test_write_fsspec_multifile(version, chunkmode):
         f'write_fsspec_multifile_{version}{chunkmode}', ext='.json'
     ) as jsonfile:
         # write to file handle
-        with open(jsonfile, 'w') as fh:
+        with open(jsonfile, 'w', encoding='utf-8') as fh:
             with TiffFile(fname) as tif:
                 data = tif.series[0].asarray()
                 with tif.series[0].aszarr(chunkmode=chunkmode) as store:
@@ -16876,7 +17015,8 @@ def test_write_fsspec_multifile(version, chunkmode):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_LARGE or SKIP_CODECS or SKIP_ZARR, reason=REASON
+    SKIP_PRIVATE or SKIP_LARGE or SKIP_CODECS or SKIP_ZARR,
+    reason=REASON,
 )
 @pytest.mark.parametrize('version', [1])  # 0,
 def test_write_fsspec_sequence(version):
@@ -17022,7 +17162,7 @@ def test_write_imagej(byteorder, dtype, shape):
     """Test write ImageJ format."""
     # TODO: test compression and bigtiff ?
     dtype = numpy.dtype(dtype)
-    if dtype != numpy.uint8 and shape[-1] in (3, 4):
+    if dtype != numpy.uint8 and shape[-1] in {3, 4}:
         pytest.xfail('ImageJ only supports uint8 RGB')
     data = random_data(dtype, shape)
     fname = 'imagej_{}_{}_{}'.format(
@@ -17227,6 +17367,7 @@ def test_write_imagej_hyperstack(truncate, mmap):
             assert page.samplesperpixel == 3
             # assert series properties
             series = tif.series[0]
+            assert series.is_truncated == truncate
             assert series.kind == 'imagej'
             assert series.shape == shape
             assert len(series._pages) == 1
@@ -17366,10 +17507,10 @@ def test_write_ome(shape, axes):
     """Test write OME-TIFF format."""
     photometric = None
     planarconfig = None
-    if shape[-1] in (3, 4):
+    if shape[-1] in {3, 4}:
         photometric = RGB
         planarconfig = CONTIG
-    elif shape[-3] in (3, 4):
+    elif shape[-3] in {3, 4}:
         photometric = RGB
         planarconfig = SEPARATE
 
@@ -18296,7 +18437,7 @@ def test_dependent_roifile():
     for roi in ImagejRoi.fromfile(private_file('imagej/IJMetadata.tif')):
         assert roi == ImagejRoi.frombytes(roi.tobytes())
         roi.coordinates()
-        roi.__str__()
+        str(roi)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -18519,21 +18660,14 @@ def test_dependent_aicsimageio():
     assert_array_equal(lazy_t1.compute(), t1)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.xfail(reason=REASON)
+@pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_dependent_imageio():
     """Test imageio package."""
     # https://github.com/imageio/imageio/blob/master/tests/test_tifffile.py
+    # TODO: use imageio.v3
     try:
-        import imageio
-        from imageio.v2 import (
-            imread,
-            imwrite,
-            mimread,
-            mimwrite,
-            mvolread,
-            volread,
-            volwrite,
-        )
+        import imageio.v2 as iio
     except ImportError:
         pytest.skip('imageio missing')
 
@@ -18543,17 +18677,17 @@ def test_dependent_imageio():
 
     with TempFileName('depend_imageio') as fname1:
         # one image
-        imwrite(fname1, data)
-        im = imread(fname1)
-        ims = mimread(fname1)
+        iio.imwrite(fname1, data)
+        im = iio.imread(fname1)
+        ims = iio.mimread(fname1)
         assert im.shape == data.shape
         assert_array_equal(im, data)
         assert len(ims) == 1
 
         # multiple images
-        mimwrite(fname1, [data, data, data])
-        im = imread(fname1)
-        ims = mimread(fname1)
+        iio.mimwrite(fname1, [data, data, data])
+        im = iio.imread(fname1)
+        ims = iio.mimread(fname1)
         assert im.shape == data.shape
         assert_array_equal(im, data)
         assert len(ims) == 3
@@ -18562,9 +18696,9 @@ def test_dependent_imageio():
             assert_array_equal(ims[i], data)
 
         # volumetric data
-        volwrite(fname1, numpy.tile(data, (3, 1, 1, 1)))
-        vol = volread(fname1)
-        vols = mvolread(fname1)
+        iio.volwrite(fname1, numpy.tile(data, (3, 1, 1, 1)))
+        vol = iio.volread(fname1)
+        vols = iio.mvolread(fname1)
         assert vol.shape == (3,) + data.shape
         assert len(vols) == 1 and vol.shape == vols[0].shape
         for i in range(3):
@@ -18572,19 +18706,19 @@ def test_dependent_imageio():
 
         # remote channel-first volume rgb (2, 3, 10, 10)
 
-        img = mimread(filename2)
+        img = iio.mimread(filename2)
         assert len(img) == 2
         assert img[0].shape == (3, 10, 10)
 
         # mixed
-        W = imageio.save(fname1)
+        W = iio.save(fname1)
         W.set_meta_data({'planarconfig': 'SEPARATE'})
         assert W.format.name == 'TIFF'
         W.append_data(data)
         W.append_data(data)
         W.close()
         #
-        R = imageio.read(fname1)
+        R = iio.read(fname1)
         assert R.format.name == 'TIFF'
         ims = list(R)  # == [im for im in R]
         assert_array_equal(ims[0], data)
@@ -18596,23 +18730,23 @@ def test_dependent_imageio():
             R.get_data(3)
 
         # ensure imread + imwrite works round trip
-        im1 = imread(fname1)
-        imwrite(filename3, im1)
-        im3 = imread(filename3)
+        im1 = iio.imread(fname1)
+        iio.imwrite(filename3, im1)
+        im3 = iio.imread(filename3)
         assert im1.ndim == 3
         assert im1.shape == im3.shape
         assert_array_equal(im1, im3)
 
         # ensure imread + imwrite works round trip - volume like
-        im1 = numpy.stack(imageio.mimread(fname1))
-        volwrite(filename3, im1)
-        im3 = volread(filename3)
+        im1 = numpy.stack(iio.mimread(fname1))
+        iio.volwrite(filename3, im1)
+        im3 = iio.volread(filename3)
         assert im1.ndim == 4
         assert im1.shape == im3.shape
         assert_array_equal(im1, im3)
 
         # read metadata
-        md = imageio.get_reader(filename2).get_meta_data()
+        md = iio.get_reader(filename2).get_meta_data()
         assert not md['is_imagej']
         assert md['description'] == 'shape=(2,3,10,10)'
         assert md['description1'] == ""
@@ -18621,7 +18755,7 @@ def test_dependent_imageio():
 
         # write metadata
         dt = datetime.datetime(2018, 8, 6, 15, 35, 5)
-        with imageio.get_writer(fname1, software='testsoftware') as w:
+        with iio.get_writer(fname1, software='testsoftware') as w:
             w.append_data(
                 numpy.zeros((10, 10)),
                 meta={'description': 'test desc', 'datetime': dt},
@@ -18629,7 +18763,7 @@ def test_dependent_imageio():
             w.append_data(
                 numpy.zeros((10, 10)), meta={'description': 'another desc'}
             )
-        with imageio.get_reader(fname1) as r:
+        with iio.get_reader(fname1) as r:
             for md in r.get_meta_data(), r.get_meta_data(0):
                 assert 'datetime' in md
                 assert md['datetime'] == dt
@@ -18660,14 +18794,12 @@ def test_dependent_pims():
     ims.close()
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
 def test_dependent_kerchunk():
     """Test kerchunk package."""
     # https://github.com/fsspec/kerchunk/blob/main/kerchunk/tests/test_tiff.py
     try:
         import kerchunk.tiff
-        import fsspec
-        import zarr
         import pathlib
     except ImportError:
         pytest.skip('kerchunk or dependencies missing')
