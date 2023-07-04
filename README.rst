@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.4.12
+:Version: 2023.7.4
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,25 +66,34 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.11, 3.11.3, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.3.16
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b3, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.25.0
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.7.4
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.1
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.14.2
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.15.0
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.4.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.6.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.7.4
+
+- Pass 4992 tests.
+- Add option to return selection from imread (#200).
+- Fix reading OME series with missing trailing frames (#199).
+- Fix fsspec reference for WebP compressed segments missing alpha channel.
+- Fix linting issues.
+- Detect files written by Agilent Technologies.
+- Drop support for Python 3.8 and numpy < 1.21 (NEP29).
+
 2023.4.12
 
-- Pass 4988 tests.
 - Do not write duplicate ImageDescription tags from extratags (breaking).
 - Support multifocal SVS files (#193).
 - Log warning when filtering out extratags.
@@ -205,7 +214,7 @@ Revisions
 
 2022.5.4
 
-- ...
+- …
 
 Refer to the CHANGES file for older revisions.
 
@@ -397,6 +406,12 @@ array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 >>> imwrite('temp.tif', data, photometric='rgb', planarconfig='separate')
 >>> imwrite('temp.tif', data, photometric='minisblack')
 
+Use the `extrasamples` argument to specify how extra components are
+interpreted, for example, for an RGBA image with unassociated alpha channel:
+
+>>> data = numpy.random.randint(0, 255, (256, 256, 4), 'uint8')
+>>> imwrite('temp.tif', data, photometric='rgb', extrasamples=['unassalpha'])
+
 Write a 3-dimensional NumPy array to a multi-page, 16-bit grayscale TIFF file:
 
 >>> data = numpy.random.randint(0, 2**12, (64, 301, 219), 'uint16')
@@ -472,7 +487,7 @@ Iterate over all tags in the TIFF file:
 ...         for tag in page.tags:
 ...             tag_name, tag_value = tag.name, tag.value
 
-Overwrite the value of an existing tag, e.g., XResolution:
+Overwrite the value of an existing tag, for example, XResolution:
 
 >>> with TiffFile('temp.tif', mode='r+') as tif:
 ...     _ = tif.pages[0].tags['XResolution'].overwrite((96000, 1000))
