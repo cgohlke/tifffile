@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.4.12
+:Version: 2023.7.4
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,25 +96,34 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.8.10, 3.9.13, 3.10.11, 3.11.3, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.23.5
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.3.16
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b3, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.25.0
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.7.4
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.1
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.14.2
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.15.0
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.4.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.6.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.7.4
+
+- Pass 4992 tests.
+- Add option to return selection from imread (#200).
+- Fix reading OME series with missing trailing frames (#199).
+- Fix fsspec reference for WebP compressed segments missing alpha channel.
+- Fix linting issues.
+- Detect files written by Agilent Technologies.
+- Drop support for Python 3.8 and numpy < 1.21 (NEP29).
+
 2023.4.12
 
-- Pass 4988 tests.
 - Do not write duplicate ImageDescription tags from extratags (breaking).
 - Support multifocal SVS files (#193).
 - Log warning when filtering out extratags.
@@ -235,7 +244,7 @@ Revisions
 
 2022.5.4
 
-- ...
+- …
 
 Refer to the CHANGES file for older revisions.
 
@@ -427,6 +436,12 @@ array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 >>> imwrite('temp.tif', data, photometric='rgb', planarconfig='separate')
 >>> imwrite('temp.tif', data, photometric='minisblack')
 
+Use the `extrasamples` argument to specify how extra components are
+interpreted, for example, for an RGBA image with unassociated alpha channel:
+
+>>> data = numpy.random.randint(0, 255, (256, 256, 4), 'uint8')
+>>> imwrite('temp.tif', data, photometric='rgb', extrasamples=['unassalpha'])
+
 Write a 3-dimensional NumPy array to a multi-page, 16-bit grayscale TIFF file:
 
 >>> data = numpy.random.randint(0, 2**12, (64, 301, 219), 'uint16')
@@ -502,7 +517,7 @@ Iterate over all tags in the TIFF file:
 ...         for tag in page.tags:
 ...             tag_name, tag_value = tag.name, tag.value
 
-Overwrite the value of an existing tag, e.g., XResolution:
+Overwrite the value of an existing tag, for example, XResolution:
 
 >>> with TiffFile('temp.tif', mode='r+') as tif:
 ...     _ = tif.pages[0].tags['XResolution'].overwrite((96000, 1000))
@@ -806,7 +821,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.4.12'
+__version__ = '2023.7.4'
 
 __all__ = [
     'TiffFile',
@@ -963,6 +978,7 @@ def imread(
     | Sequence[str | os.PathLike[Any]]
     | None = None,
     *,
+    selection: Any | None = None,  # TODO: type this
     aszarr: bool = False,
     key: int | slice | Iterable[int] | None = None,
     series: int | None = None,
@@ -1002,9 +1018,18 @@ def imread(
         files:
             File name, seekable binary stream, glob pattern, or sequence of
             file names. May be *None* if `container` is specified.
+        selection:
+            Subset of image to be extracted.
+            If not None, a Zarr array is created, indexed with the `selection`
+            value, and returned as a NumPy array. Only segments that are part
+            of the selection will be read from file.
+            Refer to the Zarr documentation for valid indices.
+            Depending on selection size, image size, and storage properties,
+            it may be more efficient to read the whole image from file and
+            then index it.
         aszarr:
             Return file sequences, series, or single pages as Zarr store
-            instead of NumPy array.
+            instead of NumPy array if `selection` is None.
         mode, name, offset, size, omexml, _multifile, _useframes:
             Passed to :py:class:`TiffFile`.
         key, series, level, squeeze, maxworkers:
@@ -1035,6 +1060,8 @@ def imread(
         (or not) to the image data stored in the file.
 
     """
+    store: ZarrStore
+    aszarr = aszarr or (selection is not None)
     is_flags = parse_kwargs(kwargs, *(k for k in kwargs if k[:3] == 'is_'))
 
     if imread is None and kwargs:
@@ -1072,7 +1099,7 @@ def imread(
             ) as tif:
                 if aszarr:
                     assert key is None or isinstance(key, int)
-                    return tif.aszarr(
+                    store = tif.aszarr(
                         key=key,
                         series=series,
                         level=level,
@@ -1083,6 +1110,9 @@ def imread(
                         zattrs=zattrs,
                         multiscales=multiscales,
                     )
+                    if selection is None:
+                        return store
+                    return zarr_selection(store, selection)
                 return tif.asarray(
                     key=key,
                     series=series,
@@ -1117,7 +1147,7 @@ def imread(
         **kwargs_notnone(imread=imread),
     ) as imseq:
         if aszarr:
-            return imseq.aszarr(
+            store = imseq.aszarr(
                 axestiled=axestiled,
                 chunkmode=chunkmode,
                 chunkshape=chunkshape,
@@ -1126,6 +1156,9 @@ def imread(
                 zattrs=zattrs,
                 **imread_kwargs,
             )
+            if selection is None:
+                return store
+            return zarr_selection(store, selection)
         return imseq.asarray(
             axestiled=axestiled,
             chunkshape=chunkshape,
@@ -1236,7 +1269,7 @@ def imwrite(
             datasize > 2**32 - 2**25
             and not imagej
             and not truncate
-            and compression in (None, 0, 1, 'NONE', 'none')
+            and compression in {None, 0, 1, 'NONE', 'none'}
         )
 
     with TiffWriter(
@@ -1400,7 +1433,7 @@ class TiffWriter:
     TiffWriter instances must be closed with :py:meth:`TiffWriter.close`,
     which is automatically called when using the 'with' context manager.
 
-    TiffWriter instances are not thread-safe.
+    TiffWriter instances are not thread-safe. All attributes are read-only.
 
     Parameters:
         file:
@@ -1438,6 +1471,8 @@ class TiffWriter:
             contains '.ome.', `imagej` is not enabled, and the `description`
             argument in the first call of :py:meth:`TiffWriter.write` is not
             specified.
+            The format supports multiple, up to 9 dimensional image series.
+            The default axes order is TZC(S)YX(S).
             Refer to the OME model for restrictions of this format.
         shaped:
             Write tifffile "shaped" compatible file.
@@ -1514,9 +1549,9 @@ class TiffWriter:
             except (OSError, FileNotFoundError):
                 append = False
 
-        if byteorder in (None, '=', '|'):
+        if byteorder in {None, '=', '|'}:
             byteorder = '<' if sys.byteorder == 'little' else '>'
-        elif byteorder not in ('<', '>'):
+        elif byteorder not in {'<', '>'}:
             raise ValueError(f'invalid byteorder {byteorder}')
 
         if byteorder == '<':
@@ -1731,9 +1766,9 @@ class TiffWriter:
                 'ZLIB' is short for ADOBE_DEFLATE.
                 The value is written to the Compression tag.
             compressionargs:
-                Extra arguments passed to compression codec, e.g., compression
-                level. Refer to the Imagecodecs implementation for supported
-                arguments.
+                Extra arguments passed to compression codec, for example,
+                compression level. Refer to the Imagecodecs implementation
+                for supported arguments.
             predictor:
                 Horizontal differencing operator applied to image data before
                 compression.
@@ -1873,8 +1908,8 @@ class TiffWriter:
                 <8 KB and PackBits compression. Else, up to half the CPU
                 cores are used.
                 Using multiple threads can significantly speed up this
-                function if the bottleneck is encoding the data, e.g., in case
-                of large JPEG compressed tiles.
+                function if the bottleneck is encoding the data, for example,
+                in case of large JPEG compressed tiles.
                 If the bottleneck is I/O or pure Python code, using multiple
                 threads might be detrimental.
             returnoffset:
@@ -1997,7 +2032,7 @@ class TiffWriter:
 
         if not predictor or (
             not isinstance(predictor, bool)  # because True == 1
-            and predictor in ('NONE', 'none', 1)
+            and predictor in {'NONE', 'none', 1}
         ):
             predictor = False
 
@@ -2028,7 +2063,7 @@ class TiffWriter:
                         'the ImageJ format does not support '
                         'non-contiguous series'
                     )
-                elif self._omexml is not None:
+                if self._omexml is not None:
                     if self._subifdslevel < 0:
                         # add image to OME-XML
                         assert self._storedshape is not None
@@ -2069,7 +2104,7 @@ class TiffWriter:
 
             elif compression or packints or tile:
                 raise ValueError(
-                    'contiguous cannot be used with compression, tiles, etc.'
+                    'contiguous mode cannot be used with compression or tiles'
                 )
 
             else:
@@ -2176,7 +2211,7 @@ class TiffWriter:
 
         if compressiontag == 1:
             compressionargs = {}
-        elif compressiontag in (33003, 33004, 33005, 34712):
+        elif compressiontag in {33003, 33004, 33005, 34712}:
             # JPEG2000: use J2K instead of JP2
             compressionargs['codecformat'] = 0  # OPJ_CODEC_J2K
 
@@ -2202,11 +2237,11 @@ class TiffWriter:
                 predictor = enumarg(PREDICTOR, predictor)
                 if (
                     datadtype.kind in 'iu'
-                    and predictor.value not in (2, 34892, 34893)
+                    and predictor.value not in {2, 34892, 34893}
                     and datadtype.itemsize <= 4
                 ) or (
                     datadtype.kind == 'f'
-                    and predictor.value not in (3, 34894, 34895)
+                    and predictor.value not in {3, 34894, 34895}
                 ):
                     raise ValueError(
                         f'cannot use {predictor!r} with {datadtype!r}'
@@ -2273,7 +2308,7 @@ class TiffWriter:
                 raise ValueError(
                     'the ImageJ format does not support planar samples'
                 )
-            if ijshape[-1] in (3, 4):
+            if ijshape[-1] in {3, 4}:
                 photometric = RGB
             elif photometric is None:
                 photometric = MINISBLACK
@@ -2331,28 +2366,28 @@ class TiffWriter:
             if bilevel:
                 photometric = MINISWHITE
             elif planarconfig == CONTIG:
-                if ndim > 2 and shape[-1] in (3, 4):
+                if ndim > 2 and shape[-1] in {3, 4}:
                     photometric = RGB
                     deprecate = datadtypechar not in 'BH'
             elif planarconfig == SEPARATE:
-                if volumetric and ndim > 3 and shape[-4] in (3, 4):
+                if volumetric and ndim > 3 and shape[-4] in {3, 4}:
                     photometric = RGB
                     deprecate = True
-                elif ndim > 2 and shape[-3] in (3, 4):
+                elif ndim > 2 and shape[-3] in {3, 4}:
                     photometric = RGB
                     deprecate = True
-            elif ndim > 2 and shape[-1] in (3, 4):
+            elif ndim > 2 and shape[-1] in {3, 4}:
                 photometric = RGB
                 planarconfig = CONTIG
                 deprecate = datadtypechar not in 'BH'
             elif self._imagej or self._ome:
                 photometric = MINISBLACK
                 planarconfig = None
-            elif volumetric and ndim > 3 and shape[-4] in (3, 4):
+            elif volumetric and ndim > 3 and shape[-4] in {3, 4}:
                 photometric = RGB
                 planarconfig = SEPARATE
                 deprecate = True
-            elif ndim > 2 and shape[-3] in (3, 4):
+            elif ndim > 2 and shape[-3] in {3, 4}:
                 photometric = RGB
                 planarconfig = SEPARATE
                 deprecate = True
@@ -2512,7 +2547,7 @@ class TiffWriter:
             if not (
                 bilevel
                 and storedshape.samples == 1
-                and photometric in (0, 1, 4)
+                and photometric in {0, 1, 4}
             ):
                 raise ValueError('invalid SubfileType MASK')
             photometric = PHOTOMETRIC.MASK
@@ -2628,7 +2663,7 @@ class TiffWriter:
                 addtag(tags, *t)
             description = imagej_description(
                 inputshape,
-                rgb=storedshape.contig_samples in (3, 4),
+                rgb=storedshape.contig_samples in {3, 4},
                 colormaped=self._colormap is not None,
                 **self._metadata,
             )
@@ -2773,13 +2808,13 @@ class TiffWriter:
         if (
             compressiontag == 7
             and storedshape.planarconfig == 1
-            and photometric in (RGB, YCBCR)
+            and photometric in {RGB, YCBCR}
         ):
             # JPEG compression with subsampling
             # TODO: use JPEGTables for multiple tiles or strips
             if subsampling is None:
                 subsampling = (2, 2)
-            elif subsampling not in ((1, 1), (2, 1), (2, 2), (4, 1)):
+            elif subsampling not in {(1, 1), (2, 1), (2, 2), (4, 1)}:
                 raise ValueError(
                     f'invalid subsampling factors {subsampling!r}'
                 )
@@ -2808,7 +2843,7 @@ class TiffWriter:
                         (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1),
                     )
         else:
-            if subsampling not in (None, (1, 1)):
+            if subsampling not in {None, (1, 1)}:
                 log_warning(
                     f'{self!r} cannot apply subsampling {subsampling!r}'
                 )
@@ -3032,7 +3067,7 @@ class TiffWriter:
                 def compressionfunc(data, axis=compressionaxis) -> bytes:
                     return numpy.packbits(data, axis=axis).tobytes()
 
-            elif compressiontag in (5, 32773):
+            elif compressiontag in {5, 32773}:
                 # LZW, PackBits
                 def compressionfunc(
                     data,
@@ -3530,14 +3565,16 @@ class TiffWriter:
                 ifd.seek(offset)
                 try:
                     ifd.write(pack(offsetformat, fhpos + pos))
-                except Exception:  # struct.error
+                except Exception as exc:  # struct.error
                     if self._imagej:
                         warnings.warn(
                             f'{self!r} truncating ImageJ file', UserWarning
                         )
                         self._truncate = True
                         return
-                    raise ValueError('data too large for non-BigTIFF file')
+                    raise ValueError(
+                        'data too large for non-BigTIFF file'
+                    ) from exc
                 ifd.seek(pos)
                 ifd.write(value)
                 if code == self._dataoffsetstag:
@@ -3676,7 +3713,7 @@ class TiffWriter:
         elif self._imagej:
             assert self._metadata is not None
             colormapped = self._colormap is not None
-            isrgb = self._storedshape.samples in (3, 4)
+            isrgb = self._storedshape.samples in {3, 4}
             description = imagej_description(
                 self._datashape,
                 rgb=isrgb,
@@ -3767,7 +3804,7 @@ class TiffWriter:
         else:
             count = int(count)
 
-        if datatype in (5, 10):  # rational
+        if datatype in {5, 10}:  # rational
             count *= 2
             dataformat = dataformat[-1]
 
@@ -3852,42 +3889,42 @@ class TiffWriter:
             return 1
         # the following is based on benchmarking RGB tile sizes vs maxworkers
         # using a (8228, 11500, 3) uint8 WSI slide:
-        if chunksize < 131072 and compression in (
+        if chunksize < 131072 and compression in {
             7,  # JPEG
             33007,  # ALT_JPG
             32773,  # PackBits
             34887,  # LERC
-        ):
+        }:
             return 1
-        if chunksize < 32768 and compression in (
+        if chunksize < 32768 and compression in {
             5,  # LZW
             8,  # zlib
             32946,  # zlib
             50000,  # zstd
             50013,  # zlib/pixtiff
-        ):
+        }:
             # zlib,
             return 1
-        if chunksize < 8192 and compression in (
+        if chunksize < 8192 and compression in {
             34934,  # JPEG XR
             22610,  # JPEG XR
             34933,  # PNG
-        ):
+        }:
             return 1
-        if chunksize < 2048 and compression in (
+        if chunksize < 2048 and compression in {
             33003,  # JPEG2000
             33004,  # JPEG2000
             33005,  # JPEG2000
             34712,  # JPEG2000
             50002,  # JPEG XL
-        ):
+        }:
             return 1
-        if chunksize < 1024 and compression in (
+        if chunksize < 1024 and compression in {
             34925,  # LZMA
             50001,  # WebP
-        ):
+        }:
             return 1
-        if compression in (34887,):  # LERC
+        if compression == 34887:  # LERC
             # limit to 4 threads
             return min(numchunks, 4)
         return min(numchunks, TIFF.MAXWORKERS)
@@ -3926,8 +3963,8 @@ class TiffFile:
             Size of embedded file. The default is the number of bytes
             from the `offset` to the end of the file.
         omexml:
-            OME metadata in XML format, e.g., from external companion file
-            or sanitized XML overriding XML in file.
+            OME metadata in XML format, for example, from external companion
+            file or sanitized XML overriding XML in file.
         _multifile, _useframes, _parent:
             Internal use.
         **is_flags:
@@ -3987,7 +4024,7 @@ class TiffFile:
             else:
                 raise TypeError(f'unexpected keyword argument: {key}')
 
-        if mode not in (None, 'r', 'r+', 'rb', 'r+b'):
+        if mode not in {None, 'r', 'r+', 'rb', 'r+b'}:
             raise ValueError(f'invalid mode {mode!r}')
 
         fh = FileHandle(file, mode=mode, name=name, offset=offset, size=size)
@@ -4009,8 +4046,8 @@ class TiffFile:
             header = fh.read(4)
             try:
                 byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}[header[:2]]
-            except KeyError:
-                raise TiffFileError(f'not a TIFF file {header!r}')
+            except KeyError as exc:
+                raise TiffFileError(f'not a TIFF file {header!r}') from exc
 
             version = struct.unpack(byteorder + 'H', header[2:4])[0]
             if version == 43:
@@ -4042,7 +4079,7 @@ class TiffFile:
                     raise TiffFileError('invalid NIFF file')
                 log_warning(f'{self!r} NIFF format not supported')
                 self.tiff = TIFF.CLASSIC_LE
-            elif version == 0x55 or version == 0x4F52 or version == 0x5352:
+            elif version in {0x55, 0x4F52, 0x5352}:
                 # Panasonic or Olympus RAW
                 log_warning(
                     f'{self!r} RAW format 0x{version:04X} not supported'
@@ -4152,7 +4189,7 @@ class TiffFile:
                 returned as a stacked array.
                 Requesting an array from multiple pages that are not
                 compatible wrt. shape, dtype, compression etc. is undefined,
-                i.e., may crash or return incorrect values.
+                that is, it may crash or return incorrect values.
             series:
                 Specifies which series of pages to return as array.
                 The default is 0.
@@ -4166,8 +4203,8 @@ class TiffFile:
                 :py:attr:`TiffPage.shaped`.
                 For series, the shape of the returned array also includes
                 singlet dimensions specified in some file formats.
-                E.g., ImageJ series, and most commonly also OME series, are
-                returned in TZCYXS order.
+                For example, ImageJ series and most commonly also OME series,
+                are returned in TZCYXS order.
                 By default, all but `"shaped"` series are squeezed.
             out:
                 Specifies how image array is returned.
@@ -4186,9 +4223,9 @@ class TiffFile:
                 If *1*, multi-threading is disabled.
                 Reading data from file is limited to a single thread.
                 Using multiple threads can significantly speed up this
-                function if the bottleneck is decoding compressed data, e.g.,
-                in case of large LZW compressed LSM files or JPEG compressed
-                tiled slides.
+                function if the bottleneck is decoding compressed data,
+                for example, in case of large LZW compressed LSM files or
+                JPEG compressed tiled slides.
                 If the bottleneck is I/O or pure Python code, using multiple
                 threads might be detrimental.
 
@@ -4297,8 +4334,8 @@ class TiffFile:
                 squeeze = True
             try:
                 page0 = next(p for p in pages if p is not None)
-            except StopIteration:
-                raise ValueError('pages are all None')
+            except StopIteration as exc:
+                raise ValueError('pages are all None') from exc
             assert page0 is not None
             result.shape = (-1,) + (page0.shape if squeeze else page0.shaped)
         return result
@@ -4345,6 +4382,8 @@ class TiffFile:
                 series = self.series[series]
             if key is None:
                 return series.aszarr(level=level, **kwargs)
+            if level is not None:
+                series = series.levels[level]
             pages = series
 
         if isinstance(key, (int, numpy.integer)):
@@ -4406,7 +4445,7 @@ class TiffFile:
         self.pages.useframes = useframes
         self.pages.set_keyframe(keyframe)
 
-        # remove empty series, e.g., in MD Gel files
+        # remove empty series, for example, in MD Gel files
         # series = [s for s in series if product(s.shape) > 0]
         assert series is not None
         for i, s in enumerate(series):
@@ -4492,7 +4531,8 @@ class TiffFile:
             )
 
         self.is_uniform = len(series) == 1
-        pyramidize_series(series)
+        if not self.is_agilent:
+            pyramidize_series(series)
         return series
 
     def _series_shaped(self) -> list[TiffPageSeries] | None:
@@ -4762,7 +4802,7 @@ class TiffFile:
         shape: tuple[int, ...]
         axes: str
 
-        if order in ('czt', 'default'):
+        if order in {'czt', 'default'}:
             axes = 'TZC'
             shape = (frames, slices, channels)
         elif order == 'ctz':
@@ -4861,11 +4901,13 @@ class TiffFile:
                 slices = None
                 try:
                     frames = int(framedata['SI.hStackManager.framesPerSlice'])
-                except Exception:
+                except Exception as exc:
                     # framesPerSlice is inf
                     slices = 1
                     if len(pages) % channels:
-                        raise ValueError('unable to determine framesPerSlice')
+                        raise ValueError(
+                            'unable to determine framesPerSlice'
+                        ) from exc
                     frames = len(pages) // channels
                 if slices is None:
                     slices = max(len(pages) // (frames * channels), 1)
@@ -4919,7 +4961,7 @@ class TiffFile:
         self.pages.useframes = False
         self.pages.set_keyframe(0)
 
-        if meta['FileTag'] in (2, 128):
+        if meta['FileTag'] in {2, 128}:
             dtype = numpy.dtype('float32')
             scale = meta['ScalePixel']
             scale = scale[0] / scale[1]  # rational
@@ -5518,7 +5560,11 @@ class TiffFile:
                                     os.path.join(dirname, fname), _parent=self
                                 )
                                 load_pages(tif)
-                            except (OSError, FileNotFoundError, ValueError):
+                            except (
+                                OSError,
+                                FileNotFoundError,
+                                ValueError,
+                            ) as exc:
                                 if files_missing == 0:
                                     log_warning(
                                         f'{self!r} OME series failed to read '
@@ -5533,7 +5579,7 @@ class TiffFile:
                                     raise ValueError(
                                         'OME series missing '
                                         'NumPlanes or PlaneCount'
-                                    )
+                                    ) from exc
                                 ifds.extend([None] * (size + idx - len(ifds)))
                                 break
                             self._files[uuid.text] = tif
@@ -5609,20 +5655,27 @@ class TiffFile:
                     shape += [1]
                     axes += 'S'
 
-                # there might be more pages in the file than referenced in XML
-                # e.g., Nikon-cell011.ome.tif
+                # number of pages in the file might mismatch XML metadata, for
+                # example Nikon-cell011.ome.tif or stack_t24_y2048_x2448.tiff
                 size = max(product(shape) // keyframe.size, 1)
-                if size != len(ifds):
+                if size < len(ifds):
                     log_warning(
                         f'{self!r} '
                         f'OME series expected {size} frames, got {len(ifds)}'
                     )
                     ifds = ifds[:size]
+                elif size > len(ifds):
+                    log_warning(
+                        f'{self!r} '
+                        f'OME series is missing {size - len(ifds)} frames.'
+                        ' Missing data are zeroed'
+                    )
+                    ifds.extend([None] * (size - len(ifds)))
 
                 # FIXME: this implementation assumes the last dimensions are
                 # stored in TIFF pages. Apparently that is not always the case.
-                # E.g. TCX (20000, 2, 500) is stored in 2 pages of (20000, 500)
-                # in 'Image 7.ome_h00.tiff'.
+                # For example, TCX (20000, 2, 500) is stored in 2 pages of
+                # (20000, 500) in 'Image 7.ome_h00.tiff'.
                 # For now, verify that shapes of keyframe and series match.
                 # If not, skip series.
                 squeezed = _squeeze_axes(shape, axes)[0]
@@ -6514,8 +6567,8 @@ class TiffFile:
         if page.is_scanimage or page.is_nih:
             return True
         i = 0
+        useframes = pages.useframes
         try:
-            useframes = pages.useframes
             pages.useframes = False
             h = page.hash
             for i in (1, 7, -1):
@@ -7006,8 +7059,8 @@ class TiffFormat:
 class TiffPages:
     """Sequence of TIFF image file directories (IFD chain).
 
-    TiffPages instances have a state (cache, keyframe, etc.) and are not
-    thread-safe.
+    TiffPages instances have a state, such as a cache and keyframe, and are not
+    thread-safe. All attributes are read-only.
 
     Parameters:
         arg:
@@ -7579,7 +7632,7 @@ class TiffPages:
 class TiffPage:
     """TIFF image file directory (IFD).
 
-    TiffPage instances are not thread-safe.
+    TiffPage instances are not thread-safe. All attributes are read-only.
 
     Parameters:
         parent:
@@ -7788,7 +7841,7 @@ class TiffPage:
             value = tags.valueof(code)
             if value is None:
                 continue
-            if (code == 270 or code == 305) and not isinstance(value, str):
+            if code in {270, 305} and not isinstance(value, str):
                 # wrong string type for software or description
                 continue
             setattr(self, name, value)
@@ -7880,9 +7933,9 @@ class TiffPage:
                 self.bitspersample = 8
             if 277 not in tags:
                 # SamplesPerPixel missing
-                if self.photometric in (2, 6):
+                if self.photometric in {2, 6}:
                     self.samplesperpixel = 3
-                elif self.photometric in (0, 1):
+                elif self.photometric in {0, 1}:
                     self.samplesperpixel = 3
 
         elif self.is_lsm or (self.index != 0 and self.parent.is_lsm):
@@ -8221,7 +8274,7 @@ class TiffPage:
                 return cache(decode_raise_sampleformat)
 
         if self.is_subsampled and (
-            self.compression not in (6, 7, 34892, 33007)
+            self.compression not in {6, 7, 34892, 33007}
             or self.planarconfig == 2
         ):
 
@@ -8239,7 +8292,7 @@ class TiffPage:
 
             decompress = decompress_webp_rgba
 
-        # normalize segments shape to [depth, length, length, contig]
+        # normalize segments shape to [depth, length, width, contig]
         if self.is_tiled:
             stshape = (
                 self.tiledepth,
@@ -8423,7 +8476,7 @@ class TiffPage:
                 # return shape of strip
                 return (shape[0], stlength, shape[2], shape[3])
 
-        if self.compression in (6, 7, 34892, 33007):
+        if self.compression in {6, 7, 34892, 33007}:
             # JPEG needs special handling
             if self.fillorder == 2:
                 log_debug(f'{self!r} disabling LSB2MSB for JPEG')
@@ -8567,7 +8620,7 @@ class TiffPage:
                 # return complex integer as numpy.complex
                 return numpy.frombuffer(data, itype).astype(ftype).view(dtype)
 
-        elif self.bitspersample in (8, 16, 32, 64, 128):
+        elif self.bitspersample in {8, 16, 32, 64, 128}:
             # regular data types
 
             if (self.bitspersample * stwidth * samples) % 8:
@@ -8583,13 +8636,13 @@ class TiffPage:
                     # read only numpy array
                     return numpy.frombuffer(data, dtype)
                 except ValueError:
-                    # e.g., LZW strips may be missing EOI
+                    # for example, LZW strips may be missing EOI
                     bps = self.bitspersample // 8
                     size = (len(data) // bps) * bps
                     return numpy.frombuffer(data[:size], dtype)
 
         elif isinstance(self.bitspersample, tuple):
-            # e.g., RGB 565
+            # for example, RGB 565
             def unpack(data: bytes, /) -> NDArray[Any]:
                 # return numpy array from packed integers
                 return unpack_rgb(data, dtype, self.bitspersample)
@@ -8697,7 +8750,7 @@ class TiffPage:
             _fullsize = keyframe.is_tiled
 
         decodeargs: dict[str, Any] = {'_fullsize': bool(_fullsize)}
-        if keyframe.compression in (6, 7, 34892, 33007):  # JPEG
+        if keyframe.compression in {6, 7, 34892, 33007}:  # JPEG
             decodeargs['jpegtables'] = self.jpegtables
             decodeargs['jpegheader'] = keyframe.jpegheader
 
@@ -8918,7 +8971,7 @@ class TiffPage:
                         : keyframe.imagewidth - w,
                     ]
                 # except IndexError:
-                #     pass  # corrupted file, e.g., with too many strips
+                #     pass  # corrupted file, for example, with too many strips
 
             for _ in self.segments(
                 func=func,
@@ -9369,7 +9422,7 @@ class TiffPage:
         if (
             self.sampleformat == 5
             or self.compression != 1
-            or self.bitspersample not in (8, 16, 32, 64)
+            or self.bitspersample not in {8, 16, 32, 64}
         ):
             return False
         if 322 in self.tags:  # TileWidth
@@ -9527,7 +9580,7 @@ class TiffPage:
         elif self.photometric == 5:
             names = ['Cyan', 'Magenta', 'Yellow', 'Black']
         elif self.photometric == 6:
-            if self.compression in (6, 7, 34892, 33007):
+            if self.compression in {6, 7, 34892, 33007}:
                 # YCBCR -> RGB for JPEG
                 names = ['Red', 'Green', 'Blue']
             else:
@@ -9772,7 +9825,7 @@ class TiffPage:
     def is_jfif(self) -> bool:
         """JPEG compressed segments contain JFIF metadata."""
         if (
-            self.compression not in (6, 7, 34892, 33007)
+            self.compression not in {6, 7, 34892, 33007}
             or len(self.dataoffsets) < 1
             or self.dataoffsets[0] == 0
             or len(self.databytecounts) < 1
@@ -9838,7 +9891,16 @@ class TiffPage:
     @property
     def is_mdgel(self) -> bool:
         """Page contains MDFileTag tag."""
-        return 33445 in self.tags  # MDFileTag
+        return (
+            37701 not in self.tags  # AgilentBinary
+            and 33445 in self.tags  # MDFileTag
+        )
+
+    @property
+    def is_agilent(self) -> bool:
+        """Page contains Agilent Technologies tags."""
+        # tag 270 and 285 contain color names
+        return 285 in self.tags and 37701 in self.tags  # AgilentBinary
 
     @property
     def is_mediacy(self) -> bool:
@@ -10036,7 +10098,7 @@ class TiffPage:
         """Page contains EER metadata."""
         return (
             self.parent.is_bigtiff
-            and self.compression in (65000, 65001)
+            and self.compression in {5000, 65001}
             and 65001 in self.tags
         )
 
@@ -10054,7 +10116,7 @@ class TiffFrame:
     Virtual frames just reference the image data in the file. They may not
     have an IFD structure in the file.
 
-    TiffFrame instances are not thread-safe.
+    TiffFrame instances are not thread-safe. All attributes are read-only.
 
     Parameters:
         parent:
@@ -10157,9 +10219,9 @@ class TiffFrame:
             tags = {256, 273, 279, 324, 325, 330, 347}
 
         for code, tag in self._gettags(tags):
-            if code == 273 or code == 324:
+            if code in {273, 324}:
                 self.dataoffsets = tag.value
-            elif code == 279 or code == 325:
+            elif code in {279, 325}:
                 self.databytecounts = tag.value
             elif code == 330:
                 self.subifds = tag.value
@@ -10496,7 +10558,7 @@ class TiffFrame:
 class TiffTag:
     """TIFF tag structure.
 
-    TiffTag instances are not thread-safe.
+    TiffTag instances are not thread-safe. All attributes are read-only.
 
     Parameters:
         parent:
@@ -10612,13 +10674,13 @@ class TiffTag:
 
         try:
             valueformat = TIFF.DATA_FORMATS[dtype]
-        except KeyError:
+        except KeyError as exc:
             msg = (
                 f'<tifffile.TiffTag {code} @{offset}> '
                 f'invalid data type {dtype!r}'
             )
             if validate:
-                raise TiffFileError(msg)
+                raise TiffFileError(msg) from exc
             log_warning(msg)
             return cls(parent, offset, code, dtype, count, None, 0)
 
@@ -10650,16 +10712,16 @@ class TiffTag:
                 )
             else:
                 value = None
-        elif dtype in (1, 2, 7):
+        elif dtype in {1, 2, 7}:
             # BYTES, ASCII, UNDEFINED
             value = value[:valuesize]
         elif (
             tiff.is_ndpi
             and count == 1
-            and dtype in (4, 9, 13)
+            and dtype in {4, 9, 13}
             and value[4:] != b'\x00\x00\x00\x00'
         ):
-            # NDPI IFD or LONG, e.g., in StripOffsets or StripByteCounts
+            # NDPI IFD or LONG, for example, in StripOffsets or StripByteCounts
             value = struct.unpack('<Q', value)
         else:
             fmt = '{}{}{}'.format(
@@ -10684,11 +10746,11 @@ class TiffTag:
         """Read tag value from file."""
         try:
             valueformat = TIFF.DATA_FORMATS[dtype]
-        except KeyError:
+        except KeyError as exc:
             raise TiffFileError(
                 f'<tifffile.TiffTag {code} @{offset}> '
                 f'invalid data type {dtype!r}'
-            )
+            ) from exc
 
         fh = parent.filehandle
         tiff = parent.tiff
@@ -10709,7 +10771,7 @@ class TiffTag:
         if code in TIFF.TAG_READERS:
             readfunc = TIFF.TAG_READERS[code]
             value = readfunc(fh, tiff.byteorder, dtype, count, tiff.offsetsize)
-        elif dtype == 1 or dtype == 2 or dtype == 7:
+        elif dtype in {1, 2, 7}:
             # BYTES, ASCII, UNDEFINED
             value = fh.read(valuesize)
             if len(value) != valuesize:
@@ -10761,7 +10823,7 @@ class TiffTag:
             try:
                 value = tuple(t(v) for v in value)
             except ValueError as exc:
-                if code not in (259, 317):  # ignore compression/predictor
+                if code not in {259, 317}:  # ignore compression/predictor
                     log_warning(f'<tifffile.TiffTag {code} @{offset}> {exc}')
 
         if len(value) == 1 and code not in TIFF.TAG_TUPLE:
@@ -10922,7 +10984,7 @@ class TiffTag:
         tiff = self.parent.tiff
         if tiff.is_ndpi:
             # only support files < 4GB
-            if self.count == 1 and self.dtype in (4, 13):
+            if self.count == 1 and self.dtype in {4, 13}:
                 if isinstance(self.value, tuple):
                     v = self.value[0]
                 else:
@@ -10984,7 +11046,7 @@ class TiffTag:
             except TypeError:
                 value = (value,)
                 count = 1
-            if dtype in (5, 10):
+            if dtype in {5, 10}:
                 if count < 2 or count % 2:
                     raise ValueError('invalid RATIONAL value')
                 count //= 2  # rational
@@ -11167,7 +11229,7 @@ class TiffTags:
     - `values()` and `items()` contain all values sorted by offset.
     - `len()` returns number of all values.
     - `get()` takes optional index argument.
-    - some functions are not implemented, e.g., `update`, `setdefault`, `pop`.
+    - some functions are not implemented, such as, `update` and `pop`.
 
     """
 
@@ -11383,7 +11445,7 @@ class TiffTags:
                 except Exception:
                     # delay load failed or closed file
                     continue
-                if tag.code in (273, 279, 324, 325):
+                if tag.code in {273, 279, 324, 325}:
                     if detail < 1:
                         value = value[:256]
                     elif len(value) > 1024:
@@ -11409,10 +11471,10 @@ class TiffTagRegistry:
     """Registry of TIFF tag codes and names.
 
     Map tag codes and names to names and codes respectively.
-    One tag code may be registered with several names, e.g., 34853 is used for
-    GPSTag or OlympusSIS2.
-    Different tag codes may be registered with the same name, e.g., 37387 and
-    41483 are both named FlashEnergy.
+    One tag code may be registered with several names, for example, 34853 is
+    used for GPSTag or OlympusSIS2.
+    Different tag codes may be registered with the same name, for example,
+    37387 and 41483 are both named FlashEnergy.
 
     Parameters:
         arg: Mapping of codes to names.
@@ -11596,7 +11658,17 @@ class TiffTagRegistry:
 
 @final
 class TiffPageSeries:
-    """Series of TIFF pages with compatible shape and data type (same hash).
+    """Series of TIFF pages making up multi-dimensional image.
+
+    Many TIFF based formats, such as OME-TIFF, use series of TIFF pages to
+    store chunks of larger, multi-dimensional images.
+    The image shape and position of chunks in the multi-dimensional image is
+    defined in format-specific metadata.
+    All pages in a series must have the same :py:meth:`TiffPage.hash`,
+    that is, the same shape, data type, and storage properties.
+    Items of a series may be None (missing) or instances of
+    :py:class:`TiffPage` or :py:class:`TiffFrame`, possibly belonging to
+    different files.
 
     Parameters:
         pages:
@@ -11618,9 +11690,9 @@ class TiffPageSeries:
         name:
             Name of series.
         kind:
-            Nature of series, e.g., 'OME' or 'ImageJ'.
+            Nature of series, such as, 'ome' or 'imagej'.
         truncated:
-            Series is truncated, e.g., ImageJ hyperstack > 4 GB.
+            Series is truncated, for example, ImageJ hyperstack > 4 GB.
         multifile:
             Series contains pages from multiple files.
         squeeze:
@@ -11656,7 +11728,10 @@ class TiffPageSeries:
     """Function to transform image data after decoding."""
 
     is_multifile: bool
-    """Series contains frames from multiple files."""
+    """Series contains pages from multiple files."""
+
+    is_truncated: bool
+    """Series contains single page describing multi-dimensional image."""
 
     _pages: list[TiffPage | TiffFrame | None]
     _squeeze: bool
@@ -11727,6 +11802,7 @@ class TiffPageSeries:
         self.transform = transform
         self.keyframe = keyframe
         self.is_multifile = bool(multifile)
+        self.is_truncated = bool(truncated)
 
         if parent is not None:
             self.parent = parent
@@ -12270,7 +12346,7 @@ class ZarrTiffStore(ZarrStore):
     ) -> None:
         super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
 
-        if self._chunkmode not in (0, 2):
+        if self._chunkmode not in {0, 2}:
             raise NotImplementedError(f'{self._chunkmode!r} not implemented')
 
         self._maxworkers = maxworkers
@@ -12448,11 +12524,11 @@ class ZarrTiffStore(ZarrStore):
                 due to features that are not supported by Zarr, Numcodecs,
                 or Imagecodecs:
 
-                - compressors, e.g., CCITT
-                - filters, e.g., bitorder reversal, packed integers
-                - dtypes, e.g., float24
+                - compressors, such as CCITT
+                - filters, such as bitorder reversal, packed integers
+                - dtypes, such as float24
                 - JPEGTables in multi-page files
-                - incomplete chunks, e.g., `imagelength % rowsperstrip != 0`
+                - incomplete chunks, such as `imagelength % rowsperstrip != 0`
 
                 Files containing incomplete tiles may fail at runtime.
 
@@ -12499,20 +12575,20 @@ class ZarrTiffStore(ZarrStore):
                 raise ValueError(f'{keyframe.compression!r} is' + errormsg)
             if keyframe.fillorder != 1:
                 raise ValueError(f'{keyframe.fillorder!r} is' + errormsg)
-            if keyframe.sampleformat not in (1, 2, 3, 6):
+            if keyframe.sampleformat not in {1, 2, 3, 6}:
                 # TODO: support float24 and cint via filters?
                 raise ValueError(f'{keyframe.sampleformat!r} is' + errormsg)
-            if keyframe.bitspersample not in (
+            if keyframe.bitspersample not in {
                 8,
                 16,
                 32,
                 64,
                 128,
-            ) and keyframe.compression not in (
+            } and keyframe.compression not in {
                 7,
                 33007,
                 34892,
-            ):  # JPEG
+            }:  # JPEG
                 raise ValueError(
                     f'BitsPerSample {keyframe.bitspersample} is' + errormsg
                 )
@@ -12650,18 +12726,26 @@ class ZarrTiffStore(ZarrStore):
                             'colorspace_jpeg': colorspace_jpeg,
                             'colorspace_data': colorspace_data,
                         }
+                    elif (
+                        codec_id == 'imagecodecs_webp'
+                        and keyframe.samplesperpixel == 4
+                    ):
+                        value['compressor'] = {
+                            'id': codec_id,
+                            'hasalpha': True,
+                        }
                     elif codec_id is not None:
                         value['compressor'] = {'id': codec_id}
                     if keyframe.predictor > 1:
                         # predictors need access to chunk shape and dtype
                         # requires imagecodecs > 2021.8.26 to read
-                        if keyframe.predictor in (2, 34892, 34893):
+                        if keyframe.predictor in {2, 34892, 34893}:
                             filter_id = 'imagecodecs_delta'
                         else:
                             filter_id = 'imagecodecs_floatpred'
                         if keyframe.predictor <= 3:
                             dist = 1
-                        elif keyframe.predictor in (34892, 34894):
+                        elif keyframe.predictor in {34892, 34894}:
                             dist = 2
                         else:
                             dist = 4
@@ -12691,7 +12775,7 @@ class ZarrTiffStore(ZarrStore):
         if hasattr(jsonfile, 'write'):
             fh = jsonfile  # type: ignore
         else:
-            fh = open(jsonfile, 'w')
+            fh = open(jsonfile, 'w', encoding='utf-8')
 
         if version == 1:
             fh.write(json.dumps(refs, indent=1).rsplit('}"', 1)[0] + '}"')
@@ -12824,8 +12908,8 @@ class ZarrTiffStore(ZarrStore):
             try:
                 level, key = key.split('/')
                 series = self._data[int(level)]
-            except ValueError:
-                raise KeyError(key)
+            except ValueError as exc:
+                raise KeyError(key) from exc
         else:
             series = self._data[0]
         keyframe = series.keyframe
@@ -12863,8 +12947,8 @@ class ZarrTiffStore(ZarrStore):
         shape = series.get_shape(self._squeeze)
         try:
             indices = [int(i) for i in key.split('.')]
-        except ValueError:
-            raise KeyError(key)
+        except ValueError as exc:
+            raise KeyError(key) from exc
         assert len(indices) == len(shape)
         if self._chunkmode:
             chunked = (1,) * len(keyframe.shape)
@@ -12958,8 +13042,8 @@ class ZarrTiffStore(ZarrStore):
         return (
             keyframe.compression == 1
             and keyframe.fillorder == 1
-            and keyframe.sampleformat in (1, 2, 3, 6)
-            and keyframe.bitspersample in (8, 16, 32, 64, 128)
+            and keyframe.sampleformat in {1, 2, 3, 6}
+            and keyframe.bitspersample in {8, 16, 32, 64, 128}
             # and (
             #     keyframe.rowsperstrip == 0
             #     or keyframe.imagelength % keyframe.rowsperstrip == 0
@@ -13030,7 +13114,7 @@ class ZarrFileSequenceStore(ZarrStore):
     ) -> None:
         super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
 
-        if self._chunkmode not in (0, 3):
+        if self._chunkmode not in {0, 3}:
             raise ValueError(f'invalid chunkmode {self._chunkmode!r}')
 
         if not isinstance(arg, FileSequence):
@@ -13185,7 +13269,7 @@ class ZarrFileSequenceStore(ZarrStore):
         elif groupname and groupname[-1] != '/':
             groupname += '/'
 
-        refs: dict[str, Any] = dict()
+        refs: dict[str, Any] = {}
         if version == 1:
             if _append:
                 raise ValueError('cannot append to version 1 files')
@@ -13194,7 +13278,7 @@ class ZarrFileSequenceStore(ZarrStore):
             refs['version'] = 1
             refs['templates'] = {templatename: url}
             refs['gen'] = []
-            refs['refs'] = refzarr = dict()
+            refs['refs'] = refzarr = {}
             url = '{{%s}}' % templatename
         else:
             refzarr = refs
@@ -13214,7 +13298,7 @@ class ZarrFileSequenceStore(ZarrStore):
         if hasattr(jsonfile, 'write'):
             fh = jsonfile  # type: ignore
         else:
-            fh = open(jsonfile, 'w')
+            fh = open(jsonfile, 'w', encoding='utf-8')
 
         if version == 1:
             fh.write(json.dumps(refs, indent=1).rsplit('}"', 1)[0] + '}"')
@@ -13849,7 +13933,7 @@ class FileHandle:
 
     A limited, special purpose binary file handle that can:
 
-    - handle embedded files (e.g., for LSM within LSM files).
+    - handle embedded files (for example, LSM within LSM files).
     - re-open closed files (for multi-file formats, such as OME-TIFF).
     - read and write NumPy arrays and records from file-like objects.
 
@@ -13915,7 +13999,7 @@ class FileHandle:
             mode = 'rb'
         elif mode[-1] != 'b':
             mode += 'b'  # type: ignore
-        if mode != 'rb' and mode != 'r+b' and mode != 'wb':
+        if mode not in {'rb', 'r+b', 'wb'}:
             raise ValueError(f'invalid mode {mode}')
         self._mode = mode
         self._fh = None
@@ -13941,15 +14025,15 @@ class FileHandle:
             # file name
             self._file = os.path.realpath(self._file)
             self._dir, self._name = os.path.split(self._file)
-            self._fh = open(self._file, self._mode)  # type: ignore
+            self._fh = open(
+                self._file, self._mode, encoding=None
+            )  # type: ignore
             self._close = True
-            if self._offset < 0:
-                self._offset = 0
+            self._offset = max(0, self._offset)
         elif isinstance(self._file, FileHandle):
             # FileHandle
             self._fh = self._file._fh
-            if self._offset < 0:
-                self._offset = 0
+            self._offset = max(0, self._offset)
             self._offset += self._file._offset
             self._close = False
             if not self._name:
@@ -13968,8 +14052,8 @@ class FileHandle:
             self._fh = cast(BinaryIO, self._file)
             try:
                 self._fh.tell()
-            except Exception:
-                raise ValueError('binary stream is not seekable')
+            except Exception as exc:
+                raise ValueError('binary stream is not seekable') from exc
 
             if self._offset < 0:
                 self._offset = self._fh.tell()
@@ -13994,12 +14078,12 @@ class FileHandle:
             self._fh = cast(BinaryIO, _file.open())
             try:
                 self._fh.tell()
-            except Exception:
+            except Exception as exc:
                 try:
                     self._fh.close()
                 except Exception:
                     pass
-                raise ValueError('OpenFile is not seekable')
+                raise ValueError('OpenFile is not seekable') from exc
 
             if self._offset < 0:
                 self._offset = self._fh.tell()
@@ -14129,7 +14213,7 @@ class FileHandle:
         """Flush write buffers of stream if applicable."""
         assert self._fh is not None
         if hasattr(self._fh, 'flush'):
-            return self._fh.flush()
+            self._fh.flush()
 
     def memmap_array(
         self,
@@ -14912,7 +14996,7 @@ class StoredShape:
         if self.separate_samples > 1:
             return 2  # PLANARCONFIG.SEPARATE
         if self.contig_samples > 1:
-            return 1  # PLANARCONFIG.SEPARATE
+            return 1  # PLANARCONFIG.CONTIG
         return None
 
     def __len__(self) -> int:
@@ -14970,7 +15054,7 @@ class NullContext:
 
     """
 
-    __slots = ()
+    __slots__ = ()
 
     def __enter__(self) -> NullContext:
         return self
@@ -15142,8 +15226,7 @@ class OmeXml:
     _ifd: int
 
     def __init__(self, **metadata: Any) -> None:
-        if 'OME' in metadata:
-            metadata = metadata['OME']
+        metadata = metadata.get('OME', metadata)
 
         self._ifd = 0
         self.images = []
@@ -15275,8 +15358,8 @@ class OmeXml:
                 'complex128': 'double-complex',
                 'bool': 'bit',
             }[dtype]
-        except KeyError:
-            raise OmeXmlError(f'data type {dtype!r} not supported')
+        except KeyError as exc:
+            raise OmeXmlError(f'data type {dtype!r} not supported') from exc
 
         if metadata.get('Type', dtype) != dtype:
             raise OmeXmlError(
@@ -15395,7 +15478,7 @@ class OmeXml:
                                 dimorder.append(x)
                                 break
                         else:
-                            # TODO: support any order of axes, e.g., APRTZC
+                            # TODO: support any order of axes, such as, APRTZC
                             raise OmeXmlError('more than 3 modulo dimensions')
                 else:
                     dimorder.append(ax)
@@ -15622,13 +15705,13 @@ class OmeXml:
             xml = etree.tostring(
                 tree, encoding='utf-8', pretty_print=True, xml_declaration=True
             ).decode()
+        except ImportError:
+            pass
         except Exception as exc:
             warnings.warn(
                 f'<tifffile.OmeXml.__str__> {exc.__class__.__name__}: {exc}',
                 UserWarning,
             )
-        except ImportError:
-            pass
         return xml
 
     @staticmethod
@@ -15801,14 +15884,14 @@ class CompressionCodec(collections.abc.Mapping):
                     codec = imagecodecs.lzw_encode
                 else:
                     codec = imagecodecs.lzw_decode
-            elif key == 6 or key == 7 or key == 33007:
+            elif key in {6, 7, 33007}:
                 if self._encode:
-                    if key == 6 or key == 33007:
+                    if key in {6, 33007}:
                         raise NotImplementedError
                     codec = imagecodecs.jpeg_encode
                 else:
                     codec = imagecodecs.jpeg_decode
-            elif key == 8 or key == 32946 or key == 50013:
+            elif key in {8, 32946, 50013}:
                 if hasattr(imagecodecs, 'DEFLATE') and imagecodecs.DEFLATE:
                     # imagecodecs built with deflate
                     if self._encode:
@@ -15836,7 +15919,7 @@ class CompressionCodec(collections.abc.Mapping):
                     codec = imagecodecs.packbits_encode
                 else:
                     codec = imagecodecs.packbits_decode
-            elif key == 33003 or key == 33004 or key == 33005 or key == 34712:
+            elif key in {33003, 33004, 33005, 34712}:
                 if self._encode:
                     codec = imagecodecs.jpeg2k_encode
                 else:
@@ -15874,7 +15957,7 @@ class CompressionCodec(collections.abc.Mapping):
                     codec = imagecodecs.png_encode
                 else:
                     codec = imagecodecs.png_decode
-            elif key == 34934 or key == 22610:
+            elif key in {34934, 22610}:
                 if self._encode:
                     codec = imagecodecs.jpegxr_encode
                 else:
@@ -15884,12 +15967,12 @@ class CompressionCodec(collections.abc.Mapping):
                     codec = imagecodecs.jetraw_encode
                 else:
                     codec = imagecodecs.jetraw_decode
-            elif key == 50000 or key == 34926:  # 34926 deprecated
+            elif key in {50000, 34926}:  # 34926 deprecated
                 if self._encode:
                     codec = imagecodecs.zstd_encode
                 else:
                     codec = imagecodecs.zstd_decode
-            elif key == 50001 or key == 34927:  # 34927 deprecated
+            elif key in {50001, 34927}:  # 34927 deprecated
                 if self._encode:
                     codec = imagecodecs.webp_encode
                 else:
@@ -15905,12 +15988,12 @@ class CompressionCodec(collections.abc.Mapping):
                 except ValueError:
                     msg = f'{key} is not a known COMPRESSION'
                 raise KeyError(msg)
-        except (AttributeError, ImportError):
+        except (AttributeError, ImportError) as exc:
             raise KeyError(
                 f'{COMPRESSION(key)!r} ' "requires the 'imagecodecs' package"
-            )
-        except NotImplementedError:
-            raise KeyError(f'{COMPRESSION(key)!r} not implemented')
+            ) from exc
+        except NotImplementedError as exc:
+            raise KeyError(f'{COMPRESSION(key)!r} not implemented') from exc
         self._codecs[key] = codec
         return codec
 
@@ -16021,12 +16104,12 @@ class PredictorCodec(collections.abc.Mapping):
 
             else:
                 raise KeyError(f'{key} is not a known PREDICTOR')
-        except AttributeError:
+        except AttributeError as exc:
             raise KeyError(
                 f'{PREDICTOR(key)!r}' " requires the 'imagecodecs' package"
-            )
-        except NotImplementedError:
-            raise KeyError(f'{PREDICTOR(key)!r} not implemented')
+            ) from exc
+        except NotImplementedError as exc:
+            raise KeyError(f'{PREDICTOR(key)!r} not implemented') from exc
         self._codecs[key] = codec
         return codec
 
@@ -16886,6 +16969,8 @@ class _TIFF:
                 (37679, 'MODIText'),  # Microsoft Office Document Imaging
                 (37680, 'MODIOLEPropertySetStorage'),
                 (37681, 'MODIPositioning'),
+                (37701, 'AgilentBinary'),  # private structure
+                (37702, 'AgilentString'),  # file description
                 (37706, 'TVIPS'),  # offset to TemData structure
                 (37707, 'TVIPS1'),
                 (37708, 'TVIPS2'),  # same TemData structure as undefined
@@ -17696,7 +17781,7 @@ class _TIFF:
         - **S : sample** (color space and extra samples)
         - **I : sequence** (generic sequence of images, frames, planes, pages)
         - **T : time** (time series)
-        - **C : channel** (e.g., acquisition path or emission wavelength)
+        - **C : channel** (acquisition path or emission wavelength)
         - **A : angle** (OME)
         - **P : phase** (OME. In LSM, **P** maps to **position**)
         - **R : tile** (OME. Region, position, or mosaic)
@@ -17757,7 +17842,7 @@ class _TIFF:
             DeprecationWarning,
             stacklevel=2,
         )
-        return dict(**TIFF.AXES_NAMES, **TIFF.AXES_CODES)
+        return {**TIFF.AXES_NAMES, **TIFF.AXES_CODES}
 
     @cached_property
     def GEO_KEYS(self) -> type[enum.IntEnum]:
@@ -18772,7 +18857,8 @@ def read_tags(
             Size of offsets in TIFF file (8 for BigTIFF, else 4).
         tagnames:
             Map of tag codes to names.
-            E.g., :py:class:`_TIFF.GPS_TAGS` or :py:class:`_TIFF.IOP_TAGS`.
+            For example, :py:class:`_TIFF.GPS_TAGS` or
+            :py:class:`_TIFF.IOP_TAGS`.
         maxifds:
             Maximum number of IFDs to read.
             By default, read the whole IFD chain.
@@ -18844,10 +18930,10 @@ def read_tags(
             name = tagnames.get(code, str(code))
             try:
                 valueformat = TIFF.DATA_FORMATS[dtype]
-            except KeyError:
+            except KeyError as exc:
                 raise TiffFileError(
                     f'invalid data type {dtype!r} for tag #{code}'
-                )
+                ) from exc
 
             valuesize = count * struct.calcsize(valueformat)
             if valuesize > offsetsize or code in customtags:
@@ -18860,7 +18946,7 @@ def read_tags(
                 if code in customtags:
                     readfunc = customtags[code]
                     value = readfunc(fh, byteorder, dtype, count, offsetsize)
-                elif dtype == 1 or dtype == 2 or dtype == 7:
+                elif dtype in {1, 2, 7}:
                     # BYTES, ASCII, UNDEFINED
                     value = fh.read(valuesize)
                     if len(value) != valuesize:
@@ -18875,7 +18961,7 @@ def read_tags(
                     value = unpack(fmt, fh.read(valuesize))
                 else:
                     value = read_numpy(fh, byteorder, dtype, count, offsetsize)
-            elif dtype == 1 or dtype == 2 or dtype == 7:
+            elif dtype in {1, 2, 7}:
                 # BYTES, ASCII, UNDEFINED
                 value = valuebytes[:valuesize]
             else:
@@ -18905,7 +18991,7 @@ def read_tags(
                     try:
                         value = tuple(t(v) for v in value)
                     except ValueError as exc:
-                        if code not in (259, 317):
+                        if code not in {259, 317}:
                             # ignore compression/predictor
                             log_warning(
                                 '<tifffile.read_tags> '
@@ -19113,7 +19199,7 @@ def read_uic1tag(
     Return empty dictionary if planecount is unknown.
 
     """
-    if dtype not in (4, 5) or byteorder != '<':
+    if dtype not in {4, 5} or byteorder != '<':
         raise ValueError(f'invalid UIC1Tag {byteorder}{dtype}')
     result = {}
     if dtype == 5:
@@ -19123,7 +19209,7 @@ def read_uic1tag(
     else:
         for _ in range(count):
             tagid = struct.unpack('<I', fh.read(4))[0]
-            if tagid in (28, 29, 37, 40, 41):
+            if tagid in {28, 29, 37, 40, 41}:
                 # silently skip unexpected tags
                 fh.read(4)
                 continue
@@ -19215,7 +19301,7 @@ def read_uic_tag(
 
     if offset:
         pos = fh.tell()
-        if dtype not in (int, None):
+        if dtype not in {int, None}:
             off = read_int()
             if off < 8:
                 if dtype is str:
@@ -19319,7 +19405,7 @@ def read_uic_image_property(fh: FileHandle, /) -> dict[str, Any]:
     else:
         size = struct.unpack('B', fh.read(1))[0]
         value = struct.unpack(f'{size}s', fh.read(size))[0]
-    return dict(name=name, flags=flags, value=value)
+    return {'name': name, 'flags': flags, 'value': value}
 
 
 def read_cz_lsminfo(
@@ -19334,7 +19420,7 @@ def read_cz_lsminfo(
     if byteorder != '<':
         raise ValueError('invalid CZ_LSMINFO structure')
     magic_number, structure_size = struct.unpack('<II', fh.read(8))
-    if magic_number not in (50350412, 67127628):
+    if magic_number not in {50350412, 67127628}:
         raise ValueError('invalid CZ_LSMINFO structure')
     fh.seek(-8, os.SEEK_CUR)
     CZ_LSMINFO = TIFF.CZ_LSMINFO
@@ -19738,9 +19824,9 @@ def read_cz_sem(
                 number = astype(value, (int, float))
                 if number != value:
                     value = number
-                if value in ('No', 'Off'):
+                if value in {'No', 'Off'}:
                     value = False
-                elif value in ('Yes', 'On'):
+                elif value in {'Yes', 'On'}:
                     value = True
             result[key] = (name.strip(), value)
             if unit:
@@ -19798,7 +19884,7 @@ def read_scanimage_metadata(
             raise ValueError('not a BigTIFF file')
         fh.seek(16)
         magic, version, size0, size1 = struct.unpack('<IIII', fh.read(16))
-        if magic != 117637889 or version not in (3, 4):
+        if magic != 117637889 or version not in {3, 4}:
             raise ValueError(
                 f'invalid magic {magic} or version {version} number'
             )
@@ -19862,8 +19948,8 @@ def read_micromanager_metadata(
             index_header,
             index_offset,
         ) = struct.unpack(byteorder + 'II', fh.read(8))
-    except Exception:
-        raise ValueError('not a Micro-Manager TIFF file')
+    except Exception as exc:
+        raise ValueError('not a Micro-Manager TIFF file') from exc
 
     result = {}
     if index_header == 483729:
@@ -20075,7 +20161,7 @@ def read_gdal_structural_metadata(
     """
     fh.seek(0)
     try:
-        if fh.read(2) not in (b'II', b'MM'):
+        if fh.read(2) not in {b'II', b'MM'}:
             raise ValueError('not a TIFF file')
         fh.seek({b'*': 8, b'+': 16}[fh.read(1)])
         header = fh.read(43).decode()
@@ -20230,7 +20316,7 @@ def imagej_metadata(
 
             'Info' (str):
                 Human-readable information as string.
-                Some formats, e.g., OIF or ScanImage, can be parsed into
+                Some formats, such as OIF or ScanImage, can be parsed into
                 dicts with :py:func:`matlabstr2py` or the
                 `oiffile.SettingsFile()` function of the
                 `oiffile <https://pypi.org/project/oiffile/>`_  package.
@@ -20282,7 +20368,7 @@ def imagej_metadata(
     if len(bytecounts) == 0:
         raise ValueError('no ImageJ metadata')
 
-    if data[:4] not in (b'IJIJ', b'JIJI'):
+    if data[:4] not in {b'IJIJ', b'JIJI'}:
         raise ValueError('invalid ImageJ metadata')
 
     header_size = bytecounts[0]
@@ -20420,7 +20506,7 @@ def imagej_description(
         rgb = False
 
     shape = imagej_shape(shape, rgb=rgb, axes=axes)
-    rgb = shape[-1] in (3, 4)
+    rgb = shape[-1] in {3, 4}
 
     append = []
     result = [f'ImageJ={version}']
@@ -20446,7 +20532,7 @@ def imagej_description(
         append.append(f'loop={bool(loop)}'.lower())
 
     for key, value in metadata.items():
-        if key not in ('images', 'channels', 'slices', 'frames', 'SCIFIO'):
+        if key not in {'images', 'channels', 'slices', 'frames', 'SCIFIO'}:
             if isinstance(value, bool):
                 value = str(value).lower()
             append.append(f'{key.lower()}={value}')
@@ -20495,15 +20581,15 @@ def imagej_shape(
                 i += 1
             else:
                 newshape.append(1)
-        if newshape[-1] not in (1, 3, 4):
+        if newshape[-1] not in {1, 3, 4}:
             raise ValueError(
                 'ImageJ hyperstack must contain 1, 3, or 4 samples'
             )
         return tuple(newshape)
 
     if rgb is None:
-        rgb = shape[-1] in (3, 4) and ndim > 2
-    if rgb and shape[-1] not in (3, 4):
+        rgb = shape[-1] in {3, 4} and ndim > 2
+    if rgb and shape[-1] not in {3, 4}:
         raise ValueError('ImageJ hyperstack is not a RGB image')
     if not rgb and ndim == 6 and shape[-1] != 1:
         raise ValueError('ImageJ hyperstack is not a grayscale image')
@@ -20683,7 +20769,7 @@ def shaped_description_metadata(description: str, /) -> dict[str, Any]:
     if description[:6] == 'shape=':
         # old-style 'shaped' description; not JSON
         shape = tuple(int(i) for i in description[7:-1].split(','))
-        return dict(shape=shape)
+        return {'shape': shape}
     if description[:1] == '{' and description[-1:] == '}':
         # JSON description
         return json.loads(description)
@@ -20879,7 +20965,7 @@ def metaseries_description_metadata(description: str, /) -> dict[str, Any]:
         'int': int,
         'bool': lambda x: asbool(x, 'on', 'off'),
         'time': lambda x: strptime(x, '%Y%m%d %H:%M:%S.%f'),
-        'guid': lambda x: uuid.UUID(x),
+        'guid': uuid.UUID,
         # 'float-array':
         # 'colorref':
     }
@@ -21053,7 +21139,7 @@ def astrotiff_description_metadata(
         value = line[8:]
 
         if not value.startswith('='):
-            # e.g., COMMENT, HISTORY
+            # for example, COMMENT or HISTORY
             if key + f'{sep}0' not in result:
                 result[key + f'{sep}0'] = value
                 counts[key] = 1
@@ -21597,6 +21683,19 @@ def encode_strips(
         yield from executor.map(encode, strips())
 
 
+def zarr_selection(store: ZarrStore, selection: Any) -> NDArray[Any]:
+    """Return selection from Zarr store."""
+    import zarr
+
+    z = zarr.open(store, mode='r')
+    if isinstance(z, zarr.hierarchy.Group):
+        result = z[0][selection]
+    else:
+        result = z[selection]
+    store.close()
+    return result
+
+
 def reorient(
     image: NDArray[Any], orientation: ORIENTATION | int | str, /
 ) -> NDArray[Any]:
@@ -21702,8 +21801,7 @@ def reshape_nd(
     shape = (1,) * (ndim - len(shape)) + shape
     if isinstance(data_or_shape, tuple):
         return shape
-    else:
-        return data_or_shape.reshape(shape)
+    return data_or_shape.reshape(shape)
 
 
 def squeeze_axes(
@@ -22371,9 +22469,9 @@ def matlabstr2py(matlabstr: str, /) -> Any:
         if len(s) == 1:
             try:
                 return int(s)
-            except Exception:
+            except Exception as exc:
                 if fail:
-                    raise ValueError
+                    raise ValueError from exc
                 return s
         if s[0] == "'":
             if fail and s[-1] != "'" or "'" in s[1:-1]:
@@ -22387,9 +22485,9 @@ def matlabstr2py(matlabstr: str, /) -> Any:
             raise ValueError
         if s[0] == '@':
             return s
-        if s == 'true' or s == 'True':
+        if s in {'true', 'True'}:
             return True
-        if s == 'false' or s == 'False':
+        if s in {'false', 'False'}:
             return False
         if s[:6] == 'zeros(':
             return numpy.zeros([int(i) for i in s[6:-1].split(',')]).tolist()
@@ -22406,9 +22504,9 @@ def matlabstr2py(matlabstr: str, /) -> Any:
             pass
         try:
             return float(s)  # nan, inf
-        except Exception:
+        except Exception as exc:
             if fail:
-                raise ValueError
+                raise ValueError from exc
         return s
 
     def parse(s: str, /) -> Any:
@@ -22867,7 +22965,7 @@ def byteorder_isnative(byteorder: str, /) -> bool:
     True
 
     """
-    if byteorder == '=' or byteorder == sys.byteorder:
+    if byteorder in {'=', sys.byteorder}:
         return True
     keys = {'big': '>', 'little': '<'}
     return keys.get(byteorder, byteorder) == keys[sys.byteorder]
@@ -22882,7 +22980,7 @@ def byteorder_compare(byteorder: str, other: str, /) -> bool:
     False
 
     """
-    if byteorder == other or byteorder == '|' or other == '|':
+    if byteorder in {other, '|'} or other == '|':
         return True
     if byteorder == '=':
         byteorder = {'big': '>', 'little': '<'}[sys.byteorder]
@@ -23323,8 +23421,7 @@ def snipstr(
 
         if split < 0:
             split += linelen
-            if split < 0:
-                split = 0
+            split = max(split, 0)
 
         if esize == 0 or width < esize + 1:
             if split <= 0:
@@ -23384,8 +23481,8 @@ def enumarg(enum: type[enum.IntEnum], arg: Any, /) -> enum.IntEnum:
     except Exception:
         try:
             return enum[arg.upper()]
-        except Exception:
-            raise ValueError(f'invalid argument {arg!r}')
+        except Exception as exc:
+            raise ValueError(f'invalid argument {arg!r}') from exc
 
 
 def parse_kwargs(
@@ -23770,7 +23867,7 @@ def imshow(
         photometric = 'RGB'
     if maxdim is None:
         maxdim = 2**16
-    isrgb = photometric in ('RGB', 'YCBCR')  # 'PALETTE', 'YCBCR'
+    isrgb = photometric in {'RGB', 'YCBCR'}  # 'PALETTE', 'YCBCR'
 
     if data.dtype == 'float16':
         data = data.astype('float32')
@@ -23779,14 +23876,14 @@ def imshow(
         isrgb = False
 
     if isrgb and not (
-        data.shape[-1] in (3, 4)
-        or (data.ndim > 2 and data.shape[-3] in (3, 4))
+        data.shape[-1] in {3, 4}
+        or (data.ndim > 2 and data.shape[-3] in {3, 4})
     ):
         isrgb = False
         photometric = 'MINISBLACK'
 
     data = data.squeeze()
-    if photometric in (
+    if photometric in {
         None,
         'MINISWHITE',
         'MINISBLACK',
@@ -23797,7 +23894,7 @@ def imshow(
         'LOGLUV',
         'DEPTH_MAP',
         'SEMANTIC_MASK',
-    ):
+    }:
         data = reshape_nd(data, 2)
     else:
         data = reshape_nd(data, 3)
@@ -23809,7 +23906,7 @@ def imshow(
         dims = 0
         isrgb = False
     else:
-        if isrgb and data.shape[-3] in (3, 4) and data.shape[-1] not in (3, 4):
+        if isrgb and data.shape[-3] in {3, 4} and data.shape[-1] not in {3, 4}:
             data = numpy.swapaxes(data, -3, -2)
             data = numpy.swapaxes(data, -2, -1)
         elif not isrgb and (
@@ -23818,7 +23915,7 @@ def imshow(
         ):
             data = numpy.swapaxes(data, -3, -1)
             data = numpy.swapaxes(data, -2, -1)
-        isrgb = isrgb and data.shape[-1] in (3, 4)
+        isrgb = isrgb and data.shape[-1] in {3, 4}
         dims -= 3 if isrgb else 2
 
     if interpolation is None:
@@ -23858,7 +23955,7 @@ def imshow(
             except Exception:
                 bitspersample = data.dtype.itemsize * 8
         elif not isinstance(bitspersample, (int, numpy.integer)):
-            # bitspersample can be tuple, e.g., (5, 6, 5)
+            # bitspersample can be tuple, such as (5, 6, 5)
             bitspersample = data.dtype.itemsize * 8
         assert bitspersample is not None
         datamax = 2**bitspersample
@@ -24342,7 +24439,7 @@ def main() -> int:
                 else:
                     title = f'{tif}\n {page}'
                 photometric = 'MINISBLACK'
-                if keyframe.photometric not in (3,):
+                if keyframe.photometric != 3:
                     photometric = PHOTOMETRIC(keyframe.photometric).name
                 imshow(
                     img,
@@ -24408,7 +24505,7 @@ class lazyattr:
         try:
             value = self.func(instance)
         except AttributeError as exc:
-            raise RuntimeError(exc)
+            raise RuntimeError(exc) from exc
         if value is NotImplemented:
             return getattr(super(owner, instance), self.func.__name__)
         setattr(instance, self.func.__name__, value)
