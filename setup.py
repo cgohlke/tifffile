@@ -21,7 +21,7 @@ def search(pattern, code, flags=0):
 with open('tifffile/tifffile.py', encoding='utf-8') as fh:
     code = fh.read().replace('\r\n', '\n').replace('\r', '\n')
 
-version = search(r"__version__ = '(.*?)'", code).replace('.x.x', '.dev')
+version = search(r"__version__ = '(.*?)'", code).replace('.x.x', '.dev0')
 version += ('.' + buildnumber) if buildnumber else ''
 
 description = search(r'"""(.*)\.(?:\r\n|\r|\n)', code)
