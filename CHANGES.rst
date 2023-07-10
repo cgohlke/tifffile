@@ -1,6 +1,11 @@
 Revisions
 ---------
 
+2023.7.10
+
+- Increase default strip size to 256 KB when writing with compression.
+- Fix ZarrTiffStore with non-default chunkmode.
+
 2023.7.4
 
 - Pass 4992 tests.
