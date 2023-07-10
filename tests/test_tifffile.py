@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.7.4
+:Version: 2023.7.10
 
 """
 
@@ -14131,14 +14131,18 @@ def test_write_compression_args(args):
     compressed = compressionargs[0] not in {0, 1, NONE}
     if len(compressionargs) == 1:
         compressionargs = compressionargs[0]
+    rowsperstrip = 100 if compressed else None
 
     data = WRITE_DATA
     with TempFileName(f'compression_args_{i}') as fname:
-        if i > 4:
-            # TODO: with pytest.warns(DeprecationWarning):
-            imwrite(fname, data, compression=compressionargs, photometric=RGB)
-        else:
-            imwrite(fname, data, compression=compressionargs, photometric=RGB)
+        # TODO: if i > 4: with pytest.warns(DeprecationWarning):
+        imwrite(
+            fname,
+            data,
+            compression=compressionargs,
+            photometric=RGB,
+            rowsperstrip=rowsperstrip,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -14251,6 +14255,7 @@ def test_write_compression_deflate():
             compression=DEFLATE,
             compressionargs={'level': 6},
             photometric=RGB,
+            rowsperstrip=108,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14303,7 +14308,9 @@ def test_write_compression_lzma():
     """Test write LZMA compression."""
     data = WRITE_DATA
     with TempFileName('compression_lzma') as fname:
-        imwrite(fname, data, compression=LZMA, photometric=RGB)
+        imwrite(
+            fname, data, compression=LZMA, photometric=RGB, rowsperstrip=108
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -14328,7 +14335,9 @@ def test_write_compression_zstd():
     """Test write ZSTD compression."""
     data = WRITE_DATA
     with TempFileName('compression_zstd') as fname:
-        imwrite(fname, data, compression=ZSTD, photometric=RGB)
+        imwrite(
+            fname, data, compression=ZSTD, photometric=RGB, rowsperstrip=108
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
