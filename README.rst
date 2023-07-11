@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.7.4
+:Version: 2023.7.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -68,11 +68,11 @@ This revision was tested with the following requirements and dependencies
 
 - `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b3, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.25.0
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.7.4
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.7.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.1
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.2
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 4.9.2
+- `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.15.0
   (required only for opening Zarr stores)
@@ -81,6 +81,11 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2023.7.10
+
+- Increase default strip size to 256 KB when writing with compression.
+- Fix ZarrTiffStore with non-default chunkmode.
 
 2023.7.4
 
