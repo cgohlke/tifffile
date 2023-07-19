@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.7.10
+:Version: 2023.7.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,7 +96,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b3, 64-bit
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b4, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.25.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.7.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -112,6 +112,12 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.7.18
+
+- Pass 4993 tests.
+- Limit threading via TIFFFILE_NUM_THREADS environment variable (#215).
+- Remove maxworkers parameter from tiff2fsspec (breaking).
+
 2023.7.10
 
 - Increase default strip size to 256 KB when writing with compression.
@@ -119,7 +125,6 @@ Revisions
 
 2023.7.4
 
-- Pass 4992 tests.
 - Add option to return selection from imread (#200).
 - Fix reading OME series with missing trailing frames (#199).
 - Fix fsspec reference for WebP compressed segments missing alpha channel.
@@ -648,8 +653,9 @@ Create a TIFF file from a generator of tiles:
 ... )
 
 Write a multi-dimensional, multi-resolution (pyramidal), multi-series OME-TIFF
-file with metadata. Sub-resolution images are written to SubIFDs. Write a
-thumbnail image as a separate image series:
+file with metadata. Sub-resolution images are written to SubIFDs. Limit
+parallel encoding to 2 threads. Write a thumbnail image as a separate image
+series:
 
 >>> data = numpy.random.randint(0, 255, (8, 2, 512, 512, 3), 'uint8')
 >>> subresolutions = 2
@@ -671,7 +677,8 @@ thumbnail image as a separate image series:
 ...         photometric='rgb',
 ...         tile=(128, 128),
 ...         compression='jpeg',
-...         resolutionunit='CENTIMETER'
+...         resolutionunit='CENTIMETER',
+...         maxworkers=2
 ...     )
 ...     tif.write(
 ...         data,
@@ -774,11 +781,14 @@ to it via the Zarr interface (note: this does not work with compression):
 >>> z[3, 100:200, 200:300:2] = 1024
 >>> store.close()
 
-Read images from a sequence of TIFF files as NumPy array:
+Read images from a sequence of TIFF files as NumPy array using two I/O worker
+threads:
 
 >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
 >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
->>> image_sequence = imread(['temp_C001T001.tif', 'temp_C001T002.tif'])
+>>> image_sequence = imread(
+...     ['temp_C001T001.tif', 'temp_C001T002.tif'], ioworkers=2, maxworkers=1
+... )
 >>> image_sequence.shape
 (2, 64, 64)
 >>> image_sequence.dtype
@@ -826,7 +836,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.7.10'
+__version__ = '2023.7.18'
 
 __all__ = [
     'TiffFile',
@@ -1003,7 +1013,7 @@ def imread(
     chunkshape: tuple[int, ...] | None = None,
     dtype: DTypeLike | None = None,
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
-    ioworkers: int = 1,
+    ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
     fillvalue: int | float | None = None,
     zattrs: dict[str, Any] | None = None,
@@ -1908,10 +1918,8 @@ class TiffWriter:
             maxworkers:
                 Maximum number of threads to concurrently compress tiles
                 or strips.
-                If *1*, multi-threading is disabled.
-                By default, multithreading is disabled for small segments
-                <8 KB and PackBits compression. Else, up to half the CPU
-                cores are used.
+                If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS` CPU
+                cores for compressing large segments.
                 Using multiple threads can significantly speed up this
                 function if the bottleneck is encoding the data, for example,
                 in case of large JPEG compressed tiles.
@@ -1951,6 +1959,8 @@ class TiffWriter:
         compressiontag: int
         compressionfunc: Callable[..., Any] | None = None
         tags: list[tuple[int, bytes, bytes | None, bool]]
+        numtiles: int
+        numstrips: int
 
         fh = self._fh
         byteorder = self.tiff.byteorder
@@ -4224,9 +4234,8 @@ class TiffFile:
             maxworkers:
                 Maximum number of threads to concurrently decode data from
                 multiple pages or compressed segments.
-                By default, up to half the CPU cores are used.
-                If *1*, multi-threading is disabled.
-                Reading data from file is limited to a single thread.
+                If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS`
+                threads. Reading data from file is limited to the main thread.
                 Using multiple threads can significantly speed up this
                 function if the bottleneck is decoding compressed data,
                 for example, in case of large LZW compressed LSM files or
@@ -8825,8 +8834,8 @@ class TiffPage:
                 The default is the lock of the parent's file handle.
             maxworkers:
                 Maximum number of threads to concurrently decode segments.
-                By default, up to half the CPU cores are used.
-                See remarks in :py:meth:`TiffFile.asarray`.
+                If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS`
+                threads. See remarks in :py:meth:`TiffFile.asarray`.
 
         Returns:
             NumPy array of decompressed, unpredicted, and unpacked image data
@@ -12320,7 +12329,8 @@ class ZarrTiffStore(ZarrStore):
             Remove length-1 dimensions from shape of TiffPageSeries.
         maxworkers:
             Maximum number of threads to concurrently decode strips or tiles
-            if `chunkmode=2`. By default, up to half the CPU cores are used.
+            if `chunkmode=2`.
+            If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS` threads.
         _openfiles:
             Internal API.
 
@@ -13512,7 +13522,7 @@ class FileSequence:
         dtype: DTypeLike | None = None,
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
         out_inplace: bool | None = None,
-        ioworkers: int = 1,
+        ioworkers: int | None = 1,
         out: OutputType = None,
         **kwargs: Any,
     ) -> NDArray[Any]:
@@ -13533,8 +13543,7 @@ class FileSequence:
             ioworkers:
                 Maximum number of threads to execute
                 :py:attr:`FileSequence.imread` asynchronously.
-                If *None*, default to the number of processors multiplied
-                by 5.
+                If *0*, use up to :py:attr:`_TIFF.MAXIOWORKERS` threads.
                 Using threads can significantly improve runtime when reading
                 many small files from a network share.
             out_inplace:
@@ -13558,12 +13567,10 @@ class FileSequence:
             IndexError, ValueError: Array shapes do not match.
 
         """
-        if len(self.files) < 2:
-            ioworkers = 1
-        elif ioworkers is None or ioworkers < 1:
-            import multiprocessing
-
-            ioworkers = max(multiprocessing.cpu_count() * 5, 1)
+        if ioworkers is None or ioworkers < 1:
+            ioworkers = TIFF.MAXIOWORKERS
+        ioworkers = min(len(self.files), ioworkers)
+        assert isinstance(ioworkers, int)  # mypy bug?
 
         if out_inplace is None and self.imread == imread:
             out_inplace = True
@@ -18757,10 +18764,29 @@ class _TIFF:
 
     @cached_property
     def MAXWORKERS(self) -> int:
-        # half of CPU cores
-        import multiprocessing
+        """Default maximum number of threads for de/compressing segments.
 
-        return max(multiprocessing.cpu_count() // 2, 1)
+        The value of the ``TIFFFILE_NUM_THREADS`` environment variable if set,
+        else half the CPU cores.
+
+        """
+        if 'TIFFFILE_NUM_THREADS' in os.environ:
+            return max(1, int(os.environ['TIFFFILE_NUM_THREADS']))
+        cpu_count = os.cpu_count()
+        return max(1, cpu_count // 2) if cpu_count is not None else 1
+
+    @cached_property
+    def MAXIOWORKERS(self) -> int:
+        """Default maximum number of I/O threads for reading file sequences.
+
+        The value of the ``TIFFFILE_NUM_IOTHREADS`` environment variable if
+        set, else five times the CPU cores.
+
+        """
+        if 'TIFFFILE_NUM_IOTHREADS' in os.environ:
+            return max(1, int(os.environ['TIFFFILE_NUM_IOTHREADS']))
+        cpu_count = os.cpu_count()
+        return max(1, cpu_count * 5) if cpu_count is not None else 1
 
     BUFFERSIZE: int = 268435456  # 256 MB buffer for read and writes
 
@@ -21580,7 +21606,7 @@ def encode_tiles(
     encode: Callable[[NDArray[Any]], bytes],
     shape: Sequence[int],
     dtype: numpy.dtype[Any],
-    maxworkers: int,
+    maxworkers: int | None,
     buffersize: int | None,
     /,
 ) -> Iterator[bytes]:
@@ -21662,7 +21688,7 @@ def encode_strips(
     pagedata: NDArray[Any],
     encode: Callable[[NDArray[Any]], bytes],
     rowsperstrip: int,
-    maxworkers: int,
+    maxworkers: int | None,
     /,
 ) -> Iterator[bytes]:
     """Return iterator over encoded strips."""
@@ -22196,6 +22222,7 @@ def stack_pages(
             Reentrant lock to synchronize seeks and reads from file.
         maxworkers:
             Maximum number of threads to concurrently decode pages or segments.
+            By default, use up to :py:attr:`_TIFF.MAXWORKERS` threads.
         out:
             Specifies how image array is returned.
             By default, a new NumPy array is created.
@@ -23666,7 +23693,6 @@ def tiff2fsspec(
     fillvalue: int | float | None = None,
     zattrs: dict[str, Any] | None = None,
     squeeze: bool | None = None,
-    maxworkers: int | None = None,
     groupname: str | None = None,
     version: int | None = None,
 ) -> None:
@@ -23682,7 +23708,7 @@ def tiff2fsspec(
         out:
             Name of output JSON file.
             The default is the `filename` with a '.json' extension.
-        key, series, level, chunkmode, fillvalue, zattrs, squeeze, maxworkers:
+        key, series, level, chunkmode, fillvalue, zattrs, squeeze:
             Passed to :py:meth:`TiffFile.aszarr`.
         groupname, version:
             Passed to :py:meth:`ZarrTiffStore.write_fsspec`.
@@ -23700,7 +23726,6 @@ def tiff2fsspec(
             fillvalue=fillvalue,
             zattrs=zattrs,
             squeeze=squeeze,
-            maxworkers=maxworkers,
         ) as store:
             store.write_fsspec(out, url, groupname=groupname, version=version)
 
@@ -24266,6 +24291,13 @@ def main() -> int:
         help='colormap name used to map data to colors',
     )
     opt(
+        '--maxworkers',
+        dest='maxworkers',
+        type='int',
+        default=0,
+        help='maximum number of threads',
+    )
+    opt(
         '--debug',
         dest='debug',
         action='store_true',
@@ -24339,7 +24371,9 @@ def main() -> int:
             if settings.page >= 0:
                 images = [
                     (
-                        tif.asarray(key=settings.page),
+                        tif.asarray(
+                            key=settings.page, maxworkers=settings.maxworkers
+                        ),
                         tif.pages[settings.page],
                         None,
                     )
@@ -24358,7 +24392,11 @@ def main() -> int:
                     level = 0
                 images = [
                     (
-                        tif.asarray(series=settings.series, level=level),
+                        tif.asarray(
+                            series=settings.series,
+                            level=level,
+                            maxworkers=settings.maxworkers,
+                        ),
                         notnone(tif.series[settings.series]._pages),
                         tif.series[settings.series],
                     )
@@ -24376,7 +24414,11 @@ def main() -> int:
                     try:
                         images.append(
                             (
-                                tif.asarray(series=i, level=level),
+                                tif.asarray(
+                                    series=i,
+                                    level=level,
+                                    maxworkers=settings.maxworkers,
+                                ),
                                 notnone(s._pages),
                                 tif.series[i],
                             )
