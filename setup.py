@@ -82,7 +82,7 @@ setup(
         # 'Documentation': 'https://',
     },
     packages=['tifffile'],
-    python_requires='>=3.8',
+    python_requires='>=3.9',
     install_requires=[
         'numpy',
         # 'imagecodecs>=2023.1.23',
