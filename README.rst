@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.7.10
+:Version: 2023.7.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,7 +66,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b3, 64-bit
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b4, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.25.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.7.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -82,6 +82,12 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.7.18
+
+- Pass 4993 tests.
+- Limit threading via TIFFFILE_NUM_THREADS environment variable (#215).
+- Remove maxworkers parameter from tiff2fsspec (breaking).
+
 2023.7.10
 
 - Increase default strip size to 256 KB when writing with compression.
@@ -89,7 +95,6 @@ Revisions
 
 2023.7.4
 
-- Pass 4992 tests.
 - Add option to return selection from imread (#200).
 - Fix reading OME series with missing trailing frames (#199).
 - Fix fsspec reference for WebP compressed segments missing alpha channel.
@@ -618,8 +623,9 @@ Create a TIFF file from a generator of tiles:
 ... )
 
 Write a multi-dimensional, multi-resolution (pyramidal), multi-series OME-TIFF
-file with metadata. Sub-resolution images are written to SubIFDs. Write a
-thumbnail image as a separate image series:
+file with metadata. Sub-resolution images are written to SubIFDs. Limit
+parallel encoding to 2 threads. Write a thumbnail image as a separate image
+series:
 
 >>> data = numpy.random.randint(0, 255, (8, 2, 512, 512, 3), 'uint8')
 >>> subresolutions = 2
@@ -641,7 +647,8 @@ thumbnail image as a separate image series:
 ...         photometric='rgb',
 ...         tile=(128, 128),
 ...         compression='jpeg',
-...         resolutionunit='CENTIMETER'
+...         resolutionunit='CENTIMETER',
+...         maxworkers=2
 ...     )
 ...     tif.write(
 ...         data,
@@ -744,11 +751,14 @@ to it via the Zarr interface (note: this does not work with compression):
 >>> z[3, 100:200, 200:300:2] = 1024
 >>> store.close()
 
-Read images from a sequence of TIFF files as NumPy array:
+Read images from a sequence of TIFF files as NumPy array using two I/O worker
+threads:
 
 >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
 >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
->>> image_sequence = imread(['temp_C001T001.tif', 'temp_C001T002.tif'])
+>>> image_sequence = imread(
+...     ['temp_C001T001.tif', 'temp_C001T002.tif'], ioworkers=2, maxworkers=1
+... )
 >>> image_sequence.shape
 (2, 64, 64)
 >>> image_sequence.dtype
