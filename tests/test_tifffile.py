@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.7.10
+:Version: 2023.7.18
 
 """
 
@@ -2621,6 +2621,19 @@ def test_issue_ome_missing_frames(caplog):
         assert_aszarr_method(tif, data)
         assert_aszarr_method(tif, data, chunkmode='page')
         assert__str__(tif)
+
+
+def test_issue_maxworkers():
+    """Test maxworkers defaults."""
+    if 'TIFFFILE_NUM_THREADS' in os.environ:
+        assert TIFF.MAXWORKERS == int(os.environ['TIFFFILE_NUM_THREADS'])
+    else:
+        assert TIFF.MAXWORKERS == max(1, os.cpu_count() // 2)
+
+    if 'TIFFFILE_NUM_IOTHREADS' in os.environ:
+        assert TIFF.MAXIOWORKERS == int(os.environ['TIFFFILE_NUM_IOTHREADS'])
+    else:
+        assert TIFF.MAXIOWORKERS == os.cpu_count() * 5
 
 
 class TestExceptions:
