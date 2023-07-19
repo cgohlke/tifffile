@@ -1,6 +1,12 @@
 Revisions
 ---------
 
+2023.7.18
+
+- Pass 4993 tests.
+- Limit threading via TIFFFILE_NUM_THREADS environment variable (#215).
+- Remove maxworkers parameter from tiff2fsspec (breaking).
+
 2023.7.10
 
 - Increase default strip size to 256 KB when writing with compression.
@@ -8,7 +14,6 @@ Revisions
 
 2023.7.4
 
-- Pass 4992 tests.
 - Add option to return selection from imread (#200).
 - Fix reading OME series with missing trailing frames (#199).
 - Fix fsspec reference for WebP compressed segments missing alpha channel.
