@@ -7964,25 +7964,25 @@ class TiffPage:
             self.imagedepth = 1
 
         elif self.is_stk:
-            if tags.get(33629) is not None:  # UIC2tag
-                # read UIC1tag again now that plane count is known
-                tag = tags.get(33628)  # UIC1tag
-                assert tag is not None
-                fh.seek(tag.valueoffset)
-                try:
-                    tag.value = read_uic1tag(
-                        fh,
-                        tiff.byteorder,
-                        tag.dtype,
-                        tag.count,
-                        0,
-                        tags[33629].count,  # UIC2tag
-                    )
-                except Exception as exc:
-                    log_warning(
-                        f'{self!r} read_uic1tag failed with '
-                        f'{exc.__class__.__name__}: {exc}'
-                    )
+            # read UIC1tag again now that plane count is known
+            tag = tags.get(33628)  # UIC1tag
+            assert tag is not None
+            fh.seek(tag.valueoffset)
+            uic2tag = tags.get(33629)
+            try:
+                tag.value = read_uic1tag(
+                    fh,
+                    tiff.byteorder,
+                    tag.dtype,
+                    tag.count,
+                    0,
+                    uic2tag.count if uic2tag is not None else 1,
+                )
+            except Exception as exc:
+                log_warning(
+                    f'{self!r} read_uic1tag failed with '
+                    f'{exc.__class__.__name__}: {exc}'
+                )
 
         tag = tags.get(50839)
         if tag is not None:
@@ -19242,12 +19242,50 @@ def read_uic1tag(
     else:
         for _ in range(count):
             tagid = struct.unpack('<I', fh.read(4))[0]
-            if tagid in {28, 29, 37, 40, 41}:
-                # silently skip unexpected tags
-                fh.read(4)
-                continue
-            name, value = read_uic_tag(fh, tagid, planecount, True)
-            result[name] = value
+            if tagid in (28, 29):
+                key = {28: 'StagePosition', 29: 'CameraChipOffset'}[tagid]
+                pos = int.from_bytes(fh.read(4), "little")
+                cur = fh.tell()
+                fh.seek(pos)
+                values = fh.read_array('<i4', 4 * planecount).reshape(-1, 4)
+                result[key] = numpy.column_stack([values[:, 0] / values[:, 1],
+                                                  values[:, 2] / values[:, 3]])
+                fh.seek(cur)
+            elif tagid in (38, 39):
+                key = {38: 'AutoScaleLoInfo', 39: 'AutoScaleHiInfo'}[tagid]
+                pos = int.from_bytes(fh.read(4), "little")
+                cur = fh.tell()
+                fh.seek(pos)
+                num, den = fh.read_array('<i4', 2)
+                result[key] = num / den
+                fh.seek(cur)
+            elif tagid == 37:
+                pos = int.from_bytes(fh.read(4), "little")
+                cur = fh.tell()
+                fh.seek(pos)
+                labels = []
+                for _ in range(planecount):
+                    sz = int.from_bytes(fh.read(4), "little")
+                    labels.append(fh.read(sz).rstrip(b"\0"))
+                result["StageLabel"] = labels
+                fh.seek(cur)
+            elif tagid == 40:
+                pos = int.from_bytes(fh.read(4), "little")
+                cur = fh.tell()
+                fh.seek(pos)
+                values = fh.read_array('<i4', 2 * planecount).reshape(-1, 2)
+                result['AbsoluteZ'] = values[:, 0] / values[:, 1]
+                fh.seek(cur)
+            elif tagid == 41:
+                pos = int.from_bytes(fh.read(4), "little")
+                cur = fh.tell()
+                fh.seek(pos)
+                values = fh.read_array('<i4', planecount)
+                result['AbsoluteZValid'] = values
+                fh.seek(cur)
+            else:
+                name, value = read_uic_tag(fh, tagid, planecount, True)
+                result[name] = value
     return result
 
 
