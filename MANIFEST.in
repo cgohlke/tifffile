@@ -3,6 +3,8 @@ include README.rst
 include CHANGES.rst
 include ACKNOWLEDGEMENTS.rst
 
+include tifffile/py.typed
+
 exclude *.cmd
 recursive-exclude doc *
 recursive-exclude test *
