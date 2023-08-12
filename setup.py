@@ -82,14 +82,15 @@ setup(
         # 'Documentation': 'https://',
     },
     packages=['tifffile'],
+    package_data={'tifffile': ['py.typed']},
     python_requires='>=3.9',
     install_requires=[
         'numpy',
-        # 'imagecodecs>=2023.1.23',
+        # 'imagecodecs>=2023.8.12',
     ],
     extras_require={
         'all': [
-            'imagecodecs>=2023.1.23',
+            'imagecodecs>=2023.8.12',
             'matplotlib',
             'defusedxml',
             'lxml',
@@ -104,6 +105,7 @@ setup(
         'cmapfile',
         'oiffile',
         'lfdfiles',
+        'psdtags',
         'roifile',
         'lxml',
         'zarr',
