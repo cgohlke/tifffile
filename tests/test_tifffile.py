@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.7.18
+:Version: 2023.8.12
 
 """
 
@@ -88,6 +88,7 @@ try:
         FileSequence,  # noqa
         Timer,  # noqa
         lazyattr,  # noqa
+        logger,  # noqa
         strptime,  # noqa
         natural_sorted,  # noqa
         stripnull,  # noqa
@@ -150,6 +151,7 @@ from tifffile.tifffile import (  # noqa: F401
     imwrite,
     julian_datetime,
     lazyattr,
+    logger,
     lsm2bin,
     matlabstr2py,
     memmap,
@@ -730,7 +732,8 @@ def test_issue_incorrect_rowsperstrip_count():
 def test_issue_extra_strips(caplog):
     """Test read extra strips."""
     # https://github.com/opencv/opencv/issues/17054
-    with TiffFile(private_file('issues/extra_strips.tif')) as tif:
+    fname = private_file('issues/extra_strips.tif')
+    with TiffFile(fname) as tif:
         assert not tif.is_bigtiff
         assert len(tif.pages) == 1
         page = tif.pages.first
@@ -750,7 +753,8 @@ def test_issue_extra_strips(caplog):
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_no_bytecounts(caplog):
     """Test read no bytecounts."""
-    with TiffFile(private_file('bad/img2_corrupt.tif')) as tif:
+    fname = private_file('bad/img2_corrupt.tif')
+    with TiffFile(fname) as tif:
         assert not tif.is_bigtiff
         assert len(tif.pages) == 1
         page = tif.pages.first
@@ -2545,7 +2549,7 @@ def test_issue_tile_generator(compression, predictor, samples):
         assert_array_equal(imread(fname), data.squeeze())
         if (
             imagecodecs is None
-            or not imagecodecs.TIFF
+            or not imagecodecs.TIFF.available
             or (compression == 'packbits' and predictor == 'horizontal')
         ):
             return
@@ -2634,6 +2638,33 @@ def test_issue_maxworkers():
         assert TIFF.MAXIOWORKERS == int(os.environ['TIFFFILE_NUM_IOTHREADS'])
     else:
         assert TIFF.MAXIOWORKERS == os.cpu_count() * 5
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_logging_filter(caplog):
+    """Test raise an error by filtering logging messages."""
+    # https://github.com/cgohlke/tifffile/issues/216
+    import logging
+
+    def log_filter(record):
+        if record.levelno == logging.ERROR:
+            assert record.funcName == '__init__'
+            assert 'invalid value offset' in record.msg
+            raise ValueError(record.msg)
+        return True
+
+    fname = private_file('bad/Gel1.tif')
+
+    logger().addFilter(log_filter)
+    try:
+        with pytest.raises(ValueError):
+            imread(fname)
+    finally:
+        logger().removeFilter(log_filter)
+
+    assert 'invalid value offset' not in caplog.text
+    imread(private_file(fname))
+    assert 'invalid value offset' in caplog.text
 
 
 class TestExceptions:
@@ -6834,8 +6865,8 @@ def test_read_jpeg_lsb2msb():
 @pytest.mark.skipif(
     SKIP_PRIVATE
     or SKIP_CODECS
-    or not imagecodecs.JPEG
-    or not imagecodecs.JPEG2K,
+    or not imagecodecs.JPEG.available
+    or not imagecodecs.JPEG2K.available,
     reason=REASON,
 )
 def test_read_aperio_j2k():
@@ -8224,6 +8255,60 @@ def test_read_lsm_lzw_no_eoi():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_stk_nonstack():
+    """Test read MetaMorph STK with single plane."""
+    # https://github.com/cgohlke/tifffile/pull/217
+    fname = private_file('stk/test_w1491-Fast_s1_t1.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_stk
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_contiguous
+        assert page.compression == NONE
+        assert page.imagewidth == 24
+        assert page.imagelength == 24
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        assert page.tags['Software'].value == 'MetaMorph 7.8.3.0'
+        assert page.tags['DateTime'].value == '2023:08:07 15:01:32'
+        assert page.datetime == datetime.datetime(2023, 8, 7, 15, 1, 32)
+        assert page.description.startswith('Exposure: 150 ms')
+        meta = stk_description_metadata(page.description)
+        assert meta[0]['Exposure'] == '150 ms'
+        # assert uic tags
+        tags = tif.stk_metadata
+        assert 'ZDistance' not in tags
+        assert 'Wavelengths' not in tags
+        assert tags['Name'] == '491_Fast'
+        assert tags['NumberPlanes'] == 1
+        assert ''.join(tags['StageLabel']) == 'position_a'
+        assert len(tags['AbsoluteZ']) == 1
+        assert tags['AbsoluteZ'][0] == 4294085.491
+        assert tuple(tags['StagePosition'][0]) == (16204.6, 444.7)
+        assert tuple(tags['CameraChipOffset'][0]) == (192.0, 219.0)
+        assert tags['PlaneDescriptions'][0].startswith('Exposure: 150 ms')
+        # assert series properties
+        series = tif.series[0]
+        assert not series.is_truncated
+        assert series.shape == (24, 24)
+        assert series.dtype == numpy.uint16
+        assert series.axes == 'YX'
+        assert series.kind == 'stk'
+        # assert data
+        data = tif.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.shape == (24, 24)
+        assert data.dtype == numpy.uint16
+        assert data[9, 11] == 3453
+        assert_aszarr_method(tif, data)
+        assert_decode_method(page)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_stk_zseries():
     """Test read MetaMorph STK z-series."""
     fname = private_file('stk/zseries.stk')
@@ -8391,7 +8476,7 @@ def test_read_stk_diatoms3d():
 def test_read_stk_greenbeads():
     """Test read MetaMorph STK time-series, but time_created is corrupt (?)."""
     # 8bit palette is present but should not be applied
-    fname = private_file('stk/greenbeads.stk')
+    fname = private_file('stk/GreenBeads.stk')
     with TiffFile(fname) as tif:
         assert tif.is_stk
         assert tif.byteorder == '<'
@@ -8418,6 +8503,7 @@ def test_read_stk_greenbeads():
         assert str(tags['DatetimeModified'][0]) == (
             '2008-05-09T17:35:33.000274000'
         )
+        # assert tags['AbsoluteZ'][78] == 1.1672684733218932
         assert 'AbsoluteZ' not in tags
         # assert series properties
         series = tif.series[0]
@@ -9134,6 +9220,10 @@ def test_read_scanimage_2gb():
         assert 'RoiGroups' not in tif.scanimage_metadata
         # assert page properties
         page = tif.pages.first
+        assert isinstance(page, TiffPage)
+        assert not page.is_frame
+        assert not page.is_virtual
+        assert not page.is_subifd
         assert page.is_scanimage
         assert page.is_contiguous
         assert page.compression == NONE
@@ -9144,6 +9234,9 @@ def test_read_scanimage_2gb():
         # using virtual frames
         frame = tif.pages[-1]
         assert isinstance(frame, TiffFrame)
+        assert frame.is_frame
+        assert frame.is_virtual
+        assert not frame.is_subifd
         assert frame.offset <= 0
         assert frame.index == 5979
         assert frame.dataoffsets[0] == 3163182856
@@ -12455,6 +12548,24 @@ def test_read_zarr():
 
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
+def test_read_zarr_lrucache():
+    """Test read TIFF with zarr LRUStoreCache."""
+    # fails with zarr 2.15/16
+    # https://github.com/zarr-developers/zarr-python/issues/1497
+    fname = public_file('imagecodecs/gray.u1.tif')
+    with TiffFile(fname) as tif:
+        image = tif.asarray()
+        store = tif.aszarr()
+    try:
+        cache = zarr.LRUStoreCache(store, max_size=2**10)
+        data = zarr.open(cache, mode='r')
+        assert_array_equal(image, data)
+        del data
+    finally:
+        store.close()
+
+
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
 def test_read_zarr_multifile():
     """Test read multifile OME-TIFF with zarr."""
     fname = public_file('OME/multifile/multifile-Z1.ome.tiff')
@@ -12520,11 +12631,14 @@ def test_read_eer(caplog):
         assert page.imagelength == 4096
         assert page.bitspersample == 1
         assert page.samplesperpixel == 1
-        # assert data and metadata
-        with pytest.raises(ValueError):
-            page.asarray()
         meta = tif.eer_metadata
         assert meta.startswith('<metadata>')
+        # assert data
+        data = page.asarray()
+        assert data.dtype == '?'
+        assert data[428, 443]
+        assert not data[428, 444]
+        assert_aszarr_method(page, data)
         assert__str__(tif)
 
 
@@ -13011,7 +13125,7 @@ def test_write_codecs(mode, tile, codec):
             assert_decode_method(page)
             assert__str__(tif)
         if (
-            imagecodecs.TIFF
+            imagecodecs.TIFF.available
             and codec not in {'png', 'jpegxr', 'jpeg2000', 'jpegxl'}
             and mode != 'planar'
         ):
@@ -13105,7 +13219,7 @@ def test_write_predictor(byteorder, dtype, tile, mode):
             assert_decode_method(page)
             assert__str__(tif)
 
-        if not SKIP_CODECS and imagecodecs.TIFF:
+        if not SKIP_CODECS and imagecodecs.TIFF.available:
             im = imagecodecs.imread(fname, index=None)
             assert_array_equal(im, numpy.squeeze(image))
 
@@ -13292,6 +13406,7 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
 
         with TiffFile(fname) as tif:
             for i, page in enumerate(tif.pages):
+                assert not page.is_subifd
                 if i % (5 * repeats):
                     assert page.description == ''
                 elif ome:
@@ -13307,6 +13422,7 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
                 if subifds:
                     assert len(page.pages) == subifds
                     for j, subifd in enumerate(page.pages):
+                        assert subifd.is_subifd
                         assert_array_equal(
                             subifd.asarray(), data[j + 1][i % 5]
                         )
@@ -13319,6 +13435,7 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
 
                 if subifds:
                     for j, subifd in enumerate(page.pages[:-1]):
+                        assert subifd.is_subifd
                         assert subifd.subfiletype == 1
                         assert subifd._nextifd() == page.subifds[j + 1]
                     assert page.pages[-1]._nextifd() == 0
@@ -17829,7 +17946,10 @@ def test_rewrite_ome():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG or SKIP_LARGE,
+    SKIP_PRIVATE
+    or SKIP_CODECS
+    or SKIP_LARGE
+    or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_write_ome_copy():
@@ -18627,7 +18747,10 @@ def test_dependent_opentile():
     ) as tiler:
         # from example
         tile = tiler.get_tile(0, 0, 0, (0, 0))
-        assert md5(tile).hexdigest() == '30c69cab610e5b3db4beac63806d6513'
+        assert md5(tile).hexdigest() in (
+            '30c69cab610e5b3db4beac63806d6513',
+            'e813041cd57d1d078cf1564c0ed9ad7f',
+        )
         # read from file handle
         level = tiler.get_level(0)
         offset = level._page.dataoffsets[50]
@@ -18648,9 +18771,15 @@ def test_dependent_opentile():
         assert md5(image).hexdigest() == 'aeffd12997ca6c232d0ef35aaa35f6b7'
         # get tile
         tile = level.get_tile((0, 0))
-        assert md5(tile).hexdigest() == '30c69cab610e5b3db4beac63806d6513'
+        assert md5(tile).hexdigest() in (
+            '30c69cab610e5b3db4beac63806d6513',
+            'e813041cd57d1d078cf1564c0ed9ad7f',
+        )
         tile = level.get_tile((20, 20))
-        assert md5(tile).hexdigest() == 'fec8116d05485df513f4f41e13eaa994'
+        assert md5(tile).hexdigest() in (
+            'fec8116d05485df513f4f41e13eaa994',
+            'e755ee12d9fd65fc601e70951ce90696',
+        )
 
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_DASK, reason=REASON)
