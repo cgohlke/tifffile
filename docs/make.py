@@ -56,6 +56,7 @@ members = [
     'StoredShape',
     'TiledSequence',
     # functions
+    'logger',
     'repeat_nd',
     'natural_sorted',
     'parse_filenames',
