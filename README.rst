@@ -20,8 +20,8 @@ tiled, predicted, or compressed form.
 
 Many compression and predictor schemes are supported via the imagecodecs
 library, including LZW, PackBits, Deflate, PIXTIFF, LZMA, LERC, Zstd,
-JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR, JPEG XL, WebP, PNG, Jetraw,
-24-bit floating-point, and horizontal differencing.
+JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR, JPEG XL, WebP, PNG, EER,
+Jetraw, 24-bit floating-point, and horizontal differencing.
 
 Tifffile can also be used to inspect TIFF structures, read image data from
 multi-dimensional file sequences, write fsspec ReferenceFileSystem for
@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.7.18
+:Version: 2023.8.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,15 +66,15 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0b4, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.25.0
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.7.10
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0rc, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.25.2
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.8.12
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.2
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.15.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.16.0
   (required only for opening Zarr stores)
 - `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.6.0
   (required only for opening ReferenceFileSystem files)
@@ -82,9 +82,19 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.8.12
+
+- Pass 4996 tests.
+- Support decompressing EER frames.
+- Facilitate filtering logged warnings (#216).
+- Read more tags from UIC1Tag (#217).
+- Fix premature closing of files in main (#218).
+- Don't force matplotlib backend to tkagg in main (#219).
+- Add py.typed marker.
+- Drop support for imagecodecs < 2023.3.16.
+
 2023.7.18
 
-- Pass 4993 tests.
 - Limit threading via TIFFFILE_NUM_THREADS environment variable (#215).
 - Remove maxworkers parameter from tiff2fsspec (breaking).
 
@@ -163,66 +173,6 @@ Revisions
 - Use defusexml in xml2dict.
 
 2022.10.10
-
-- Fix RecursionError in peek_iterator.
-- Fix reading NDTiffv3 summary settings.
-- Fix svs_description_metadata parsing (#149).
-- Fix ImportError if Python was built without zlib or lzma.
-- Fix bool of COMPRESSION and PREDICTOR instances.
-- Deprecate non-sequence extrasamples arguments.
-- Parse SCIFIO metadata as ImageJ.
-
-2022.8.12
-
-- Fix writing ImageJ format with hyperstack argument.
-- Fix writing description with metadata disabled.
-- Add option to disable writing shaped metadata in TiffWriter.
-
-2022.8.8
-
-- Fix regression using imread out argument (#147).
-- Fix imshow show argument.
-- Support fsspec OpenFile.
-
-2022.8.3
-
-- Fix regression writing default resolutionunit (#145).
-- Add strptime function parsing common datetime formats.
-
-2022.7.31
-
-- Fix reading corrupted WebP compressed segments missing alpha channel (#122).
-- Fix regression reading compressed ImageJ files.
-
-2022.7.28
-
-- Rename FileSequence.labels attribute to dims (breaking).
-- Rename tifffile_geodb module to geodb (breaking).
-- Rename TiffFile._astuple method to astuple (breaking).
-- Rename noplots command line argument to maxplots (breaking).
-- Fix reading ImageJ hyperstacks with non-TZC order.
-- Fix colorspace of JPEG segments encoded by Bio-Formats.
-- Fix fei_metadata for HELIOS FIB-SEM (#141, needs test).
-- Add xarray style properties to TiffPage (WIP).
-- Add option to specify OME-XML for TiffFile.
-- Add option to control multiscales in ZarrTiffStore.
-- Support writing to uncompressed ZarrTiffStore.
-- Support writing empty images with tiling.
-- Support overwriting some tag values in NDPI (#137).
-- Support Jetraw compression (experimental).
-- Standardize resolution parameter and property.
-- Deprecate third resolution argument on write (use resolutionunit).
-- Deprecate tuple type compression argument on write (use compressionargs).
-- Deprecate enums in TIFF namespace (use enums from module).
-- Improve default number of threads to write compressed segments (#139).
-- Parse metaseries time values as datetime objects (#143).
-- Increase internal read and write buffers to 256 MB.
-- Convert some warnings to debug messages.
-- Declare all classes final.
-- Add script to generate documentation via Sphinx.
-- Convert docstrings to Google style with Sphinx directives.
-
-2022.5.4
 
 - …
 
