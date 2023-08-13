@@ -1,9 +1,19 @@
 Revisions
 ---------
 
+2023.8.12
+
+- Pass 4996 tests.
+- Support decompressing EER frames.
+- Facilitate filtering logged warnings (#216).
+- Read more tags from UIC1Tag (#217).
+- Fix premature closing of files in main (#218).
+- Don't force matplotlib backend to tkagg in main (#219).
+- Add py.typed marker.
+- Drop support for imagecodecs < 2023.3.16.
+
 2023.7.18
 
-- Pass 4993 tests.
 - Limit threading via TIFFFILE_NUM_THREADS environment variable (#215).
 - Remove maxworkers parameter from tiff2fsspec (breaking).
 
