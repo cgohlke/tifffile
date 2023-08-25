@@ -21793,11 +21793,16 @@ def encode_strips(
         yield from executor.map(encode, strips())
 
 
-def zarr_selection(store: ZarrStore, selection: Any, out: NDArray[Any] | None) -> NDArray[Any]:
+def zarr_selection(store: ZarrStore, selection: Any, out: OutputType) -> NDArray[Any]:
     """Return selection from Zarr store."""
     import zarr
 
     z = zarr.open(store, mode='r')
+
+    shape = zarr.indexing.BasicIndexer(selection, z).shape
+
+    out = create_output(out, shape, z.dtype)
+
     if isinstance(z, zarr.hierarchy.Group):
         result = z[0].get_basic_selection(selection, out=out)
     else:
