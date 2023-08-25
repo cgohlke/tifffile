@@ -1079,7 +1079,7 @@ def imread(
                     )
                     if selection is None:
                         return store
-                    return zarr_selection(store, selection)
+                    return zarr_selection(store, selection, out=out)
                 return tif.asarray(
                     key=key,
                     series=series,
@@ -21793,15 +21793,15 @@ def encode_strips(
         yield from executor.map(encode, strips())
 
 
-def zarr_selection(store: ZarrStore, selection: Any) -> NDArray[Any]:
+def zarr_selection(store: ZarrStore, selection: Any, out: NDArray[Any] | None) -> NDArray[Any]:
     """Return selection from Zarr store."""
     import zarr
 
     z = zarr.open(store, mode='r')
     if isinstance(z, zarr.hierarchy.Group):
-        result = z[0][selection]
+        result = z[0].get_basic_selection(selection, out=out)
     else:
-        result = z[selection]
+        result = z.get_basic_selection(selection, out=out)
     store.close()
     return result
 
