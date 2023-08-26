@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.8.12
+:Version: 2023.8.25
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,7 +66,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0rc, 64-bit
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.5, 3.12rc, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.25.2
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.8.12
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -74,7 +74,7 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.16.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
 - `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.6.0
   (required only for opening ReferenceFileSystem files)
@@ -82,9 +82,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.8.25
+
+- Pass 5003 tests.
+- Verify shaped metadata is compatible with page shape.
+- Support out parameter when returning selection from imread (#222).
+- Support exclusive file creation mode (#221).
+
 2023.8.12
 
-- Pass 4996 tests.
 - Support decompressing EER frames.
 - Facilitate filtering logged warnings (#216).
 - Read more tags from UIC1Tag (#217).
