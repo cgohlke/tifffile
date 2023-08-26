@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.8.12
+:Version: 2023.8.25
 
 """
 
@@ -136,6 +136,7 @@ from tifffile.tifffile import (  # noqa: F401
     byteorder_compare,
     byteorder_isnative,
     bytes2str,
+    check_shape,
     create_output,
     enumarg,
     epics_datetime,
@@ -2667,6 +2668,24 @@ def test_issue_logging_filter(caplog):
     assert 'invalid value offset' in caplog.text
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_wrong_shape(caplog):
+    """Test rewritten file with wrong shape in metadata."""
+    # https://github.com/Kitware/UPennContrast/issues/491
+    fname = private_file('issues/2023_05_23_pw020_ctrl_well1.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_shaped
+        page = tif.pages.first
+        assert '"shape": [1, 1, 4, 1000, 1000]' in page.description
+        assert '"axes": "ZTCYX"' in page.description
+        assert page.shape == (1000, 1000, 4)
+        series = tif.series[0]
+        assert 'shaped series metadata does not match page' in caplog.text
+        assert series.shape == (1000, 1000, 4)  # != (1, 1, 4, 1000, 1000)
+        assert series.axes == 'YXS'  # != 'ZTCYX'
+        assert_array_equal(page.asarray(), series.asarray())
+
+
 class TestExceptions:
     """Test various Exceptions and Warnings."""
 
@@ -4986,6 +5005,36 @@ def test_func_packints_decode():
         assert tuple(decoded) == (3, 0, 2, 6, 1, 1, 4, 3, 3, 1)
 
 
+def test_func_check_shape():
+    """Test check_shape function."""
+    assert check_shape((10, 10, 4), (10, 10, 4))
+    assert check_shape((10, 10, 4), (1, 1, 10, 10, 4))
+    assert not check_shape((4, 10, 10), (10, 10, 4))
+    assert not check_shape((10, 10, 4), (4, 10, 10))
+    assert not check_shape((10, 10, 4), (1, 1, 4, 10, 10))
+
+    assert check_shape((0,), (0, 0))
+    assert check_shape((0, 0), (0,))
+
+    assert check_shape((4,), (4,))
+    assert check_shape((1, 4), (4,))
+    assert check_shape((1, 4), (4, 1))
+    assert check_shape((4, 1), (4, 1))
+    assert check_shape((4, 1), (1, 4, 1))
+    assert check_shape((4, 5), (4, 5, 1))
+    assert check_shape((4, 5), (4, 5, 1, 1))
+    assert check_shape((4, 5), (1, 4, 5, 1))
+
+    assert not check_shape((1,), (0, 0))
+    assert not check_shape((1, 0), (1,))
+    assert not check_shape((4, 1), (1,))
+    assert not check_shape((4, 1), (2,))
+    assert not check_shape((4, 1), (4,))
+    assert not check_shape((4, 1), (2, 2))
+    assert not check_shape((4, 1), (2, 1))
+    assert not check_shape((3, 4, 5), (4, 5, 3))
+
+
 ###############################################################################
 
 # Test FileHandle class
@@ -5280,6 +5329,19 @@ def test_filehandle_fsspec_http():
             assert not fh.is_file
             assert_filehandle(fh)
         assert not fhandle.closed
+
+
+def test_filehandle_exclusive_creation():
+    """Test FileHandle with exclusive creation mode 'x'."""
+    # https://github.com/cgohlke/tifffile/issues/221
+    with TempFileName('test_FileHandle_exclusive', ext='.bin') as fname:
+        if os.path.exists(fname):
+            os.remove(fname)
+        with FileHandle(fname, mode='x'):
+            pass
+        with pytest.raises(FileExistsError):
+            with FileHandle(fname, mode='x'):
+                pass
 
 
 ###############################################################################
@@ -12761,6 +12823,34 @@ def test_read_selection(chunkmode):
         imread(fname, series=1)[51:99, 51:99],
         imread(fname, series=1, selection=(slice(51, 99), slice(51, 99))),
     )
+
+
+@pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
+@pytest.mark.parametrize('out', [None, 'empty', 'memmap', 'name'])
+def test_read_selection_out(out):
+    """Test read selection via imread into out."""
+    # https://github.com/cgohlke/tifffile/pull/222
+    fname = public_file('tifffile/multiscene_pyramidal.ome.tif')
+    selection = (8, slice(16, 17), slice(None), slice(51, 99), slice(51, 99))
+    expected = imread(fname)[8, 16:17, :, 51:99, 51:99]
+    if out is None:
+        # new array
+        image = imread(fname, selection=selection, out=None)
+    elif out == 'empty':
+        # existing array
+        image = numpy.empty_like(expected)
+        imread(fname, selection=selection, out=image)
+    elif out == 'memmap':
+        # memmap in temp dir
+        image = imread(fname, selection=selection, out='memmap')
+        assert isinstance(image, numpy.core.memmap)
+    elif out == 'name':
+        # memmap in specified file
+        with TempFileName('read_selection_out', ext='.memmap') as fileout:
+            image = imread(fname, selection=selection, out=fileout)
+            assert isinstance(image, numpy.core.memmap)
+
+    assert_array_equal(image, expected)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
