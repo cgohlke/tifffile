@@ -5334,15 +5334,16 @@ def test_filehandle_fsspec_http():
 def test_filehandle_exclusive_creation():
     """Test FileHandle with exclusive creation mode 'x'."""
     # https://github.com/cgohlke/tifffile/issues/221
+    image = numpy.zeros((128, 128, 3), dtype='uint8')
     with TempFileName('test_FileHandle_exclusive', ext='.bin') as fname:
         if os.path.exists(fname):
             os.remove(fname)
-        with FileHandle(fname, mode='x'):
-            pass
+        with FileHandle(fname, mode='x') as f:
+            with TiffWriter(f) as tif:
+                tif.write(image)
         with pytest.raises(FileExistsError):
             with FileHandle(fname, mode='x'):
                 pass
-
 
 ###############################################################################
 
