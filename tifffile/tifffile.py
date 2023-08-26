@@ -14091,9 +14091,12 @@ class FileHandle:
             mode += 'b'  # type: ignore
         if mode not in {'rb', 'r+b', 'wb', 'xb'}:
             raise ValueError(f'invalid mode {mode}')
-        self._mode = mode
         self._fh = None
         self._file = file  # reference to original argument for re-opening
+        if isinstance(self._file, FileHandle):
+            self._mode = self._file._mode
+        else:
+            self._mode = mode
         self._name = name if name else ''
         self._dir = ''
         self._offset = -1 if offset is None else offset
