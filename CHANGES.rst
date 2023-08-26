@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2023.8.25
+
+- Pass 5003 tests.
+- Verify shaped metadata is compatible with page shape.
+- Support out parameter when returning selection from imread (#222).
+- Support exclusive file creation mode (#221).
+
 2023.8.12
 
-- Pass 4996 tests.
 - Support decompressing EER frames.
 - Facilitate filtering logged warnings (#216).
 - Read more tags from UIC1Tag (#217).
