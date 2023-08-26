@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.8.12
+:Version: 2023.8.25
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,7 +96,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.4, 3.12.0rc, 64-bit
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.5, 3.12rc, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.25.2
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.8.12
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -104,7 +104,7 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.16.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
 - `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.6.0
   (required only for opening ReferenceFileSystem files)
@@ -112,9 +112,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.8.25
+
+- Pass 5003 tests.
+- Verify shaped metadata is compatible with page shape.
+- Support out parameter when returning selection from imread (#222).
+- Support exclusive file creation mode (#221).
+
 2023.8.12
 
-- Pass 4996 tests.
 - Support decompressing EER frames.
 - Facilitate filtering logged warnings (#216).
 - Read more tags from UIC1Tag (#217).
@@ -786,7 +792,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.8.12'
+__version__ = '2023.8.25'
 
 __all__ = [
     'TiffFile',
@@ -990,7 +996,7 @@ def imread(
             If not None, a Zarr array is created, indexed with the `selection`
             value, and returned as a NumPy array. Only segments that are part
             of the selection will be read from file.
-            Refer to the Zarr documentation for valid indices.
+            Refer to the Zarr documentation for valid selections.
             Depending on selection size, image size, and storage properties,
             it may be more efficient to read the whole image from file and
             then index it.
@@ -1004,18 +1010,18 @@ def imread(
             or :py:meth:`TiffFile.aszarr`.
         imread, container, sort, pattern, axesorder, axestiled, categories,\
         ioworkers:
-            Passed to :py:class:`TiffSequence`.
+            Passed to :py:class:`FileSequence`.
         chunkmode, fillvalue, zattrs, multiscales:
             Passed to :py:class:`ZarrTiffStore`
             or :py:class:`ZarrFileSequenceStore`.
         chunkshape, dtype:
-            Passed to :py:meth:`TiffSequence.asarray` or
+            Passed to :py:meth:`FileSequence.asarray` or
             :py:class:`ZarrFileSequenceStore`.
         out_inplace:
-            Passed to :py:meth:`TiffSequence.asarray`
+            Passed to :py:meth:`FileSequence.asarray`
         out:
-            Passed to :py:meth:`TiffFile.asarray`
-            or :py:meth:`TiffSequence.asarray`.
+            Passed to :py:meth:`TiffFile.asarray`,
+            :py:meth:`FileSequence.asarray`, or :py:func:`zarr_selection`.
         **kwargs:
             Additional arguments passed to :py:class:`TiffFile` or
             :py:attr:`FileSequence.imread`.
@@ -1079,7 +1085,7 @@ def imread(
                     )
                     if selection is None:
                         return store
-                    return zarr_selection(store, selection)
+                    return zarr_selection(store, selection, out=out)
                 return tif.asarray(
                     key=key,
                     series=series,
@@ -1125,7 +1131,7 @@ def imread(
             )
             if selection is None:
                 return store
-            return zarr_selection(store, selection)
+            return zarr_selection(store, selection, out=out)
         return imseq.asarray(
             axestiled=axestiled,
             chunkshape=chunkshape,
@@ -4521,12 +4527,22 @@ class TiffFile:
             # append TiffPageSeries to series
             assert isinstance(pages[0], TiffPage)
             page = pages[0]
-            if axes is None or shape is None:
+            if not check_shape(page.shape, reshape):
+                logger().warning(
+                    f'{self!r} shaped series metadata does not match '
+                    f'page shape {page.shape} != {tuple(reshape)}'
+                )
+                failed = True
+            else:
+                failed = False
+            if failed or axes is None or shape is None:
                 shape = page.shape
                 axes = page.axes
                 if len(pages) > 1:
                     shape = (len(pages),) + shape
                     axes = 'Q' + axes
+                if failed:
+                    reshape = shape
             size = product(shape)
             resize = product(reshape)
             if page.is_contiguous and resize > size and resize % size == 0:
@@ -10174,8 +10190,8 @@ class TiffFrame:
         '_index',
     )
 
-    is_mdgel = False
-    pages = None
+    is_mdgel: bool = False
+    pages: TiffPages | None = None
     # tags = {}
 
     parent: TiffFile
@@ -14062,7 +14078,8 @@ class FileHandle:
         self,
         file: str | os.PathLike[Any] | FileHandle | BinaryIO,
         /,
-        mode: Literal['r', 'r+', 'w', 'rb', 'r+b', 'wb'] | None = None,
+        mode: Literal['r', 'r+', 'w', 'x', 'rb', 'r+b', 'wb', 'xb']
+        | None = None,
         *,
         name: str | None = None,
         offset: int | None = None,
@@ -14072,7 +14089,7 @@ class FileHandle:
             mode = 'rb'
         elif mode[-1] != 'b':
             mode += 'b'  # type: ignore
-        if mode not in {'rb', 'r+b', 'wb'}:
+        if mode not in {'rb', 'r+b', 'wb', 'xb'}:
             raise ValueError(f'invalid mode {mode}')
         self._mode = mode
         self._fh = None
@@ -14116,7 +14133,10 @@ class FileHandle:
                 else:
                     self._name = self._file._name
             if self._mode and self._mode != self._file._mode:
-                raise ValueError('FileHandle has wrong mode')
+                raise ValueError(
+                    'FileHandle has wrong mode '
+                    f'{self._mode!r} != {self._file._mode!r}'
+                )
             self._mode = self._file._mode
             self._dir = self._file._dir
         elif hasattr(self._file, 'seek'):
@@ -21793,16 +21813,53 @@ def encode_strips(
         yield from executor.map(encode, strips())
 
 
-def zarr_selection(store: ZarrStore, selection: Any) -> NDArray[Any]:
-    """Return selection from Zarr store."""
+def zarr_selection(
+    store: ZarrStore,
+    selection: Any,
+    /,
+    *,
+    groupindex: int | None = None,
+    close: bool = True,
+    out: OutputType = None,
+) -> NDArray[Any]:
+    """Return selection from Zarr store.
+
+    Parameters:
+        store:
+            ZarrStore instance to read selection from.
+        selection:
+            Subset of image to be extracted and returned.
+            Refer to the Zarr documentation for valid selections.
+        groupindex:
+            Index of array if store is zarr group.
+        close:
+            Close store before returning.
+        out:
+            Specifies how image array is returned.
+            By default, create a new array.
+            If a *numpy.ndarray*, a writable array to which the images
+            are copied.
+            If *'memmap'*, create a memory-mapped array in a temporary
+            file.
+            If a *string* or *open file*, the file used to create a
+            memory-mapped array.
+
+    """
     import zarr
 
     z = zarr.open(store, mode='r')
-    if isinstance(z, zarr.hierarchy.Group):
-        result = z[0][selection]
-    else:
-        result = z[selection]
-    store.close()
+    try:
+        if isinstance(z, zarr.hierarchy.Group):
+            if groupindex is None:
+                groupindex = 0
+            z = z[groupindex]
+        if out is not None:
+            shape = zarr.indexing.BasicIndexer(selection, z).shape
+            out = create_output(out, shape, z.dtype)
+        result = z.get_basic_selection(selection, out=out)
+    finally:
+        if close:
+            store.close()
     return result
 
 
@@ -22185,6 +22242,38 @@ def order_axes(
     if squeeze:
         order = tuple(i for i in order if diff[i] != 0)
     return order
+
+
+def check_shape(
+    page_shape: Sequence[int], series_shape: Sequence[int]
+) -> bool:
+    """Return if page and series shapes are compatible."""
+    pi = product(page_shape)
+    pj = product(series_shape)
+    if pi == 0 and pj == 0:
+        return True
+    if pi == 0 or pj == 0:
+        return False
+    if pj % pi:
+        return False
+
+    series_shape = tuple(reversed(series_shape))
+    a = 0
+    pi = pj = 1
+    for i in reversed(page_shape):
+        pi *= i
+        # if a == len(series_shape):
+        #     return not pj % pi
+        for j in series_shape[a:]:
+            a += 1
+            pj *= j
+            if i == j or pi == pj:
+                break
+            if j == 1:
+                continue
+            if pj != pi:
+                return False
+    return True
 
 
 @overload
