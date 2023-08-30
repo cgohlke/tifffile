@@ -53,17 +53,16 @@ https://github.com/fsspec/kerchunk/issues/78).
 """
 
 # %%
-import os
 import base64
+import os
 
-import tifffile
+import fsspec
 import imagecodecs.numcodecs
 import matplotlib.pyplot
 import numcodecs
-import fsspec
+import tifffile
 import xarray
 import zarr
-
 
 # %% [markdown]
 """
@@ -523,16 +522,18 @@ Print information about the software used to run this script.
 
 # %%
 def system_info():
-    import sys
     import datetime
-    import numpy
-    import matplotlib
-    import tifffile
-    import imagecodecs
-    import numcodecs
+    import sys
+
     import fsspec
+    import imagecodecs
+    import matplotlib
+    import numcodecs
+    import numpy
     import xarray
     import zarr
+
+    import tifffile
 
     return '\n'.join(
         (
