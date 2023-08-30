@@ -16,8 +16,9 @@ if os.environ.get('SKIP_CODECS', None):
 def pytest_report_header(config, start_path, startdir):
     try:
         from numpy import __version__ as numpy
-        from tifffile import __version__ as tifffile
         from test_tifffile import config
+
+        from tifffile import __version__ as tifffile
 
         try:
             from imagecodecs import __version__ as imagecodecs
