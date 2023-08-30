@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.8.25
+:Version: 2023.8.30
 
 """
 
@@ -220,7 +220,7 @@ SKIP_CODECS = skip('SKIP_CODECS', False)
 SKIP_ZARR = skip('SKIP_ZARR', False)
 SKIP_DASK = skip('SKIP_DASK', False)
 SKIP_NDTIFF = skip('SKIP_NDTIFF', False)
-SKIP_HTTP = skip('SKIP_HTTP', False)
+SKIP_HTTP = skip('SKIP_HTTP', not IS_CG)
 REASON = 'skipped'
 
 MINISBLACK = TIFF.PHOTOMETRIC.MINISBLACK
@@ -263,7 +263,7 @@ URL = 'http://localhost:8386/'  # TEMP_DIR
 
 if not SKIP_HTTP:
     try:
-        urllib.request.urlopen(URL + '/test/test.txt', timeout=0.2)
+        urllib.request.urlopen(URL + '/test/test.txt', timeout=0.5)
     except (urllib.error.URLError, TimeoutError):
         SKIP_HTTP = True
 
@@ -299,6 +299,7 @@ if SKIP_DASK:
 else:
     try:
         import dask  # type: ignore
+        import dask.array
     except ImportError:
         dask = None
         SKIP_DASK = True
@@ -1562,8 +1563,6 @@ def test_issue_predictor_byteorder():
 def test_issue_dask_multipage(truncate, chunkmode):
     """Test multi-threaded access of memory-mapable, multi-page Zarr stores."""
     # https://github.com/cgohlke/tifffile/issues/67#issuecomment-908529425
-    import dask.array
-
     data = numpy.arange(5 * 99 * 101, dtype=numpy.uint16).reshape((5, 99, 101))
     with TempFileName(
         f'test_issue_dask_multipage_{int(truncate)}_{int(truncate)}'
@@ -1721,7 +1720,7 @@ def test_issue_imagej_metadatabytecounts():
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
-def test_issue_description_bytes(caplog):
+def test_issue_description_bytes():
     """Test read file with imagedescription bytes."""
     # https://github.com/cgohlke/tifffile/issues/112
     with TempFileName('issue_description_bytes') as fname:
@@ -2596,7 +2595,7 @@ def test_issue_invalid_predictor(caplog):
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
-def test_issue_ome_missing_frames(caplog):
+def test_issue_ome_missing_frames():
     """Test read OME TIFF with missing pages at end."""
     # https://github.com/cgohlke/tifffile/issues/199
     fname = private_file('issues/stack_t24_y2048_x2448.tiff')
@@ -2684,6 +2683,21 @@ def test_issue_wrong_shape(caplog):
         assert series.shape == (1000, 1000, 4)  # != (1, 1, 4, 1000, 1000)
         assert series.axes == 'YXS'  # != 'ZTCYX'
         assert_array_equal(page.asarray(), series.asarray())
+
+
+def test_issue_exclusive_creation():
+    """Test TiffWriter with exclusive creation mode 'x'."""
+    # https://github.com/cgohlke/tifffile/pull/223
+    with TempFileName('issue_exclusive_creation') as fname:
+        if os.path.exists(fname):
+            os.remove(fname)
+        with FileHandle(fname, mode='x') as fh:
+            assert fh._mode == 'xb'
+            with TiffWriter(fh) as tif:
+                tif.write(shape=(32, 32), dtype=numpy.uint8)
+        with pytest.raises(FileExistsError):
+            with FileHandle(fname, mode='x'):
+                pass
 
 
 class TestExceptions:
@@ -10293,7 +10307,7 @@ def test_read_ome_corrupted_page(caplog):
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
-def test_read_ome_nikon(caplog):
+def test_read_ome_nikon():
     """Test read bad OME by Nikon."""
     # OME-XML references only first image
     # received from E. Gratton
@@ -12135,7 +12149,7 @@ def test_read_mmstack_mosaic(caplog):
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
-def test_read_mmstack_single(caplog):
+def test_read_mmstack_single():
     """Test read MicroManager single-file multi-region dataset."""
     fname = private_file(
         'MMStack/181003_multi_pos_time_course_1_MMStack.ome.tif'
@@ -12806,22 +12820,34 @@ def test_read_selection(chunkmode):
     # series 0
     assert_array_equal(
         imread(fname)[8, 16:17, :, 51:99, 51:99],
-        imread(fname, selection=selection),
+        imread(fname, selection=selection, chunkmode=chunkmode),
     )
     # level 1
     assert_array_equal(
         imread(fname, series=0, level=1)[8, 16:17, :, 51:99, 51:99],
-        imread(fname, series=0, level=1, selection=selection),
+        imread(
+            fname, series=0, level=1, selection=selection, chunkmode=chunkmode
+        ),
     )
     # page 99
     assert_array_equal(
         imread(fname, key=99)[51:99, 51:99],
-        imread(fname, key=99, selection=(slice(51, 99), slice(51, 99))),
+        imread(
+            fname,
+            key=99,
+            selection=(slice(51, 99), slice(51, 99)),
+            chunkmode=chunkmode,
+        ),
     )
     # series 1
     assert_array_equal(
         imread(fname, series=1)[51:99, 51:99],
-        imread(fname, series=1, selection=(slice(51, 99), slice(51, 99))),
+        imread(
+            fname,
+            series=1,
+            selection=(slice(51, 99), slice(51, 99)),
+            chunkmode=chunkmode,
+        ),
     )
 
 
@@ -18191,6 +18217,62 @@ def test_write_geotiff_copy():
                 assert_array_equal(tif.asarray(), geotiff.asarray())
 
 
+@pytest.mark.parametrize('ext', ['', 'b'])
+def test_write_open_mode(ext):
+    """Test TiffWriter with file open modes."""
+    data = numpy.random.randint(0, 255, (5, 31, 21), numpy.uint8)
+    with TempFileName('test_write_open_mode' + ext) as fname:
+        # write
+        imwrite(fname, data, mode='w' + ext)
+        assert_array_equal(imread(fname), data)
+        # exclusive creation
+        with pytest.raises(FileExistsError):
+            imwrite(fname, data, mode='x' + ext)
+        os.remove(fname)
+        imwrite(fname, data, mode='x' + ext)
+        assert_array_equal(imread(fname), data)
+        # append
+        imwrite(fname, data, mode='r+' + ext)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 10
+            assert len(tif.series) == 2
+            assert_array_equal(tif.series[0].asarray(), data)
+            assert_array_equal(tif.series[1].asarray(), data)
+
+        # write to file handle
+        with FileHandle(fname, mode='w' + ext) as fh:
+            imwrite(fh, data, mode='ignored')
+        assert_array_equal(imread(fname), data)
+        # exclusive creation with file handle
+        with pytest.raises(FileExistsError):
+            with FileHandle(fname, mode='x' + ext) as fh:
+                pass
+        os.remove(fname)
+        with FileHandle(fname, mode='x' + ext) as fh:
+            imwrite(fh, data, mode='ignored' + ext)
+            assert not fh.closed
+            fh.seek(0)
+            with pytest.raises(OSError):  # io.UnsupportedOperation
+                fh.read(8)
+        assert_array_equal(imread(fname), data)
+        # append to file handle
+        with FileHandle(fname, mode='r+' + ext) as fh:
+            imwrite(fh, data, mode='ignored')
+            assert not fh.closed
+            fh.seek(0)
+            with TiffFile(fh) as tif:
+                assert len(tif.pages) == 10
+                assert len(tif.series) == 2
+                assert_array_equal(tif.series[0].asarray(), data)
+                assert_array_equal(tif.series[1].asarray(), data)
+
+        with pytest.raises(ValueError):
+            imwrite(fname, data, mode=ext)
+
+        with pytest.raises(ValueError):
+            imwrite(fname, data, mode='w' + ext, append=True)
+
+
 ###############################################################################
 
 # Test embedded TIFF files
@@ -19041,7 +19123,6 @@ def test_dependent_kerchunk():
     # https://github.com/fsspec/kerchunk/blob/main/kerchunk/tests/test_tiff.py
     try:
         import kerchunk.tiff
-        import pathlib
     except ImportError:
         pytest.skip('kerchunk or dependencies missing')
 
