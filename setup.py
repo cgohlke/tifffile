@@ -2,8 +2,8 @@
 
 """Tifffile package Setuptools script."""
 
-import sys
 import re
+import sys
 
 from setuptools import setup
 
