@@ -36,25 +36,24 @@ from __future__ import annotations
 __all__ = ['register_codec', 'Tiff']
 
 from io import BytesIO
+from typing import TYPE_CHECKING, Any
 
 from numcodecs import registry
 from numcodecs.abc import Codec
 
-from .tifffile import TiffWriter, TiffFile
-
-from typing import TYPE_CHECKING, Any
+from .tifffile import TiffFile, TiffWriter
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from .tifffile import (
-        ByteOrder,
-        TagTuple,
+        COMPRESSION,
+        EXTRASAMPLE,
         PHOTOMETRIC,
         PLANARCONFIG,
-        EXTRASAMPLE,
-        COMPRESSION,
         PREDICTOR,
+        ByteOrder,
+        TagTuple,
     )
 
 
