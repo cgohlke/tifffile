@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.8.25
+:Version: 2023.8.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -112,12 +112,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.8.30
+
+- Pass 5007 tests.
+- Support exclusive file creation mode (#221, #223).
+
 2023.8.25
 
-- Pass 5003 tests.
 - Verify shaped metadata is compatible with page shape.
 - Support out parameter when returning selection from imread (#222).
-- Support exclusive file creation mode (#221).
 
 2023.8.12
 
@@ -792,7 +795,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.8.25'
+__version__ = '2023.8.30'
 
 __all__ = [
     'TiffFile',
@@ -1151,6 +1154,7 @@ def imwrite(
     | Iterator[bytes]
     | None = None,
     *,
+    mode: Literal['w', 'x', 'r+'] | None = None,
     bigtiff: bool | None = None,
     byteorder: ByteOrder | None = None,
     imagej: bool = False,
@@ -1201,7 +1205,7 @@ def imwrite(
             Passed to :py:class:`TiffWriter`.
         data, shape, dtype:
             Passed to :py:meth:`TiffWriter.write`.
-        append, byteorder, bigtiff, imagej, ome, shaped:
+        mode, append, byteorder, bigtiff, imagej, ome, shaped:
             Passed to :py:class:`TiffWriter`.
         photometric, planarconfig, extrasamples, volumetric, tile,\
         rowsperstrip, bitspersample, compression, compressionargs, predictor,\
@@ -1247,6 +1251,7 @@ def imwrite(
 
     with TiffWriter(
         file,
+        mode=mode,
         bigtiff=bigtiff,
         byteorder=byteorder,
         append=append,
@@ -1339,8 +1344,8 @@ def memmap(
         level:
             Index of pyramid level which image data to memory-map.
         mode:
-            File open mode. Default is to open existing file for reading
-            and writing ('r+').
+            Memory-map file open mode. The default is 'r+', which opens
+            existing file for reading and writing.
         **kwargs:
             Additional arguments passed to :py:func:`imwrite` or
             :py:class:`TiffFile`.
@@ -1411,9 +1416,12 @@ class TiffWriter:
     Parameters:
         file:
             Specifies file to write.
-            An empty TIFF file is created if the file does not exist, else
-            the file is overwritten with an empty TIFF file unless `append`
-            is enabled.
+        mode:
+            Binary file open mode if `file` is file name.
+            The default is 'w', which opens files for writing, truncating
+            existing files.
+            'x' opens files for exclusive creation, failing on existing files.
+            'r+' opens files for updating, enabling `append`.
         bigtiff:
             Write 64-bit BigTIFF formatted file, which can exceed 4 GB.
             By default, a classic 32-bit TIFF file is written, which is
@@ -1425,8 +1433,9 @@ class TiffWriter:
         append:
             If `file` is existing standard TIFF file, append image data
             and tags to file.
-            This does not scale well with the number of pages already in the
-            file and may corrupt specifically formatted TIFF files such as
+            Parameters `bigtiff` and `byteorder` set from existing file.
+            Appending does not scale well with the number of pages already in
+            the file and may corrupt specifically formatted TIFF files such as
             OME-TIFF, LSM, STK, ImageJ, or FluoView.
         imagej:
             Write ImageJ hyperstack compatible file if `ome` is not enabled.
@@ -1493,6 +1502,7 @@ class TiffWriter:
         file: str | os.PathLike[Any] | FileHandle | BinaryIO,
         /,
         *,
+        mode: Literal['w', 'x', 'r+'] | None = None,
         bigtiff: bool = False,
         byteorder: ByteOrder | None = None,
         append: bool | str = False,
@@ -1500,6 +1510,11 @@ class TiffWriter:
         ome: bool | None = None,
         shaped: bool | None = None,
     ) -> None:
+        if mode in {'r+', 'r+b'} or (
+            isinstance(file, FileHandle) and file._mode == 'r+b'
+        ):
+            mode = 'r+'
+            append = True
         if append:
             # determine if file is an existing TIFF file that can be extended
             try:
@@ -1521,6 +1536,13 @@ class TiffWriter:
                     append = True
             except (OSError, FileNotFoundError):
                 append = False
+
+        if append:
+            if mode not in {None, 'r+', 'r+b'}:
+                raise ValueError("append mode must be 'r+'")
+            mode = 'r+'
+        elif mode is None:
+            mode = 'w'
 
         if byteorder in {None, '=', '|'}:
             byteorder = '<' if sys.byteorder == 'little' else '>'
@@ -1550,11 +1572,10 @@ class TiffWriter:
         self._omexml = None
         self._storedshape = None
 
+        self._fh = FileHandle(file, mode=mode, size=0)
         if append:
-            self._fh = FileHandle(file, mode='r+b', size=0)
             self._fh.seek(0, os.SEEK_END)
         else:
-            self._fh = FileHandle(file, mode='wb', size=0)
             self._fh.write({'<': b'II', '>': b'MM'}[byteorder])
             if bigtiff:
                 self._fh.write(struct.pack(byteorder + 'HHH', 43, 8, 0))
@@ -3932,9 +3953,9 @@ class TiffFile:
             Specifies TIFF file to read.
             Open file objects must be positioned at the TIFF header.
         mode:
-            File open mode in case `file` is file name. The default is 'rb'.
+            File open mode if `file` is file name. The default is 'rb'.
         name:
-            Name of file in case `file` is file handle.
+            Name of file if `file` is file handle.
         offset:
             Start position of embedded file.
             The default is the current file position.
@@ -14036,10 +14057,10 @@ class FileHandle:
             File name or seekable binary stream, such as open file,
             BytesIO, or fsspec OpenFile.
         mode:
-            File open mode in case `file` is file name.
+            File open mode if `file` is file name.
             The default is 'rb'. Files are always opened in binary mode.
         name:
-            Name of file in case `file` is binary stream.
+            Name of file if `file` is binary stream.
         offset:
             Start position of embedded file.
             The default is the current file position.
@@ -14085,13 +14106,7 @@ class FileHandle:
         offset: int | None = None,
         size: int | None = None,
     ) -> None:
-        if mode is None:
-            mode = 'rb'
-        elif mode[-1] != 'b':
-            mode += 'b'  # type: ignore
-        if mode not in {'rb', 'r+b', 'wb', 'xb'}:
-            raise ValueError(f'invalid mode {mode}')
-        self._mode = mode
+        self._mode = 'rb' if mode is None else mode
         self._fh = None
         self._file = file  # reference to original argument for re-opening
         self._name = name if name else ''
@@ -14113,6 +14128,10 @@ class FileHandle:
 
         if isinstance(self._file, str):
             # file name
+            if self._mode[-1:] != 'b':
+                self._mode += 'b'  # type: ignore
+            if self._mode not in {'rb', 'r+b', 'wb', 'xb'}:
+                raise ValueError(f'invalid mode {self._mode}')
             self._file = os.path.realpath(self._file)
             self._dir, self._name = os.path.split(self._file)
             self._fh = open(
@@ -14132,11 +14151,6 @@ class FileHandle:
                     self._name = f'{name}@{self._offset}{ext}'
                 else:
                     self._name = self._file._name
-            if self._mode and self._mode != self._file._mode:
-                raise ValueError(
-                    'FileHandle has wrong mode '
-                    f'{self._mode!r} != {self._file._mode!r}'
-                )
             self._mode = self._file._mode
             self._dir = self._file._dir
         elif hasattr(self._file, 'seek'):
@@ -14218,6 +14232,16 @@ class FileHandle:
                 # PermissionError on MacOS. See issue #184
                 pass
             self._fh = None
+
+    def fileno(self) -> int:
+        """Return underlying file descriptor if exists, else raise OSError."""
+        assert self._fh is not None
+        try:
+            return self._fh.fileno()
+        except (OSError, AttributeError) as exc:
+            raise OSError(
+                f'{type(self._fh)} does not have a file descriptor'
+            ) from exc
 
     def writable(self) -> bool:
         """Return True if stream supports writing."""
@@ -14648,27 +14672,28 @@ class FileHandle:
         self.close()
         self._file = None
 
-    def __getattr__(self, name: str, /) -> Any:
-        """Return attribute from underlying file object."""
-        if self._offset:
-            warnings.warn(
-                '<tifffile.FileHandle> '
-                f'{name} not implemented for embedded files',
-                UserWarning,
-            )
-        return getattr(self._fh, name)
+    # TODO: this may crash the Python interpreter under certain conditions
+    # def __getattr__(self, name: str, /) -> Any:
+    #     """Return attribute from underlying file object."""
+    #     if self._offset:
+    #         warnings.warn(
+    #             '<tifffile.FileHandle> '
+    #             f'{name} not implemented for embedded files',
+    #             UserWarning,
+    #         )
+    #     return getattr(self._fh, name)
 
     def __repr__(self) -> str:
-        return f'<tifffile.FileHandle {snipstr(self.name, 32)!r}>'
+        return f'<tifffile.FileHandle {snipstr(self._name, 32)!r}>'
 
     def __str__(self) -> str:
         return '\n '.join(
             (
                 'FileHandle',
-                self.name,
-                self.dirname,
-                f'{self.size} bytes',
-                'closed' if self.closed else 'open',
+                self._name,
+                self._dir,
+                f'{self._size} bytes',
+                'closed' if self._fh is None else 'open',
             )
         )
 
@@ -20341,7 +20366,7 @@ def imagej_metadata_tag(
                 Human-readable label for each image.
             'Ranges' (Sequence[float]):
                 Lower and upper values for each channel.
-            'LUTs' (Sequence[numpy.ndarray[(3, 256), 'uint8']]):
+            'LUTs' (list[numpy.ndarray[(3, 256), 'uint8']]):
                 Color palettes for each channel.
             'Plot' (bytes):
                 Undocumented ImageJ internal format.
@@ -20454,7 +20479,7 @@ def imagej_metadata(
                 Human-readable labels for each channel.
             'Ranges' (Sequence[float]):
                 Lower and upper values for each channel.
-            'LUTs' (Sequence[numpy.ndarray[(3, 256), 'uint8']]):
+            'LUTs' (list[numpy.ndarray[(3, 256), 'uint8']]):
                 Color palettes for each channel.
             'Plot' (bytes):
                 Undocumented ImageJ internal format.
