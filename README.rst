@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.8.25
+:Version: 2023.8.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -82,12 +82,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2023.8.30
+
+- Pass 5007 tests.
+- Support exclusive file creation mode (#221, #223).
+
 2023.8.25
 
-- Pass 5003 tests.
 - Verify shaped metadata is compatible with page shape.
 - Support out parameter when returning selection from imread (#222).
-- Support exclusive file creation mode (#221).
 
 2023.8.12
 
