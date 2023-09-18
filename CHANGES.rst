@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2023.9.18
+
+- Pass 5025 tests.
+- Raise exception when writing non-volume data with volumetric tiles (#225).
+- Improve multi-threaded writing of compressed multi-page files.
+- Fix fsspec reference for big-endian files with predictors.
+
 2023.8.30
 
-- Pass 5007 tests.
 - Support exclusive file creation mode (#221, #223).
 
 2023.8.25
