@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.8.30
+:Version: 2023.9.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,23 +98,29 @@ This revision was tested with the following requirements and dependencies
 
 - `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.5, 3.12rc, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.25.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.8.12
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.4
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.2
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.3
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.6.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.1
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.9.18
+
+- Pass 5025 tests.
+- Raise exception when writing non-volume data with volumetric tiles (#225).
+- Improve multi-threaded writing of compressed multi-page files.
+- Fix fsspec reference for big-endian files with predictors.
+
 2023.8.30
 
-- Pass 5007 tests.
 - Support exclusive file creation mode (#221, #223).
 
 2023.8.25
@@ -795,7 +801,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.8.30'
+__version__ = '2023.9.18'
 
 __all__ = [
     'TiffFile',
@@ -2324,14 +2330,15 @@ class TiffWriter:
 
         if tile:
             # verify tile shape
-            tile = tuple(int(i) for i in tile[:3])
+
             if (
-                len(tile) < 2
+                not 1 < len(tile) < 4
                 or tile[-1] % 16
                 or tile[-2] % 16
                 or any(i < 1 for i in tile)
             ):
-                raise ValueError('invalid tile shape')
+                raise ValueError(f'invalid tile shape {tile}')
+            tile = tuple(int(i) for i in tile)
             if volumetric and len(tile) == 2:
                 tile = (1,) + tile
             volumetric = len(tile) == 3
@@ -2535,6 +2542,12 @@ class TiffWriter:
                 if volumetric:
                     storedshape.depth = shape[-4]
                 storedshape.extrasamples = storedshape.samples - 1
+
+        if not volumetric and tile and len(tile) == 3 and tile[0] > 1:
+            raise ValueError(
+                f'<tifffile.TiffWriter.write> cannot write {storedshape!r} '
+                f'using volumetric tiles {tile}'
+            )
 
         if subfiletype is not None and subfiletype & 0b100:
             # FILETYPE_MASK
@@ -3056,6 +3069,14 @@ class TiffWriter:
             ):
                 # issue 185
                 compressionaxis = -1
+            if (
+                hasattr(iteritem, 'dtype')
+                and iteritem.dtype.char != datadtype.char
+            ):
+                raise ValueError(
+                    f'dtype of iterator {iteritem.dtype!r} '
+                    f'does not match dtype {datadtype!r}'
+                )
 
         if bilevel:
             if compressiontag == 1:
@@ -3142,6 +3163,59 @@ class TiffWriter:
             compressionfunc = None
 
         del compression
+        if not contiguous and not bytesiter and compressionfunc is not None:
+            # create iterator of encoded tiles or strips
+            bytesiter = True
+            if tile:
+                # dataiter yields tiles
+                tileshape = tile + (storedshape.contig_samples,)
+                tilesize = product(tileshape) * datadtype.itemsize
+                maxworkers = TiffWriter._maxworkers(
+                    maxworkers,
+                    numtiles * storedshape.frames,
+                    tilesize,
+                    compressiontag,
+                )
+                # yield encoded tiles
+                dataiter = encode_chunks(
+                    numtiles * storedshape.frames,
+                    dataiter,
+                    compressionfunc,
+                    tileshape,
+                    datadtype,
+                    maxworkers,
+                    None,
+                )
+            else:
+                # dataiter yields frames
+                maxworkers = TiffWriter._maxworkers(
+                    maxworkers,
+                    numstrips * storedshape.frames,
+                    stripsize,
+                    compressiontag,
+                )
+                # yield strips
+                dataiter = iter_strips(
+                    dataiter,
+                    storedshape.page_shape,
+                    datadtype,
+                    rowsperstrip,
+                )
+                # yield encoded strips
+                dataiter = encode_chunks(
+                    numstrips * storedshape.frames,
+                    dataiter,
+                    compressionfunc,
+                    (
+                        rowsperstrip,
+                        storedshape.width,
+                        storedshape.contig_samples,
+                    ),
+                    datadtype,
+                    maxworkers,
+                    None,
+                    False,
+                )
 
         fhpos = fh.tell()
         # commented out to allow image data beyond 4GB in classic TIFF
@@ -3278,114 +3352,41 @@ class TiffWriter:
                 else:
                     fh.write_array(dataarray)
 
+            elif bytesiter:
+                # write tiles or strips
+                for chunkindex in range(numtiles if tile else numstrips):
+                    iteritem = cast(bytes, next(dataiter))
+                    # assert isinstance(iteritem, bytes)
+                    databytecounts[chunkindex] = len(iteritem)
+                    fh.write(iteritem)
+                    del iteritem
+
             elif tile:
-                # write tiles
+                # write uncompressed tiles
                 tileshape = tile + (storedshape.contig_samples,)
                 tilesize = product(tileshape) * datadtype.itemsize
-
-                if dataiter is None:
-                    # empty data
-                    fh.write_empty(numtiles * tilesize)
-
-                elif bytesiter:
-                    # tiles as bytes
-                    for tileindex in range(numtiles):
-                        iteritem = cast(bytes, next(dataiter))
-                        # assert isinstance(iteritem, bytes)
-                        databytecounts[tileindex] = len(iteritem)
-                        fh.write(iteritem)
-                        del iteritem
-
-                elif compressionfunc is not None:
-                    # compressed tiles
-                    maxworkers = TiffWriter._maxworkers(
-                        maxworkers, numtiles, tilesize, compressiontag
-                    )
-                    for tileindex, chunk in enumerate(
-                        encode_tiles(
-                            numtiles,
-                            dataiter,
-                            compressionfunc,
-                            tileshape,
-                            datadtype,
-                            maxworkers,
-                            None,
-                        )
-                    ):
-                        fh.write(chunk)
-                        databytecounts[tileindex] = len(chunk)
-                        del chunk
-
-                else:
-                    # uncompressed tiles
-                    for tileindex in range(numtiles):
-                        iteritem = next(dataiter)
-                        if iteritem is None:
-                            databytecounts[tileindex] = 0
-                            # fh.write_empty(tilesize)
-                            continue
-                        # assert not isinstance(iteritem, bytes)
-                        iteritem = cast(numpy.ndarray, iteritem)
-                        if iteritem.nbytes != tilesize:
-                            if iteritem.dtype != datadtype:
-                                raise ValueError(
-                                    'dtype of tile does not match data'
-                                )
-                            if iteritem.nbytes > tilesize:
-                                raise ValueError('tile is too large')
-                            pad = tuple(
-                                (0, i - j)
-                                for i, j in zip(tileshape, iteritem.shape)
-                            )
-                            iteritem = numpy.pad(iteritem, pad)
-                        fh.write_array(iteritem)
-                        del iteritem
-
-            elif compressionfunc is not None and dataiter is not None:
-                # write one strip per rowsperstrip
-                iteritem = next(dataiter)
-
-                if isinstance(iteritem, bytes):
-                    # iterator contains encoded strips
-                    fh.write(iteritem)
-                    databytecounts[0] = len(iteritem)
-                    for stripindex in range(1, numstrips):
-                        iteritem = next(dataiter)
-                        assert isinstance(iteritem, bytes)
-                        fh.write(iteritem)
-                        databytecounts[stripindex] = len(iteritem)
-                        del iteritem
-
-                else:
-                    # iterator contains array data of pages
+                for tileindex in range(numtiles):
+                    iteritem = next(dataiter)
                     if iteritem is None:
-                        pagedata = numpy.zeros(
-                            storedshape.page_shape, datadtype
-                        )
-                    else:
-                        # array
-                        pagedata = iteritem.reshape(storedshape.page_shape)
-                        del iteritem
-                        if pagedata.dtype != datadtype:
+                        databytecounts[tileindex] = 0
+                        # fh.write_empty(tilesize)
+                        continue
+                    # assert not isinstance(iteritem, bytes)
+                    iteritem = cast(numpy.ndarray, iteritem)
+                    if iteritem.nbytes != tilesize:
+                        if iteritem.dtype != datadtype:
                             raise ValueError(
-                                f'dtype of iterator {pagedata.dtype!r} '
-                                f'does not match dtype {datadtype!r}'
+                                'dtype of tile does not match data'
                             )
-                    maxworkers = TiffWriter._maxworkers(
-                        maxworkers, numstrips, stripsize, compressiontag
-                    )
-                    for stripindex, chunk in enumerate(
-                        encode_strips(
-                            pagedata,
-                            compressionfunc,
-                            rowsperstrip,
-                            maxworkers,
+                        if iteritem.nbytes > tilesize:
+                            raise ValueError('tile is too large')
+                        pad = tuple(
+                            (0, i - j)
+                            for i, j in zip(tileshape, iteritem.shape)
                         )
-                    ):
-                        fh.write(chunk)
-                        databytecounts[stripindex] = len(chunk)
-                        del chunk
-                    del pagedata
+                        iteritem = numpy.pad(iteritem, pad)
+                    fh.write_array(iteritem)
+                    del iteritem
 
             else:
                 raise RuntimeError('unreachable code')
@@ -4257,10 +4258,14 @@ class TiffFile:
             pages = [pages[int(key)]]
         elif isinstance(key, slice):
             pages = pages[key]
-        elif isinstance(key, collections.abc.Iterable):
+        elif isinstance(key, collections.abc.Iterable) and not isinstance(
+            key, str
+        ):
             pages = [pages[k] for k in key]
         else:
-            raise TypeError('key must be an int, slice, or sequence')
+            raise TypeError(
+                f'key must be an integer, slice, or sequence, not {type(key)}'
+            )
 
         if pages is None or len(pages) == 0:
             raise ValueError('no pages selected')
@@ -6268,10 +6273,10 @@ class TiffFile:
         self._lsm_fix_strip_bytecounts()
         # assign keyframes for data and thumbnail series
         keyframe = self.pages.first
-        for page in pages[::2]:
+        for page in pages.pages[::2]:
             page.keyframe = keyframe
         keyframe = cast(TiffPage, pages[1])
-        for page in pages[1::2]:
+        for page in pages.pages[1::2]:
             page.keyframe = keyframe
 
     def _lsm_fix_strip_offsets(self) -> None:
@@ -7217,6 +7222,8 @@ class TiffPages:
         and added to the cache.
 
         """
+        if not isinstance(index, (int, numpy.integer)):
+            raise TypeError(f'indices must be integers, not {type(index)}')
         index = int(index)
         if index < 0:
             index %= len(self)
@@ -7491,13 +7498,6 @@ class TiffPages:
 
         if key is None:
             key = iter(range(len(self)))
-        elif isinstance(key, collections.abc.Iterable):
-            key = iter(key)
-        elif isinstance(key, slice):
-            start, stop, _ = key.indices(2**31 - 1)
-            if not self._indexed and max(stop, start) > len(self.pages):
-                self._seek(-1)
-            key = iter(range(*key.indices(len(self.pages))))
         elif isinstance(key, (int, numpy.integer)):
             # return single TiffPage
             key = int(key)
@@ -7508,8 +7508,17 @@ class TiffPages:
                 return [getitem(key)]
             finally:
                 self.useframes = _useframes
+        elif isinstance(key, slice):
+            start, stop, _ = key.indices(2**31 - 1)
+            if not self._indexed and max(stop, start) > len(self.pages):
+                self._seek(-1)
+            key = iter(range(*key.indices(len(self.pages))))
+        elif isinstance(key, collections.abc.Iterable):
+            key = iter(key)
         else:
-            raise TypeError('key must be an integer, slice, or iterable')
+            raise TypeError(
+                f'key must be an integer, slice, or iterable, not {type(key)}'
+            )
 
         # use first page as keyframe
         assert self._keyframe is not None
@@ -8679,7 +8688,7 @@ class TiffPage:
 
             if (self.bitspersample * stwidth * samples) % 8:
                 raise ValueError('data and sample size mismatch')
-            if self.predictor == 3:  # PREDICTOR.FLOATINGPOINT
+            if self.predictor in {3, 34894, 34895}:  # PREDICTOR.FLOATINGPOINT
                 # floating-point horizontal differencing decoder needs
                 # raw byte order
                 dtype = numpy.dtype(self._dtype.char)
@@ -12135,7 +12144,9 @@ class TiffPageSeries:
             return self._getitem(int(key))
         if isinstance(key, slice):
             return [self._getitem(i) for i in range(*key.indices(self._len))]
-        if isinstance(key, collections.abc.Iterable):
+        if isinstance(key, collections.abc.Iterable) and not isinstance(
+            key, str
+        ):
             return [self._getitem(k) for k in key]
         raise TypeError('key must be an integer, slice, or iterable')
 
@@ -12669,17 +12680,24 @@ class ZarrTiffStore(ZarrStore):
             if keyframe.sampleformat not in {1, 2, 3, 6}:
                 # TODO: support float24 and cint via filters?
                 raise ValueError(f'{keyframe.sampleformat!r} is' + errormsg)
-            if keyframe.bitspersample not in {
-                8,
-                16,
-                32,
-                64,
-                128,
-            } and keyframe.compression not in {
-                7,
-                33007,
-                34892,
-            }:  # JPEG
+            if (
+                keyframe.bitspersample
+                not in {
+                    8,
+                    16,
+                    32,
+                    64,
+                    128,
+                }
+                and keyframe.compression
+                not in {
+                    # JPEG
+                    7,
+                    33007,
+                    34892,
+                }
+                and compressors[keyframe.compression] != 'imagecodecs_eer'
+            ):
                 raise ValueError(
                     f'BitsPerSample {keyframe.bitspersample} is' + errormsg
                 )
@@ -12847,6 +12865,8 @@ class ZarrTiffStore(ZarrStore):
                         }
                     elif codec_id is not None:
                         value['compressor'] = {'id': codec_id}
+                    if byteorder is not None:
+                        value['dtype'] = byteorder + value['dtype'][1:]
                     if keyframe.predictor > 1:
                         # predictors need access to chunk shape and dtype
                         # requires imagecodecs > 2021.8.26 to read
@@ -12876,8 +12896,6 @@ class ZarrTiffStore(ZarrStore):
                                 'dtype': value['dtype'],
                             }
                         ]
-                    if byteorder is not None:
-                        value['dtype'] = byteorder + value['dtype'][1:]
                     value = ZarrStore._json(value)
 
                 refzarr[groupname + key] = value.decode()
@@ -13582,10 +13600,12 @@ class FileSequence:
 
         if container:
             # redefine imread to read from container
-            def imread(fname: str, imread=imread, **kwargs) -> NDArray[Any]:
+            def imread_(fname: str, _imread=imread, **kwargs) -> NDArray[Any]:
                 with self._container.open(fname) as handle1:
                     with io.BytesIO(handle1.read()) as handle2:
-                        return imread(handle2, **kwargs)
+                        return _imread(handle2, **kwargs)
+
+            imread = imread_
 
         if parse is None and kwargs.get('pattern', None):
             parse = parse_filenames
@@ -21677,8 +21697,35 @@ def iter_images(data: NDArray[Any], /) -> Iterator[NDArray[Any]]:
     yield from data
 
 
+def iter_strips(
+    pageiter: Iterator[NDArray[Any] | None],
+    shape: tuple[int, ...],
+    dtype: numpy.dtype[Any],
+    rowsperstrip: int,
+    /,
+) -> Iterator[NDArray[Any]]:
+    """Return iterator over strips in pages."""
+    numstrips = (shape[-3] + rowsperstrip - 1) // rowsperstrip
+
+    for iteritem in pageiter:
+        if iteritem is None:
+            # for _ in range(numstrips):
+            #     yield None
+            # continue
+            pagedata = numpy.zeros(shape, dtype)
+        else:
+            pagedata = iteritem.reshape(shape)
+        for plane in pagedata:
+            for depth in plane:
+                for i in range(numstrips):
+                    yield depth[i * rowsperstrip : (i + 1) * rowsperstrip]
+
+
 def iter_tiles(
-    data: NDArray[Any], tile: tuple[int, ...], tiles: tuple[int, ...], /
+    data: NDArray[Any],
+    tile: tuple[int, ...],
+    tiles: tuple[int, ...],
+    /,
 ) -> Iterator[NDArray[Any]]:
     """Return iterator over tiles in data array of normalized shape."""
     if not 1 < len(tile) < 4:
@@ -21722,120 +21769,84 @@ def iter_tiles(
                                 yield chunk
 
 
-def encode_tiles(
-    numtiles: int,
-    tileiter: Iterator[NDArray[Any] | bytes | None],
+def encode_chunks(
+    numchunks: int,
+    chunkiter: Iterator[NDArray[Any] | None],
     encode: Callable[[NDArray[Any]], bytes],
     shape: Sequence[int],
     dtype: numpy.dtype[Any],
     maxworkers: int | None,
     buffersize: int | None,
+    istile: bool = True,
     /,
 ) -> Iterator[bytes]:
-    """Return iterator over encoded tiles."""
-    if numtiles <= 0:
+    """Return iterator over encoded chunks."""
+    if numchunks <= 0:
         return
 
-    numtiles -= 1
-    tile = next(tileiter)
-    if isinstance(tile, bytes):
-        # pre-encoded
-        yield tile
-        for _ in range(numtiles):
-            tile = next(tileiter)
-            # assert isinstance(tile, bytes)
-            yield tile  # type: ignore
-            del tile
-        return
+    chunksize = product(shape) * dtype.itemsize
 
-    tilesize = product(shape) * dtype.itemsize
+    if istile:
+        # pad tiles
+        def func(chunk: NDArray[Any] | None, /) -> bytes:
+            if chunk is None:
+                return b''
+            if chunk.nbytes != chunksize:
+                if chunk.dtype != dtype:
+                    raise ValueError('dtype of chunk does not match data')
+                pad = tuple((0, i - j) for i, j in zip(shape, chunk.shape))
+                return encode(numpy.pad(chunk, pad))
+            return encode(chunk)
 
-    def func(tile: NDArray[Any] | None, /) -> bytes:
-        if tile is None:
-            return b''
-        if tile.nbytes != tilesize:
-            if tile.dtype != dtype:
-                raise ValueError('dtype of tile does not match data')
-            pad = tuple((0, i - j) for i, j in zip(shape, tile.shape))
-            return encode(numpy.pad(tile, pad))
-        return encode(tile)
+    else:
+        # strips
+        def func(chunk: NDArray[Any] | None, /) -> bytes:
+            if chunk is None:
+                return b''
+            return encode(chunk)
 
-    if maxworkers is None or maxworkers < 2 or numtiles < 2:
-        yield func(tile)
-        for _ in range(numtiles):
-            tile = next(tileiter)
-            # assert tile is None or isinstance(tile, numpy.ndarray)
-            yield func(tile)  # type: ignore
-            del tile
+    if maxworkers is None or maxworkers < 2 or numchunks < 2:
+        for _ in range(numchunks):
+            chunk = next(chunkiter)
+            # assert chunk is None or isinstance(chunk, numpy.ndarray)
+            yield func(chunk)
+            del chunk
         return
 
     # because ThreadPoolExecutor.map is not collecting items lazily, reduce
-    # memory overhead by processing tiles iterator maxtiles items at a time
+    # memory overhead by processing chunks iterator maxchunks items at a time
     if buffersize is None:
         buffersize = TIFF.BUFFERSIZE
-    maxtiles = max(maxworkers, buffersize // tilesize)
+    maxchunks = max(maxworkers, buffersize // chunksize)
 
-    if numtiles <= maxtiles:
+    if numchunks <= maxchunks:
 
-        def tiles() -> Iterator[NDArray[Any] | None]:
-            for _ in range(numtiles):
-                tile = next(tileiter)
-                # assert tile is None or isinstance(tile, numpy.ndarray)
-                yield tile  # type: ignore
-                del tile
+        def chunks() -> Iterator[NDArray[Any] | None]:
+            for _ in range(numchunks):
+                chunk = next(chunkiter)
+                # assert chunk is None or isinstance(chunk, numpy.ndarray)
+                yield chunk  # type: ignore
+                del chunk
 
-        yield func(tile)
         with ThreadPoolExecutor(maxworkers) as executor:
-            yield from executor.map(func, tiles())
+            yield from executor.map(func, chunks())
         return
 
     with ThreadPoolExecutor(maxworkers) as executor:
         count = 1
-        tile_list = [tile]
-        for _ in range(numtiles):
-            tile = next(tileiter)
-            if tile is not None:
+        chunk_list = []
+        for _ in range(numchunks):
+            chunk = next(chunkiter)
+            if chunk is not None:
                 count += 1
-            # assert tile is None or isinstance(tile, numpy.ndarray)
-            tile_list.append(tile)  # type: ignore
-            if count == maxtiles:
-                yield from executor.map(func, tile_list)
-                tile_list.clear()
+            # assert chunk is None or isinstance(chunk, numpy.ndarray)
+            chunk_list.append(chunk)  # type: ignore
+            if count == maxchunks:
+                yield from executor.map(func, chunk_list)
+                chunk_list.clear()
                 count = 0
-        if tile_list:
-            yield from executor.map(func, tile_list)
-
-
-def encode_strips(
-    pagedata: NDArray[Any],
-    encode: Callable[[NDArray[Any]], bytes],
-    rowsperstrip: int,
-    maxworkers: int | None,
-    /,
-) -> Iterator[bytes]:
-    """Return iterator over encoded strips."""
-    numstrips = (pagedata.shape[-3] + rowsperstrip - 1) // rowsperstrip
-
-    def strips() -> Iterator[NDArray[Any]]:
-        for plane in pagedata:
-            for depth in plane:
-                for i in range(numstrips):
-                    yield depth[i * rowsperstrip : (i + 1) * rowsperstrip]
-
-    if (
-        maxworkers is None
-        or maxworkers < 2
-        or rowsperstrip < 2
-        or numstrips * pagedata.shape[0] * pagedata.shape[1] < 2
-    ):
-        for strip in strips():
-            yield encode(strip)
-        return
-
-    # pagedata is in memory and strips returns views so just call
-    # ThreadPoolExecutor.map once
-    with ThreadPoolExecutor(maxworkers) as executor:
-        yield from executor.map(encode, strips())
+        if chunk_list:
+            yield from executor.map(func, chunk_list)
 
 
 def zarr_selection(
