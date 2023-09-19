@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.8.30
+:Version: 2023.9.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -68,23 +68,29 @@ This revision was tested with the following requirements and dependencies
 
 - `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.5, 3.12rc, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.25.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.8.12
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.4
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.2
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.3
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.6.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.1
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.9.18
+
+- Pass 5025 tests.
+- Raise exception when writing non-volume data with volumetric tiles (#225).
+- Improve multi-threaded writing of compressed multi-page files.
+- Fix fsspec reference for big-endian files with predictors.
+
 2023.8.30
 
-- Pass 5007 tests.
 - Support exclusive file creation mode (#221, #223).
 
 2023.8.25
