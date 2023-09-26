@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.9.18
+:Version: 2023.9.26
 
 """
 
@@ -65,6 +65,7 @@ from numpy.testing import (
     assert_allclose,
     assert_array_almost_equal,
     assert_array_equal,
+    assert_raises,
 )
 
 import tifffile
@@ -602,7 +603,7 @@ def test_issue_jpeg_palette():
 def test_issue_specific_pages():
     """Test read second page."""
     data = random_data(numpy.uint8, (3, 21, 31))
-    with TempFileName('specific_pages') as fname:
+    with TempFileName('issue_specific_pages') as fname:
         imwrite(fname, data, photometric=MINISBLACK)
         image = imread(fname)
         assert image.shape == (3, 21, 31)
@@ -610,7 +611,7 @@ def test_issue_specific_pages():
         image = imread(fname, key=1)
         assert image.shape == (21, 31)
         assert_array_equal(image, data[1])
-    with TempFileName('specific_pages_bigtiff') as fname:
+    with TempFileName('issue_specific_pages_bigtiff') as fname:
         imwrite(fname, data, bigtiff=True, photometric=MINISBLACK)
         image = imread(fname)
         assert image.shape == (3, 21, 31)
@@ -657,7 +658,7 @@ def test_issue_sampleformat():
     """Test write correct number of SampleFormat values."""
     # https://github.com/ngageoint/geopackage-tiff-java/issues/5
     data = random_data(numpy.int16, (256, 256, 4))
-    with TempFileName('sampleformat') as fname:
+    with TempFileName('issue_sampleformat') as fname:
         imwrite(fname, data, photometric=RGB)
         with TiffFile(fname) as tif:
             tags = tif.pages.first.tags
@@ -669,7 +670,7 @@ def test_issue_sampleformat():
 def test_issue_sampleformat_default():
     """Test SampleFormat are not written for UINT."""
     data = random_data(numpy.uint8, (256, 256, 4))
-    with TempFileName('sampleformat_default') as fname:
+    with TempFileName('issue_sampleformat_default') as fname:
         imwrite(fname, data, photometric=RGB)
         with TiffFile(fname) as tif:
             tags = tif.pages.first.tags
@@ -857,7 +858,7 @@ def test_issue_valueoffset(byteorder):
     data = random_data(byteorder + 'u2', (2, 19, 31))
     software = 'test_tifffile'
     bo = {'>': 'be', '<': 'le'}[byteorder]
-    with TempFileName(f'valueoffset_{bo}') as fname:
+    with TempFileName(f'issue_valueoffset_{bo}') as fname:
         imwrite(
             fname,
             data,
@@ -906,7 +907,7 @@ def test_issue_pages_number():
 def test_issue_pages_iterator():
     """Test iterate over pages in series."""
     data = random_data(numpy.int8, (8, 219, 301))
-    with TempFileName('page_iterator') as fname:
+    with TempFileName('issue_page_iterator') as fname:
         imwrite(fname, data[0])
         imwrite(
             fname,
@@ -943,7 +944,7 @@ def test_issue_tile_partial():
     """Test write single tiles larger than image data."""
     # https://github.com/cgohlke/tifffile/issues/3
     data = random_data(numpy.uint8, (3, 15, 15, 15))
-    with TempFileName('tile_partial_2d') as fname:
+    with TempFileName('issue_tile_partial_2d') as fname:
         imwrite(fname, data[0, 0], tile=(16, 16))
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -959,7 +960,7 @@ def test_issue_tile_partial():
             assert_aszarr_method(page, data[0, 0])
             assert__str__(tif)
 
-    with TempFileName('tile_partial_3d') as fname:
+    with TempFileName('issue_tile_partial_3d') as fname:
         imwrite(fname, data[0], tile=(16, 16, 16))
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -976,7 +977,7 @@ def test_issue_tile_partial():
             assert_aszarr_method(page, data[0])
             assert__str__(tif)
 
-    with TempFileName('tile_partial_3d_separate') as fname:
+    with TempFileName('issue_tile_partial_3d_separate') as fname:
         imwrite(
             fname,
             data,
@@ -1000,7 +1001,7 @@ def test_issue_tile_partial():
 
     # test complete tile is contiguous
     data = random_data(numpy.uint8, (16, 16))
-    with TempFileName('tile_partial_not') as fname:
+    with TempFileName('issue_tile_partial_not') as fname:
         imwrite(fname, data, tile=(16, 16))
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -1044,7 +1045,9 @@ def test_issue_tiles_pad(samples, compression):
                     )
                 yield tile
 
-    with TempFileName(f'issue_tiles_pad_{compression}{samples}') as fname:
+    with TempFileName(
+        f'issue_issue_tiles_pad_{compression}{samples}'
+    ) as fname:
         imwrite(
             fname,
             tiles(data, (16, 16)),
@@ -1062,7 +1065,7 @@ def test_issue_fcontiguous():
     """Test write F-contiguous arrays."""
     # https://github.com/cgohlke/tifffile/issues/24
     data = numpy.asarray(random_data(numpy.uint8, (31, 33)), order='F')
-    with TempFileName('fcontiguous') as fname:
+    with TempFileName('issue_fcontiguous') as fname:
         imwrite(fname, data, compression=ADOBE_DEFLATE)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -1074,7 +1077,7 @@ def test_issue_fcontiguous():
 def test_issue_pathlib():
     """Test support for pathlib.Path."""
     data = random_data(numpy.uint16, (219, 301))
-    with TempFileName('pathlib') as fname:
+    with TempFileName('issue_pathlib') as fname:
         fname = pathlib.Path(fname)
         assert isinstance(fname, os.PathLike)
         # imwrite
@@ -1090,7 +1093,7 @@ def test_issue_pathlib():
             del im
         # TiffFile
         with TiffFile(fname) as tif:
-            with TempFileName('pathlib_out') as outfname:
+            with TempFileName('issue_pathlib_out') as outfname:
                 outfname = pathlib.Path(outfname)
                 # out=file
                 im = tif.asarray(out=outfname)
@@ -1565,7 +1568,7 @@ def test_issue_dask_multipage(truncate, chunkmode):
     # https://github.com/cgohlke/tifffile/issues/67#issuecomment-908529425
     data = numpy.arange(5 * 99 * 101, dtype=numpy.uint16).reshape((5, 99, 101))
     with TempFileName(
-        f'test_issue_dask_multipage_{int(truncate)}_{int(truncate)}'
+        f'issue_dask_multipage_{int(truncate)}_{chunkmode}'
     ) as fname:
         kwargs = {'truncate': truncate}
         if not truncate:
@@ -1670,7 +1673,7 @@ def test_issue_imagej_prop():
         data = tif.asarray()
 
     prop['Test'] = 0.1
-    with TempFileName('test_issue_imagej_prop') as fname:
+    with TempFileName('issue_imagej_prop') as fname:
         ijmeta['axes'] = 'ZYX'
         imwrite(fname, data, imagej=True, colormap=colormap, metadata=ijmeta)
 
@@ -1802,7 +1805,7 @@ def test_issue_webp_fsspec():
     fname = private_file('issues/CMU-1-Small-Region.tile.webp.tiff')
     url = os.path.dirname(fname).replace('\\', '/')
     data = imread(fname, series=0)
-    with TempFileName('webp_fsspec', ext='.json') as jsonfile:
+    with TempFileName('issue_webp_fsspec', ext='.json') as jsonfile:
         tiff2fsspec(
             fname,
             url,
@@ -2108,7 +2111,7 @@ def test_issue_uic_dates(caplog):
 def test_issue_subfiletype_zero():
     """Test write NewSubfileType=0."""
     # https://github.com/cgohlke/tifffile/issues/132
-    with TempFileName('subfiletype_zero') as fname:
+    with TempFileName('issue_subfiletype_zero') as fname:
         imwrite(fname, [[0]], subfiletype=0)
         with TiffFile(fname) as tif:
             assert tif.pages.first.tags['NewSubfileType'].value == 0
@@ -2161,7 +2164,7 @@ def test_issue_resolution():
     resolution = (4294967295 / 3904515723, 4294967295 / 1952257861)  # 1.1, 2.2
     resolutionunit = RESUNIT.CENTIMETER
     scale = 111.111
-    with TempFileName('resolution') as fname:
+    with TempFileName('issue_resolution') as fname:
         imwrite(
             fname, [[0]], resolution=resolution, resolutionunit=resolutionunit
         )
@@ -2207,7 +2210,7 @@ def test_issue_resolutionunit():
     """Test write resolutionunit defaults."""
     # https://github.com/cgohlke/tifffile/issues/145
 
-    with TempFileName('resolutionunit_none') as fname:
+    with TempFileName('issue_resolutionunit_none') as fname:
         imwrite(fname, [[0]], resolution=None, resolutionunit=None)
         with TiffFile(fname) as tif:
             page = tif.pages.first
@@ -2215,7 +2218,7 @@ def test_issue_resolutionunit():
             assert page.resolutionunit == RESUNIT.NONE
             assert page.resolution == (1, 1)
 
-    with TempFileName('resolutionunit_inch') as fname:
+    with TempFileName('issue_resolutionunit_inch') as fname:
         imwrite(fname, [[0]], resolution=(1, 1), resolutionunit=None)
         with TiffFile(fname) as tif:
             page = tif.pages.first
@@ -2223,7 +2226,7 @@ def test_issue_resolutionunit():
             assert page.resolutionunit == RESUNIT.INCH
             assert page.resolution == (1, 1)
 
-    with TempFileName('resolutionunit_imagej') as fname:
+    with TempFileName('issue_resolutionunit_imagej') as fname:
         imwrite(fname, [[0]], dtype='float32', imagej=True, resolution=(1, 1))
         with TiffFile(fname) as tif:
             page = tif.pages.first
@@ -2278,7 +2281,7 @@ def test_issue_jpeg_rgb():
     # requires imagecodecs > 2022.7.31
     data = imread(public_file('tifffile/rgb.tif'))
     assert data.shape == (32, 31, 3)
-    with TempFileName('jpeg_rgb') as fname:
+    with TempFileName('issue_jpeg_rgb') as fname:
         imwrite(
             fname,
             data,
@@ -2326,7 +2329,7 @@ def test_issue_imread_out():
 def test_issue_imagej_hyperstack_arg():
     """Test write ImageJ with hyperstack argument."""
     # https://stackoverflow.com/questions/73279086
-    with TempFileName('imagej_hyperstack_arg') as fname:
+    with TempFileName('issue_imagej_hyperstack_arg') as fname:
         data = numpy.zeros((4, 3, 10, 11), dtype=numpy.uint8)
         imwrite(
             fname,
@@ -2354,7 +2357,7 @@ def test_issue_description_overwrite():
     )
     description = omexml.tostring()
 
-    with TempFileName('description_overwrite') as fname:
+    with TempFileName('issue_description_overwrite') as fname:
         with tifffile.TiffWriter(fname, ome=False) as tif:
             for frame in data:
                 tif.write(
@@ -2461,7 +2464,7 @@ def test_issue_svs_description():
 
 def test_issue_iterator_recursion():
     """Test no RecursionError writing large number of tiled pages."""
-    with TempFileName('iterator_recursion') as fname:
+    with TempFileName('issue_iterator_recursion') as fname:
         imwrite(fname, shape=(1024, 54, 64), dtype=numpy.uint8, tile=(32, 32))
 
 
@@ -2470,7 +2473,7 @@ def test_issue_predictor_floatx2():
     """Test floatx2 predictor."""
     # https://github.com/cgohlke/tifffile/issues/167
     data = random_data(numpy.float32, (219, 302))
-    with TempFileName('predictor_floatx2') as fname:
+    with TempFileName('issue_predictor_floatx2') as fname:
         imwrite(fname, data, predictor=34894, compression=True)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -2492,7 +2495,7 @@ def test_issue_predictor_deltax2():
     """Test deltax2 predictor."""
     # https://github.com/cgohlke/tifffile/issues/167
     data = random_data(numpy.uint8, (219, 302))
-    with TempFileName('predictor_deltax2') as fname:
+    with TempFileName('issue_predictor_deltax2') as fname:
         with pytest.raises(NotImplementedError):
             imwrite(fname, data, predictor=34892, compression=8)
         # with TiffFile(fname) as tif:
@@ -2535,7 +2538,7 @@ def test_issue_tile_generator(compression, predictor, samples):
         yield data[16:, 16:]
 
     with TempFileName(
-        f'tile_generator_{compression}_{predictor}_{samples}'
+        f'issue_tile_generator_{compression}_{predictor}_{samples}'
     ) as fname:
         imwrite(
             fname,
@@ -2559,7 +2562,7 @@ def test_issue_tile_generator(compression, predictor, samples):
 def test_issue_extratags_filter(caplog):
     """Test filtering extratags."""
     # https://github.com/cgohlke/tifffile/pull/188
-    with TempFileName('extratags_filter') as fname:
+    with TempFileName('issue_extratags_filter') as fname:
         imwrite(
             fname,
             shape=(10, 10),
@@ -2704,7 +2707,7 @@ def test_issue_non_volumetric():
     """Test writing non-volume data with volumetric tile."""
     # https://github.com/cgohlke/tifffile/pull/225
     data = random_data(numpy.uint8, (3, 13, 17))
-    with TempFileName('non_volumetric') as fname:
+    with TempFileName('issue_non_volumetric') as fname:
         with pytest.raises(ValueError):
             imwrite(fname, data[0], tile=(3, 16, 16))
         with pytest.raises(ValueError):
@@ -2787,6 +2790,49 @@ def test_issue_non_volumetric():
             assert page.is_volumetric
             assert page.photometric == MINISWHITE
             assert page.shape == data.shape
+
+
+def test_issue_trucated_tileoffsets():
+    """Test reading truncated tile offsets and bytecounts."""
+    # https://github.com/cgohlke/tifffile/issues/227
+    data = random_data(numpy.uint8, (131, 128))
+    with TempFileName('issue_trucated_tileoffsets') as fname:
+        imwrite(fname, data, tile=(64, 64))
+        with TiffFile(fname, mode='r+') as tif:
+            # truncate TileOffsets and TileByteCounts
+            tag = tif.pages[0].tags[324]
+            assert tag.count == 6
+            tag.overwrite(tag.value[:4])
+            tag = tif.pages[0].tags[325]
+            tag.overwrite(tag.value[:4])
+
+        image = imread(fname)
+        assert_raises(AssertionError, assert_array_equal, image, data)
+        assert_array_equal(image[:128], data[:128])
+
+        store = imread(fname, aszarr=True)
+        za = zarr.open(store, mode='r')[:]
+        store.close()
+        assert_array_equal(za, image)
+
+
+@pytest.mark.parametrize('buffersize', [0, 1, 1234])
+@pytest.mark.parametrize('tile', [0, 1])
+def test_issue_buffersize(buffersize, tile):
+    """Test reading and writing with custom buffersize."""
+    data = random_data(numpy.uint8, (5, 131, 133))
+    with TempFileName(f'issue_buffersize_{buffersize}_{tile}') as fname:
+        kwargs = {'tile': (32, 32)} if tile else {'rowsperstrip': 8}
+        imwrite(
+            fname,
+            data,
+            maxworkers=2,
+            buffersize=buffersize,
+            compression='zlib',
+            **kwargs,
+        )
+        im = imread(fname, maxworkers=2, buffersize=buffersize)
+    assert_array_equal(im, data)
 
 
 class TestExceptions:
@@ -3951,7 +3997,7 @@ def test_func_xml2dict():
 
 def test_func_memmap():
     """Test memmap function."""
-    with TempFileName('memmap_new') as fname:
+    with TempFileName('func_memmap_new') as fname:
         # create new file
         im = memmap(
             fname,
@@ -4003,7 +4049,7 @@ def test_func_memmap():
 
 def test_func_memmap_fail():
     """Test non-native byteorder can not be memory mapped."""
-    with TempFileName('memmap_fail') as fname:
+    with TempFileName('func_memmap_fail') as fname:
         with pytest.raises(ValueError):
             memmap(
                 fname,
@@ -5005,7 +5051,7 @@ def test_func_create_output_asarray(out, key):
     """Test create_output function in context of asarray."""
     data = random_data(numpy.uint16, (5, 219, 301))
 
-    with TempFileName(f'out_{key}_{out}') as fname:
+    with TempFileName(f'func_out_{key}_{out}') as fname:
         imwrite(fname, data)
         # assert file
         with TiffFile(fname) as tif:
@@ -5553,11 +5599,6 @@ def test_filehandle_fsspec_openfile():
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_HTTP or SKIP_ZARR, reason=REASON)
 def test_filehandle_fsspec_http():
     """Test FileHandle from HTTP via fsspec."""
-    with open(FILEHANDLE_NAME, 'rb') as fh:
-        data = fh.read()
-    with TempFileName('test_FileHandle', ext='.bin') as fname:
-        with open(fname, 'wb') as fh:
-            data = fh.write(data)
     with fsspec.open(URL + 'test/test_FileHandle.bin', 'rb') as fhandle:
         with FileHandle(fhandle) as fh:
             assert fh.name == 'test_FileHandle.bin'
@@ -5569,7 +5610,7 @@ def test_filehandle_fsspec_http():
 def test_filehandle_exclusive_creation():
     """Test FileHandle with exclusive creation mode 'x'."""
     # https://github.com/cgohlke/tifffile/issues/221
-    with TempFileName('test_FileHandle_exclusive', ext='.bin') as fname:
+    with TempFileName('read_filehandle_exclusive', ext='.bin') as fname:
         if os.path.exists(fname):
             os.remove(fname)
         with FileHandle(fname, mode='x'):
@@ -12961,6 +13002,7 @@ def test_read_eer(caplog):
             with TempFileName(filename, ext='.json') as jsonfile:
                 with page.aszarr() as store:
                     store.write_fsspec(jsonfile, url)
+                # if this fails add ".eer" as "image/tiff" to mime types
                 assert_fsspec(URL + os.path.split(jsonfile)[-1], data)
 
 
@@ -13139,7 +13181,7 @@ def test_read_xarray_page_properties():
     """Test read TiffPage xarray properties."""
     dtype = numpy.uint8
     resolution = (1.1, 2.2)
-    with TempFileName('xarray_page_properties') as fname:
+    with TempFileName('read_xarray_page_properties') as fname:
         with TiffWriter(fname) as tif:
             # gray
             tif.write(
@@ -13336,7 +13378,7 @@ WRITE_DATA.shape = (3, 219, 301)
 def test_write(data, byteorder, bigtiff, dtype, shape, tile):
     """Test TiffWriter with various options."""
     # TODO: test compression ?
-    fname = '{}_{}_{}_{}{}{}'.format(
+    fname = 'write_{}_{}_{}_{}{}{}'.format(
         bigtiff,
         {'<': 'le', '>': 'be'}[byteorder],
         numpy.dtype(dtype).name,
@@ -13401,7 +13443,7 @@ def test_write(data, byteorder, bigtiff, dtype, shape, tile):
 
 def test_write_deprecated_planarconfig():
     """Test deprecated planarconfig."""
-    with TempFileName('deprecated_planarconfig_contig') as fname:
+    with TempFileName('write_deprecated_planarconfig_contig') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, shape=(31, 33, 3), dtype=numpy.float32)
         with TiffFile(fname) as tif:
@@ -13409,7 +13451,7 @@ def test_write_deprecated_planarconfig():
             assert page.photometric == RGB
             assert page.planarconfig == CONTIG
 
-    with TempFileName('deprecated_planarconfig_separate') as fname:
+    with TempFileName('write_deprecated_planarconfig_separate') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, shape=(3, 31, 33), dtype=numpy.float32)
         with TiffFile(fname) as tif:
@@ -13420,7 +13462,7 @@ def test_write_deprecated_planarconfig():
 
 def test_write_ycbcr_subsampling(caplog):
     """Test write YCBCR."""
-    with TempFileName('ycbcr_subsampling') as fname:
+    with TempFileName('write_ycbcr_subsampling') as fname:
         imwrite(
             fname,
             shape=(31, 33, 3),
@@ -13440,7 +13482,7 @@ def test_write_ycbcr_subsampling(caplog):
 def test_write_invalid_samples(samples):
     """Test TiffWriter with invalid options."""
     data = numpy.zeros((16, 16, samples) if samples else (16, 16), numpy.uint8)
-    fname = f'invalid_samples{samples}'
+    fname = f'write_invalid_samples{samples}'
     with TempFileName(fname) as fname:
         with pytest.raises(ValueError):
             imwrite(fname, data, photometric='rgb')
@@ -13491,7 +13533,7 @@ def test_write_codecs(mode, tile, codec):
     data[1] = 255 - data[1]
     shape = data.shape
     with TempFileName(
-        'codecs_{}_{}{}'.format(mode, codec, '_tile' if tile else '')
+        'write_codecs_{}_{}{}'.format(mode, codec, '_tile' if tile else '')
     ) as fname:
         imwrite(
             fname,
@@ -13580,7 +13622,7 @@ def test_write_predictor(byteorder, dtype, tile, mode):
     data = data.astype(byteorder + dtype)
 
     with TempFileName(
-        'predictor_{}_{}_{}{}'.format(
+        'write_predictor_{}_{}_{}{}'.format(
             dtype,
             'be' if byteorder == '>' else 'le',
             mode,
@@ -13656,7 +13698,7 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
         dtype = TIFF.DATATYPES.SHORT
 
     with TempFileName(
-        'bytecounts_{}{}{}{}{}'.format(
+        'write_bytecounts_{}{}{}{}{}'.format(
             bigtiff, tiled, compression, count, bytecount
         )
     ) as fname:
@@ -13695,7 +13737,7 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
 def test_write_zeroshape(shaped, data, repeat, shape):
     """Test write arrays with zero shape."""
     dtype = numpy.uint8
-    fname = 'shape_{}x{}{}{}'.format(
+    fname = 'write_shape_{}x{}{}{}'.format(
         repeat,
         str(shape).replace(' ', ''),
         '_shaped' if shaped else '',
@@ -13886,7 +13928,7 @@ def test_write_lists():
 
 def test_write_nopages():
     """Test write TIFF with no pages."""
-    with TempFileName('nopages') as fname:
+    with TempFileName('write_nopages') as fname:
         with TiffWriter(fname) as tif:
             pass
         with TiffFile(fname) as tif:
@@ -13899,7 +13941,7 @@ def test_write_nopages():
 
 def test_write_append_not_exists():
     """Test append to non existing file."""
-    with TempFileName('append_not_exists.bin') as fname:
+    with TempFileName('write_append_not_exists.bin') as fname:
         # with self.assertRaises(ValueError):
         with TiffWriter(fname, append=True):
             pass
@@ -13907,7 +13949,7 @@ def test_write_append_not_exists():
 
 def test_write_append_nontif():
     """Test fail to append to non-TIFF file."""
-    with TempFileName('append_nontif.bin') as fname:
+    with TempFileName('write_append_nontif.bin') as fname:
         with open(fname, 'wb') as fh:
             fh.write(b'not a TIFF file')
         with pytest.raises(TiffFileError):
@@ -13939,7 +13981,7 @@ def test_write_append_create():
 def test_write_append_imwrite():
     """Test append using imwrite."""
     data = random_data(numpy.uint8, (21, 31))
-    with TempFileName('imwrite_append') as fname:
+    with TempFileName('write_imwrite_append') as fname:
         imwrite(fname, data, metadata=None)
         for _ in range(3):
             imwrite(fname, data, append=True, metadata=None)
@@ -13951,7 +13993,7 @@ def test_write_append_imwrite():
 def test_write_append():
     """Test append to existing TIFF file."""
     data = random_data(numpy.uint8, (21, 31))
-    with TempFileName('append') as fname:
+    with TempFileName('write_append') as fname:
         with TiffWriter(fname) as tif:
             pass
         with TiffFile(fname) as tif:
@@ -14027,7 +14069,7 @@ def test_write_append_bytesio():
 def test_write_roundtrip_filename():
     """Test write and read using file name."""
     data = imread(public_file('tifffile/generic_series.tif'))
-    with TempFileName('roundtrip_filename') as fname:
+    with TempFileName('write_roundtrip_filename') as fname:
         imwrite(fname, data, photometric=RGB)
         assert_array_equal(imread(fname), data)
 
@@ -14037,7 +14079,7 @@ def test_write_roundtrip_openfile():
     """Test write and read using open file."""
     pad = b'0' * 7
     data = imread(public_file('tifffile/generic_series.tif'))
-    with TempFileName('roundtrip_openfile') as fname:
+    with TempFileName('write_roundtrip_openfile') as fname:
         with open(fname, 'wb') as fh:
             fh.write(pad)
             imwrite(fh, data, photometric=RGB)
@@ -14063,7 +14105,7 @@ def test_write_roundtrip_bytesio():
 def test_write_pages():
     """Test write tags for contiguous data in all pages."""
     data = random_data(numpy.float32, (17, 219, 301))
-    with TempFileName('pages') as fname:
+    with TempFileName('write_pages') as fname:
         imwrite(fname, data, photometric=MINISBLACK)
         assert_valid_tiff(fname)
         # assert file
@@ -14090,7 +14132,7 @@ def test_write_pages():
 def test_write_truncate():
     """Test only one page is written for truncated files."""
     shape = (4, 5, 6, 1)
-    with TempFileName('truncate') as fname:
+    with TempFileName('write_truncate') as fname:
         imwrite(fname, random_data(numpy.uint8, shape), truncate=True)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14115,7 +14157,7 @@ def test_write_truncate():
 
 def test_write_is_shaped():
     """Test files are written with shape."""
-    with TempFileName('is_shaped') as fname:
+    with TempFileName('write_is_shaped') as fname:
         imwrite(fname, random_data(numpy.uint8, (4, 5, 6, 3)), photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14124,7 +14166,7 @@ def test_write_is_shaped():
             assert page.is_shaped
             assert page.description == '{"shape": [4, 5, 6, 3]}'
             assert__str__(tif)
-    with TempFileName('is_shaped_with_description') as fname:
+    with TempFileName('write_is_shaped_with_description') as fname:
         descr = 'test is_shaped_with_description'
         imwrite(
             fname,
@@ -14175,7 +14217,7 @@ def test_write_extratags():
         (50004, 'b', 4, b'1234', True),
         (50008, 'B', 8, b'12345678', True),
     ]
-    with TempFileName('extratags') as fname:
+    with TempFileName('write_extratags') as fname:
         imwrite(fname, data, extratags=extratags)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14207,7 +14249,7 @@ def test_write_double_tags():
         (34566, 'd', 2, [value, value], False),
         (34567, 'd', 2, numpy.array((value, value)), False),
     ]
-    with TempFileName('double_tags') as fname:
+    with TempFileName('write_double_tags') as fname:
         imwrite(fname, data, extratags=extratags)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14220,7 +14262,7 @@ def test_write_double_tags():
             assert tuple(tags['34567'].value) == (value, value)
             assert__str__(tif)
 
-    with TempFileName('double_tags_bigtiff') as fname:
+    with TempFileName('write_double_tags_bigtiff') as fname:
         imwrite(fname, data, bigtiff=True, extratags=extratags)
         # assert_jhove(fname)
         with TiffFile(fname) as tif:
@@ -14244,7 +14286,7 @@ def test_write_short_tags():
         (34566, 'H', 3, (value,) * 3, False),
         (34567, 'H', 4, (value,) * 4, False),
     ]
-    with TempFileName('short_tags') as fname:
+    with TempFileName('write_short_tags') as fname:
         imwrite(fname, data, extratags=extratags)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14263,7 +14305,7 @@ def test_write_subfiletype(subfiletype):
     data = random_data(numpy.uint8, (16, 16))
     if subfiletype & 0b100:
         data = data.astype('bool')
-    with TempFileName(f'subfiletype_{subfiletype}') as fname:
+    with TempFileName(f'write_subfiletype_{subfiletype}') as fname:
         imwrite(fname, data, subfiletype=subfiletype)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14284,7 +14326,7 @@ def test_write_datetime_tag(dt):
     if dt is datetime:
         arg = datetime.datetime.now().replace(microsecond=0)
     data = random_data(numpy.uint8, (31, 32))
-    with TempFileName('datetime') as fname:
+    with TempFileName('write_datetime') as fname:
         imwrite(fname, data, datetime=arg)
         with TiffFile(fname) as tif:
             page = tif.pages.first
@@ -14311,7 +14353,7 @@ def test_write_software_tag():
     """Test write Software tag."""
     data = random_data(numpy.uint8, (2, 219, 301))
     software = 'test_tifffile.py'
-    with TempFileName('software_tag') as fname:
+    with TempFileName('write_software_tag') as fname:
         imwrite(fname, data, software=software)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14325,7 +14367,7 @@ def test_write_description_tag():
     """Test write two description tags."""
     data = random_data(numpy.uint8, (2, 219, 301))
     description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
-    with TempFileName('description_tag') as fname:
+    with TempFileName('write_description_tag') as fname:
         imwrite(fname, data, description=description)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14340,7 +14382,7 @@ def test_write_description_tag_nometadata():
     """Test no JSON description is written with metatata=None."""
     data = random_data(numpy.uint8, (2, 219, 301))
     description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
-    with TempFileName('description_tag_nometadatan') as fname:
+    with TempFileName('write_description_tag_nometadatan') as fname:
         imwrite(fname, data, description=description, metadata=None)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14358,7 +14400,7 @@ def test_write_description_tag_notshaped():
     """Test no JSON description is written with shaped=False."""
     data = random_data(numpy.uint8, (2, 219, 301))
     description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
-    with TempFileName('description_tag_notshaped') as fname:
+    with TempFileName('write_description_tag_notshaped') as fname:
         imwrite(fname, data, description=description, shaped=False)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14375,7 +14417,7 @@ def test_write_description_tag_notshaped():
 def test_write_description_ome():
     """Test write multiple imagedescription tags to OME."""
     # https://forum.image.sc/t/79471
-    with TempFileName('description_ome') as fname:
+    with TempFileName('write_description_ome') as fname:
         with pytest.warns(UserWarning):
             imwrite(
                 fname,
@@ -14395,7 +14437,7 @@ def test_write_description_ome():
 
 def test_write_description_imagej():
     """Test write multiple imagedescription tags."""
-    with TempFileName('description_imagej') as fname:
+    with TempFileName('write_description_imagej') as fname:
         with pytest.warns(UserWarning):
             imwrite(
                 fname,
@@ -14415,7 +14457,7 @@ def test_write_description_imagej():
 
 def test_write_description_shaped():
     """Test write multiple imagedescription tags to shaped."""
-    with TempFileName('description_shaped') as fname:
+    with TempFileName('write_description_shaped') as fname:
         imwrite(
             fname,
             shape=(2, 32, 32),
@@ -14434,7 +14476,7 @@ def test_write_description_shaped():
 
 def test_write_description_overwrite():
     """Test overwrite imagedescription tag."""
-    with TempFileName('description_overwrite') as fname:
+    with TempFileName('write_description_overwrite') as fname:
         with TiffWriter(fname) as tif:
             tif.write(
                 shape=(2, 32, 32),
@@ -14454,7 +14496,7 @@ def test_write_description_overwrite():
 
 def test_write_description_extratags():
     """Test write imagedescription tags using extratag."""
-    with TempFileName('description_extratags') as fname:
+    with TempFileName('write_description_extratags') as fname:
         with TiffWriter(fname) as tif:
             tif.write(
                 shape=(2, 32, 32),
@@ -14479,7 +14521,7 @@ def test_write_resolution_float():
     """Test write float Resolution tag."""
     data = random_data(numpy.uint8, (2, 219, 301))
     resolution = (92.0, 92.0)
-    with TempFileName('resolution_float') as fname:
+    with TempFileName('write_resolution_float') as fname:
         imwrite(fname, data, resolution=resolution)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14497,7 +14539,7 @@ def test_write_resolution_rational():
     """Test write rational Resolution tag."""
     data = random_data(numpy.uint8, (1, 219, 301))
     resolution = ((300, 1), (300, 1))
-    with TempFileName('resolution_rational') as fname:
+    with TempFileName('write_resolution_rational') as fname:
         imwrite(fname, data, resolution=resolution, resolutionunit=1)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14511,7 +14553,7 @@ def test_write_resolution_unit():
     """Test write Resolution tag unit."""
     data = random_data(numpy.uint8, (219, 301))
     resolution = (92.0, (9200, 100), 3)
-    with TempFileName('resolution_unit') as fname:
+    with TempFileName('write_resolution_unit') as fname:
         # TODO: with pytest.warns(DeprecationWarning):
         imwrite(fname, data, resolution=resolution)
         assert_valid_tiff(fname)
@@ -14594,7 +14636,7 @@ def test_write_bitspersample_fail():
 def test_write_enum_parameters(kind):
     """Test imwrite using different kind of enum"""
     data = random_data(numpy.uint8, (2, 6, 219, 301))
-    with TempFileName(f'enum_parameters_{kind}') as fname:
+    with TempFileName(f'write_enum_parameters_{kind}') as fname:
         if kind == 'enum':
             imwrite(
                 fname,
@@ -14675,7 +14717,7 @@ def test_write_compression_args(args):
     rowsperstrip = 100 if compressed else None
 
     data = WRITE_DATA
-    with TempFileName(f'compression_args_{i}') as fname:
+    with TempFileName(f'write_compression_args_{i}') as fname:
         # TODO: if i > 4: with pytest.warns(DeprecationWarning):
         imwrite(
             fname,
@@ -14711,7 +14753,7 @@ def test_write_compress_args(args):
         compressargs = compressargs[0]
 
     data = WRITE_DATA
-    with TempFileName(f'compression_args_{i}') as fname:
+    with TempFileName(f'write_compression_args_{i}') as fname:
         with pytest.raises(TypeError):
             imwrite(fname, data, compress=compressargs, photometric=RGB)
 
@@ -14719,7 +14761,7 @@ def test_write_compress_args(args):
 def test_write_compression_none():
     """Test write compression=0."""
     data = WRITE_DATA
-    with TempFileName('compression_none') as fname:
+    with TempFileName('write_compression_none') as fname:
         imwrite(fname, data, compression=0, photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -14749,7 +14791,7 @@ def test_write_compression_none():
 def test_write_compression_jpeg(dtype, subsampling):
     """Test write JPEG compression with subsampling."""
     dtype = numpy.dtype(dtype)
-    filename = f'compression_jpeg_{dtype}_{subsampling}'
+    filename = f'write_compression_jpeg_{dtype}_{subsampling}'
     subsampling, atol = {
         '444': [(1, 1), 5],
         '422': [(2, 1), 10],
@@ -14789,7 +14831,7 @@ def test_write_compression_jpeg(dtype, subsampling):
 def test_write_compression_deflate():
     """Test write ZLIB compression."""
     data = WRITE_DATA
-    with TempFileName('compression_deflate') as fname:
+    with TempFileName('write_compression_deflate') as fname:
         imwrite(
             fname,
             data,
@@ -14820,7 +14862,7 @@ def test_write_compression_deflate():
 def test_write_compression_deflate_level():
     """Test write ZLIB compression with level."""
     data = WRITE_DATA
-    with TempFileName('compression_deflate_level') as fname:
+    with TempFileName('write_compression_deflate_level') as fname:
         imwrite(
             fname,
             data,
@@ -14848,7 +14890,7 @@ def test_write_compression_deflate_level():
 def test_write_compression_lzma():
     """Test write LZMA compression."""
     data = WRITE_DATA
-    with TempFileName('compression_lzma') as fname:
+    with TempFileName('write_compression_lzma') as fname:
         imwrite(
             fname, data, compression=LZMA, photometric=RGB, rowsperstrip=108
         )
@@ -14875,7 +14917,7 @@ def test_write_compression_lzma():
 def test_write_compression_zstd():
     """Test write ZSTD compression."""
     data = WRITE_DATA
-    with TempFileName('compression_zstd') as fname:
+    with TempFileName('write_compression_zstd') as fname:
         imwrite(
             fname, data, compression=ZSTD, photometric=RGB, rowsperstrip=108
         )
@@ -14902,7 +14944,7 @@ def test_write_compression_zstd():
 def test_write_compression_webp():
     """Test write WEBP compression."""
     data = WRITE_DATA.astype(numpy.uint8).reshape((219, 301, 3))
-    with TempFileName('compression_webp') as fname:
+    with TempFileName('write_compression_webp') as fname:
         imwrite(
             fname,
             data,
@@ -14930,7 +14972,7 @@ def test_write_compression_webp():
 def test_write_compression_jpeg2k():
     """Test write JPEG 2000 compression."""
     data = WRITE_DATA.astype(numpy.uint8).reshape((219, 301, 3))
-    with TempFileName('compression_jpeg2k') as fname:
+    with TempFileName('write_compression_jpeg2k') as fname:
         imwrite(
             fname,
             data,
@@ -14958,7 +15000,7 @@ def test_write_compression_jpeg2k():
 def test_write_compression_jpegxl():
     """Test write JPEG XL compression."""
     data = WRITE_DATA.astype(numpy.uint8).reshape((219, 301, 3))
-    with TempFileName('compression_jpegxl') as fname:
+    with TempFileName('write_compression_jpegxl') as fname:
         imwrite(
             fname,
             data,
@@ -15000,7 +15042,7 @@ def test_write_compression_lerc(compression):
     }[compression]
 
     data = WRITE_DATA.astype(numpy.uint16).reshape((219, 301, 3))
-    with TempFileName(f'compression_lerc_{compression}') as fname:
+    with TempFileName(f'write_compression_lerc_{compression}') as fname:
         imwrite(
             fname,
             data,
@@ -15048,7 +15090,7 @@ def test_write_compression_jetraw():
     # Jetraw requires initialization
     imagecodecs.jetraw_init()
 
-    with TempFileName('compression_jetraw') as fname:
+    with TempFileName('write_compression_jetraw') as fname:
         try:
             imwrite(
                 fname,
@@ -15094,7 +15136,7 @@ def test_write_compression_packbits(dtype, tile):
     shape = 2, 7, uncompressed.size
     data = numpy.empty(shape, dtype=dtype)
     data[..., :] = uncompressed
-    with TempFileName(f'compression_packits_{dtype}') as fname:
+    with TempFileName(f'write_compression_packits_{dtype}') as fname:
         imwrite(fname, data, compression=PACKBITS, tile=tile)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15115,7 +15157,7 @@ def test_write_compression_packbits(dtype, tile):
 def test_write_compression_rowsperstrip():
     """Test write rowsperstrip with compression."""
     data = WRITE_DATA
-    with TempFileName('compression_rowsperstrip') as fname:
+    with TempFileName('write_compression_rowsperstrip') as fname:
         imwrite(
             fname,
             data,
@@ -15145,7 +15187,7 @@ def test_write_compression_rowsperstrip():
 def test_write_compression_tiled():
     """Test write compressed tiles."""
     data = WRITE_DATA
-    with TempFileName('compression_tiled') as fname:
+    with TempFileName('write_compression_tiled') as fname:
         imwrite(
             fname,
             data,
@@ -15175,7 +15217,7 @@ def test_write_compression_tiled():
 def test_write_compression_predictor():
     """Test write horizontal differencing."""
     data = WRITE_DATA
-    with TempFileName('compression_predictor') as fname:
+    with TempFileName('write_compression_predictor') as fname:
         imwrite(
             fname,
             data,
@@ -15207,7 +15249,7 @@ def test_write_compression_predictor_tiled(dtype):
     """Test write horizontal differencing with tiles."""
     dtype = numpy.dtype(dtype)
     data = WRITE_DATA.astype(dtype)
-    with TempFileName(f'compression_tiled_predictor_{dtype}') as fname:
+    with TempFileName(f'write_compression_tiled_predictor_{dtype}') as fname:
         imwrite(
             fname,
             data,
@@ -15239,7 +15281,7 @@ def test_write_compression_predictor_tiled(dtype):
 def test_write_rowsperstrip():
     """Test write rowsperstrip without compression."""
     data = WRITE_DATA
-    with TempFileName('rowsperstrip') as fname:
+    with TempFileName('write_rowsperstrip') as fname:
         imwrite(
             fname,
             data,
@@ -15338,14 +15380,14 @@ def test_write_zero_size():
     """Test write zero size array no longer fails."""
     # with pytest.raises(ValueError):
     with pytest.warns(UserWarning):
-        with TempFileName('empty') as fname:
+        with TempFileName('write_empty') as fname:
             imwrite(fname, numpy.empty(0))
 
 
 def test_write_pixel():
     """Test write single pixel."""
     data = numpy.zeros(1, dtype=numpy.uint8)
-    with TempFileName('pixel') as fname:
+    with TempFileName('write_pixel') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15368,7 +15410,7 @@ def test_write_pixel():
 def test_write_small():
     """Test write small image."""
     data = random_data(numpy.uint8, (1, 1))
-    with TempFileName('small') as fname:
+    with TempFileName('write_small') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15390,7 +15432,7 @@ def test_write_2d_as_rgb():
     """Test write RGB color palette as RGB image."""
     # image length should be 1
     data = numpy.arange(3 * 256, dtype=numpy.uint16).reshape(256, 3) // 3
-    with TempFileName('2d_as_rgb_contig') as fname:
+    with TempFileName('write_2d_as_rgb_contig') as fname:
         imwrite(fname, data, photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15413,7 +15455,7 @@ def test_write_2d_as_rgb():
 def test_write_auto_photometric_planar():
     """Test detect photometric in planar mode."""
     data = random_data(numpy.uint8, (4, 31, 33))
-    with TempFileName('auto_photometric_planar1') as fname:
+    with TempFileName('write_auto_photometric_planar1') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, data)
         assert_valid_tiff(fname)
@@ -15426,7 +15468,7 @@ def test_write_auto_photometric_planar():
             assert page.photometric == RGB
             assert len(page.extrasamples) == 1
 
-    with TempFileName('auto_photometric_planar2') as fname:
+    with TempFileName('write_auto_photometric_planar2') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, data, planarconfig='separate')
         assert_valid_tiff(fname)
@@ -15440,7 +15482,7 @@ def test_write_auto_photometric_planar():
             assert len(page.extrasamples) == 1
 
     data = random_data(numpy.uint8, (4, 7, 31, 33))
-    with TempFileName('auto_photometric_volumetric_planar1') as fname:
+    with TempFileName('write_auto_photometric_volumetric_planar1') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, data, volumetric=True)
         assert_valid_tiff(fname)
@@ -15454,7 +15496,7 @@ def test_write_auto_photometric_planar():
             assert len(page.extrasamples) == 1
             assert page.is_volumetric
 
-    with TempFileName('auto_photometric_volumetric_planar2') as fname:
+    with TempFileName('write_auto_photometric_volumetric_planar2') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, data, planarconfig='separate', volumetric=True)
         assert_valid_tiff(fname)
@@ -15472,7 +15514,7 @@ def test_write_auto_photometric_planar():
 def test_write_auto_photometric_contig():
     """Test detect photometric in contig mode."""
     data = random_data(numpy.uint8, (31, 33, 4))
-    with TempFileName('auto_photometric_contig1') as fname:
+    with TempFileName('write_auto_photometric_contig1') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15484,7 +15526,7 @@ def test_write_auto_photometric_contig():
             assert page.photometric == RGB
             assert len(page.extrasamples) == 1
 
-    with TempFileName('auto_photometric_contig2') as fname:
+    with TempFileName('write_auto_photometric_contig2') as fname:
         imwrite(fname, data, planarconfig='contig')
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15497,7 +15539,7 @@ def test_write_auto_photometric_contig():
             assert len(page.extrasamples) == 1
 
     data = random_data(numpy.uint8, (7, 31, 33, 4))
-    with TempFileName('auto_photometric_volumetric_contig1') as fname:
+    with TempFileName('write_auto_photometric_volumetric_contig1') as fname:
         imwrite(fname, data, volumetric=True)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15510,7 +15552,7 @@ def test_write_auto_photometric_contig():
             assert len(page.extrasamples) == 1
             assert page.is_volumetric
 
-    with TempFileName('auto_photometric_volumetric_contig2') as fname:
+    with TempFileName('write_auto_photometric_volumetric_contig2') as fname:
         imwrite(fname, data, planarconfig='contig', volumetric=True)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15528,10 +15570,10 @@ def test_write_invalid_contig_rgb():
     """Test write planar RGB with 2 samplesperpixel."""
     data = random_data(numpy.uint8, (219, 301, 2))
     with pytest.raises(ValueError):
-        with TempFileName('invalid_contig_rgb') as fname:
+        with TempFileName('write_invalid_contig_rgb') as fname:
             imwrite(fname, data, photometric=RGB)
     # default to pages
-    with TempFileName('invalid_contig_rgb_pages') as fname:
+    with TempFileName('write_invalid_contig_rgb_pages') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15549,7 +15591,7 @@ def test_write_invalid_contig_rgb():
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # better save as contig samples
-    with TempFileName('invalid_contig_rgb_samples') as fname:
+    with TempFileName('write_invalid_contig_rgb_samples') as fname:
         imwrite(fname, data, planarconfig=CONTIG)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15572,10 +15614,10 @@ def test_write_invalid_planar_rgb():
     """Test write planar RGB with 2 samplesperpixel."""
     data = random_data(numpy.uint8, (2, 219, 301))
     with pytest.raises(ValueError):
-        with TempFileName('invalid_planar_rgb') as fname:
+        with TempFileName('write_invalid_planar_rgb') as fname:
             imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
     # default to pages
-    with TempFileName('invalid_planar_rgb_pages') as fname:
+    with TempFileName('write_invalid_planar_rgb_pages') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15593,7 +15635,7 @@ def test_write_invalid_planar_rgb():
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # or save as planar samples
-    with TempFileName('invalid_planar_rgb_samples') as fname:
+    with TempFileName('write_invalid_planar_rgb_samples') as fname:
         imwrite(fname, data, planarconfig=SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15615,7 +15657,7 @@ def test_write_invalid_planar_rgb():
 def test_write_extrasamples_gray():
     """Test write grayscale with extrasamples contig."""
     data = random_data(numpy.uint8, (301, 219, 2))
-    with TempFileName('extrasamples_gray') as fname:
+    with TempFileName('write_extrasamples_gray') as fname:
         imwrite(fname, data, extrasamples=[UNASSALPHA])
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15637,7 +15679,7 @@ def test_write_extrasamples_gray():
 def test_write_extrasamples_gray_planar():
     """Test write planar grayscale with extrasamples."""
     data = random_data(numpy.uint8, (2, 301, 219))
-    with TempFileName('extrasamples_gray_planar') as fname:
+    with TempFileName('write_extrasamples_gray_planar') as fname:
         imwrite(fname, data, planarconfig=SEPARATE, extrasamples=[UNASSALPHA])
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15659,7 +15701,7 @@ def test_write_extrasamples_gray_planar():
 def test_write_extrasamples_gray_mix():
     """Test write grayscale with multiple extrasamples."""
     data = random_data(numpy.uint8, (301, 219, 4))
-    with TempFileName('extrasamples_gray_mix') as fname:
+    with TempFileName('write_extrasamples_gray_mix') as fname:
         imwrite(
             fname,
             data,
@@ -15685,7 +15727,7 @@ def test_write_extrasamples_gray_mix():
 def test_write_extrasamples_unspecified():
     """Test write RGB with unspecified extrasamples by default."""
     data = random_data(numpy.uint8, (301, 219, 5))
-    with TempFileName('extrasamples_unspecified') as fname:
+    with TempFileName('write_extrasamples_unspecified') as fname:
         imwrite(fname, data, photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15706,7 +15748,7 @@ def test_write_extrasamples_unspecified():
 def test_write_extrasamples_assocalpha():
     """Test write RGB with assocalpha extrasample."""
     data = random_data(numpy.uint8, (219, 301, 4))
-    with TempFileName('extrasamples_assocalpha') as fname:
+    with TempFileName('write_extrasamples_assocalpha') as fname:
         imwrite(fname, data, photometric=RGB, extrasamples=ASSOCALPHA)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15728,7 +15770,7 @@ def test_write_extrasamples_assocalpha():
 def test_write_extrasamples_mix():
     """Test write RGB with mixture of extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 6))
-    with TempFileName('extrasamples_mix') as fname:
+    with TempFileName('write_extrasamples_mix') as fname:
         imwrite(
             fname,
             data,
@@ -15755,7 +15797,7 @@ def test_write_extrasamples_mix():
 def test_write_extrasamples_contig():
     """Test write contig grayscale with large number of extrasamples."""
     data = random_data(numpy.uint8, (3, 219, 301))
-    with TempFileName('extrasamples_contig') as fname:
+    with TempFileName('write_extrasamples_contig') as fname:
         imwrite(fname, data, planarconfig=CONTIG)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15773,7 +15815,7 @@ def test_write_extrasamples_contig():
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # better save as RGB planar
-    with TempFileName('extrasamples_contig_planar') as fname:
+    with TempFileName('write_extrasamples_contig_planar') as fname:
         imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15794,7 +15836,7 @@ def test_write_extrasamples_contig():
 def test_write_extrasamples_contig_rgb2():
     """Test write contig RGB with large number of extrasamples."""
     data = random_data(numpy.uint8, (3, 219, 301))
-    with TempFileName('extrasamples_contig_rgb2') as fname:
+    with TempFileName('write_extrasamples_contig_rgb2') as fname:
         imwrite(fname, data, photometric=RGB, planarconfig=CONTIG)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15812,7 +15854,7 @@ def test_write_extrasamples_contig_rgb2():
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # better save as planar
-    with TempFileName('extrasamples_contig_rgb2_planar') as fname:
+    with TempFileName('write_extrasamples_contig_rgb2_planar') as fname:
         imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15833,7 +15875,7 @@ def test_write_extrasamples_contig_rgb2():
 def test_write_extrasamples_planar():
     """Test write planar large number of extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 3))
-    with TempFileName('extrasamples_planar') as fname:
+    with TempFileName('write_extrasamples_planar') as fname:
         imwrite(fname, data, planarconfig=SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15855,7 +15897,7 @@ def test_write_extrasamples_planar():
 def test_write_extrasamples_planar_rgb2():
     """Test write planar RGB with large number of extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 3))
-    with TempFileName('extrasamples_planar_rgb2') as fname:
+    with TempFileName('write_extrasamples_planar_rgb2') as fname:
         imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15877,7 +15919,7 @@ def test_write_extrasamples_planar_rgb2():
 def test_write_minisblack_planar():
     """Test write planar minisblack."""
     data = random_data(numpy.uint8, (3, 219, 301))
-    with TempFileName('minisblack_planar') as fname:
+    with TempFileName('write_minisblack_planar') as fname:
         imwrite(fname, data, photometric=MINISBLACK)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15898,7 +15940,7 @@ def test_write_minisblack_planar():
 def test_write_minisblack_contig():
     """Test write contig minisblack."""
     data = random_data(numpy.uint8, (219, 301, 3))
-    with TempFileName('minisblack_contig') as fname:
+    with TempFileName('write_minisblack_contig') as fname:
         imwrite(fname, data, photometric=MINISBLACK)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15919,7 +15961,7 @@ def test_write_minisblack_contig():
 def test_write_scalar():
     """Test write 2D grayscale."""
     data = random_data(numpy.uint8, (219, 301))
-    with TempFileName('scalar') as fname:
+    with TempFileName('write_scalar') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15940,7 +15982,7 @@ def test_write_scalar():
 def test_write_scalar_3d():
     """Test write 3D grayscale."""
     data = random_data(numpy.uint8, (63, 219, 301))
-    with TempFileName('scalar_3d') as fname:
+    with TempFileName('write_scalar_3d') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15962,7 +16004,7 @@ def test_write_scalar_3d():
 def test_write_scalar_4d():
     """Test write 4D grayscale."""
     data = random_data(numpy.uint8, (3, 2, 219, 301))
-    with TempFileName('scalar_4d') as fname:
+    with TempFileName('write_scalar_4d') as fname:
         imwrite(fname, data)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15983,7 +16025,7 @@ def test_write_scalar_4d():
 def test_write_contig_extrasample():
     """Test write grayscale with contig extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 2))
-    with TempFileName('contig_extrasample') as fname:
+    with TempFileName('write_contig_extrasample') as fname:
         imwrite(fname, data, planarconfig=CONTIG)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16004,7 +16046,7 @@ def test_write_contig_extrasample():
 def test_write_planar_extrasample():
     """Test write grayscale with planar extrasamples."""
     data = random_data(numpy.uint8, (2, 219, 301))
-    with TempFileName('planar_extrasample') as fname:
+    with TempFileName('write_planar_extrasample') as fname:
         imwrite(fname, data, planarconfig=SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16025,7 +16067,7 @@ def test_write_planar_extrasample():
 def test_write_auto_rgb_contig():
     """Test write auto contig RGB."""
     data = random_data(numpy.uint8, (219, 301, 3))
-    with TempFileName('auto_rgb_contig') as fname:
+    with TempFileName('write_auto_rgb_contig') as fname:
         imwrite(fname, data)  # photometric=RGB
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16046,7 +16088,7 @@ def test_write_auto_rgb_contig():
 def test_write_auto_rgb_planar():
     """Test write auto planar RGB."""
     data = random_data(numpy.uint8, (3, 219, 301))
-    with TempFileName('auto_rgb_planar') as fname:
+    with TempFileName('write_auto_rgb_planar') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, data)  # photometric=RGB, planarconfig=SEPARATE
         assert_valid_tiff(fname)
@@ -16068,7 +16110,7 @@ def test_write_auto_rgb_planar():
 def test_write_auto_rgba_contig():
     """Test write auto contig RGBA."""
     data = random_data(numpy.uint8, (219, 301, 4))
-    with TempFileName('auto_rgba_contig') as fname:
+    with TempFileName('write_auto_rgba_contig') as fname:
         imwrite(fname, data)  # photometric=RGB
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16090,7 +16132,7 @@ def test_write_auto_rgba_contig():
 def test_write_auto_rgba_planar():
     """Test write auto planar RGBA."""
     data = random_data(numpy.uint8, (4, 219, 301))
-    with TempFileName('auto_rgba_planar') as fname:
+    with TempFileName('write_auto_rgba_planar') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, data)  # photometric=RGB, planarconfig=SEPARATE
         assert_valid_tiff(fname)
@@ -16113,7 +16155,7 @@ def test_write_auto_rgba_planar():
 def test_write_extrasamples_contig_rgb():
     """Test write contig RGB with extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 8))
-    with TempFileName('extrasamples_contig') as fname:
+    with TempFileName('write_extrasamples_contig') as fname:
         imwrite(fname, data, photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16136,7 +16178,7 @@ def test_write_extrasamples_contig_rgb():
 def test_write_extrasamples_planar_rgb():
     """Test write planar RGB with extrasamples."""
     data = random_data(numpy.uint8, (8, 219, 301))
-    with TempFileName('extrasamples_planar') as fname:
+    with TempFileName('write_extrasamples_planar') as fname:
         imwrite(fname, data, photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16172,7 +16214,7 @@ def test_write_cfa():
         # (37399, 'H', 1, 0)  # SensingMethod Undefined
         # (50706, 'B', 4, b'\x01\x04\x00\x00', False),  # DNGVersion
     ]
-    with TempFileName('write_cfa') as fname:
+    with TempFileName('write_write_cfa') as fname:
         imwrite(
             fname,
             data,
@@ -16198,7 +16240,7 @@ def test_write_cfa():
 def test_write_tiled_compressed():
     """Test write compressed tiles."""
     data = random_data(numpy.uint8, (3, 219, 301))
-    with TempFileName('tiled_compressed') as fname:
+    with TempFileName('write_tiled_compressed') as fname:
         imwrite(
             fname,
             data,
@@ -16230,7 +16272,7 @@ def test_write_tiled_compressed():
 def test_write_tiled():
     """Test write tiled."""
     data = random_data(numpy.uint16, (219, 301))
-    with TempFileName('tiled') as fname:
+    with TempFileName('write_tiled') as fname:
         imwrite(fname, data, tile=(96, 64))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16254,7 +16296,7 @@ def test_write_tiled():
 def test_write_tiled_planar():
     """Test write planar tiles."""
     data = random_data(numpy.uint8, (4, 219, 301))
-    with TempFileName('tiled_planar') as fname:
+    with TempFileName('write_tiled_planar') as fname:
         imwrite(
             fname, data, tile=(96, 64), photometric=RGB, planarconfig=SEPARATE
         )
@@ -16281,7 +16323,7 @@ def test_write_tiled_planar():
 def test_write_tiled_contig():
     """Test write contig tiles."""
     data = random_data(numpy.uint8, (219, 301, 3))
-    with TempFileName('tiled_contig') as fname:
+    with TempFileName('write_tiled_contig') as fname:
         imwrite(fname, data, tile=(96, 64), photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16305,7 +16347,7 @@ def test_write_tiled_contig():
 def test_write_tiled_pages():
     """Test write multiple tiled pages."""
     data = random_data(numpy.uint8, (5, 219, 301, 3))
-    with TempFileName('tiled_pages') as fname:
+    with TempFileName('write_tiled_pages') as fname:
         imwrite(fname, data, tile=(96, 64), photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16336,7 +16378,7 @@ def test_write_iter_tiles(compression):
         for i in range(data.shape[0]):
             yield data[i]
 
-    with TempFileName(f'iter_tiles_{compression}') as fname:
+    with TempFileName(f'write_iter_tiles_{compression}') as fname:
         with pytest.raises((StopIteration, RuntimeError)):
             # missing tiles
             imwrite(
@@ -16408,7 +16450,7 @@ def test_write_iter_tiles_separate(compression):
         for i in range(data.shape[0]):
             yield data[i]
 
-    with TempFileName(f'iter_tiles_separate_{compression}') as fname:
+    with TempFileName(f'write_iter_tiles_separate_{compression}') as fname:
         imwrite(
             fname,
             tiles(),
@@ -16449,7 +16491,7 @@ def test_write_iter_tiles_none(compression):
             else:
                 yield data[i]
 
-    with TempFileName(f'iter_tiles_none_{compression}') as fname:
+    with TempFileName(f'write_iter_tiles_none_{compression}') as fname:
         imwrite(
             fname,
             tiles(),
@@ -16479,7 +16521,7 @@ def test_write_iter_tiles_bytes(compression):
     """Test write tiles from iterator of bytes."""
     data = random_data(numpy.uint16, (5, 3, 15, 17))
 
-    with TempFileName(f'iter_tiles_bytes_{compression}') as fname:
+    with TempFileName(f'write_iter_tiles_bytes_{compression}') as fname:
         imwrite(
             fname + 'f',
             data,
@@ -16520,7 +16562,7 @@ def test_write_iter_strips_bytes(compression, rowsperstrip):
     data = random_data(numpy.uint16, (5, 3, 16, 16))
 
     with TempFileName(
-        f'iter_strips_bytes_{compression}{rowsperstrip}'
+        f'write_iter_strips_bytes_{compression}{rowsperstrip}'
     ) as fname:
         imwrite(
             fname + 'f',
@@ -16573,7 +16615,9 @@ def test_write_iter_pages_none(compression, rowsperstrip):
             else:
                 yield data[i]
 
-    with TempFileName(f'iter_pages_none_{compression}{rowsperstrip}') as fname:
+    with TempFileName(
+        f'write_iter_pages_none_{compression}{rowsperstrip}'
+    ) as fname:
         imwrite(
             fname,
             pages(),
@@ -16599,7 +16643,7 @@ def test_write_iter_pages_none(compression, rowsperstrip):
 def test_write_pyramids():
     """Test write two pyramids to shaped file."""
     data = random_data(numpy.uint8, (31, 64, 96, 3))
-    with TempFileName('pyramids') as fname:
+    with TempFileName('write_pyramids') as fname:
         with TiffWriter(fname) as tif:
             # use pages
             tif.write(data, tile=(16, 16), photometric=RGB)
@@ -16691,7 +16735,7 @@ def test_write_pyramids():
 def test_write_volumetric_tiled():
     """Test write tiled volume."""
     data = random_data(numpy.uint8, (253, 64, 96))
-    with TempFileName('volumetric_tiled') as fname:
+    with TempFileName('write_volumetric_tiled') as fname:
         imwrite(fname, data, tile=(64, 64, 64))
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16720,7 +16764,7 @@ def test_write_volumetric_tiled():
 def test_write_volumetric_tiled_png():
     """Test write tiled volume using an image compressor."""
     data = random_data(numpy.uint8, (16, 64, 96, 3))
-    with TempFileName('volumetric_tiled_png') as fname:
+    with TempFileName('write_volumetric_tiled_png') as fname:
         imwrite(
             fname, data, tile=(1, 64, 64), photometric=RGB, compression=PNG
         )
@@ -16752,7 +16796,7 @@ def test_write_volumetric_tiled_planar_rgb():
     shape = (2, 3, 256, 64, 96)
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
-    with TempFileName('volumetric_tiled_planar_rgb') as fname:
+    with TempFileName('write_volumetric_tiled_planar_rgb') as fname:
         imwrite(
             fname,
             data,
@@ -16793,7 +16837,7 @@ def test_write_volumetric_tiled_contig_rgb():
     shape = (2, 3, 256, 64, 96, 3)
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1, 1)
-    with TempFileName('volumetric_tiled_contig_rgb') as fname:
+    with TempFileName('write_volumetric_tiled_contig_rgb') as fname:
         imwrite(fname, data, tile=(256, 64, 96), photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16834,7 +16878,7 @@ def test_write_volumetric_tiled_contig_rgb():
 def test_write_volumetric_tiled_contig_rgb_empty():
     """Test write empty 6D array as contig RGB volumes."""
     shape = (2, 3, 256, 64, 96, 3)
-    with TempFileName('volumetric_tiled_contig_rgb_empty') as fname:
+    with TempFileName('write_volumetric_tiled_contig_rgb_empty') as fname:
         with TiffWriter(fname) as tif:
             tif.write(
                 shape=shape,
@@ -16875,7 +16919,7 @@ def test_write_volumetric_tiled_contig_rgb_empty():
 def test_write_volumetric_striped():
     """Test write striped volume."""
     data = random_data(numpy.uint8, (15, 63, 95))
-    with TempFileName('volumetric_striped') as fname:
+    with TempFileName('write_volumetric_striped') as fname:
         imwrite(fname, data, volumetric=True)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16902,7 +16946,7 @@ def test_write_volumetric_striped():
 def test_write_volumetric_striped_png():
     """Test write tiled volume using an image compressor."""
     data = random_data(numpy.uint8, (15, 63, 95, 3))
-    with TempFileName('volumetric_striped_png') as fname:
+    with TempFileName('write_volumetric_striped_png') as fname:
         imwrite(
             fname,
             data,
@@ -16939,7 +16983,7 @@ def test_write_volumetric_striped_planar_rgb():
     shape = (2, 3, 15, 63, 96)
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(15, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
-    with TempFileName('volumetric_striped_planar_rgb') as fname:
+    with TempFileName('write_volumetric_striped_planar_rgb') as fname:
         imwrite(fname, data, volumetric=True, photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16973,7 +17017,7 @@ def test_write_volumetric_striped_contig_rgb():
     shape = (2, 3, 15, 63, 95, 3)
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(15, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1, 1)
-    with TempFileName('volumetric_striped_contig_rgb') as fname:
+    with TempFileName('write_volumetric_striped_contig_rgb') as fname:
         imwrite(fname, data, volumetric=True, photometric=RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16999,7 +17043,7 @@ def test_write_volumetric_striped_contig_rgb():
             image = tif.asarray()
             assert_array_equal(data, image)
             # assert iterating over series.pages
-            data = data.reshape(6, 15, 63, 95, 3)
+            data = data.reshape((6, 15, 63, 95, 3))
             for i, page in enumerate(series.pages):
                 image = page.asarray()
                 assert_array_equal(data[i], image)
@@ -17011,7 +17055,7 @@ def test_write_volumetric_striped_contig_rgb():
 def test_write_volumetric_striped_contig_rgb_empty():
     """Test write empty 6D array as contig RGB volumes."""
     shape = (2, 3, 15, 63, 95, 3)
-    with TempFileName('volumetric_striped_contig_rgb_empty') as fname:
+    with TempFileName('write_volumetric_striped_contig_rgb_empty') as fname:
         with TiffWriter(fname) as tif:
             tif.write(
                 shape=shape,
@@ -17077,7 +17121,7 @@ def test_write_3gb():
     """Test write 3 GB non-BigTIFF file."""
     # https://github.com/blink1073/tifffile/issues/47
     data = numpy.empty((4096 - 32, 1024, 1024), dtype=numpy.uint8)
-    with TempFileName('3gb') as fname:
+    with TempFileName('write_3gb') as fname:
         imwrite(fname, data)
         del data
         assert_valid_tiff(fname)
@@ -17091,7 +17135,7 @@ def test_write_6gb():
     """Test write 6 GB non-BigTIFF file."""
     # https://stackoverflow.com/questions/74930263
     data = numpy.empty((2**16, 2**15, 3), dtype=numpy.uint8)
-    with TempFileName('6gb') as fname:
+    with TempFileName('write_6gb') as fname:
         imwrite(
             fname, data, bigtiff=False, photometric='rgb', rowsperstrip=2**15
         )
@@ -17112,7 +17156,7 @@ def test_write_5GB_fails():
     # TiffWriter should fail without bigtiff parameter
     data = numpy.empty((640, 1024, 1024), dtype=numpy.float64)
     data[:] = numpy.arange(640, dtype=numpy.float64).reshape(-1, 1, 1)
-    with TempFileName('5GB_fails') as fname:
+    with TempFileName('write_5GB_fails') as fname:
         with pytest.raises(ValueError):
             with TiffWriter(fname) as tif:
                 tif.write(data)
@@ -17124,7 +17168,7 @@ def test_write_5GB_bigtiff():
     """Test write 5GB BigTiff file."""
     data = numpy.empty((640, 1024, 1024), dtype=numpy.float64)
     data[:] = numpy.arange(640, dtype=numpy.float64).reshape(-1, 1, 1)
-    with TempFileName('5GB_bigtiff') as fname:
+    with TempFileName('write_5GB_bigtiff') as fname:
         # imwrite should use bigtiff for large data
         imwrite(fname, data)
         # assert_jhove(fname)
@@ -17153,7 +17197,7 @@ def test_write_palette(dtype, compression):
     dtype = numpy.dtype(dtype)
     data = random_data(dtype, (3, 219, 301))
     cmap = random_data(numpy.uint16, (3, 2 ** (data.itemsize * 8)))
-    with TempFileName(f'palette_{compression}{dtype}') as fname:
+    with TempFileName(f'write_palette_{compression}{dtype}') as fname:
         imwrite(
             fname,
             data,
@@ -17188,7 +17232,7 @@ def test_write_palette_django():
         data = page.asarray()  # .squeeze()  # UserWarning ...
         cmap = page.colormap
         assert__str__(tif)
-    with TempFileName('palette_django') as fname:
+    with TempFileName('write_palette_django') as fname:
         imwrite(fname, data, colormap=cmap, compression=ADOBE_DEFLATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -17211,7 +17255,7 @@ def test_write_multiple_series():
     data1 = imread(private_file('ome/multi-channel-4D-series.ome.tif'))
     image1 = imread(private_file('django.tiff'))
     image2 = imread(private_file('horse-16bit-col-littleendian.tif'))
-    with TempFileName('multiple_series') as fname:
+    with TempFileName('write_multiple_series') as fname:
         with TiffWriter(fname, bigtiff=False) as tif:
             # series 0
             tif.write(
@@ -17344,7 +17388,7 @@ def test_write_multiple_series():
 def test_write_multithreaded():
     """Test write large tiled multithreaded."""
     data = numpy.arange(4001 * 6003 * 3).astype('uint8').reshape(4001, 6003, 3)
-    with TempFileName('multithreaded') as fname:
+    with TempFileName('write_multithreaded') as fname:
         imwrite(fname, data, tile=(512, 512), compression='PNG', maxworkers=6)
         # assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -17739,7 +17783,7 @@ def test_write_imagej(byteorder, dtype, shape):
     if dtype != numpy.uint8 and shape[-1] in {3, 4}:
         pytest.xfail('ImageJ only supports uint8 RGB')
     data = random_data(dtype, shape)
-    fname = 'imagej_{}_{}_{}'.format(
+    fname = 'write_imagej_{}_{}_{}'.format(
         {'<': 'le', '>': 'be'}[byteorder], dtype, str(shape).replace(' ', '')
     )
     with TempFileName(fname) as fname:
@@ -17754,7 +17798,7 @@ def test_write_imagej_voxel_size():
     """Test write ImageJ with xyz voxel size 2.6755x2.6755x3.9474 µm^3."""
     data = numpy.zeros((4, 256, 256), dtype=numpy.float32)
     data.shape = 4, 1, 256, 256
-    with TempFileName('imagej_voxel_size') as fname:
+    with TempFileName('write_imagej_voxel_size') as fname:
         imwrite(
             fname,
             data,
@@ -17782,7 +17826,7 @@ def test_write_imagej_metadata():
     """Test write additional ImageJ metadata."""
     data = numpy.empty((4, 256, 256), dtype=numpy.uint16)
     data[:] = numpy.arange(256 * 256, dtype=numpy.uint16).reshape(1, 256, 256)
-    with TempFileName('imagej_metadata') as fname:
+    with TempFileName('write_imagej_metadata') as fname:
         imwrite(fname, data, imagej=True, metadata={'unit': 'um'})
         with TiffFile(fname) as tif:
             assert tif.is_imagej
@@ -17813,7 +17857,7 @@ def test_write_imagej_ijmetadata_tag():
     assert ijmeta['LUTs'][2][2, 255] == 255
     assert_valid_tiff(fname)
 
-    with TempFileName('imagej_ijmetadata') as fname:
+    with TempFileName('write_imagej_ijmetadata') as fname:
         with pytest.raises(TypeError):
             imwrite(
                 fname,
@@ -17879,7 +17923,7 @@ def test_write_imagej_roundtrip():
     assert ijmeta['ImageJ'] == '1.52b'
     assert_valid_tiff(fname)
 
-    with TempFileName('imagej_ijmetadata_roundtrip') as fname:
+    with TempFileName('write_imagej_ijmetadata_roundtrip') as fname:
         imwrite(fname, data, byteorder='>', imagej=True, metadata=ijmeta)
 
         with TiffFile(fname) as tif:
@@ -17914,7 +17958,7 @@ def test_write_imagej_hyperstack(truncate, mmap):
 
     _truncate = ['', '_trunc'][truncate]
     _memmap = ['', '_memmap'][mmap]
-    with TempFileName(f'imagej_hyperstack{_truncate}{_memmap}') as fname:
+    with TempFileName(f'write_imagej_hyperstack{_truncate}{_memmap}') as fname:
         if mmap:
             image = memmap(
                 fname,
@@ -17955,7 +17999,7 @@ def test_write_imagej_hyperstack(truncate, mmap):
             assert_array_equal(data.squeeze(), image.squeeze())
             del image
             # assert iterating over series.pages
-            data = data.reshape(210, 49, 61, 3)
+            data = data.reshape((210, 49, 61, 3))
             for i, page in enumerate(series.pages):
                 image = page.asarray()
                 assert_array_equal(data[i], image)
@@ -17969,7 +18013,7 @@ def test_write_imagej_append():
     data = numpy.empty((256, 1, 256, 256), dtype=numpy.uint8)
     data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(-1, 1, 1, 1)
 
-    with TempFileName('imagej_append') as fname:
+    with TempFileName('write_imagej_append') as fname:
         with TiffWriter(fname, imagej=True) as tif:
             for image in data:
                 tif.write(image, contiguous=True)
@@ -18005,7 +18049,7 @@ def test_write_imagej_append():
 
 def test_write_imagej_bigtiff():
     """Test write ImageJ BigTIFF with warning."""
-    with TempFileName('imagej_bigtiff') as fname:
+    with TempFileName('write_imagej_bigtiff') as fname:
         with pytest.warns(UserWarning):
             imwrite(
                 fname,
@@ -18023,7 +18067,7 @@ def test_write_imagej_raw():
     data = numpy.empty((1280, 1, 1024, 1024), dtype=numpy.float32)
     data[:] = numpy.arange(1280, dtype=numpy.float32).reshape(-1, 1, 1, 1)
 
-    with TempFileName('imagej_big') as fname:
+    with TempFileName('write_imagej_big') as fname:
         with pytest.warns(UserWarning):
             # UserWarning: truncating ImageJ file
             imwrite(fname, data, imagej=True)
@@ -18165,11 +18209,14 @@ def test_write_ome_enable():
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 @pytest.mark.parametrize(
-    'method', ['manual', 'copy', 'iter', 'compression', 'xml']
+    'method', ['manual', 'copy', 'iter', 'compression', 'xml', 'dask']
 )
 def test_write_ome_methods(method):
     """Test re-write OME-TIFF."""
     # 4D (7 time points, 5 focal planes)
+    if method == 'dask' and SKIP_DASK:
+        pytest.skip('skip dask')
+
     fname = public_file('OME/bioformats-artificial/4D-series.ome.tiff')
     with TiffFile(fname) as tif:
         series = tif.series[0]
@@ -18178,6 +18225,9 @@ def test_write_ome_methods(method):
         shape = data.shape
         axes = series.axes
         omexml = tif.ome_metadata
+        if method == 'dask':
+            store = series.aszarr()
+            darr = dask.array.from_zarr(store)
 
     def pages():
         yield from data.reshape(-1, *data.shape[-2:])
@@ -18237,9 +18287,9 @@ def test_write_ome_methods(method):
                 pages(),
                 shape=shape,
                 dtype=dtype,
-                compression=ADOBE_DEFLATE,
                 byteorder='>',
                 photometric=MINISBLACK,
+                compression=ADOBE_DEFLATE,
                 metadata={'axes': axes},
             )
 
@@ -18253,6 +18303,19 @@ def test_write_ome_methods(method):
                 metadata={'axes': axes},
             )
 
+        elif method == 'dask':
+            # dask array
+            imwrite(
+                fname,
+                darr,
+                byteorder='>',
+                photometric=MINISBLACK,
+                compression=ADOBE_DEFLATE,
+                metadata={'axes': axes},
+            )
+            del darr
+            store.close()
+
         with TiffFile(fname) as tif:
             assert tif.is_ome
             assert tif.byteorder == '>'
@@ -18260,7 +18323,7 @@ def test_write_ome_methods(method):
             assert len(tif.series) == 1
             # assert page properties
             page = tif.pages.first
-            if method != 'compression':
+            if method not in {'compression', 'dask'}:
                 assert page.is_contiguous
                 assert page.compression == NONE
             assert page.imagewidth == 439
@@ -18554,7 +18617,7 @@ def test_write_geotiff_copy():
 def test_write_open_mode(ext):
     """Test TiffWriter with file open modes."""
     data = numpy.random.randint(0, 255, (5, 31, 21), numpy.uint8)
-    with TempFileName('test_write_open_mode' + ext) as fname:
+    with TempFileName('write_open_mode' + ext) as fname:
         # write
         imwrite(fname, data, mode='w' + ext)
         assert_array_equal(imread(fname), data)
@@ -18604,6 +18667,52 @@ def test_write_open_mode(ext):
 
         with pytest.raises(ValueError):
             imwrite(fname, data, mode='w' + ext, append=True)
+
+
+@pytest.mark.skipif(SKIP_ZARR or SKIP_DASK or SKIP_CODECS, reason=REASON)
+@pytest.mark.parametrize('atype', ['numpy', 'dask', 'zarr'])
+@pytest.mark.parametrize('compression', [None, 'zlib'])
+@pytest.mark.parametrize('tiled', [None, False, True])
+@pytest.mark.parametrize('byteorder', ['<', '>'])
+def test_write_array_types(atype, byteorder, tiled, compression):
+    """Test write array types."""
+    kwargs = {}
+    fname = f'write_{atype}_'
+    if tiled is None:
+        pass
+    elif tiled:
+        kwargs['tile'] = (64, 64)
+        fname += 'tiled_'
+    else:
+        kwargs['rowsperstrip'] = 64
+        fname += 'striped_'
+    if compression is not None:
+        kwargs['compression'] = compression
+        fname += compression
+    fname += 'be' if byteorder == '>' else 'le'
+
+    data = numpy.random.randint(0, 1024, (3, 361, 254, 3), numpy.uint16)
+    if atype == 'numpy':
+        arr = data.copy()
+    elif atype == 'dask':
+        arr = dask.array.from_array(data, chunks=(1, 32, 64, 3))
+    elif atype == 'zarr':
+        arr = zarr.zeros(data.shape, chunks=(1, 32, 64, 3), dtype=data.dtype)
+        arr[:] = data
+    with TempFileName(fname) as fname:
+        imwrite(
+            fname,
+            arr[1:, 33 : 33 + 261, 31 : 31 + 200],
+            byteorder=byteorder,
+            **kwargs,
+        )
+        assert_array_equal(
+            imread(fname), data[1:, 33 : 33 + 261, 31 : 31 + 200]
+        )
+        assert_array_equal(
+            imagecodecs.imread(fname, index=None),
+            data[1:, 33 : 33 + 261, 31 : 31 + 200],
+        )
 
 
 ###############################################################################
@@ -19100,7 +19209,7 @@ def test_dependent_lfdfiles():
     from lfdfiles import LfdFileSequence, SimfcsInt, SimfcsZ64
 
     filename = private_file('SimFCS/simfcs.Z64')
-    with TempFileName('simfcsz_z64', ext='.tif') as outfile:
+    with TempFileName('depend_simfcsz_z64', ext='.tif') as outfile:
         with SimfcsZ64(filename) as z64:
             data = z64.asarray()
             z64.totiff(outfile)
@@ -19128,10 +19237,11 @@ def test_dependent_cmapfile():
 
     filename = private_file('LSM/3d_zfish_onephoton_zoom.lsm')
     data = imread(filename)
-    with TempFileName('cmapfile', ext='.cmap') as cmapfile:
+    with TempFileName('depend_cmapfile', ext='.cmap') as cmapfile:
         lsm2cmap(filename, cmapfile, step=(1.0, 1.0, 20.0))
         fname = os.path.join(
-            os.path.split(cmapfile)[0], 'test_cmapfile.ch0000.cmap'
+            os.path.split(cmapfile)[0],
+            cmapfile.replace('.cmap', '.ch0000.cmap'),
         )
         with CmapFile(fname, mode='r') as cmap:
             assert_array_equal(
@@ -19166,7 +19276,7 @@ def test_dependent_czi2tif():
     with CziFile(fname) as czi:
         metadata = czi.metadata()
         data = czi.asarray().squeeze()
-    with TempFileName('czi2tif') as tif:
+    with TempFileName('depend_czi2tif') as tif:
         czi2tif(fname, tif, bigtiff=False)
         with TiffFile(tif) as t:
             im = t.asarray()
@@ -19184,7 +19294,7 @@ def test_dependent_czi2tif_airy():
     from czifile.czifile import czi2tif
 
     fname = private_file('CZI/AiryscanSRChannel.czi')
-    with TempFileName('czi2tif_airy') as tif:
+    with TempFileName('depend_czi2tif_airy') as tif:
         czi2tif(fname, tif, verbose=True, truncate=True, bigtiff=False)
         im = memmap(tif)
         assert im.shape == (32, 6, 1680, 1680)
