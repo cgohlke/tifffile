@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2023.9.26
+
+- Pass 5069 tests.
+- Lazily convert dask array to ndarray when writing.
+- Allow to specify buffersize for reading and writing.
+- Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
+
 2023.9.18
 
-- Pass 5025 tests.
 - Raise exception when writing non-volume data with volumetric tiles (#225).
 - Improve multi-threaded writing of compressed multi-page files.
 - Fix fsspec reference for big-endian files with predictors.
