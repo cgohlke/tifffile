@@ -2792,6 +2792,7 @@ def test_issue_non_volumetric():
             assert page.shape == data.shape
 
 
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
 def test_issue_trucated_tileoffsets():
     """Test reading truncated tile offsets and bytecounts."""
     # https://github.com/cgohlke/tifffile/issues/227
