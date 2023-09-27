@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.9.18
+:Version: 2023.9.26
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -76,15 +76,21 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.1
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.2
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.9.26
+
+- Pass 5069 tests.
+- Lazily convert dask array to ndarray when writing.
+- Allow to specify buffersize for reading and writing.
+- Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
+
 2023.9.18
 
-- Pass 5025 tests.
 - Raise exception when writing non-volume data with volumetric tiles (#225).
 - Improve multi-threaded writing of compressed multi-page files.
 - Fix fsspec reference for big-endian files with predictors.
