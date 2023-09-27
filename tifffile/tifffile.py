@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.9.18
+:Version: 2023.9.26
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -106,15 +106,21 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.1
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.2
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.9.26
+
+- Pass 5069 tests.
+- Lazily convert dask array to ndarray when writing.
+- Allow to specify buffersize for reading and writing.
+- Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
+
 2023.9.18
 
-- Pass 5025 tests.
 - Raise exception when writing non-volume data with volumetric tiles (#225).
 - Improve multi-threaded writing of compressed multi-page files.
 - Fix fsspec reference for big-endian files with predictors.
@@ -801,7 +807,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.9.18'
+__version__ = '2023.9.26'
 
 __all__ = [
     'TiffFile',
@@ -967,6 +973,7 @@ def imread(
     level: int | None = None,
     squeeze: bool | None = None,
     maxworkers: int | None = None,
+    buffersize: int | None = None,
     mode: Literal['r', 'r+'] | None = None,
     name: str | None = None,
     offset: int | None = None,
@@ -1014,7 +1021,7 @@ def imread(
             instead of NumPy array if `selection` is None.
         mode, name, offset, size, omexml, _multifile, _useframes:
             Passed to :py:class:`TiffFile`.
-        key, series, level, squeeze, maxworkers:
+        key, series, level, squeeze, maxworkers, buffersize:
             Passed to :py:meth:`TiffFile.asarray`
             or :py:meth:`TiffFile.aszarr`.
         imread, container, sort, pattern, axesorder, axestiled, categories,\
@@ -1087,6 +1094,7 @@ def imread(
                         level=level,
                         squeeze=squeeze,
                         maxworkers=maxworkers,
+                        buffersize=buffersize,
                         chunkmode=chunkmode,
                         fillvalue=fillvalue,
                         zattrs=zattrs,
@@ -1101,6 +1109,7 @@ def imread(
                     level=level,
                     squeeze=squeeze,
                     maxworkers=maxworkers,
+                    buffersize=buffersize,
                     out=out,
                 )
 
@@ -1113,6 +1122,7 @@ def imread(
         level=level,
         squeeze=squeeze,
         maxworkers=maxworkers,
+        buffersize=buffersize,
         _multifile=_multifile,
         _useframes=_useframes,
         **is_flags,
@@ -1196,6 +1206,7 @@ def imwrite(
     truncate: bool = False,
     align: int | None = None,
     maxworkers: int | None = None,
+    buffersize: int | None = None,
     returnoffset: bool = False,
 ) -> tuple[int, int] | None:
     """Write NumPy array to TIFF file.
@@ -1217,7 +1228,8 @@ def imwrite(
         rowsperstrip, bitspersample, compression, compressionargs, predictor,\
         subsampling, jpegtables, colormap, description, datetime,\
         resolution, resolutionunit, subfiletype, software,\
-        metadata, extratags, maxworkers, contiguous, truncate, align:
+        metadata, extratags, maxworkers, buffersize, \
+        contiguous, truncate, align:
             Passed to :py:meth:`TiffWriter.write`.
         returnoffset:
             Return offset and number of bytes of memory-mappable image data
@@ -1294,6 +1306,7 @@ def imwrite(
             truncate=truncate,
             align=align,
             maxworkers=maxworkers,
+            buffersize=buffersize,
             returnoffset=returnoffset,
         )
     return result
@@ -1641,6 +1654,7 @@ class TiffWriter:
         truncate: bool = False,
         align: int | None = None,
         maxworkers: int | None = None,
+        buffersize: int | None = None,
         returnoffset: bool = False,
     ) -> tuple[int, int] | None:
         r"""Write multi-dimensional image to series of TIFF pages.
@@ -1667,8 +1681,8 @@ class TiffWriter:
                 be specified using `shape` and `dtype` arguments.
                 This option cannot be used with compression, predictors,
                 packed integers, or bilevel images.
-                A copy of array-like data is made if data is not a C-contiguous
-                ndarray with the same byteorder as the TIFF file.
+                A copy of array-like data is made if it is not a C-contiguous
+                numpy or dask array with the same byteorder as the TIFF file.
                 Iterators must yield ndarrays or bytes compatible with the
                 file's byteorder as well as the `shape` and `dtype` arguments.
                 Iterator bytes must be compatible with the `compression`,
@@ -1678,6 +1692,9 @@ class TiffWriter:
                 Iterators of non-tiled images must yield ndarrays of
                 `shape[1:]` or strips as bytes. Iterators of strip ndarrays
                 are not supported.
+                Writing dask arrays might be excruciatingly slow for arrays
+                with many chunks or files with many segments.
+                (https://github.com/dask/dask/issues/8570).
             shape:
                 Shape of image to write.
                 The default is inferred from the `data` argument if possible.
@@ -1910,6 +1927,9 @@ class TiffWriter:
                 in case of large JPEG compressed tiles.
                 If the bottleneck is I/O or pure Python code, using multiple
                 threads might be detrimental.
+            buffersize:
+                Approximate number of bytes to compress in one pass.
+                The default is :py:attr:`_TIFF.BUFFERSIZE` * 2.
             returnoffset:
                 Return offset and number of bytes of memory-mappable image
                 data in file.
@@ -1933,7 +1953,6 @@ class TiffWriter:
         databytecountsoffset: tuple[int, int | None] | None = None
         subifdsoffsets: tuple[int, int | None] | None = None
         datadtype: numpy.dtype[Any]
-        datadtypechar: str
         bilevel: bool
         tiles: tuple[int, ...]
         ifdpos: int
@@ -1960,7 +1979,7 @@ class TiffWriter:
             dataiter = None
             datashape = tuple(shape)
             datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
-            datadtypechar = datadtype.char
+
         elif hasattr(data, '__next__'):
             # iterator/generator
             if shape is None or dtype is None:
@@ -1970,27 +1989,43 @@ class TiffWriter:
             dataiter = data  # type: ignore
             datashape = tuple(shape)
             datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
-            datadtypechar = datadtype.char
-        else:
-            # array-like
-            # must be C-contiguous numpy array of TIFF byteorder
-            if hasattr(data, 'dtype'):
-                dataarray = numpy.asarray(
-                    data, byteorder + data.dtype.char, 'C'
-                )
-            else:
-                # if dtype is not specified, default to float64
-                datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
-                dataarray = numpy.asarray(data, datadtype, 'C')
 
-            if dtype is not None and dtype != dataarray.dtype:
-                raise ValueError('dtype argument does not match data dtype')
-            if shape is not None and shape != dataarray.shape:
-                raise ValueError('shape argument does not match data shape')
-            dataiter = None
+        elif hasattr(data, 'dtype'):
+            # numpy, zarr, or dask array
+            # dataarray = cast(data, numpy.ndarray)
+            dataarray = data
+            datadtype = numpy.dtype(data.dtype).newbyteorder(byteorder)
+            if not hasattr(data, 'reshape'):
+                # zarr array cannot be shape-normalized
+                dataarray = numpy.asarray(data, datadtype, 'C')
+            else:
+                try:
+                    # numpy array must be C contiguous
+                    if data.flags.f_contiguous:
+                        dataarray = numpy.asarray(data, datadtype, 'C')
+                except AttributeError:
+                    # not a numpy array
+                    pass
             datashape = dataarray.shape
-            datadtype = dataarray.dtype
-            datadtypechar = dataarray.dtype.char
+            dataiter = None
+            if dtype is not None and numpy.dtype(dtype) != datadtype:
+                raise ValueError(
+                    f'dtype argument {dtype!r} does not match '
+                    f'data dtype {datadtype}'
+                )
+            if shape is not None and shape != dataarray.shape:
+                raise ValueError(
+                    f'shape argument {shape!r} does not match '
+                    f'data shape {dataarray.shape}'
+                )
+
+        else:
+            # scalar, list, tuple, etc
+            # if dtype is not specified, default to float64
+            datadtype = numpy.dtype(dtype).newbyteorder(byteorder)
+            dataarray = numpy.asarray(data, datadtype, 'C')
+            datashape = dataarray.shape
+            dataiter = None
 
         del data
 
@@ -1999,7 +2034,7 @@ class TiffWriter:
 
         returnoffset = returnoffset and datadtype.isnative
 
-        bilevel = datadtypechar == '?'
+        bilevel = datadtype.char == '?'
         if bilevel:
             index = -1 if datashape[-1] > 1 else -2
             datasize = product(datashape[:index])
@@ -2115,7 +2150,7 @@ class TiffWriter:
                 if dataarray is None:
                     fh.write_empty(datasize)
                 else:
-                    fh.write_array(dataarray)
+                    fh.write_array(dataarray, datadtype)
                 if returnoffset:
                     return offset, datasize
                 return None
@@ -2281,10 +2316,10 @@ class TiffWriter:
                     UserWarning,
                 )
                 description = None
-            if datadtypechar not in 'BHhf':
+            if datadtype.char not in 'BHhf':
                 raise ValueError(
                     'the ImageJ format does not support data type '
-                    f'{datadtypechar!r}'
+                    f'{datadtype.char!r}'
                 )
             if volumetric or (tile and len(tile) > 2):
                 raise ValueError(
@@ -2292,7 +2327,7 @@ class TiffWriter:
                 )
             volumetric = False
             ijrgb = photometric == RGB if photometric else None
-            if datadtypechar != 'B':
+            if datadtype.char != 'B':
                 if photometric == RGB:
                     raise ValueError(
                         'the ImageJ format does not support '
@@ -2318,7 +2353,7 @@ class TiffWriter:
         # verify colormap and indices
         if colormap is not None:
             colormap = numpy.asarray(colormap, dtype=byteorder + 'H')
-            if datadtypechar in 'BH':
+            if datadtype.char in 'BH':
                 if colormap.shape != (3, 2 ** (datadtype.itemsize * 8)):
                     raise ValueError('invalid colormap shape')
             elif self._imagej:
@@ -2357,7 +2392,7 @@ class TiffWriter:
         if volumetric and ndim < 3:
             volumetric = False
 
-        if colormap is not None and datadtypechar in 'BH':
+        if colormap is not None and datadtype.char in 'BH':
             photometric = PALETTE
             planarconfig = None
 
@@ -2369,7 +2404,7 @@ class TiffWriter:
             elif planarconfig == CONTIG:
                 if ndim > 2 and shape[-1] in {3, 4}:
                     photometric = RGB
-                    deprecate = datadtypechar not in 'BH'
+                    deprecate = datadtype.char not in 'BH'
             elif planarconfig == SEPARATE:
                 if volumetric and ndim > 3 and shape[-4] in {3, 4}:
                     photometric = RGB
@@ -2380,7 +2415,7 @@ class TiffWriter:
             elif ndim > 2 and shape[-1] in {3, 4}:
                 photometric = RGB
                 planarconfig = CONTIG
-                deprecate = datadtypechar not in 'BH'
+                deprecate = datadtype.char not in 'BH'
             elif self._imagej or self._ome:
                 photometric = MINISBLACK
                 planarconfig = None
@@ -3061,22 +3096,22 @@ class TiffWriter:
         if dataiter is not None:
             iteritem, dataiter = peek_iterator(dataiter)
             bytesiter = isinstance(iteritem, bytes)
-            if (
-                not bytesiter
-                and tile
-                and storedshape.contig_samples == 1
-                and numpy.asarray(iteritem).shape[-1] != 1
-            ):
-                # issue 185
-                compressionaxis = -1
-            if (
-                hasattr(iteritem, 'dtype')
-                and iteritem.dtype.char != datadtype.char
-            ):
-                raise ValueError(
-                    f'dtype of iterator {iteritem.dtype!r} '
-                    f'does not match dtype {datadtype!r}'
-                )
+            if not bytesiter:
+                iteritem = numpy.asarray(iteritem)
+                if (
+                    tile
+                    and storedshape.contig_samples == 1
+                    and iteritem.shape[-1] != 1
+                ):
+                    # issue 185
+                    compressionaxis = -1
+                if iteritem.dtype.char != datadtype.char:
+                    raise ValueError(
+                        f'dtype of iterator {iteritem.dtype!r} '
+                        f'does not match dtype {datadtype!r}'
+                    )
+        else:
+            iteritem = None
 
         if bilevel:
             if compressiontag == 1:
@@ -3184,7 +3219,8 @@ class TiffWriter:
                     tileshape,
                     datadtype,
                     maxworkers,
-                    None,
+                    buffersize,
+                    True,
                 )
             else:
                 # dataiter yields frames
@@ -3213,7 +3249,7 @@ class TiffWriter:
                     ),
                     datadtype,
                     maxworkers,
-                    None,
+                    buffersize,
                     False,
                 )
 
@@ -3339,7 +3375,7 @@ class TiffWriter:
                             else:
                                 # assert isinstance(iteritem, numpy.ndarray)
                                 byteswritten += fh.write_array(
-                                    iteritem  # type: ignore
+                                    iteritem, datadtype  # type: ignore
                                 )
                             del iteritem
                     if byteswritten != datasize:
@@ -3350,7 +3386,7 @@ class TiffWriter:
                 elif dataarray is None:
                     fh.write_empty(datasize)
                 else:
-                    fh.write_array(dataarray)
+                    fh.write_array(dataarray, datadtype)
 
             elif bytesiter:
                 # write tiles or strips
@@ -3372,12 +3408,12 @@ class TiffWriter:
                         # fh.write_empty(tilesize)
                         continue
                     # assert not isinstance(iteritem, bytes)
-                    iteritem = cast(numpy.ndarray, iteritem)
+                    iteritem = numpy.ascontiguousarray(iteritem, datadtype)
                     if iteritem.nbytes != tilesize:
-                        if iteritem.dtype != datadtype:
-                            raise ValueError(
-                                'dtype of tile does not match data'
-                            )
+                        # if iteritem.dtype != datadtype:
+                        #     raise ValueError(
+                        #         'dtype of tile does not match data'
+                        #     )
                         if iteritem.nbytes > tilesize:
                             raise ValueError('tile is too large')
                         pad = tuple(
@@ -4028,19 +4064,19 @@ class TiffFile:
         if mode not in {None, 'r', 'r+', 'rb', 'r+b'}:
             raise ValueError(f'invalid mode {mode!r}')
 
-        fh = FileHandle(file, mode=mode, name=name, offset=offset, size=size)
-        self._fh = fh
-        self._multifile = True if _multifile is None else bool(_multifile)
-        self._files = {fh.name: self}
-        self._decoders = {}
-        self._parent = self if _parent is None else _parent
-
         self._omexml = None
         if omexml:
             if omexml.strip()[-4:] != 'OME>':
                 raise ValueError('invalid OME-XML')
             self._omexml = omexml
             self.is_ome = True
+
+        fh = FileHandle(file, mode=mode, name=name, offset=offset, size=size)
+        self._fh = fh
+        self._multifile = True if _multifile is None else bool(_multifile)
+        self._files = {fh.name: self}
+        self._decoders = {}
+        self._parent = self if _parent is None else _parent
 
         try:
             fh.seek(0)
@@ -4172,6 +4208,7 @@ class TiffFile:
         squeeze: bool | None = None,
         out: OutputType = None,
         maxworkers: int | None = None,
+        buffersize: int | None = None,
     ) -> NDArray[Any]:
         """Return images from select pages as NumPy array.
 
@@ -4226,6 +4263,9 @@ class TiffFile:
                 JPEG compressed tiled slides.
                 If the bottleneck is I/O or pure Python code, using multiple
                 threads might be detrimental.
+            buffersize:
+                Approximate number of bytes to read from file in one pass.
+                The default is :py:attr:`_TIFF.BUFFERSIZE`.
 
         Returns:
             Images from specified pages. See `TiffPage.asarray`
@@ -4301,9 +4341,13 @@ class TiffFile:
             page0 = pages[0]
             if page0 is None:
                 raise ValueError('page is None')
-            result = page0.asarray(out=out, maxworkers=maxworkers)
+            result = page0.asarray(
+                out=out, maxworkers=maxworkers, buffersize=buffersize
+            )
         else:
-            result = stack_pages(pages, out=out, maxworkers=maxworkers)
+            result = stack_pages(
+                pages, out=out, maxworkers=maxworkers, buffersize=buffersize
+            )
 
         if result is None:
             return None
@@ -8775,6 +8819,7 @@ class TiffPage:
         maxworkers: int | None = None,
         func: Callable[..., Any] | None = None,  # TODO: type this
         sort: bool = False,
+        buffersize: int | None = None,
         _fullsize: bool | None = None,
     ) -> Iterator[
         tuple[
@@ -8794,6 +8839,9 @@ class TiffPage:
                 Function to process decoded segment.
             sort:
                 Read segments from file in order of their offsets.
+            buffersize:
+                Approximate number of bytes to read from file in one pass.
+                The default is :py:attr:`_TIFF.BUFFERSIZE`.
             _fullsize:
                 Internal use.
 
@@ -8835,12 +8883,13 @@ class TiffPage:
                 self.databytecounts,
                 lock=lock,
                 sort=sort,
+                buffersize=buffersize,
                 flat=True,
             ):
                 yield decode(segment)
         else:
             # reduce memory overhead by processing chunks of up to
-            # ~256 MB of segments because ThreadPoolExecutor.map is not
+            # buffersize of segments because ThreadPoolExecutor.map is not
             # collecting iterables lazily
             with ThreadPoolExecutor(maxworkers) as executor:
                 for segments in fh.read_segments(
@@ -8848,6 +8897,7 @@ class TiffPage:
                     self.databytecounts,
                     lock=lock,
                     sort=sort,
+                    buffersize=buffersize,
                     flat=False,
                 ):
                     yield from executor.map(decode, segments)
@@ -8859,6 +8909,7 @@ class TiffPage:
         squeeze: bool = True,
         lock: threading.RLock | NullContext | None = None,
         maxworkers: int | None = None,
+        buffersize: int | None = None,
     ) -> NDArray[Any]:
         """Return image from page as NumPy array.
 
@@ -8885,6 +8936,9 @@ class TiffPage:
                 Maximum number of threads to concurrently decode segments.
                 If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS`
                 threads. See remarks in :py:meth:`TiffFile.asarray`.
+            buffersize:
+                Approximate number of bytes to read from file in one pass.
+                The default is :py:attr:`_TIFF.BUFFERSIZE`.
 
         Returns:
             NumPy array of decompressed, unpredicted, and unpacked image data
@@ -9040,6 +9094,7 @@ class TiffPage:
                 func=func,
                 lock=lock,
                 maxworkers=maxworkers,
+                buffersize=buffersize,
                 sort=True,
                 _fullsize=False,
             ):
@@ -12413,6 +12468,9 @@ class ZarrTiffStore(ZarrStore):
             Maximum number of threads to concurrently decode strips or tiles
             if `chunkmode=2`.
             If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS` threads.
+        buffersize:
+            Approximate number of bytes to read from file in one pass
+            if `chunkmode=2`. The default is :py:attr:`_TIFF.BUFFERSIZE`.
         _openfiles:
             Internal API.
 
@@ -12422,6 +12480,7 @@ class ZarrTiffStore(ZarrStore):
     _filecache: FileCache
     _transform: Callable[[NDArray[Any]], NDArray[Any]] | None
     _maxworkers: int | None
+    _buffersize: int | None
     _squeeze: bool | None
     _writable: bool
     _multiscales: bool
@@ -12439,6 +12498,7 @@ class ZarrTiffStore(ZarrStore):
         lock: threading.RLock | NullContext | None = None,
         squeeze: bool | None = None,
         maxworkers: int | None = None,
+        buffersize: int | None = None,
         _openfiles: int | None = None,
     ) -> None:
         super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
@@ -12446,8 +12506,9 @@ class ZarrTiffStore(ZarrStore):
         if self._chunkmode not in {0, 2}:
             raise NotImplementedError(f'{self._chunkmode!r} not implemented')
 
-        self._maxworkers = maxworkers
         self._squeeze = None if squeeze is None else bool(squeeze)
+        self._maxworkers = maxworkers
+        self._buffersize = buffersize
 
         if isinstance(arg, TiffPageSeries):
             self._data = arg.levels
@@ -12952,7 +13013,7 @@ class ZarrTiffStore(ZarrStore):
         """Return if key is in store."""
         try:
             _, page, _, offset, bytecount = self._parse_key(key)
-        except KeyError:
+        except (KeyError, IndexError):
             return False
         if self._chunkmode and offset is None:
             return True
@@ -12976,7 +13037,9 @@ class ZarrTiffStore(ZarrStore):
         if self._chunkmode and offset is None:
             self._filecache.open(fh)
             chunk = page.asarray(
-                lock=self._filecache.lock, maxworkers=self._maxworkers
+                lock=self._filecache.lock,
+                maxworkers=self._maxworkers,
+                buffersize=self._buffersize,
             )
             self._filecache.close(fh)
             if self._transform is not None:
@@ -13034,12 +13097,16 @@ class ZarrTiffStore(ZarrStore):
         int | None,
         int | None,
     ]:
-        """Return keyframe, page, index, offset, and bytecount from key."""
+        """Return keyframe, page, index, offset, and bytecount from key.
+
+        Raise KeyError if key is not valid.
+
+        """
         if self._multiscales:
             try:
                 level, key = key.split('/')
                 series = self._data[int(level)]
-            except ValueError as exc:
+            except (ValueError, IndexError) as exc:
                 raise KeyError(key) from exc
         else:
             series = self._data[0]
@@ -13053,7 +13120,10 @@ class ZarrTiffStore(ZarrStore):
             if page is None or page.dtype is None or page.keyframe is None:
                 return keyframe, None, chunkindex, 0, 0
             offset = pageindex * page.size * page.dtype.itemsize
-            offset += page.dataoffsets[chunkindex]
+            try:
+                offset += page.dataoffsets[chunkindex]
+            except IndexError as exc:
+                raise KeyError(key) from exc
             if self._chunkmode:
                 bytecount = page.size * page.dtype.itemsize
                 return page.keyframe, page, chunkindex, offset, bytecount
@@ -13068,8 +13138,14 @@ class ZarrTiffStore(ZarrStore):
                 page = series[pageindex]
             if page is None or page.keyframe is None:
                 return keyframe, None, chunkindex, 0, 0
-            offset = page.dataoffsets[chunkindex]
-        bytecount = page.databytecounts[chunkindex]
+            try:
+                offset = page.dataoffsets[chunkindex]
+            except IndexError as exc:
+                raise KeyError(key) from exc
+        try:
+            bytecount = page.databytecounts[chunkindex]
+        except IndexError as exc:
+            raise KeyError(key) from exc
         return page.keyframe, page, chunkindex, offset, bytecount
 
     def _indices(self, key: str, series: TiffPageSeries, /) -> tuple[int, int]:
@@ -14509,8 +14585,13 @@ class FileHandle:
         self._fh.write(b'\x00')
         return size
 
-    def write_array(self, data: NDArray[Any], /) -> int:
-        """Write NumPy array to file.
+    def write_array(
+        self,
+        data: NDArray[Any],
+        dtype: DTypeLike = None,
+        /,
+    ) -> int:
+        """Write NumPy array to file in C contiguous order.
 
         Parameters:
             data: Array to write to file.
@@ -14518,10 +14599,11 @@ class FileHandle:
         """
         assert self._fh is not None
         pos = self._fh.tell()
+        # writing non-contiguous arrays is very slow
+        data = numpy.ascontiguousarray(data, dtype)
         try:
-            # TODO: writing non-contiguous arrays is very slow
-            numpy.ascontiguousarray(data).tofile(self._fh)
-        except Exception:
+            data.tofile(self._fh)
+        except io.UnsupportedOperation:
             # numpy cannot write to BytesIO
             self._fh.write(data.tobytes())
         return self._fh.tell() - pos
@@ -14565,7 +14647,7 @@ class FileHandle:
                 Reentrant lock to synchronize seeks and reads.
             buffersize:
                 Approximate number of bytes to read from file in one pass.
-                The default is 256 MB.
+                The default is :py:attr:`_TIFF.BUFFERSIZE`.
             flat:
                 If *True*, return iterator over individual (segment, index)
                 tuples.
@@ -14629,7 +14711,7 @@ class FileHandle:
                 j = i
                 offset = -1
                 bytecount = 0
-                while bytecount < buffersize and i < length:
+                while bytecount <= buffersize and i < length:
                     _, o, b = segments[i]
                     if o > 0 and b > 0:
                         if offset < 0:
@@ -14668,7 +14750,7 @@ class FileHandle:
             result = []
             size = 0
             with lock:
-                while size < buffersize and i < length:
+                while size <= buffersize and i < length:
                     index, offset, bytecount = segments[i]
                     if offset > 0 and bytecount > 0:
                         seek(offset)
@@ -18926,7 +19008,8 @@ class _TIFF:
         cpu_count = os.cpu_count()
         return max(1, cpu_count * 5) if cpu_count is not None else 1
 
-    BUFFERSIZE: int = 268435456  # 256 MB buffer for read and writes
+    BUFFERSIZE: int = 268435456
+    """Default number of bytes to read or encode in one pass (256 MB)."""
 
     # make enums available in the TIFF namespace for backwards compatibility.
     # These type aliases cannot be used as typing hints.
@@ -21727,46 +21810,54 @@ def iter_tiles(
     tiles: tuple[int, ...],
     /,
 ) -> Iterator[NDArray[Any]]:
-    """Return iterator over tiles in data array of normalized shape."""
-    if not 1 < len(tile) < 4:
-        raise ValueError('invalid tile shape')
-    shape = data.shape
+    """Return iterator over full tiles in data array of normalized shape.
+
+    Tiles are zero-padded if necessary.
+
+    """
+    if not 1 < len(tile) < 4 or len(tile) != len(tiles):
+        raise ValueError('invalid tile or tiles shape')
+    chunkshape = tile + (data.shape[-1],)
+    chunksize = product(chunkshape)
     dtype = data.dtype
-    chunkshape = tile + (shape[-1],)
+    sz, sy, sx = data.shape[2:5]
     if len(tile) == 2:
+        y, x = tile
         for page in data:
             for plane in page:
                 for ty in range(tiles[0]):
+                    ty *= y
+                    cy = min(y, sy - ty)
                     for tx in range(tiles[1]):
-                        c1 = min(tile[0], shape[3] - ty * tile[0])
-                        c2 = min(tile[1], shape[4] - tx * tile[1])
-                        chunk = numpy.zeros(chunkshape, dtype)
-                        chunk[:c1, :c2] = plane[
-                            0,
-                            ty * tile[0] : ty * tile[0] + c1,
-                            tx * tile[1] : tx * tile[1] + c2,
-                        ]
+                        tx *= x
+                        cx = min(x, sx - tx)
+                        chunk = plane[0, ty : ty + cy, tx : tx + cx]
+                        if chunk.size != chunksize:
+                            chunk_ = numpy.zeros(chunkshape, dtype)
+                            chunk_[:cy, :cx] = chunk
+                            chunk = chunk_
                         yield chunk
     else:
+        z, y, x = tile
         for page in data:
             for plane in page:
                 for tz in range(tiles[0]):
+                    tz *= z
+                    cz = min(z, sz - tz)
                     for ty in range(tiles[1]):
+                        ty *= y
+                        cy = min(y, sy - ty)
                         for tx in range(tiles[2]):
-                            c0 = min(tile[0], shape[2] - tz * tile[0])
-                            c1 = min(tile[1], shape[3] - ty * tile[1])
-                            c2 = min(tile[2], shape[4] - tx * tile[2])
-                            chunk = numpy.zeros(chunkshape, dtype)
-                            chunk[:c0, :c1, :c2] = plane[
-                                tz * tile[0] : tz * tile[0] + c0,
-                                ty * tile[1] : ty * tile[1] + c1,
-                                tx * tile[2] : tx * tile[2] + c2,
+                            tx *= x
+                            cx = min(x, sx - tx)
+                            chunk = plane[
+                                tz : tz + cz, ty : ty + cy, tx : tx + cx
                             ]
-                            if tile[0] == 1:
-                                # squeeze for image compressors
-                                yield chunk[0]
-                            else:
-                                yield chunk
+                            if chunk.size != chunksize:
+                                chunk_ = numpy.zeros(chunkshape, dtype)
+                                chunk_[:cz, :cy, :cx] = chunk
+                                chunk = chunk_
+                            yield chunk[0] if z == 1 else chunk
 
 
 def encode_chunks(
@@ -21777,7 +21868,7 @@ def encode_chunks(
     dtype: numpy.dtype[Any],
     maxworkers: int | None,
     buffersize: int | None,
-    istile: bool = True,
+    istile: bool,
     /,
 ) -> Iterator[bytes]:
     """Return iterator over encoded chunks."""
@@ -21791,11 +21882,12 @@ def encode_chunks(
         def func(chunk: NDArray[Any] | None, /) -> bytes:
             if chunk is None:
                 return b''
+            chunk = numpy.ascontiguousarray(chunk, dtype)
             if chunk.nbytes != chunksize:
-                if chunk.dtype != dtype:
-                    raise ValueError('dtype of chunk does not match data')
+                # if chunk.dtype != dtype:
+                #     raise ValueError('dtype of chunk does not match data')
                 pad = tuple((0, i - j) for i, j in zip(shape, chunk.shape))
-                return encode(numpy.pad(chunk, pad))
+                chunk = numpy.pad(chunk, pad)
             return encode(chunk)
 
     else:
@@ -21803,6 +21895,7 @@ def encode_chunks(
         def func(chunk: NDArray[Any] | None, /) -> bytes:
             if chunk is None:
                 return b''
+            chunk = numpy.ascontiguousarray(chunk, dtype)
             return encode(chunk)
 
     if maxworkers is None or maxworkers < 2 or numchunks < 2:
@@ -21816,7 +21909,7 @@ def encode_chunks(
     # because ThreadPoolExecutor.map is not collecting items lazily, reduce
     # memory overhead by processing chunks iterator maxchunks items at a time
     if buffersize is None:
-        buffersize = TIFF.BUFFERSIZE
+        buffersize = TIFF.BUFFERSIZE * 2
     maxchunks = max(maxworkers, buffersize // chunksize)
 
     if numchunks <= maxchunks:
