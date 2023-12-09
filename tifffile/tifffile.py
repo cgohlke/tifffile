@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.9.26
+:Version: 2023.12.9
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,25 +96,32 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.5, 3.12rc, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.25.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.4
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.7, 3.12.1, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.2
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.18
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.3
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.2
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.2
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.1
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.12.9
+
+- Pass 5071 tests.
+- Read 32-bit Indica Labs TIFF as float32.
+- Fix UnboundLocalError reading big LSM files without time axis.
+- Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
+- Limit the number of default worker threads to 32.
+
 2023.9.26
 
-- Pass 5069 tests.
 - Lazily convert dask array to ndarray when writing.
 - Allow to specify buffersize for reading and writing.
 - Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
@@ -634,7 +641,7 @@ series:
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
 ...     metadata={
 ...         'axes': 'TCYXS',
-...         'SignificantBits': 10,
+...         'SignificantBits': 8,
 ...         'TimeIncrement': 0.1,
 ...         'TimeIncrementUnit': 's',
 ...         'PhysicalSizeX': pixelsize,
@@ -807,7 +814,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.9.26'
+__version__ = '2023.12.9'
 
 __all__ = [
     'TiffFile',
@@ -939,14 +946,7 @@ if TYPE_CHECKING:
         Sequence,
         ValuesView,
     )
-
-    from typing import (
-        Any,
-        Literal,
-        Optional,
-        TextIO,
-        Union,
-    )
+    from typing import Any, Literal, Optional, TextIO, Union
 
     from numpy.typing import ArrayLike, DTypeLike, NDArray
 
@@ -1992,7 +1992,7 @@ class TiffWriter:
 
         elif hasattr(data, 'dtype'):
             # numpy, zarr, or dask array
-            # dataarray = cast(data, numpy.ndarray)
+            data = cast(numpy.ndarray, data)  # for MyPy
             dataarray = data
             datadtype = numpy.dtype(data.dtype).newbyteorder(byteorder)
             if not hasattr(data, 'reshape'):
@@ -3203,7 +3203,7 @@ class TiffWriter:
             bytesiter = True
             if tile:
                 # dataiter yields tiles
-                tileshape = tile + (storedshape.contig_samples,)
+                tileshape = tile + (storedshape.contig_samples,)  # type: ignore
                 tilesize = product(tileshape) * datadtype.itemsize
                 maxworkers = TiffWriter._maxworkers(
                     maxworkers,
@@ -3214,7 +3214,7 @@ class TiffWriter:
                 # yield encoded tiles
                 dataiter = encode_chunks(
                     numtiles * storedshape.frames,
-                    dataiter,
+                    dataiter,  # type: ignore
                     compressionfunc,
                     tileshape,
                     datadtype,
@@ -3232,7 +3232,7 @@ class TiffWriter:
                 )
                 # yield strips
                 dataiter = iter_strips(
-                    dataiter,
+                    dataiter,  # type: ignore
                     storedshape.page_shape,
                     datadtype,
                     rowsperstrip,
@@ -3390,6 +3390,7 @@ class TiffWriter:
 
             elif bytesiter:
                 # write tiles or strips
+                assert dataiter is not None
                 for chunkindex in range(numtiles if tile else numstrips):
                     iteritem = cast(bytes, next(dataiter))
                     # assert isinstance(iteritem, bytes)
@@ -3399,6 +3400,7 @@ class TiffWriter:
 
             elif tile:
                 # write uncompressed tiles
+                assert dataiter is not None
                 tileshape = tile + (storedshape.contig_samples,)
                 tilesize = product(tileshape) * datadtype.itemsize
                 for tileindex in range(numtiles):
@@ -4468,6 +4470,7 @@ class TiffFile:
             'ndpi',
             'bif',
             'scanimage',
+            # 'indica',  # TODO: rewrite _series_indica()
             'nih',
             'mdgel',  # adds second page to cache
             'uniform',
@@ -5064,6 +5067,37 @@ class TiffFile:
                 elif mag == -2.0:
                     s.name = 'Map'
                     # s.kind += '_map'
+        self.is_uniform = False
+        return series
+
+    def _series_indica(self) -> list[TiffPageSeries] | None:
+        """Return pyramidal image series in IndicaLabs file."""
+        # TODO: need more IndicaLabs sample files
+        # TODO: parse indica series from XML
+        # TODO: alpha channels in SubIFDs or main IFDs
+
+        from xml.etree import ElementTree as etree
+
+        series = self._series_generic()
+        if series is None or len(series) != 1:
+            return series
+
+        try:
+            tree = etree.fromstring(self.pages.first.description)
+        except etree.ParseError as exc:
+            logger().error(f'{self!r} Indica series raised {exc!r}')
+            return series
+
+        channel_names = [
+            channel.attrib['name'] for channel in tree.iter('channel')
+        ]
+        for s in series:
+            s.kind = 'indica'
+            # TODO: identify other dimensions
+            if s.axes[0] == 'I' and s.shape[0] == len(channel_names):
+                s._set_dimensions(s.shape, 'C' + s.axes[1:], None, True)
+            if s.is_pyramidal:
+                s.name = 'Baseline'
         self.is_uniform = False
         return series
 
@@ -6318,10 +6352,10 @@ class TiffFile:
         # assign keyframes for data and thumbnail series
         keyframe = self.pages.first
         for page in pages.pages[::2]:
-            page.keyframe = keyframe
+            page.keyframe = keyframe  # type: ignore
         keyframe = cast(TiffPage, pages[1])
         for page in pages.pages[1::2]:
-            page.keyframe = keyframe
+            page.keyframe = keyframe  # type: ignore
 
     def _lsm_fix_strip_offsets(self) -> None:
         """Unwrap strip offsets for LSM files greater than 4 GB.
@@ -6357,6 +6391,8 @@ class TiffFile:
                 shape = (positions, ntimes, div, 2)
                 indices = numpy.arange(product(shape)).reshape(shape)
                 indices = numpy.moveaxis(indices, 1, 0)
+            else:
+                indices = numpy.arange(npages).reshape(-1, 2)
         else:
             indices = numpy.arange(npages).reshape(-1, 2)
 
@@ -6730,6 +6766,13 @@ class TiffFile:
     def philips_metadata(self) -> str | None:
         """Philips DP XML metadata from ImageDescription tag."""
         if not self.is_philips:
+            return None
+        return self.pages.first.description
+
+    @property
+    def indica_metadata(self) -> str | None:
+        """IndicaLabs XML metadata from ImageDescription tag."""
+        if not self.is_indica:
             return None
         return self.pages.first.description
 
@@ -8073,6 +8116,11 @@ class TiffPage:
                         self.sampleformat = SAMPLEFORMAT(value[0])
                     except ValueError:
                         self.sampleformat = int(value[0])
+        elif self.bitspersample == 32 and (
+            self.is_indica or (self.index != 0 and self.parent.is_indica)
+        ):
+            # IndicaLabsImageWriter does not write SampleFormat tag
+            self.sampleformat = SAMPLEFORMAT.IEEEFP
 
         if 322 in tags:  # TileWidth
             self.rowsperstrip = 0
@@ -9629,10 +9677,7 @@ class TiffPage:
             s.lower()
             for s in (
                 'x'.join(str(i) for i in self.shape),
-                '{}{}'.format(
-                    SAMPLEFORMAT(self.sampleformat).name,
-                    self.bitspersample,
-                ),
+                f'{SAMPLEFORMAT(self.sampleformat).name}{self.bitspersample}',
                 ' '.join(
                     i
                     for i in (
@@ -10157,6 +10202,11 @@ class TiffPage:
             or self.description[:6] == 'state.'
             or 'scanimage.SI' in self.description[-256:]
         )
+
+    @property
+    def is_indica(self) -> bool:
+        """Page contains IndicaLabs metadata."""
+        return self.software[:21] == 'IndicaLabsImageWriter'
 
     @property
     def is_qpi(self) -> bool:
@@ -11202,9 +11252,7 @@ class TiffTag:
 
         if packedvalue is None:
             packedvalue = struct.pack(
-                '{}{}{}'.format(
-                    tiff.byteorder, count * int(dataformat[0]), dataformat[1]
-                ),
+                f'{tiff.byteorder}{count * int(dataformat[0])}{dataformat[1]}',
                 *value,
             )
         newsize = len(packedvalue)
@@ -15978,7 +16026,12 @@ class OmeXml:
             return ''
         if index is not None:
             if isinstance(value, (list, tuple)):
-                value = value[index]
+                try:
+                    value = value[index]
+                except IndexError as exc:
+                    raise IndexError(
+                        f'list index out of range for attribute {name!r}'
+                    ) from exc
             elif index > 0:
                 raise TypeError(
                     f'{type(value).__name__!r} is not a list or tuple'
@@ -18987,26 +19040,38 @@ class _TIFF:
         """Default maximum number of threads for de/compressing segments.
 
         The value of the ``TIFFFILE_NUM_THREADS`` environment variable if set,
-        else half the CPU cores.
+        else half the CPU cores up to 32.
 
         """
         if 'TIFFFILE_NUM_THREADS' in os.environ:
             return max(1, int(os.environ['TIFFFILE_NUM_THREADS']))
-        cpu_count = os.cpu_count()
-        return max(1, cpu_count // 2) if cpu_count is not None else 1
+        cpu_count: int | None
+        try:
+            cpu_count = len(os.sched_getaffinity(0))  # type: ignore
+        except AttributeError:
+            cpu_count = os.cpu_count()
+        if cpu_count is None:
+            return 1
+        return min(32, max(1, cpu_count // 2))
 
     @cached_property
     def MAXIOWORKERS(self) -> int:
         """Default maximum number of I/O threads for reading file sequences.
 
         The value of the ``TIFFFILE_NUM_IOTHREADS`` environment variable if
-        set, else five times the CPU cores.
+        set, else 4 more than the number of CPU cores up to 32.
 
         """
         if 'TIFFFILE_NUM_IOTHREADS' in os.environ:
             return max(1, int(os.environ['TIFFFILE_NUM_IOTHREADS']))
-        cpu_count = os.cpu_count()
-        return max(1, cpu_count * 5) if cpu_count is not None else 1
+        cpu_count: int | None
+        try:
+            cpu_count = len(os.sched_getaffinity(0))  # type: ignore
+        except AttributeError:
+            cpu_count = os.cpu_count()
+        if cpu_count is None:
+            return 5
+        return min(32, cpu_count + 4)
 
     BUFFERSIZE: int = 268435456
     """Default number of bytes to read or encode in one pass (256 MB)."""
@@ -19988,7 +20053,7 @@ def read_tvips_header(
     if header['Version'] == 2:
         header_v2 = TIFF.TVIPS_HEADER_V2
         header = fh.read_record(numpy.dtype(header_v2), byteorder=byteorder)
-        if header['Magic'] != int(0xAAAAAAAA):
+        if header['Magic'] != 0xAAAAAAAA:
             logger().warning(
                 '<tifffile.read_tvips_header> invalid TVIPS v2 magic number'
             )
@@ -24120,7 +24185,7 @@ def imshow(
     planarconfig: PLANARCONFIG | int | str | None = None,
     bitspersample: int | None = None,
     nodata: int | float = 0,
-    interpolation: str | int | None = None,
+    interpolation: str | None = None,
     cmap: Any | None = None,
     vmin: int | float | None = None,
     vmax: int | float | None = None,
@@ -24242,7 +24307,7 @@ def imshow(
     if interpolation is None:
         threshold = 512
     elif isinstance(interpolation, int):
-        threshold = interpolation
+        threshold = interpolation  # type: ignore
     else:
         threshold = 0
 
@@ -24408,15 +24473,15 @@ def imshow(
         return ''
 
     subplot.format_coord = format_coord
-    image.get_cursor_data = none
-    image.format_cursor_data = none
+    image.get_cursor_data = none  # type: ignore
+    image.format_cursor_data = none  # type: ignore
 
     if dims:
         current = list((0,) * dims)
         curaxdat = [0, data[tuple(current)].squeeze()]
         sliders = [
             pyplot.Slider(
-                ax=pyplot.axes([0.125, 0.03 * (axis + 1), 0.725, 0.025]),
+                ax=pyplot.axes((0.125, 0.03 * (axis + 1), 0.725, 0.025)),
                 label=f'Dimension {axis}',
                 valmin=0,
                 valmax=data.shape[axis] - 1,
@@ -24472,7 +24537,7 @@ def imshow(
 
         figure.canvas.mpl_connect('key_press_event', on_keypressed)
         for axis, ctrl in enumerate(sliders):
-            ctrl.on_changed(lambda k, a=axis: on_changed(k, a))
+            ctrl.on_changed(lambda k, a=axis: on_changed(k, a))  # type: ignore
 
     if show:
         pyplot.show()
