@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.9.26
+:Version: 2023.12.9
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,25 +66,32 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.5, 3.12rc, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.25.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.4
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.7, 3.12.1, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.2
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.18
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.7.3
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.2
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.9.2
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.1
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2023.12.9
+
+- Pass 5071 tests.
+- Read 32-bit Indica Labs TIFF as float32.
+- Fix UnboundLocalError reading big LSM files without time axis.
+- Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
+- Limit the number of default worker threads to 32.
+
 2023.9.26
 
-- Pass 5069 tests.
 - Lazily convert dask array to ndarray when writing.
 - Allow to specify buffersize for reading and writing.
 - Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
@@ -604,7 +611,7 @@ series:
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
 ...     metadata={
 ...         'axes': 'TCYXS',
-...         'SignificantBits': 10,
+...         'SignificantBits': 8,
 ...         'TimeIncrement': 0.1,
 ...         'TimeIncrementUnit': 's',
 ...         'PhysicalSizeX': pixelsize,
