@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.9.26
+:Version: 2023.12.9
 
 """
 
@@ -61,14 +61,13 @@ from io import BytesIO
 
 import numpy
 import pytest
+import tifffile
 from numpy.testing import (
     assert_allclose,
     assert_array_almost_equal,
     assert_array_equal,
     assert_raises,
 )
-
-import tifffile
 
 try:
     from tifffile import *  # noqa: F403
@@ -130,6 +129,9 @@ from tifffile.tifffile import (  # noqa: F401
     ZarrFileSequenceStore,
     ZarrStore,
     ZarrTiffStore,
+)
+from tifffile.tifffile import _squeeze_axes as squeeze_axes
+from tifffile.tifffile import (  # noqa: F401
     apply_colormap,
     asbool,
     askopenfilename,
@@ -190,8 +192,6 @@ from tifffile.tifffile import (  # noqa: F401
     xml2dict,
 )
 
-from tifffile.tifffile import _squeeze_axes as squeeze_axes
-
 HERE = os.path.dirname(__file__)
 TEMP_DIR = os.path.join(HERE, '_tmp')
 PRIVATE_DIR = os.path.join(HERE, 'data', 'private')
@@ -200,7 +200,7 @@ PUBLIC_DIR = os.path.join(HERE, 'data', 'public')
 IS_BE = sys.byteorder == 'big'
 IS_PYPY = 'pypy' in sys.version.lower()
 IS_WIN = sys.platform == 'win32'
-IS_CG = os.environ.get('COMPUTERNAME', '').startswith('CG-T')
+IS_CG = os.environ.get('COMPUTERNAME', '').startswith('CG-K')
 
 
 # skip certain tests
@@ -288,8 +288,8 @@ if SKIP_ZARR:
     zarr = None
 else:
     try:
-        import zarr  # type: ignore
         import fsspec  # type: ignore
+        import zarr  # type: ignore
     except ImportError:
         zarr = None
         fsspec = None  # type: ignore
@@ -2630,6 +2630,7 @@ def test_issue_ome_missing_frames():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(not IS_WIN, reason=REASON)
 def test_issue_maxworkers():
     """Test maxworkers defaults."""
     if 'TIFFFILE_NUM_THREADS' in os.environ:
@@ -2640,7 +2641,7 @@ def test_issue_maxworkers():
     if 'TIFFFILE_NUM_IOTHREADS' in os.environ:
         assert TIFF.MAXIOWORKERS == int(os.environ['TIFFFILE_NUM_IOTHREADS'])
     else:
-        assert TIFF.MAXIOWORKERS == os.cpu_count() * 5
+        assert TIFF.MAXIOWORKERS == os.cpu_count() + 4
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -2792,6 +2793,7 @@ def test_issue_non_volumetric():
             assert page.shape == data.shape
 
 
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
 def test_issue_trucated_tileoffsets():
     """Test reading truncated tile offsets and bytecounts."""
     # https://github.com/cgohlke/tifffile/issues/227
@@ -8422,6 +8424,80 @@ def test_read_lsm_2chzt():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_lsm_unbounderror():
+    """Test read LSM: MZSYX (196, 2, 33, 512, 512)."""
+    # file is > 4GB with no time axis
+    fname = private_file('lsm/48h-CM-C-2.lsm')
+    with TiffFile(fname) as tif:
+        assert tif.is_lsm
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 784
+        assert len(tif.series) == 2
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_lsm
+        assert page.is_contiguous
+        assert page.photometric == RGB
+        assert page.planarconfig == SEPARATE
+        assert page.imagewidth == 512
+        assert page.imagelength == 512
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 33
+        page = tif.pages[1]
+        assert page.is_reduced
+        assert page.photometric == RGB
+        assert page.planarconfig == SEPARATE
+        assert page.compression == NONE
+        assert page.imagewidth == 128
+        assert page.imagelength == 128
+        assert page.samplesperpixel == 3
+        assert page.bitspersample == 8
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (196, 2, 33, 512, 512)
+        assert series.get_shape(False) == (196, 1, 1, 2, 33, 512, 512)
+        assert series.dtype == numpy.uint16
+        assert series.axes == 'MZCYX'
+        assert series.get_axes(False) == 'MPTZCYX'
+        assert series.kind == 'lsm'
+        if 1:
+            series = tif.series[1]
+            assert series.shape == (196, 2, 3, 128, 128)
+            assert series.get_shape(False) == (196, 1, 1, 2, 3, 128, 128)
+            assert series.dtype == numpy.uint8
+            assert series.axes == 'MZSYX'
+            assert series.get_axes(False) == 'MPTZSYX'
+            assert series.kind == 'lsm'
+        # assert data
+        data = tif.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
+        assert data.shape == (196, 2, 33, 512, 512)
+        assert data.dtype == numpy.uint16
+        assert data[195, 1, 32, 511, 511] == 22088
+        # assert_aszarr_method(tif, data)
+        if 1:
+            data = tif.asarray(series=1)
+            assert isinstance(data, numpy.ndarray)
+            assert data.shape == (196, 2, 3, 128, 128)
+            assert data.dtype == numpy.uint8
+            assert tuple(data[195, 1, :, 127, 127]) == (0, 61, 52)
+            # assert_aszarr_method(tif, series=1)
+        # assert lsm_info tags
+        tags = tif.lsm_metadata
+        assert tags['DimensionX'] == 512
+        assert tags['DimensionY'] == 512
+        assert tags['DimensionZ'] == 2
+        assert tags['DimensionTime'] == 1
+        assert tags['DimensionChannels'] == 33
+        # assert lsm_scan_info tags
+        tags = tif.lsm_metadata['ScanInformation']
+        assert tags['ScanMode'] == 'Stack'
+        assert tags['User'] == 'lfdguest1'
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_lsm_earpax2isl11():
     """Test read LSM: TZCYX (1, 19, 3, 512, 512) uint8, RGB, LZW."""
     fname = private_file('lsm/earpax2isl11.lzw.lsm')
@@ -12090,6 +12166,41 @@ def test_read_qpi_nopyramid():
         assert image[300, 400, 1] == 48
         assert_aszarr_method(tif, image, series=1)
         assert_aszarr_method(tif, image, series=1, chunkmode='page')
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_indica():
+    """Test read Indica Labs pyramid."""
+    # https://forum.image.sc/t/89191/4
+    fname = private_file('Indica/mouse_link.tif')
+    with TiffFile(fname) as tif:
+        assert len(tif.series) == 1
+        assert len(tif.pages) == 40
+        assert tif.is_indica
+        assert tif.indica_metadata.endswith('</indica>')
+        page = tif.pages.first
+        assert page.compression == ADOBE_DEFLATE
+        assert page.photometric == MINISBLACK
+        assert page.shape == (26836, 18282)
+        assert page.bitspersample == 32
+        assert page.samplesperpixel == 1
+        assert page.dtype == numpy.float32
+        assert page.tags['Software'].value == 'IndicaLabsImageWriter v1.2.1'
+        series = tif.series[0]
+        assert series.kind == 'generic'  # 'indica'
+        assert series.axes == 'IYX'  # 'CYX'
+        assert series.shape == (8, 26836, 18282)
+        assert series.dtype == numpy.float32
+        assert len(series.levels) == 5
+        assert series.is_pyramidal
+        # assert data
+        image = tif.asarray(series=0, level=3)
+        assert image.shape == (8, 3355, 2286)
+        assert image.dtype == numpy.float32
+        assert_array_almost_equal(image[7, 3000, 1000], 6.0852714)
+        assert_aszarr_method(series, image, level=3)
+        assert_aszarr_method(series, image, level=3, chunkmode='page')
         assert__str__(tif)
 
 
@@ -19351,8 +19462,8 @@ def test_dependent_opentile():
         from hashlib import md5
 
         import turbojpeg
-        from opentile.geometry import Point
         from opentile.formats import NdpiTiler
+        from opentile.geometry import Point
     except ImportError:
         pytest.skip('opentile missing')
 
