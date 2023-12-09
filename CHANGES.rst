@@ -1,9 +1,16 @@
 Revisions
 ---------
 
+2023.12.9
+
+- Pass 5071 tests.
+- Read 32-bit Indica Labs TIFF as float32.
+- Fix UnboundLocalError reading big LSM files without time axis.
+- Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
+- Limit the number of default worker threads to 32.
+
 2023.9.26
 
-- Pass 5069 tests.
 - Lazily convert dask array to ndarray when writing.
 - Allow to specify buffersize for reading and writing.
 - Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
