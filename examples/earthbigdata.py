@@ -1,6 +1,6 @@
 # tifffile/examples/earthbigdata.py
 
-# Copyright (c) 2021-2023, Christoph Gohlke
+# Copyright (c) 2021-2024, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -530,10 +530,9 @@ def system_info():
     import matplotlib
     import numcodecs
     import numpy
+    import tifffile
     import xarray
     import zarr
-
-    import tifffile
 
     return '\n'.join(
         (
