@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.12.9
+:Version: 2024.1.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -67,24 +67,30 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.7, 3.12.1, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.18
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.3
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.2
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.1.0
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.1
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.2
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
-2023.12.9
+2024.1.30
 
 - Pass 5071 tests.
+- Fix compatibility issue with numpy 2 (#238).
+- Enable DeprecationWarning for tuple compression argument.
+- Parse sequence of numbers in xml2dict.
+
+2023.12.9
+
 - Read 32-bit Indica Labs TIFF as float32.
 - Fix UnboundLocalError reading big LSM files without time axis.
 - Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
