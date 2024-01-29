@@ -1,6 +1,6 @@
 # test_tifffile.py
 
-# Copyright (c) 2008-2023, Christoph Gohlke
+# Copyright (c) 2008-2024, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2023.12.9
+:Version: 2024.1.30
 
 """
 
@@ -1243,9 +1243,7 @@ def test_issue_imagej_singlet_dimensions():
     # https://github.com/cgohlke/tifffile/issues/19
     # https://github.com/cgohlke/tifffile/issues/66
 
-    data = numpy.random.randint(
-        0, 2**8, (1, 10, 1, 248, 260, 1), numpy.uint8
-    )
+    data = numpy.random.randint(0, 2**8, (1, 10, 1, 248, 260, 1), numpy.uint8)
 
     with TempFileName('issue_imagej_singlet_dimensions') as fname:
         imwrite(fname, data, imagej=True)
@@ -3980,21 +3978,28 @@ def test_class_timer(capsys):
 
 def test_func_xml2dict():
     """Test xml2dict function."""
-    d = xml2dict(
-        """<?xml version="1.0" ?>
+    xml = """<?xml version="1.0" ?>
     <root attr="attribute">
-        <int>1</int>
-        <float>3.14</float>
+        <int>-1</int>
+        <ints>-1,2</ints>
+        <float>-3.14</float>
+        <floats>1.0, -2.0</floats>
         <bool>True</bool>
-        <string>Lorem Ipsum</string>
+        <string>Lorem, Ipsum</string>
     </root>
     """
-    )
-    assert d['root']['attr'] == 'attribute'
-    assert d['root']['int'] == 1
-    assert d['root']['float'] == 3.14
-    assert d['root']['bool'] is True
-    assert d['root']['string'] == 'Lorem Ipsum'
+    d = xml2dict(xml)['root']
+    assert d['attr'] == 'attribute'
+    assert d['int'] == -1
+    assert d['ints'] == (-1, 2)
+    assert d['float'] == -3.14
+    assert d['floats'] == (1.0, -2.0)
+    assert d['bool'] is True
+    assert d['string'] == 'Lorem, Ipsum'
+
+    d = xml2dict(xml, prefix=('a_', 'b_'), sep='')['root']
+    assert d['ints'] == '-1,2'
+    assert d['floats'] == '1.0, -2.0'
 
 
 def test_func_memmap():
@@ -14818,7 +14823,7 @@ def test_write_enum_parameters(kind):
         (7, 'zlib', None, {'level': 5}),
     ],
 )
-def test_write_compression_args(args):
+def test_write_compression_args(args, recwarn):
     """Test compression parameter."""
     i = args[0]
     compressionargs = args[1:]
@@ -14829,7 +14834,7 @@ def test_write_compression_args(args):
 
     data = WRITE_DATA
     with TempFileName(f'write_compression_args_{i}') as fname:
-        # TODO: if i > 4: with pytest.warns(DeprecationWarning):
+        # with pytest.warns(DeprecationWarning if i > 4 else None):
         imwrite(
             fname,
             data,
@@ -14837,6 +14842,10 @@ def test_write_compression_args(args):
             photometric=RGB,
             rowsperstrip=rowsperstrip,
         )
+        if i > 4:
+            assert len(recwarn) == 1
+            user_warning = recwarn.pop(DeprecationWarning)
+            assert issubclass(user_warning.category, DeprecationWarning)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
