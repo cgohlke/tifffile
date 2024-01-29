@@ -1,6 +1,6 @@
 # tifffile/_imagecodecs.py
 
-# Copyright (c) 2008-2023, Christoph Gohlke
+# Copyright (c) 2008-2024, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,7 @@
 
 This module provides alternative, pure Python and NumPy implementations of
 some functions of the `imagecodecs`_ package. The functions may raise
-NotImplementedError.
+`NotImplementedError`.
 
 .. _imagecodecs: https://github.com/cgohlke/imagecodecs
 
@@ -160,15 +160,13 @@ def packbits_decode(encoded: bytes, /, *, out=None) -> bytes:
 @overload
 def delta_encode(
     data: bytes | bytearray, /, axis: int = -1, dist: int = 1, *, out=None
-) -> bytes:
-    ...
+) -> bytes: ...
 
 
 @overload
 def delta_encode(
     data: numpy.ndarray, /, axis: int = -1, dist: int = 1, *, out=None
-) -> numpy.ndarray:
-    ...
+) -> numpy.ndarray: ...
 
 
 def delta_encode(
@@ -206,15 +204,13 @@ def delta_encode(
 @overload
 def delta_decode(
     data: bytes | bytearray, /, axis: int, dist: int, *, out: Any
-) -> bytes:
-    ...
+) -> bytes: ...
 
 
 @overload
 def delta_decode(
     data: numpy.ndarray, /, axis: int, dist: int, *, out: Any
-) -> numpy.ndarray:
-    ...
+) -> numpy.ndarray: ...
 
 
 def delta_decode(
@@ -250,15 +246,13 @@ def delta_decode(
 @overload
 def bitorder_decode(
     data: bytes | bytearray, /, *, out=None, _bitorder: list[Any] = []
-) -> bytes:
-    ...
+) -> bytes: ...
 
 
 @overload
 def bitorder_decode(
     data: numpy.ndarray, /, *, out=None, _bitorder: list[Any] = []
-) -> numpy.ndarray:
-    ...
+) -> numpy.ndarray: ...
 
 
 def bitorder_decode(
