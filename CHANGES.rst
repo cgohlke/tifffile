@@ -1,9 +1,15 @@
 Revisions
 ---------
 
-2023.12.9
+2024.1.30
 
 - Pass 5071 tests.
+- Fix compatibility issue with numpy 2 (#238).
+- Enable DeprecationWarning for tuple compression argument.
+- Parse sequence of numbers in xml2dict.
+
+2023.12.9
+
 - Read 32-bit Indica Labs TIFF as float32.
 - Fix UnboundLocalError reading big LSM files without time axis.
 - Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
