@@ -1,6 +1,6 @@
 # tifffile.py
 
-# Copyright (c) 2008-2023, Christoph Gohlke
+# Copyright (c) 2008-2024, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2023.12.9
+:Version: 2024.1.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -97,24 +97,30 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.7, 3.12.1, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2023.9.18
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.3
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.2
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 4.9.3
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.1.0
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.1
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.2
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
-2023.12.9
+2024.1.30
 
 - Pass 5071 tests.
+- Fix compatibility issue with numpy 2 (#238).
+- Enable DeprecationWarning for tuple compression argument.
+- Parse sequence of numbers in xml2dict.
+
+2023.12.9
+
 - Read 32-bit Indica Labs TIFF as float32.
 - Fix UnboundLocalError reading big LSM files without time axis.
 - Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
@@ -814,7 +820,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2023.12.9'
+__version__ = '2024.1.30'
 
 __all__ = [
     'TiffFile',
@@ -950,21 +956,160 @@ if TYPE_CHECKING:
 
     from numpy.typing import ArrayLike, DTypeLike, NDArray
 
-    ByteOrder = Union[Literal['>'], Literal['<']]
+    ByteOrder = Literal['>', '<']
     OutputType = Union[str, BinaryIO, NDArray[Any], None]
     TagTuple = tuple[
         Union[int, str], Union[int, str], Optional[int], Any, bool
     ]
 
 
-# TODO: this function cannot be overloaded correctly
+@overload
 def imread(
-    files: str
-    | os.PathLike[Any]
-    | FileHandle
-    | BinaryIO
-    | Sequence[str | os.PathLike[Any]]
-    | None = None,
+    files: (
+        str
+        | os.PathLike[Any]
+        | FileHandle
+        | BinaryIO
+        | Sequence[str | os.PathLike[Any]]
+        | None
+    ) = None,
+    *,
+    selection: Any | None = None,  # TODO: type this
+    aszarr: Literal[False] = ...,
+    key: int | slice | Iterable[int] | None = None,
+    series: int | None = None,
+    level: int | None = None,
+    squeeze: bool | None = None,
+    maxworkers: int | None = None,
+    buffersize: int | None = None,
+    mode: Literal['r', 'r+'] | None = None,
+    name: str | None = None,
+    offset: int | None = None,
+    size: int | None = None,
+    pattern: str | None = None,
+    axesorder: Sequence[int] | None = None,
+    categories: dict[str, dict[str, int]] | None = None,
+    imread: Callable[..., NDArray[Any]] | None = None,
+    sort: Callable[..., Any] | bool | None = None,
+    container: str | os.PathLike[Any] | None = None,
+    chunkshape: tuple[int, ...] | None = None,
+    dtype: DTypeLike | None = None,
+    axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
+    ioworkers: int | None = 1,
+    chunkmode: CHUNKMODE | int | str | None = None,
+    fillvalue: int | float | None = None,
+    zattrs: dict[str, Any] | None = None,
+    multiscales: bool | None = None,
+    omexml: str | None = None,
+    out: OutputType = None,
+    out_inplace: bool | None = None,
+    _multifile: bool | None = None,
+    _useframes: bool | None = None,
+    **kwargs: Any,
+) -> NDArray[Any]: ...
+
+
+@overload
+def imread(
+    files: (
+        str
+        | os.PathLike[Any]
+        | FileHandle
+        | BinaryIO
+        | Sequence[str | os.PathLike[Any]]
+        | None
+    ) = None,
+    *,
+    selection: Any | None = None,  # TODO: type this
+    aszarr: Literal[True],
+    key: int | slice | Iterable[int] | None = None,
+    series: int | None = None,
+    level: int | None = None,
+    squeeze: bool | None = None,
+    maxworkers: int | None = None,
+    buffersize: int | None = None,
+    mode: Literal['r', 'r+'] | None = None,
+    name: str | None = None,
+    offset: int | None = None,
+    size: int | None = None,
+    pattern: str | None = None,
+    axesorder: Sequence[int] | None = None,
+    categories: dict[str, dict[str, int]] | None = None,
+    imread: Callable[..., NDArray[Any]] | None = None,
+    sort: Callable[..., Any] | bool | None = None,
+    container: str | os.PathLike[Any] | None = None,
+    chunkshape: tuple[int, ...] | None = None,
+    dtype: DTypeLike | None = None,
+    axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
+    ioworkers: int | None = 1,
+    chunkmode: CHUNKMODE | int | str | None = None,
+    fillvalue: int | float | None = None,
+    zattrs: dict[str, Any] | None = None,
+    multiscales: bool | None = None,
+    omexml: str | None = None,
+    out: OutputType = None,
+    out_inplace: bool | None = None,
+    _multifile: bool | None = None,
+    _useframes: bool | None = None,
+    **kwargs: Any,
+) -> ZarrTiffStore | ZarrFileSequenceStore: ...
+
+
+@overload
+def imread(
+    files: (
+        str
+        | os.PathLike[Any]
+        | FileHandle
+        | BinaryIO
+        | Sequence[str | os.PathLike[Any]]
+        | None
+    ) = None,
+    *,
+    selection: Any | None = None,  # TODO: type this
+    aszarr: bool = False,
+    key: int | slice | Iterable[int] | None = None,
+    series: int | None = None,
+    level: int | None = None,
+    squeeze: bool | None = None,
+    maxworkers: int | None = None,
+    buffersize: int | None = None,
+    mode: Literal['r', 'r+'] | None = None,
+    name: str | None = None,
+    offset: int | None = None,
+    size: int | None = None,
+    pattern: str | None = None,
+    axesorder: Sequence[int] | None = None,
+    categories: dict[str, dict[str, int]] | None = None,
+    imread: Callable[..., NDArray[Any]] | None = None,
+    sort: Callable[..., Any] | bool | None = None,
+    container: str | os.PathLike[Any] | None = None,
+    chunkshape: tuple[int, ...] | None = None,
+    dtype: DTypeLike | None = None,
+    axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
+    ioworkers: int | None = 1,
+    chunkmode: CHUNKMODE | int | str | None = None,
+    fillvalue: int | float | None = None,
+    zattrs: dict[str, Any] | None = None,
+    multiscales: bool | None = None,
+    omexml: str | None = None,
+    out: OutputType = None,
+    out_inplace: bool | None = None,
+    _multifile: bool | None = None,
+    _useframes: bool | None = None,
+    **kwargs: Any,
+) -> NDArray[Any] | ZarrTiffStore | ZarrFileSequenceStore: ...
+
+
+def imread(
+    files: (
+        str
+        | os.PathLike[Any]
+        | FileHandle
+        | BinaryIO
+        | Sequence[str | os.PathLike[Any]]
+        | None
+    ) = None,
     *,
     selection: Any | None = None,  # TODO: type this
     aszarr: bool = False,
@@ -1165,10 +1310,9 @@ def imread(
 def imwrite(
     file: str | os.PathLike[Any] | FileHandle | BinaryIO,
     /,
-    data: ArrayLike
-    | Iterator[NDArray[Any] | None]
-    | Iterator[bytes]
-    | None = None,
+    data: (
+        ArrayLike | Iterator[NDArray[Any] | None] | Iterator[bytes] | None
+    ) = None,
     *,
     mode: Literal['w', 'x', 'r+'] | None = None,
     bigtiff: bool | None = None,
@@ -1194,8 +1338,9 @@ def imwrite(
     colormap: ArrayLike | None = None,
     description: str | bytes | None = None,
     datetime: str | bool | None = None,
-    resolution: tuple[float | tuple[int, int], float | tuple[int, int]]
-    | None = None,
+    resolution: (
+        tuple[float | tuple[int, int], float | tuple[int, int]] | None
+    ) = None,
     resolutionunit: RESUNIT | int | str | None = None,
     subfiletype: FILETYPE | int | None = None,
     software: str | bytes | bool | None = None,
@@ -1620,10 +1765,9 @@ class TiffWriter:
 
     def write(
         self,
-        data: ArrayLike
-        | Iterator[NDArray[Any] | None]
-        | Iterator[bytes]
-        | None = None,
+        data: (
+            ArrayLike | Iterator[NDArray[Any] | None] | Iterator[bytes] | None
+        ) = None,
         *,
         shape: Sequence[int] | None = None,
         dtype: DTypeLike | None = None,
@@ -1642,8 +1786,9 @@ class TiffWriter:
         colormap: ArrayLike | None = None,
         description: str | bytes | None = None,
         datetime: str | bool | None = None,
-        resolution: tuple[float | tuple[int, int], float | tuple[int, int]]
-        | None = None,
+        resolution: (
+            tuple[float | tuple[int, int], float | tuple[int, int]] | None
+        ) = None,
         resolutionunit: RESUNIT | int | str | None = None,
         subfiletype: FILETYPE | int | None = None,
         software: str | bytes | bool | None = None,
@@ -2214,15 +2359,14 @@ class TiffWriter:
 
         if compression:
             if isinstance(compression, (tuple, list)):
-                # TODO: enable warning
-                # warnings.warn(
-                #     f"<tifffile.TiffWriter.write> passing multiple values "
-                #     "to the 'compression' parameter is deprecated "
-                #     "since 2022.7.28. Use 'compressionargs' to pass extra "
-                #     "arguments to the compression codec.",
-                #     DeprecationWarning,
-                #     stacklevel=2,
-                # )
+                warnings.warn(
+                    f"{self!r} passing multiple values to the 'compression' "
+                    "parameter is deprecated since 2022.7.28. "
+                    "Use 'compressionargs' to pass extra arguments to the "
+                    "compression codec.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 if len(compression) == 2:
                     compressionargs['level'] = compression[1]
                 elif len(compression) == 3:
@@ -4767,8 +4911,7 @@ class TiffFile:
                                     )
                             except Exception as exc:
                                 logger().error(
-                                    f'{self!r} shaped series '
-                                    f'raised {exc!r}'
+                                    f'{self!r} shaped series raised {exc!r}'
                                 )
                                 return None
                             subifds.append(subifd)
@@ -6577,9 +6720,11 @@ class TiffFile:
         info_list = [
             "TiffFile '{}'",
             format_size(self._fh.size),
-            ''
-            if byteorder_isnative(self.byteorder)
-            else {'<': 'little-endian', '>': 'big-endian'}[self.byteorder],
+            (
+                ''
+                if byteorder_isnative(self.byteorder)
+                else {'<': 'little-endian', '>': 'big-endian'}[self.byteorder]
+            ),
         ]
         if self.is_bigtiff:
             info_list.append('BigTiff')
@@ -7445,9 +7590,11 @@ class TiffPages:
                 pages.append(
                     TiffFrame(
                         page.parent,
-                        index=index
-                        if self._index is None
-                        else self._index + (index,),
+                        index=(
+                            index
+                            if self._index is None
+                            else self._index + (index,)
+                        ),
                         offset=offset_or_none,
                         dataoffsets=dataoffsets,
                         databytecounts=page.databytecounts,
@@ -7671,14 +7818,12 @@ class TiffPages:
         return page
 
     @overload
-    def __getitem__(self, key: int, /) -> TiffPage | TiffFrame:
-        ...
+    def __getitem__(self, key: int, /) -> TiffPage | TiffFrame: ...
 
     @overload
     def __getitem__(
         self, key: slice | Iterable[int], /
-    ) -> list[TiffPage | TiffFrame]:
-        ...
+    ) -> list[TiffPage | TiffFrame]: ...
 
     def __getitem__(
         self, key: int | slice | Iterable[int], /
@@ -10525,9 +10670,7 @@ class TiffFrame:
         """
         return TiffPage.asrgb(self, *args, **kwargs)  # type: ignore
 
-    def segments(
-        self, *args: Any, **kwargs: Any
-    ) -> Iterator[
+    def segments(self, *args: Any, **kwargs: Any) -> Iterator[
         tuple[
             NDArray[Any] | None,
             tuple[int, int, int, int, int],
@@ -11021,8 +11164,7 @@ class TiffTag:
             except ValueError as exc:
                 if code not in {259, 317}:  # ignore compression/predictor
                     logger().warning(
-                        f'<tifffile.TiffTag {code} @{offset}> '
-                        f'raised {exc!r}'
+                        f'<tifffile.TiffTag {code} @{offset}> raised {exc!r}'
                     )
 
         if len(value) == 1 and code not in TIFF.TAG_TUPLE:
@@ -11748,16 +11890,13 @@ class TiffTagRegistry:
         return sorted(items, key=lambda i: i[0])  # type: ignore
 
     @overload
-    def get(self, key: int, /, default: None) -> str | None:
-        ...
+    def get(self, key: int, /, default: None) -> str | None: ...
 
     @overload
-    def get(self, key: str, /, default: None) -> int | None:
-        ...
+    def get(self, key: str, /, default: None) -> int | None: ...
 
     @overload
-    def get(self, key: int, /, default: str) -> str:
-        ...
+    def get(self, key: int, /, default: str) -> str: ...
 
     def get(
         self, key: int | str, /, default: str | None = None
@@ -11775,16 +11914,13 @@ class TiffTagRegistry:
         return default
 
     @overload
-    def getall(self, key: int, /, default: None) -> list[str] | None:
-        ...
+    def getall(self, key: int, /, default: None) -> list[str] | None: ...
 
     @overload
-    def getall(self, key: str, /, default: None) -> list[int] | None:
-        ...
+    def getall(self, key: str, /, default: None) -> list[int] | None: ...
 
     @overload
-    def getall(self, key: int, /, default: list[str]) -> list[str]:
-        ...
+    def getall(self, key: int, /, default: list[str]) -> list[str]: ...
 
     def getall(
         self, key: int | str, /, default: list[str] | None = None
@@ -11800,12 +11936,10 @@ class TiffTagRegistry:
         return result if result else default  # type: ignore
 
     @overload
-    def __getitem__(self, key: int, /) -> str:
-        ...
+    def __getitem__(self, key: int, /) -> str: ...
 
     @overload
-    def __getitem__(self, key: str, /) -> int:
-        ...
+    def __getitem__(self, key: str, /) -> int: ...
 
     def __getitem__(self, key: int | str, /) -> int | str:
         """Return first code or name. Raise KeyError if not found."""
@@ -12230,14 +12364,12 @@ class TiffPageSeries:
     @overload
     def __getitem__(
         self, key: int | numpy.integer, /
-    ) -> TiffPage | TiffFrame | None:
-        ...
+    ) -> TiffPage | TiffFrame | None: ...
 
     @overload
     def __getitem__(
         self, key: slice | Iterable[int], /
-    ) -> list[TiffPage | TiffFrame | None]:
-        ...
+    ) -> list[TiffPage | TiffFrame | None]: ...
 
     def __getitem__(
         self, key: int | numpy.integer | slice | Iterable[int], /
@@ -13136,9 +13268,7 @@ class ZarrTiffStore(ZarrStore):
             value = value[:bytecount]
         self._filecache.write(page.parent.filehandle, offset, value)
 
-    def _parse_key(
-        self, key: str, /
-    ) -> tuple[
+    def _parse_key(self, key: str, /) -> tuple[
         TiffPage,
         TiffPage | TiffFrame | None,
         int | None,
@@ -13671,10 +13801,9 @@ class FileSequence:
     def __init__(
         self,
         imread: Callable[..., NDArray[Any]],
-        files: str
-        | os.PathLike[Any]
-        | Sequence[str | os.PathLike[Any]]
-        | None,
+        files: (
+            str | os.PathLike[Any] | Sequence[str | os.PathLike[Any]] | None
+        ),
         *,
         container: str | os.PathLike[Any] | None = None,
         sort: Callable[..., Any] | bool | None = None,
@@ -13923,12 +14052,10 @@ class FileSequence:
         return len(self.files)
 
     @overload
-    def __getitem__(self, key: int, /) -> str:
-        ...
+    def __getitem__(self, key: int, /) -> str: ...
 
     @overload
-    def __getitem__(self, key: slice, /) -> list[str]:
-        ...
+    def __getitem__(self, key: slice, /) -> list[str]: ...
 
     def __getitem__(self, key: int | slice, /) -> str | list[str]:
         return self.files[key]
@@ -13968,10 +14095,9 @@ class TiffSequence(FileSequence):
 
     def __init__(
         self,
-        files: str
-        | os.PathLike[Any]
-        | Sequence[str | os.PathLike[Any]]
-        | None = None,
+        files: (
+            str | os.PathLike[Any] | Sequence[str | os.PathLike[Any]] | None
+        ) = None,
         *,
         imread: Callable[..., NDArray[Any]] = imread,  # type: ignore
         **kwargs: Any,
@@ -14243,8 +14369,9 @@ class FileHandle:
         self,
         file: str | os.PathLike[Any] | FileHandle | BinaryIO,
         /,
-        mode: Literal['r', 'r+', 'w', 'x', 'rb', 'r+b', 'wb', 'xb']
-        | None = None,
+        mode: (
+            Literal['r', 'r+', 'w', 'x', 'rb', 'r+b', 'wb', 'xb'] | None
+        ) = None,
         *,
         name: str | None = None,
         offset: int | None = None,
@@ -14565,7 +14692,7 @@ class FileHandle:
         if not result.dtype.isnative:
             if not dtype.isnative:
                 result.byteswap(True)
-            result = result.newbyteorder()
+            result = result.view(result.dtype.newbyteorder())
         elif result.dtype.isnative != dtype.isnative:
             result.byteswap(True)
 
@@ -15271,12 +15398,10 @@ class StoredShape:
         return 6
 
     @overload
-    def __getitem__(self, key: int, /) -> int:
-        ...
+    def __getitem__(self, key: int, /) -> int: ...
 
     @overload
-    def __getitem__(self, key: slice, /) -> tuple[int, ...]:
-        ...
+    def __getitem__(self, key: slice, /) -> tuple[int, ...]: ...
 
     def __getitem__(self, key: int | slice, /) -> int | tuple[int, ...]:
         return (
@@ -15525,13 +15650,13 @@ class OmeXml:
         self._xml = (
             '{declaration}'
             f'<OME xmlns="{schema}" '
-            f'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
             f'xsi:schemaLocation="{schema} {schema}/ome.xsd" '
             f'UUID="urn:uuid:{uuid}" {creator}>'
             '{images}'
             '{annotations}'
             '{elements}'
-            f'</OME>'
+            '</OME>'
         )
 
     def addimage(
@@ -15926,9 +16051,9 @@ class OmeXml:
             f'{channels}'
             f'<TiffData IFD="{self._ifd}" PlaneCount="{planecount}"/>'
             f'{planes}'
-            f'</Pixels>'
+            '</Pixels>'
             f'{annotationref}'
-            f'</Image>'
+            '</Image>'
         )
         self._ifd += planecount
 
@@ -19159,10 +19284,9 @@ def read_tags(
     tagnames: TiffTagRegistry,
     *,
     maxifds: int | None = None,
-    customtags: dict[
-        int, Callable[[FileHandle, ByteOrder, int, int, int], Any]
-    ]
-    | None = None,
+    customtags: (
+        dict[int, Callable[[FileHandle, ByteOrder, int, int, int], Any]] | None
+    ) = None,
 ) -> list[dict[str, Any]]:
     """Read tags from chain of IFDs.
 
@@ -20166,9 +20290,9 @@ def read_nih_image_header(
     /,
 ) -> dict[str, Any]:
     """Read NIH_IMAGE_HEADER tag value from file."""
-    a = fh.read_record(TIFF.NIH_IMAGE_HEADER, byteorder=byteorder)
-    a = a.newbyteorder(byteorder)
-    result = recarray2dict(a)
+    arr = fh.read_record(TIFF.NIH_IMAGE_HEADER, byteorder=byteorder)
+    arr = arr.view(arr.dtype.newbyteorder(byteorder))
+    result = recarray2dict(arr)
     result['XUnit'] = result['XUnit'][: result['XUnitSize']]
     result['UM'] = result['UM'][: result['UMsize']]
     return result
@@ -21549,9 +21673,11 @@ def streak_description_metadata(
             if ',' in value:
                 try:
                     value = tuple(
-                        float(v)
-                        if '.' in value
-                        else int(v[1:] if v[0] == '#' else v)
+                        (
+                            float(v)
+                            if '.' in value
+                            else int(v[1:] if v[0] == '#' else v)
+                        )
                         for v in value.split(',')
                     )
                 except ValueError:
@@ -22125,13 +22251,11 @@ def repeat_nd(a: ArrayLike, repeats: Sequence[int], /) -> NDArray[Any]:
 @overload
 def reshape_nd(
     data_or_shape: tuple[int, ...], ndim: int, /
-) -> tuple[int, ...]:
-    ...
+) -> tuple[int, ...]: ...
 
 
 @overload
-def reshape_nd(data_or_shape: NDArray[Any], ndim: int, /) -> NDArray[Any]:
-    ...
+def reshape_nd(data_or_shape: NDArray[Any], ndim: int, /) -> NDArray[Any]: ...
 
 
 def reshape_nd(
@@ -22193,8 +22317,7 @@ def _squeeze_axes(
     axes: str,
     /,
     skip: str | None = None,
-) -> tuple[tuple[int, ...], str, tuple[bool, ...]]:
-    ...
+) -> tuple[tuple[int, ...], str, tuple[bool, ...]]: ...
 
 
 @overload
@@ -22203,8 +22326,7 @@ def _squeeze_axes(
     axes: Sequence[str],
     /,
     skip: Sequence[str] | None = None,
-) -> tuple[tuple[int, ...], Sequence[str], tuple[bool, ...]]:
-    ...
+) -> tuple[tuple[int, ...], Sequence[str], tuple[bool, ...]]: ...
 
 
 def _squeeze_axes(
@@ -22321,8 +22443,7 @@ def reshape_axes(
     newshape: Sequence[int],
     /,
     unknown: str | None = None,
-) -> str:
-    ...
+) -> str: ...
 
 
 @overload
@@ -22332,8 +22453,7 @@ def reshape_axes(
     newshape: Sequence[int],
     /,
     unknown: str | None = None,
-) -> Sequence[str]:
-    ...
+) -> Sequence[str]: ...
 
 
 def reshape_axes(
@@ -22473,15 +22593,13 @@ def check_shape(
 @overload
 def subresolution(
     a: TiffPage, b: TiffPage, /, p: int = 2, n: int = 16
-) -> int | None:
-    ...
+) -> int | None: ...
 
 
 @overload
 def subresolution(
     a: TiffPageSeries, b: TiffPageSeries, /, p: int = 2, n: int = 16
-) -> int | None:
-    ...
+) -> int | None: ...
 
 
 def subresolution(
@@ -23000,15 +23118,13 @@ def strptime(
 @overload
 def stripnull(
     string: bytes, /, null: bytes | None = None, *, first: bool = True
-) -> bytes:
-    ...
+) -> bytes: ...
 
 
 @overload
 def stripnull(
     string: str, /, null: str | None = None, *, first: bool = True
-) -> str:
-    ...
+) -> str: ...
 
 
 def stripnull(
@@ -23077,8 +23193,7 @@ def asbool(
     /,
     true: Sequence[str] | None = None,
     false: Sequence[str] | None = None,
-) -> bool:
-    ...
+) -> bool: ...
 
 
 @overload
@@ -23087,8 +23202,7 @@ def asbool(
     /,
     true: Sequence[bytes] | None = None,
     false: Sequence[bytes] | None = None,
-) -> bool:
-    ...
+) -> bool: ...
 
 
 def asbool(
@@ -23413,7 +23527,12 @@ def recarray2dict(recarray: numpy.recarray, /) -> dict[str, Any]:
 
 
 def xml2dict(
-    xml: str, /, sanitize: bool = True, prefix: tuple[str, str] | None = None
+    xml: str,
+    /,
+    *,
+    sanitize: bool = True,
+    prefix: tuple[str, str] | None = None,
+    sep: str = ',',
 ) -> dict[str, Any]:
     """Return XML as dictionary.
 
@@ -23421,14 +23540,15 @@ def xml2dict(
         xml: XML data to convert.
         sanitize: Remove prefix from from etree Element.
         prefix: Prefixes for dictionary keys.
+        sep: Sequence separator.
 
     Examples:
         >>> xml2dict(
         ...     '<?xml version="1.0" ?><root attr="name"><key>1</key></root>'
         ... )
         {'root': {'key': 1, 'attr': 'name'}}
-        >>> xml2dict('<level1><level2>3.5322</level2></level1>')
-        {'level1': {'level2': 3.5322}}
+        >>> xml2dict('<level1><level2>3.5322,-3.14</level2></level1>')
+        {'level1': {'level2': (3.5322, -3.14)}}
 
     """
     try:
@@ -23436,14 +23556,21 @@ def xml2dict(
     except ImportError:
         from xml.etree import ElementTree as etree
 
-    at = tx = ''
-    if prefix:
-        at, tx = prefix
+    at, tx = prefix if prefix else ('', '')
 
     def astype(value: Any, /) -> Any:
-        # return string value as int, float, bool, or unchanged
-        if not isinstance(value, (str, bytes)):
+        # return string value as int, float, bool, tuple, or unchanged
+        if not isinstance(value, str):
             return value
+        if sep and sep in value:
+            # sequence of numbers?
+            values = []
+            for val in value.split(sep):
+                v = astype(val)
+                if isinstance(v, str):
+                    return value
+                values.append(v)
+            return tuple(values)
         for t in (int, float, asbool):
             try:
                 return t(value)  # type: ignore
