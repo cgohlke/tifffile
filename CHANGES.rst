@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2024.2.12
+
+- Pass 5074 tests.
+- Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
+- Add imreadargs parameters passed to FileSequence.imread.
+
 2024.1.30
 
-- Pass 5071 tests.
 - Fix compatibility issue with numpy 2 (#238).
 - Enable DeprecationWarning for tuple compression argument.
 - Parse sequence of numbers in xml2dict.
@@ -189,7 +194,7 @@ Revisions
 
 - Allow to write NewSubfileType=0 (#132).
 - Support writing iterators of strip or tile bytes.
-- Convert iterables (not iterators) to NumPy arrays when writing.
+- Convert iterables (not iterators) to NumPy arrays when writing (breaking).
 - Explicitly specify optional keyword parameters for imread and imwrite.
 - Return number of written bytes from FileHandle write functions.
 
