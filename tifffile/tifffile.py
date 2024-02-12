@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.1.30
+:Version: 2024.2.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,7 +96,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.7, 3.12.1, 64-bit
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.8, 3.12.2, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.26.3
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -106,15 +106,20 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.2
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.2.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.2.12
+
+- Pass 5074 tests.
+- Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
+- Add imreadargs parameters passed to FileSequence.imread.
+
 2024.1.30
 
-- Pass 5071 tests.
 - Fix compatibility issue with numpy 2 (#238).
 - Enable DeprecationWarning for tuple compression argument.
 - Parse sequence of numbers in xml2dict.
@@ -820,7 +825,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.1.30'
+__version__ = '2024.2.12'
 
 __all__ = [
     'TiffFile',
@@ -1036,10 +1041,12 @@ def imread(
     axesorder: Sequence[int] | None = None,
     categories: dict[str, dict[str, int]] | None = None,
     imread: Callable[..., NDArray[Any]] | None = None,
+    imreadargs: dict[str, Any] | None = None,
     sort: Callable[..., Any] | bool | None = None,
     container: str | os.PathLike[Any] | None = None,
     chunkshape: tuple[int, ...] | None = None,
-    dtype: DTypeLike | None = None,
+    chunkdtype: DTypeLike | None = None,
+    dtype: DTypeLike | None = None,  # deprecated
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
     ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
@@ -1082,10 +1089,12 @@ def imread(
     axesorder: Sequence[int] | None = None,
     categories: dict[str, dict[str, int]] | None = None,
     imread: Callable[..., NDArray[Any]] | None = None,
+    imreadargs: dict[str, Any] | None = None,
     sort: Callable[..., Any] | bool | None = None,
     container: str | os.PathLike[Any] | None = None,
     chunkshape: tuple[int, ...] | None = None,
-    dtype: DTypeLike | None = None,
+    chunkdtype: DTypeLike | None = None,
+    dtype: DTypeLike | None = None,  # deprecated
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
     ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
@@ -1127,10 +1136,12 @@ def imread(
     axesorder: Sequence[int] | None = None,
     categories: dict[str, dict[str, int]] | None = None,
     imread: Callable[..., NDArray[Any]] | None = None,
+    imreadargs: dict[str, Any] | None = None,
     sort: Callable[..., Any] | bool | None = None,
     container: str | os.PathLike[Any] | None = None,
     chunkshape: tuple[int, ...] | None = None,
-    dtype: DTypeLike | None = None,
+    chunkdtype: DTypeLike | None = None,
+    dtype: DTypeLike | None = None,  # deprecated
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
     ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
@@ -1175,7 +1186,7 @@ def imread(
         chunkmode, fillvalue, zattrs, multiscales:
             Passed to :py:class:`ZarrTiffStore`
             or :py:class:`ZarrFileSequenceStore`.
-        chunkshape, dtype:
+        chunkshape, chunkdtype:
             Passed to :py:meth:`FileSequence.asarray` or
             :py:class:`ZarrFileSequenceStore`.
         out_inplace:
@@ -1183,6 +1194,8 @@ def imread(
         out:
             Passed to :py:meth:`TiffFile.asarray`,
             :py:meth:`FileSequence.asarray`, or :py:func:`zarr_selection`.
+        imreadargs:
+            Additional arguments passed to :py:attr:`FileSequence.imread`.
         **kwargs:
             Additional arguments passed to :py:class:`TiffFile` or
             :py:attr:`FileSequence.imread`.
@@ -1197,6 +1210,16 @@ def imread(
     store: ZarrStore
     aszarr = aszarr or (selection is not None)
     is_flags = parse_kwargs(kwargs, *(k for k in kwargs if k[:3] == 'is_'))
+
+    if dtype is not None:
+        warnings.warn(
+            '<tifffile.imread> the dtype argument is '
+            'deprecated since 2024.2.12. Use chunkdtype',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        chunkdtype = dtype
+    del dtype
 
     if imread is None and kwargs:
         raise TypeError(
@@ -1268,6 +1291,7 @@ def imread(
         squeeze=squeeze,
         maxworkers=maxworkers,
         buffersize=buffersize,
+        imreadargs=imreadargs,
         _multifile=_multifile,
         _useframes=_useframes,
         **is_flags,
@@ -1288,7 +1312,7 @@ def imread(
                 axestiled=axestiled,
                 chunkmode=chunkmode,
                 chunkshape=chunkshape,
-                dtype=dtype,
+                chunkdtype=chunkdtype,
                 fillvalue=fillvalue,
                 zattrs=zattrs,
                 **imread_kwargs,
@@ -1299,7 +1323,7 @@ def imread(
         return imseq.asarray(
             axestiled=axestiled,
             chunkshape=chunkshape,
-            dtype=dtype,
+            chunkdtype=chunkdtype,
             ioworkers=ioworkers,
             out=out,
             out_inplace=out_inplace,
@@ -3061,14 +3085,13 @@ class TiffWriter:
             addtag(tags, 282, 5, 1, rational(resolution[0]))  # XResolution
             addtag(tags, 283, 5, 1, rational(resolution[1]))  # YResolution
             if len(resolution) > 2:
-                # TODO: enable warning
-                # warnings.warn(
-                #     f"<tifffile.TiffWriter.write> passing a unit along "
-                #     "with the 'resolution' parameter is deprecated "
-                #     "since 2022.7.28. Use the 'resolutionunit' parameter.",
-                #     DeprecationWarning,
-                #     stacklevel=2,
-                # )
+                warnings.warn(
+                    "<tifffile.TiffWriter.write> passing a unit along "
+                    "with the 'resolution' parameter is deprecated "
+                    "since 2022.7.28. Use the 'resolutionunit' parameter.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 unit = resolution[2]  # type: ignore
                 if unit is not None:
                     resolutionunit = enumarg(RESUNIT, unit)
@@ -13447,7 +13470,7 @@ class ZarrFileSequenceStore(ZarrStore):
     """Zarr store interface to image array in FileSequence.
 
     Parameters:
-        arg:
+        filesequence:
             FileSequence instance to wrap as Zarr store.
             Files in containers are not supported.
         fillvalue:
@@ -13456,21 +13479,24 @@ class ZarrFileSequenceStore(ZarrStore):
             Currently only one chunk per file is supported.
         chunkshape:
             Shape of chunk in each file.
-            Must match ``filesequence.imread(file, **kwargs).shape``.
-        dtype:
+            Must match ``FileSequence.imread(file, **imreadargs).shape``.
+        chunkdtype:
             Data type of chunk in each file.
-            Must match ``filesequence.imread(file, **kwargs).dtype``.
+            Must match ``FileSequence.imread(file, **imreadargs).dtype``.
         axestiled:
             Axes to be tiled. Map stacked sequence axis to chunk axis.
         zattrs:
             Additional attributes to store in `.zattrs`.
-        kwargs:
-            Additional arguments passed to :py:attr:`FileSequence.imread`.
+        imreadargs:
+            Arguments passed to :py:attr:`FileSequence.imread`.
+        **kwargs:
+            Arguments passed to :py:attr:`FileSequence.imread`in addition
+            to `imreadargs`.
 
     Notes:
-        If `chunkshape` or `dtype` are *None* (default), their values are
-        determined by reading the first file with
-        ``filesequence.imread(arg.files[0], **kwargs)``.
+        If `chunkshape` or `chunkdtype` are *None* (default), their values
+        are determined by reading the first file with
+        ``FileSequence.imread(arg.files[0], **imreadargs)``.
 
     """
 
@@ -13486,15 +13512,17 @@ class ZarrFileSequenceStore(ZarrStore):
 
     def __init__(
         self,
-        arg: FileSequence,
+        filesequence: FileSequence,
         /,
         *,
         fillvalue: int | float | None = None,
         chunkmode: CHUNKMODE | int | str | None = None,
         chunkshape: Sequence[int] | None = None,
-        dtype: DTypeLike | None = None,
+        chunkdtype: DTypeLike | None = None,
+        dtype: DTypeLike | None = None,  # deprecated
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
         zattrs: dict[str, Any] | None = None,
+        imreadargs: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(fillvalue=fillvalue, chunkmode=chunkmode)
@@ -13502,29 +13530,46 @@ class ZarrFileSequenceStore(ZarrStore):
         if self._chunkmode not in {0, 3}:
             raise ValueError(f'invalid chunkmode {self._chunkmode!r}')
 
-        if not isinstance(arg, FileSequence):
+        if not isinstance(filesequence, FileSequence):
             raise TypeError('not a FileSequence')
 
-        if arg._container:
+        if filesequence._container:
             raise NotImplementedError('cannot open container as Zarr store')
 
-        self._kwargs = kwargs
-        self._imread = arg.imread
-        self._commonpath = arg.commonpath()
+        # TODO: deprecate kwargs?
+        if imreadargs is not None:
+            kwargs |= imreadargs
 
-        if chunkshape is None or dtype is None:
-            chunk = arg.imread(arg.files[0], **kwargs)
+        self._kwargs = kwargs
+        self._imread = filesequence.imread
+        self._commonpath = filesequence.commonpath()
+
+        if dtype is not None:
+            warnings.warn(
+                '<tifffile.ZarrFileSequenceStore> '
+                'the dtype argument is deprecated since 2024.2.12. '
+                'Use chunkdtype',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            chunkdtype = dtype
+        del dtype
+
+        if chunkshape is None or chunkdtype is None:
+            chunk = filesequence.imread(filesequence.files[0], **kwargs)
             self._chunks = chunk.shape
             self._dtype = chunk.dtype
         else:
             self._chunks = tuple(chunkshape)
-            self._dtype = numpy.dtype(dtype)
+            self._dtype = numpy.dtype(chunkdtype)
             chunk = None
 
         self._tiled = TiledSequence(
-            arg.shape, self._chunks, axestiled=axestiled
+            filesequence.shape, self._chunks, axestiled=axestiled
         )
-        self._lookup = dict(zip(self._tiled.indices(arg.indices), arg.files))
+        self._lookup = dict(
+            zip(self._tiled.indices(filesequence.indices), filesequence.files)
+        )
 
         zattrs = {} if zattrs is None else dict(zattrs)
         # TODO: add _ARRAY_DIMENSIONS to ZarrFileSequenceStore
@@ -13887,8 +13932,10 @@ class FileSequence:
     def asarray(
         self,
         *,
+        imreadargs: dict[str, Any] | None = None,
         chunkshape: tuple[int, ...] | None = None,
-        dtype: DTypeLike | None = None,
+        chunkdtype: DTypeLike | None = None,
+        dtype: DTypeLike | None = None,  # deprecated
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
         out_inplace: bool | None = None,
         ioworkers: int | None = 1,
@@ -13898,13 +13945,15 @@ class FileSequence:
         """Return images from files as NumPy array.
 
         Parameters:
+            imreadargs:
+                Arguments passed to :py:attr:`FileSequence.imread`.
             chunkshape:
                 Shape of chunk in each file.
-                Must match ``FileSequence.imread(file, **kwargs).shape``.
+                Must match ``FileSequence.imread(file, **imreadargs).shape``.
                 By default, this is determined by reading the first file.
-            dtype:
+            chunkdtype:
                 Data type of chunk in each file.
-                Must match ``FileSequence.imread(file, **kwargs).dtype``.
+                Must match ``FileSequence.imread(file, **imreadargs).dtype``.
                 By default, this is determined by reading the first file.
             axestiled:
                 Axes to be tiled.
@@ -13930,12 +13979,17 @@ class FileSequence:
                 If a *string* or *open file*, the file used to create a
                 memory-mapped array.
             **kwargs:
-                Additional arguments passed to :py:attr:`FileSequence.imread`.
+                Arguments passed to :py:attr:`FileSequence.imread` in
+                addition to `imreadargs`.
 
         Raises:
             IndexError, ValueError: Array shapes do not match.
 
         """
+        # TODO: deprecate kwargs?
+        if imreadargs is not None:
+            kwargs |= imreadargs
+
         if ioworkers is None or ioworkers < 1:
             ioworkers = TIFF.MAXIOWORKERS
         ioworkers = min(len(self.files), ioworkers)
@@ -13946,16 +14000,27 @@ class FileSequence:
         else:
             out_inplace = bool(out_inplace)
 
-        if chunkshape is None or dtype is None:
+        if dtype is not None:
+            warnings.warn(
+                '<tifffile.FileSequence.asarray> '
+                'the dtype argument is deprecated since 2024.2.12. '
+                'Use chunkdtype',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            chunkdtype = dtype
+        del dtype
+
+        if chunkshape is None or chunkdtype is None:
             im = self.imread(self.files[0], **kwargs)
             chunkshape = im.shape
-            dtype = im.dtype
+            chunkdtype = im.dtype
             del im
-        dtype = numpy.dtype(dtype)
+        chunkdtype = numpy.dtype(chunkdtype)
 
         if axestiled:
             tiled = TiledSequence(self.shape, chunkshape, axestiled=axestiled)
-            result = create_output(out, tiled.shape, dtype)
+            result = create_output(out, tiled.shape, chunkdtype)
 
             def func(index: tuple[int | slice, ...], fname: str) -> None:
                 # read single image from file into result
@@ -13981,7 +14046,7 @@ class FileSequence:
                         pass
         else:
             shape = self.shape + chunkshape
-            result = create_output(out, shape, dtype)
+            result = create_output(out, shape, chunkdtype)
             result = result.reshape(-1, *chunkshape)
 
             def func(index: tuple[int | slice, ...], fname: str) -> None:
