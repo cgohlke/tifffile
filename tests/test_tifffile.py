@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.1.30
+:Version: 2024.2.12
 
 """
 
@@ -2316,7 +2316,7 @@ def test_issue_imread_out():
     data = imread(
         [fname, fname],
         chunkshape=(32, 31, 3),
-        dtype=numpy.uint8,
+        chunkdtype=numpy.uint8,
         out_inplace=True,
         out='memmap',
     )
@@ -3235,6 +3235,25 @@ class TestExceptions:
                 compression='LERC',
                 compressionargs={'compression': 'jpeg'},
             )
+
+    @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+    def test_sequence_imread_dtype(self):
+        # dtype argument is deprecated
+        files = public_file('tifffile/temp_C001T00*.tif')
+        with pytest.warns(DeprecationWarning):
+            stack = imread(files, dtype='float64')
+        assert_array_equal(stack[0], imread(files[0]))
+
+    @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
+    def test_filesequence_dtype(self):
+        # dtype argument is deprecated
+        files = public_file('tifffile/temp_C001T00*.tif')
+        with pytest.warns(DeprecationWarning):
+            TiffSequence(files).asarray(dtype='float64')
+        with pytest.warns(DeprecationWarning):
+            TiffSequence(files).asarray(dtype='float64')
+        with pytest.warns(DeprecationWarning):
+            TiffSequence(files).aszarr(dtype='float64')
 
 
 ###############################################################################
@@ -14670,8 +14689,8 @@ def test_write_resolution_unit():
     data = random_data(numpy.uint8, (219, 301))
     resolution = (92.0, (9200, 100), 3)
     with TempFileName('write_resolution_unit') as fname:
-        # TODO: with pytest.warns(DeprecationWarning):
-        imwrite(fname, data, resolution=resolution)
+        with pytest.warns(DeprecationWarning):
+            imwrite(fname, data, resolution=resolution)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -19091,12 +19110,13 @@ def test_sequence_glob_pattern(case):
         data = tifs.asarray()
     elif case == 1:
         data = tifs.asarray(
-            chunkshape=(480, 640), dtype=numpy.uint8, pattern=None
+            chunkshape=(480, 640), chunkdtype=numpy.uint8, pattern=None, key=0
         )
     elif case == 2:
         data = tifs.asarray(
+            imreadargs={'key': 0},
             chunkshape=(480, 640),
-            dtype=numpy.uint8,
+            chunkdtype=numpy.uint8,
             pattern=None,
             out_inplace=True,
             out='memmap',
@@ -19105,10 +19125,11 @@ def test_sequence_glob_pattern(case):
         data = numpy.empty((10, 480, 640), dtype=numpy.uint8)
         tifs.asarray(
             chunkshape=(480, 640),
-            dtype=numpy.uint8,
+            chunkdtype=numpy.uint8,
             pattern=None,
             out_inplace=True,
             out=data,
+            key=0,
         )
     assert isinstance(data, numpy.ndarray)
     assert data.flags['C_CONTIGUOUS']
@@ -19197,7 +19218,7 @@ def test_sequence_zip_container():
         assert len(tifs) == 10
         assert tifs.shape == (10,)
         assert tifs.axes == 'I'
-        data = tifs.asarray(chunkshape=(480, 640), dtype=numpy.uint8)
+        data = tifs.asarray(chunkshape=(480, 640), chunkdtype=numpy.uint8)
         assert isinstance(data, numpy.ndarray)
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (10, 480, 640)
@@ -19291,9 +19312,18 @@ def test_sequence_imread():
 def test_sequence_imread_glob():
     """Test imread function with glob pattern."""
     fname = private_file('TiffSequence/*.tif')
-    data = imread(fname)
+    data = imread(
+        fname, imreadargs={'key': 0}, chunkshape=(480, 640), chunkdtype='uint8'
+    )
+    assert data.shape == (10, 480, 640)
     if not SKIP_ZARR:
-        store = imread(fname, aszarr=True)
+        store = imread(
+            fname,
+            aszarr=True,
+            imreadargs={'key': 0},
+            chunkshape=(480, 640),
+            chunkdtype='uint8',
+        )
         try:
             assert_array_equal(data, zarr.open(store, mode='r'))
         finally:
