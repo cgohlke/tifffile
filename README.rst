@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.1.30
+:Version: 2024.2.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,7 +66,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.7, 3.12.1, 64-bit
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.8, 3.12.2, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 1.26.3
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -76,15 +76,20 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2023.12.2
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.2.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.2.12
+
+- Pass 5074 tests.
+- Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
+- Add imreadargs parameters passed to FileSequence.imread.
+
 2024.1.30
 
-- Pass 5071 tests.
 - Fix compatibility issue with numpy 2 (#238).
 - Enable DeprecationWarning for tuple compression argument.
 - Parse sequence of numbers in xml2dict.
