@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Updated on July 4, 2023
+Updated on Feb 12, 2024
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -310,7 +310,7 @@ Define extra `zattrs` to create a Xarray compatible store.
 
 # %%
 store = fileseq.aszarr(
-    dtype='uint8',
+    chunkdtype='uint8',
     chunkshape=chunkshape,
     fillvalue=fillvalue,
     axestiled={0: 0, 1: 1},
@@ -375,7 +375,7 @@ for mode in (
     )
     print(fileseq)
     with fileseq.aszarr(
-        dtype='uint16',
+        chunkdtype='uint16',
         chunkshape=chunkshape,
         fillvalue=fillvalue,
         axestiled={0: 0, 1: 1},
@@ -417,7 +417,7 @@ for mode in ('inc', 'lsmap'):
     )
     print(fileseq)
     with fileseq.aszarr(
-        dtype='uint8',
+        chunkdtype='uint8',
         chunkshape=chunkshape,
         fillvalue=fillvalue,
         axestiled={0: 0, 1: 1},
