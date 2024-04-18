@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2024.4.18
+
+- Pass 5077 tests.
+- Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
+- Add option not to quote file names in write_fsspec.
+- Allow compress bilevel images with deflate, LZMA, and Zstd.
+
 2024.2.12
 
-- Pass 5074 tests.
 - Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
 - Add imreadargs parameters passed to FileSequence.imread.
 
