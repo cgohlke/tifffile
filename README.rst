@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.2.12
+:Version: 2024.4.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -66,25 +66,31 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.8, 3.12.2, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.3
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.9, 3.12.3, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.4
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.2
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.4
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.1.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.2.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.17.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.2.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.3.1
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.4.18
+
+- Pass 5077 tests.
+- Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
+- Add option not to quote file names in write_fsspec.
+- Allow compress bilevel images with deflate, LZMA, and Zstd.
+
 2024.2.12
 
-- Pass 5074 tests.
 - Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
 - Add imreadargs parameters passed to FileSequence.imread.
 
@@ -288,8 +294,9 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   corrected using the value of tag 65441.
 - **Philips TIFF** slides store wrong ImageWidth and ImageLength tag values
   for tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
-  attributes of the XML formatted description of the first page. Tifffile can
-  read Philips slides.
+  attributes of the XML formatted description of the first page. Tile offsets
+  and byte counts may be 0 and last rows of tiles may be missing.
+  Tifffile can read Philips slides.
 - **Ventana/Roche BIF** slides store tiles and metadata in a BigTIFF container.
   Tiles may overlap and require stitching based on the TileJointInfo elements
   in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
