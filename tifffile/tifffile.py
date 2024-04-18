@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.2.12
+:Version: 2024.4.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,25 +96,31 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.8, 3.12.2, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.3
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.9, 3.12.3, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.4
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.2
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.4
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.1.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.2.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.16.1
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.17.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.2.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.3.1
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.4.18
+
+- Pass 5077 tests.
+- Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
+- Add option not to quote file names in write_fsspec.
+- Allow compress bilevel images with deflate, LZMA, and Zstd.
+
 2024.2.12
 
-- Pass 5074 tests.
 - Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
 - Add imreadargs parameters passed to FileSequence.imread.
 
@@ -318,8 +324,9 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   corrected using the value of tag 65441.
 - **Philips TIFF** slides store wrong ImageWidth and ImageLength tag values
   for tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
-  attributes of the XML formatted description of the first page. Tifffile can
-  read Philips slides.
+  attributes of the XML formatted description of the first page. Tile offsets
+  and byte counts may be 0 and last rows of tiles may be missing.
+  Tifffile can read Philips slides.
 - **Ventana/Roche BIF** slides store tiles and metadata in a BigTIFF container.
   Tiles may overlap and require stitching based on the TileJointInfo elements
   in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
@@ -825,7 +832,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.2.12'
+__version__ = '2024.4.18'
 
 __all__ = [
     'TiffFile',
@@ -2965,6 +2972,7 @@ class TiffWriter:
                 tags, 330, 18 if offsetsize > 4 else 13, subifds, [0] * subifds
             )
         if not bilevel and not datadtype.kind == 'u':
+            # SampleFormat
             sampleformat = {'u': 1, 'i': 2, 'f': 3, 'c': 6}[datadtype.kind]
             addtag(
                 tags,
@@ -2977,13 +2985,15 @@ class TiffWriter:
             addtag(tags, 320, 3, colormap.size, colormap)
         addtag(tags, 277, 3, 1, storedshape.samples)
         if bilevel:
-            pass
+            # PlanarConfiguration
+            if storedshape.samples > 1:
+                addtag(tags, 284, 3, 1, storedshape.planarconfig)
         elif storedshape.samples > 1:
+            # PlanarConfiguration
+            addtag(tags, 284, 3, 1, storedshape.planarconfig)
+            # BitsPerSample
             addtag(
-                tags, 284, 3, 1, storedshape.planarconfig
-            )  # PlanarConfiguration
-            addtag(
-                tags,  # BitsPerSample
+                tags,
                 258,
                 3,
                 storedshape.samples,
@@ -3288,8 +3298,8 @@ class TiffWriter:
 
                 compressionfunc = compressionfunc1
 
-            elif compressiontag in {5, 32773}:
-                # LZW, PackBits
+            elif compressiontag in {5, 32773, 8, 32946, 50013, 34925, 50000}:
+                # LZW, PackBits, deflate, LZMA, ZSTD
                 def compressionfunc2(
                     data,
                     compressor=TIFF.COMPRESSORS[compressiontag],
@@ -4636,6 +4646,7 @@ class TiffFile:
             'qpi',
             'ndpi',
             'bif',
+            'philips',
             'scanimage',
             # 'indica',  # TODO: rewrite _series_indica()
             'nih',
@@ -5233,6 +5244,26 @@ class TiffFile:
                 elif mag == -2.0:
                     s.name = 'Map'
                     # s.kind += '_map'
+        self.is_uniform = False
+        return series
+
+    def _series_philips(self) -> list[TiffPageSeries] | None:
+        """Return pyramidal image series in Philips DP file."""
+        series = self._series_generic()
+        if series is None:
+            return None
+        for s in series:
+            s.kind = 'philips'
+            if s.is_pyramidal:
+                # TODO: read name from XML
+                s.name = 'Baseline'
+                # if s.dtype.itemsize == 1:
+                #     for level in s.levels:
+                #         level.keyframe.nodata = 255
+            elif s.keyframe.description.startswith('Macro'):
+                s.name = 'Macro'
+            elif s.keyframe.description.startswith('Label'):
+                s.name = 'Label'
         self.is_uniform = False
         return series
 
@@ -13341,8 +13372,10 @@ class ZarrTiffStore(ZarrStore):
                 return keyframe, None, chunkindex, 0, 0
             try:
                 offset = page.dataoffsets[chunkindex]
-            except IndexError as exc:
-                raise KeyError(key) from exc
+            except IndexError:
+                # raise KeyError(key) from exc
+                # issue #249: Philips may be missing last row of tiles
+                return page.keyframe, page, chunkindex, 0, 0
         try:
             bytecount = page.databytecounts[chunkindex]
         except IndexError as exc:
@@ -13615,6 +13648,7 @@ class ZarrFileSequenceStore(ZarrStore):
         /,
         url: str,
         *,
+        quote: bool | None = None,
         groupname: str | None = None,
         templatename: str | None = None,
         codec_id: str | None = None,
@@ -13629,6 +13663,9 @@ class ZarrFileSequenceStore(ZarrStore):
                 Name or open file handle of output JSON file.
             url:
                 Remote location of TIFF file(s) without file name(s).
+            quote:
+                Quote file names, that is, replace ' ' with '%20'.
+                The default is True.
             groupname:
                 Zarr group name.
             templatename:
@@ -13645,7 +13682,7 @@ class ZarrFileSequenceStore(ZarrStore):
               <https://github.com/fsspec/kerchunk>`_
 
         """
-        from urllib.parse import quote
+        from urllib.parse import quote as quote_
 
         kwargs = self._kwargs.copy()
 
@@ -13749,7 +13786,9 @@ class ZarrFileSequenceStore(ZarrStore):
                 for index, filename in sorted(
                     self._lookup.items(), key=lambda x: x[0]
                 ):
-                    filename = quote(filename[prefix:].replace('\\', '/'))
+                    filename = filename[prefix:].replace('\\', '/')
+                    if quote is None or quote:
+                        filename = quote_(filename)
                     if filename[0] == '/':
                         filename = filename[1:]
                     indexstr = '.'.join(str(i) for i in index)
@@ -17148,6 +17187,7 @@ class _TIFF:
                 (770, 'ICCProfileDescriptor'),  # GDI+
                 (771, 'SRGBRenderingIntent'),  # GDI+
                 (800, 'ImageTitle'),  # GDI+
+                (907, 'SiffCompress'),  # https://github.com/MaimonLab/SiffPy
                 (999, 'USPTO_Miscellaneous'),
                 (4864, 'AndorId'),  # TODO, Andor Technology 4864 - 5030
                 (4869, 'AndorTemperature'),
