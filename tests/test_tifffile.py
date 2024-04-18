@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.2.12
+:Version: 2024.4.18
 
 """
 
@@ -300,7 +300,7 @@ if SKIP_DASK:
 else:
     try:
         import dask  # type: ignore
-        import dask.array
+        import dask.array  # type: ignore
     except ImportError:
         dask = None
         SKIP_DASK = True
@@ -2835,6 +2835,75 @@ def test_issue_buffersize(buffersize, tile):
     assert_array_equal(im, data)
 
 
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+)
+def test_issue_philips_fsspec():
+    """Test write_fsspec with Philips slide missing row of tiles."""
+    # https://github.com/cgohlke/tifffile/issues/249
+    fname = private_file('PhilipsDP/patient_080_node_2.tif')
+    with TiffFile(fname) as tif:
+        assert len(tif.series) == 2
+        assert len(tif.pages) == 11
+        assert tif.is_philips
+        assert tif.philips_metadata.endswith('</DataObject>')
+        page = tif.pages.first
+        assert page.compression == JPEG
+        assert page.photometric == YCBCR
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 155136
+        assert page.tags['ImageLength'].value == 78336
+        assert page.imagewidth == 155136
+        assert page.imagelength == 78336
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        assert page.tags['Software'].value == 'Philips DP v1.0'
+        series = tif.series[1]
+        assert series.kind == 'philips'
+        assert series.shape == (801, 1756, 3)
+        assert len(series.levels) == 1
+        assert not series.is_pyramidal
+        series = tif.series[0]
+        assert series.kind == 'philips'
+        assert series.shape == (78336, 155136, 3)
+        assert len(series.levels) == 10
+        assert series.is_pyramidal
+        page = series.levels[3].pages[0]
+        assert page.compression == JPEG
+        assert page.photometric == YCBCR
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 19456
+        assert page.tags['ImageLength'].value == 9728
+        assert page.imagewidth == 19392
+        assert page.imagelength == 9792
+        # assert data
+        image = tif.asarray(series=0, level=3)
+        assert image.shape == (9792, 19392, 3)
+        assert image[300, 400, 1] == 226
+        assert image[9791, 0, 1] == 0
+        assert_aszarr_method(series, image, level=3)
+        assert__str__(tif)
+
+        if SKIP_ZARR:
+            return
+
+        # write fsspec
+        from imagecodecs.numcodecs import register_codecs
+
+        register_codecs('imagecodecs_jpeg', verbose=False)
+        url = os.path.dirname(fname).replace('\\', '/')
+        with TempFileName('issue_philips_fsspec', ext='.json') as jsonfile:
+            page.aszarr().write_fsspec(jsonfile, url, version=0)
+            mapper = fsspec.get_mapper(
+                'reference://',
+                fo=jsonfile,
+                target_protocol='file',
+                remote_protocol='file',
+            )
+            zobj = zarr.open(mapper, mode='r')
+            assert_array_equal(zobj[:], image)
+
+
 class TestExceptions:
     """Test various Exceptions and Warnings."""
 
@@ -3065,7 +3134,7 @@ class TestExceptions:
     def test_compress_bilevel(self, fname):
         # cannot compress bilevel image
         with pytest.raises(NotImplementedError):
-            imwrite(fname, self.data.astype('?'), compression=8)
+            imwrite(fname, self.data.astype('?'), compression='jpeg')
 
     def test_description_unicode(self, fname):
         # strings must be 7-bit ASCII
@@ -3636,7 +3705,7 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
-    numtags = 656
+    numtags = 657
     tags = TIFF.TAGS
     assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
@@ -12252,7 +12321,7 @@ def test_read_philips():
         assert page.samplesperpixel == 3
         assert page.tags['Software'].value == 'Philips DP v1.0'
         series = tif.series[0]
-        assert series.kind == 'generic'
+        assert series.kind == 'philips'
         assert series.shape == (89225, 85654, 3)
         assert len(series.levels) == 9
         assert series.is_pyramidal
@@ -13505,21 +13574,26 @@ WRITE_DATA.shape = (3, 219, 301)
         (3, 4, 219, 301, 1),
     ],
 )
+@pytest.mark.parametrize(
+    'compression', [None]  # , 'zlib', 'lzw', 'lzma', 'zstd', 'packbits']
+)
 @pytest.mark.parametrize('dtype', list('?bhiqefdBHIQFD'))
 @pytest.mark.parametrize('byteorder', ['>', '<'])
 @pytest.mark.parametrize('bigtiff', ['plaintiff', 'bigtiff'])
 @pytest.mark.parametrize('tile', [None, (64, 64)])
 @pytest.mark.parametrize('data', ['random', None])
-def test_write(data, byteorder, bigtiff, dtype, shape, tile):
+def test_write(data, byteorder, bigtiff, compression, dtype, shape, tile):
     """Test TiffWriter with various options."""
-    # TODO: test compression ?
-    fname = 'write_{}_{}_{}_{}{}{}'.format(
+    if compression is not None and (data is None or SKIP_CODECS):
+        pytest.xfail(REASON)
+    fname = 'write_{}_{}_{}_{}{}{}{}'.format(
         bigtiff,
         {'<': 'le', '>': 'be'}[byteorder],
         numpy.dtype(dtype).name,
         str(shape).replace(' ', ''),
         '_tiled' if tile is not None else '',
         '_empty' if data is None else '',
+        f'_{compression}' if compression is not None else '',
     )
     bigtiff = bigtiff == 'bigtiff'
     if (3 in shape or 4 in shape) and shape[-1] != 1 and dtype != '?':
@@ -13561,6 +13635,7 @@ def test_write(data, byteorder, bigtiff, dtype, shape, tile):
                 bigtiff=bigtiff,
                 tile=tile,
                 photometric=photometric,
+                compression=compression,
             )
             image = imread(fname)
             assert image.flags['C_CONTIGUOUS']
@@ -14967,10 +15042,12 @@ def test_write_compression_jpeg(dtype, subsampling):
             assert__str__(tif)
 
 
-def test_write_compression_deflate():
+@pytest.mark.parametrize('dtype', [numpy.uint8, bool])
+def test_write_compression_deflate(dtype):
     """Test write ZLIB compression."""
-    data = WRITE_DATA
-    with TempFileName('write_compression_deflate') as fname:
+    dtype = numpy.dtype(dtype)
+    data = WRITE_DATA.astype(dtype)
+    with TempFileName(f'write_compression_deflate_{dtype}') as fname:
         imwrite(
             fname,
             data,
@@ -15026,10 +15103,12 @@ def test_write_compression_deflate_level():
             assert__str__(tif)
 
 
-def test_write_compression_lzma():
+@pytest.mark.parametrize('dtype', [numpy.uint8, bool])
+def test_write_compression_lzma(dtype):
     """Test write LZMA compression."""
-    data = WRITE_DATA
-    with TempFileName('write_compression_lzma') as fname:
+    dtype = numpy.dtype(dtype)
+    data = WRITE_DATA.astype(dtype)
+    with TempFileName(f'write_compression_lzma_{dtype}') as fname:
         imwrite(
             fname, data, compression=LZMA, photometric=RGB, rowsperstrip=108
         )
@@ -15053,10 +15132,12 @@ def test_write_compression_lzma():
 
 
 @pytest.mark.skipif(SKIP_CODECS or not imagecodecs.ZSTD, reason=REASON)
-def test_write_compression_zstd():
+@pytest.mark.parametrize('dtype', [numpy.uint8, bool])
+def test_write_compression_zstd(dtype):
     """Test write ZSTD compression."""
-    data = WRITE_DATA
-    with TempFileName('write_compression_zstd') as fname:
+    dtype = numpy.dtype(dtype)
+    data = WRITE_DATA.astype(dtype)
+    with TempFileName(f'write_compression_zstd_{dtype}') as fname:
         imwrite(
             fname, data, compression=ZSTD, photometric=RGB, rowsperstrip=108
         )
@@ -15262,7 +15343,7 @@ def test_write_compression_jetraw():
 
 
 @pytest.mark.skipif(SKIP_CODECS, reason=REASON)
-@pytest.mark.parametrize('dtype', [numpy.int8, numpy.uint8, numpy.bool_])
+@pytest.mark.parametrize('dtype', [numpy.int8, numpy.uint8, bool])
 @pytest.mark.parametrize('tile', [None, (16, 16)])
 def test_write_compression_packbits(dtype, tile):
     """Test write PackBits compression."""
