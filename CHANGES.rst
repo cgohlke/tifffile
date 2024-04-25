@@ -1,9 +1,13 @@
 Revisions
 ---------
 
-2024.4.18
+2024.4.24
 
 - Pass 5077 tests.
+- Fix compatibility issue with numpy 2 (#252).
+
+2024.4.18
+
 - Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
 - Add option not to quote file names in write_fsspec.
 - Allow compress bilevel images with deflate, LZMA, and Zstd.
