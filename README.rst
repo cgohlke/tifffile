@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.4.18
+:Version: 2024.4.24
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -82,9 +82,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2024.4.18
+2024.4.24
 
 - Pass 5077 tests.
+- Fix compatibility issue with numpy 2 (#252).
+
+2024.4.18
+
 - Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
 - Add option not to quote file names in write_fsspec.
 - Allow compress bilevel images with deflate, LZMA, and Zstd.
