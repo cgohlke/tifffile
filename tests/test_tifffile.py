@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.4.18
+:Version: 2024.4.24
 
 """
 
@@ -2582,7 +2582,9 @@ def test_issue_extratags_filter(caplog):
             assert tags[266].value == 1
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+)
 def test_issue_invalid_predictor(caplog):
     """Test decoding JPEG compression with invalid predictor tag."""
     fname = private_file('issues/invalid_predictor.tiff')
@@ -2595,7 +2597,7 @@ def test_issue_invalid_predictor(caplog):
         assert data.shape == (1275, 1650, 4)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_issue_ome_missing_frames():
     """Test read OME TIFF with missing pages at end."""
     # https://github.com/cgohlke/tifffile/issues/199
@@ -5235,11 +5237,11 @@ def test_func_bitorder_decode():
         ],
         dtype='uint32',
     )
-    if int(numpy.__version__.split('.')[1]) < 23:
-        with pytest.raises(NotImplementedError):
-            bitorder_decode(data[1:, 1:3])
-    else:
-        assert_array_equal(bitorder_decode(data[1:, 1:3]), reverse[1:, 1:3])
+    # if int(numpy.__version__.split('.')[1]) < 23:
+    #     with pytest.raises(NotImplementedError):
+    #         bitorder_decode(data[1:, 1:3])
+    # else:
+    assert_array_equal(bitorder_decode(data[1:, 1:3]), reverse[1:, 1:3])
 
 
 @pytest.mark.parametrize(
@@ -13164,7 +13166,7 @@ def test_read_zarr_level():
     assert_array_equal(image, data)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_eer(caplog):
     """Test read EER metadata."""
     # https://github.com/fei-company/EerReaderLib/issues/1
@@ -15535,7 +15537,8 @@ def test_write_rowsperstrip():
 def test_write_write_bigendian():
     """Test write big endian file."""
     # also test memory mapping non-native byte order
-    data = random_data(numpy.float32, (2, 3, 219, 301)).newbyteorder()
+    data = random_data(numpy.float32, (2, 3, 219, 301))
+    data = data.view(data.dtype.newbyteorder())
     data = numpy.nan_to_num(data, copy=False)
     with TempFileName('write_bigendian') as fname:
         imwrite(fname, data, planarconfig=SEPARATE, photometric=RGB)
@@ -18472,7 +18475,7 @@ def test_write_ome_methods(method):
                 '4D-series.ome.tiff', os.path.split(fname)[-1]
             )
             # omexml = omexml.replace('BigEndian="true"', 'BigEndian="false"')
-            data = data.newbyteorder('>')
+            data = data.view(data.dtype.newbyteorder('>'))
             # save image planes in the order referenced in the OME-XML
             # make sure storage options (compression, byteorder, photometric)
             #   match OME-XML
