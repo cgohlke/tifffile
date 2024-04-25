@@ -195,7 +195,8 @@ def delta_encode(
     key[axis] = 0
     diff = numpy.insert(diff, 0, data[tuple(key)], axis=axis)
     if not data.dtype.isnative:
-        diff = diff.byteswap(True).newbyteorder()
+        diff = diff.byteswap(True)
+        diff = diff.view(diff.dtype.newbyteorder())
     if dtype.kind == 'f':
         return diff.view(dtype)
     return diff
