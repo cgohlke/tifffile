@@ -9,7 +9,7 @@ Tifffile is a Python library to
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
 SGI, NIHImage, ImageJ, MMStack, NDTiff, FluoView, ScanImage, SEQ, GEL,
 SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
-and GeoTIFF formatted files.
+Philips DP, and GeoTIFF formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -30,7 +30,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.4.24
+:Version: 2024.5.3
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -82,9 +82,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.5.3
+
+- Pass 5080 tests.
+- Fix reading incompletely written LSM.
+- Fix reading Philips DP with extra rows of tiles (#253, breaking).
+
 2024.4.24
 
-- Pass 5077 tests.
 - Fix compatibility issue with numpy 2 (#252).
 
 2024.4.18
@@ -296,11 +301,10 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   performs poorly. BitsPerSample, SamplesPerPixel, and
   PhotometricInterpretation tags may contain wrong values, which can be
   corrected using the value of tag 65441.
-- **Philips TIFF** slides store wrong ImageWidth and ImageLength tag values
+- **Philips TIFF** slides store padded ImageWidth and ImageLength tag values
   for tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tile offsets
-  and byte counts may be 0 and last rows of tiles may be missing.
-  Tifffile can read Philips slides.
+  and byte counts may be 0. Tifffile can read Philips slides.
 - **Ventana/Roche BIF** slides store tiles and metadata in a BigTIFF container.
   Tiles may overlap and require stitching based on the TileJointInfo elements
   in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
@@ -381,17 +385,14 @@ References
 - The EER (Electron Event Representation) file format.
   https://github.com/fei-company/EerReaderLib
 - Digital Negative (DNG) Specification. Version 1.5.0.0, June 2012.
-  https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/
-  dng_spec_1.5.0.0.pdf
+  https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/dng_spec_1.5.0.0.pdf
 - Roche Digital Pathology. BIF image file format for digital pathology.
-  https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
-  Roche-Digital-Pathology-BIF-Whitepaper.pdf
+  https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/Roche-Digital-Pathology-BIF-Whitepaper.pdf
 - Astro-TIFF specification. https://astro-tiff.sourceforge.io/
 - Aperio Technologies, Inc. Digital Slides and Third-Party Data Interchange.
   Aperio_Digital_Slides_and_Third-party_data_interchange.pdf
 - PerkinElmer image format.
-  https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/
-  PKI_Image%20Format.docx
+  https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_Image%20Format.docx
 - NDTiffStorage. https://github.com/micro-manager/NDTiffStorage
 
 Examples
