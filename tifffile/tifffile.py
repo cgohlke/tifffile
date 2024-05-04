@@ -39,7 +39,7 @@ Tifffile is a Python library to
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
 SGI, NIHImage, ImageJ, MMStack, NDTiff, FluoView, ScanImage, SEQ, GEL,
 SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
-and GeoTIFF formatted files.
+Philips DP, and GeoTIFF formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.4.24
+:Version: 2024.5.3
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -112,9 +112,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.5.3
+
+- Pass 5080 tests.
+- Fix reading incompletely written LSM.
+- Fix reading Philips DP with extra rows of tiles (#253, breaking).
+
 2024.4.24
 
-- Pass 5077 tests.
 - Fix compatibility issue with numpy 2 (#252).
 
 2024.4.18
@@ -326,11 +331,10 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   performs poorly. BitsPerSample, SamplesPerPixel, and
   PhotometricInterpretation tags may contain wrong values, which can be
   corrected using the value of tag 65441.
-- **Philips TIFF** slides store wrong ImageWidth and ImageLength tag values
+- **Philips TIFF** slides store padded ImageWidth and ImageLength tag values
   for tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tile offsets
-  and byte counts may be 0 and last rows of tiles may be missing.
-  Tifffile can read Philips slides.
+  and byte counts may be 0. Tifffile can read Philips slides.
 - **Ventana/Roche BIF** slides store tiles and metadata in a BigTIFF container.
   Tiles may overlap and require stitching based on the TileJointInfo elements
   in the XMP tag. Volumetric scans are stored using the ImageDepth extension.
@@ -411,17 +415,14 @@ References
 - The EER (Electron Event Representation) file format.
   https://github.com/fei-company/EerReaderLib
 - Digital Negative (DNG) Specification. Version 1.5.0.0, June 2012.
-  https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/
-  dng_spec_1.5.0.0.pdf
+  https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/dng_spec_1.5.0.0.pdf
 - Roche Digital Pathology. BIF image file format for digital pathology.
-  https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/
-  Roche-Digital-Pathology-BIF-Whitepaper.pdf
+  https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/Roche-Digital-Pathology-BIF-Whitepaper.pdf
 - Astro-TIFF specification. https://astro-tiff.sourceforge.io/
 - Aperio Technologies, Inc. Digital Slides and Third-Party Data Interchange.
   Aperio_Digital_Slides_and_Third-party_data_interchange.pdf
 - PerkinElmer image format.
-  https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/
-  PKI_Image%20Format.docx
+  https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_Image%20Format.docx
 - NDTiffStorage. https://github.com/micro-manager/NDTiffStorage
 
 Examples
@@ -836,7 +837,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.4.24'
+__version__ = '2024.5.3'
 
 __all__ = [
     'TiffFile',
@@ -4331,14 +4332,6 @@ class TiffFile:
                         f'raised {exc!r}'
                     )
 
-            elif self.is_philips:
-                try:
-                    self._philips_load_pages()
-                except Exception as exc:
-                    logger().error(
-                        f'{self!r} <_philips_load_pages> raised {exc!r}'
-                    )
-
             elif self.is_ndpi:
                 try:
                     self._ndpi_load_pages()
@@ -5253,21 +5246,119 @@ class TiffFile:
 
     def _series_philips(self) -> list[TiffPageSeries] | None:
         """Return pyramidal image series in Philips DP file."""
-        series = self._series_generic()
-        if series is None:
+        from xml.etree import ElementTree as etree
+
+        series = []
+        pages = self.pages
+        pages.cache = False
+        pages.useframes = False
+        pages.set_keyframe(0)
+        pages._load()
+
+        meta = self.philips_metadata
+        assert meta is not None
+
+        try:
+            tree = etree.fromstring(meta)
+        except etree.ParseError as exc:
+            logger().error(f'{self!r} Philips series raised {exc!r}')
             return None
-        for s in series:
-            s.kind = 'philips'
-            if s.is_pyramidal:
-                # TODO: read name from XML
-                s.name = 'Baseline'
-                # if s.dtype.itemsize == 1:
-                #     for level in s.levels:
-                #         level.keyframe.nodata = 255
-            elif s.keyframe.description.startswith('Macro'):
-                s.name = 'Macro'
-            elif s.keyframe.description.startswith('Label'):
-                s.name = 'Label'
+
+        pixel_spacing = [
+            tuple(float(v) for v in elem.text.replace('"', '').split())
+            for elem in tree.findall(
+                './/*'
+                '/DataObject[@ObjectType="PixelDataRepresentation"]'
+                '/Attribute[@Name="DICOM_PIXEL_SPACING"]'
+            )
+            if elem.text is not None
+        ]
+        if len(pixel_spacing) < 2:
+            logger().error(
+                f'{self!r} Philips series {len(pixel_spacing)=} < 2'
+            )
+            return None
+
+        series_dict: dict[str, list[TiffPage]] = {}
+        series_dict['Level'] = []
+        series_dict['Other'] = []
+        for page in pages:
+            assert isinstance(page, TiffPage)
+            if page.description.startswith('Macro'):
+                series_dict['Macro'] = [page]
+            elif page.description.startswith('Label'):
+                series_dict['Label'] = [page]
+            elif not page.is_tiled:
+                series_dict['Other'].append(page)
+            else:
+                series_dict['Level'].append(page)
+
+        levels = series_dict.pop('Level')
+        if len(levels) != len(pixel_spacing):
+            logger().error(
+                f'{self!r} Philips series '
+                f'{len(levels)=} != {len(pixel_spacing)=}'
+            )
+            return None
+
+        # fix padding of sublevels
+        imagewidth0 = levels[0].imagewidth
+        imagelength0 = levels[0].imagelength
+        h0, w0 = pixel_spacing[0]
+        for serie, (h, w) in zip(levels[1:], pixel_spacing[1:]):
+            page = serie.keyframe
+            # if page.dtype.itemsize == 1:
+            #     page.nodata = 255
+
+            imagewidth = imagewidth0 // int(round(w / w0))
+            imagelength = imagelength0 // int(round(h / h0))
+
+            if page.imagewidth - page.tilewidth >= imagewidth:
+                logger().warning(
+                    f'{self!r} Philips series {page.index=} '
+                    f'{page.imagewidth=}-{page.tilewidth=} >= {imagewidth=}'
+                )
+                page.imagewidth -= page.tilewidth - 1
+            elif page.imagewidth < imagewidth:
+                logger().warning(
+                    f'{self!r} Philips series {page.index=} '
+                    f'{page.imagewidth=} < {imagewidth=}'
+                )
+            else:
+                page.imagewidth = imagewidth
+            imagewidth = page.imagewidth
+
+            if page.imagelength - page.tilelength >= imagelength:
+                logger().warning(
+                    f'{self!r} Philips series {page.index=} '
+                    f'{page.imagelength=}-{page.tilelength=} >= {imagelength=}'
+                )
+                page.imagelength -= page.tilelength - 1
+            # elif page.imagelength < imagelength:
+            #    # in this case image is padded with zero
+            else:
+                page.imagelength = imagelength
+            imagelength = page.imagelength
+
+            if page.shaped[-1] > 1:
+                page.shape = (imagelength, imagewidth, page.shape[-1])
+            elif page.shaped[0] > 1:
+                page.shape = (page.shape[0], imagelength, imagewidth)
+            else:
+                page.shape = (imagelength, imagewidth)
+            page.shaped = (
+                page.shaped[:2] + (imagelength, imagewidth) + page.shaped[-1:]
+            )
+
+        series = [TiffPageSeries([levels[0]], name='Baseline', kind='philips')]
+        for i, page in enumerate(levels[1:]):
+            series[0].levels.append(
+                TiffPageSeries([page], name=f'Level{i + 1}', kind='philips')
+            )
+        for key, value in series_dict.items():
+            for page in value:
+                series.append(TiffPageSeries([page], name=key, kind='philips'))
+
         self.is_uniform = False
         return series
 
@@ -6607,6 +6698,11 @@ class TiffFile:
         for npi in indices.flat:
             page = pages[int(npi)]
             dataoffsets = []
+            if all(i <= 0 for i in page.dataoffsets):
+                logger().warning(
+                    f'{self!r} LSM file incompletely written at {page}'
+                )
+                break
             for currentoffset in page.dataoffsets:
                 if currentoffset < previousoffset:
                     wrap += 2**32
@@ -6674,71 +6770,6 @@ class TiffFile:
                     page.axes = page.axes[:-1]
                     page.shape = page.shape[:-1]
                     page.shaped = page.shaped[:-1] + (1,)
-
-    def _philips_load_pages(self) -> None:
-        """Read and fix all pages from Philips slide file.
-
-        The imagewidth and imagelength values of all tiled pages are corrected
-        using the DICOM_PIXEL_SPACING attributes of the XML formatted
-        description of the first page.
-
-        """
-        from xml.etree import ElementTree as etree
-
-        pages = self.pages
-        pages.cache = True
-        pages.useframes = False
-        pages._load()
-        npages = len(pages)
-        page0 = self.pages.first
-
-        root = etree.fromstring(page0.description)
-
-        width = float(page0.imagewidth)
-        length = float(page0.imagelength)
-        sizes: list[tuple[int, int]] | None = None
-        for elem in root.iter():
-            if (
-                elem.tag != 'Attribute'
-                or elem.attrib.get('Name', '') != 'DICOM_PIXEL_SPACING'
-                or elem.text is None
-            ):
-                continue
-            w, h = (float(v) for v in elem.text.replace('"', '').split())
-            if sizes is None:
-                length *= h
-                width *= w
-                sizes = []
-            else:
-                sizes.append(
-                    (
-                        int(math.ceil(length / h)),
-                        int(math.ceil(width / w)),
-                    )
-                )
-        assert sizes is not None
-        i = 0
-        for imagelength, imagewidth in sizes:
-            while i < npages and cast(TiffPage, pages[i]).tilewidth == 0:
-                # Label, Macro
-                i += 1
-                continue
-            if i == npages:
-                break
-            page = pages[i]
-            assert isinstance(page, TiffPage)
-            page.imagewidth = imagewidth
-            page.imagelength = imagelength
-            if page.shaped[-1] > 1:
-                page.shape = (imagelength, imagewidth, page.shape[-1])
-            elif page.shaped[0] > 1:
-                page.shape = (page.shape[0], imagelength, imagewidth)
-            else:
-                page.shape = (imagelength, imagewidth)
-            page.shaped = (
-                page.shaped[:2] + (imagelength, imagewidth) + page.shaped[-1:]
-            )
-            i += 1
 
     def __getattr__(self, name: str, /) -> bool:
         """Return `is_flag` attributes from first page."""
