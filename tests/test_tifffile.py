@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.4.24
+:Version: 2024.5.3
 
 """
 
@@ -2835,75 +2835,6 @@ def test_issue_buffersize(buffersize, tile):
         )
         im = imread(fname, maxworkers=2, buffersize=buffersize)
     assert_array_equal(im, data)
-
-
-@pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
-)
-def test_issue_philips_fsspec():
-    """Test write_fsspec with Philips slide missing row of tiles."""
-    # https://github.com/cgohlke/tifffile/issues/249
-    fname = private_file('PhilipsDP/patient_080_node_2.tif')
-    with TiffFile(fname) as tif:
-        assert len(tif.series) == 2
-        assert len(tif.pages) == 11
-        assert tif.is_philips
-        assert tif.philips_metadata.endswith('</DataObject>')
-        page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
-        assert page.tags['ImageWidth'].value == 155136
-        assert page.tags['ImageLength'].value == 78336
-        assert page.imagewidth == 155136
-        assert page.imagelength == 78336
-        assert page.bitspersample == 8
-        assert page.samplesperpixel == 3
-        assert page.tags['Software'].value == 'Philips DP v1.0'
-        series = tif.series[1]
-        assert series.kind == 'philips'
-        assert series.shape == (801, 1756, 3)
-        assert len(series.levels) == 1
-        assert not series.is_pyramidal
-        series = tif.series[0]
-        assert series.kind == 'philips'
-        assert series.shape == (78336, 155136, 3)
-        assert len(series.levels) == 10
-        assert series.is_pyramidal
-        page = series.levels[3].pages[0]
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
-        assert page.tags['ImageWidth'].value == 19456
-        assert page.tags['ImageLength'].value == 9728
-        assert page.imagewidth == 19392
-        assert page.imagelength == 9792
-        # assert data
-        image = tif.asarray(series=0, level=3)
-        assert image.shape == (9792, 19392, 3)
-        assert image[300, 400, 1] == 226
-        assert image[9791, 0, 1] == 0
-        assert_aszarr_method(series, image, level=3)
-        assert__str__(tif)
-
-        if SKIP_ZARR:
-            return
-
-        # write fsspec
-        from imagecodecs.numcodecs import register_codecs
-
-        register_codecs('imagecodecs_jpeg', verbose=False)
-        url = os.path.dirname(fname).replace('\\', '/')
-        with TempFileName('issue_philips_fsspec', ext='.json') as jsonfile:
-            page.aszarr().write_fsspec(jsonfile, url, version=0)
-            mapper = fsspec.get_mapper(
-                'reference://',
-                fo=jsonfile,
-                target_protocol='file',
-                remote_protocol='file',
-            )
-            zobj = zarr.open(mapper, mode='r')
-            assert_array_equal(zobj[:], image)
 
 
 class TestExceptions:
@@ -8518,7 +8449,7 @@ def test_read_lsm_2chzt():
         assert__str__(tif, 0)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_lsm_unbounderror():
     """Test read LSM: MZSYX (196, 2, 33, 512, 512)."""
     # file is > 4GB with no time axis
@@ -8588,6 +8519,83 @@ def test_read_lsm_unbounderror():
         # assert lsm_scan_info tags
         tags = tif.lsm_metadata['ScanInformation']
         assert tags['ScanMode'] == 'Stack'
+        assert tags['User'] == 'lfdguest1'
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_lsm_incomplete(caplog):
+    """Test read LSM: MZSYX (196, 2, 33, 512, 512)."""
+    # file is ~18 GB incompletely written, dataoffsets zeroed
+    fname = private_file('lsm/NTERT_NM-50_x2.lsm')
+
+    with TiffFile(fname) as tif:
+        assert 'LSM file incompletely written' in caplog.text
+        assert tif.is_lsm
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 2450
+        assert len(tif.series) == 2
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_lsm
+        assert page.is_contiguous
+        assert page.photometric == RGB
+        assert page.planarconfig == SEPARATE
+        assert page.imagewidth == 512
+        assert page.imagelength == 512
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 33
+        page = tif.pages[1]
+        assert page.is_reduced
+        assert page.photometric == RGB
+        assert page.planarconfig == SEPARATE
+        assert page.compression == NONE
+        assert page.imagewidth == 128
+        assert page.imagelength == 128
+        assert page.samplesperpixel == 3
+        assert page.bitspersample == 8
+        # assert series properties
+        series = tif.series[0]
+        assert series.pages[-1].dataoffsets[0] == 0
+        assert series.shape == (25, 49, 33, 512, 512)
+        assert series.get_shape(False) == (25, 1, 1, 49, 33, 512, 512)
+        assert series.dtype == numpy.uint16
+        assert series.axes == 'MTCYX'
+        assert series.get_axes(False) == 'MPZTCYX'
+        assert series.kind == 'lsm'
+        if 1:
+            series = tif.series[1]
+            assert series.shape == (25, 49, 3, 128, 128)
+            assert series.get_shape(False) == (25, 1, 1, 49, 3, 128, 128)
+            assert series.dtype == numpy.uint8
+            assert series.axes == 'MTSYX'
+            assert series.get_axes(False) == 'MPZTSYX'
+            assert series.kind == 'lsm'
+        # assert data
+        data = tif.asarray()
+        assert isinstance(data, numpy.ndarray)
+        assert data.flags['C_CONTIGUOUS']
+        assert data.shape == (25, 49, 33, 512, 512)
+        assert data.dtype == numpy.uint16
+        assert data[24, 45, 32, 511, 511] == 14648
+        # assert_aszarr_method(tif, data)
+        if 1:
+            data = tif.asarray(series=1)
+            assert isinstance(data, numpy.ndarray)
+            assert data.shape == (25, 49, 3, 128, 128)
+            assert data.dtype == numpy.uint8
+            assert numpy.sum(data[24, 45]) == 0
+            # assert_aszarr_method(tif, series=1)
+        # assert lsm_info tags
+        tags = tif.lsm_metadata
+        assert tags['DimensionX'] == 512
+        assert tags['DimensionY'] == 512
+        assert tags['DimensionZ'] == 1
+        assert tags['DimensionTime'] == 49
+        assert tags['DimensionChannels'] == 33
+        # assert lsm_scan_info tags
+        tags = tif.lsm_metadata['ScanInformation']
+        assert tags['ScanMode'] == 'Plane'
         assert tags['User'] == 'lfdguest1'
         assert__str__(tif)
 
@@ -12311,26 +12319,203 @@ def test_read_philips():
         assert len(tif.pages) == 9
         assert tif.is_philips
         assert tif.philips_metadata.endswith('</DataObject>')
+
         page = tif.pages.first
         assert page.compression == JPEG
         assert page.photometric == YCBCR
         assert page.planarconfig == CONTIG
         assert page.tags['ImageWidth'].value == 86016
         assert page.tags['ImageLength'].value == 89600
-        assert page.imagewidth == 85654
-        assert page.imagelength == 89225
+        assert page.imagewidth == 86016
+        assert page.imagelength == 89600
         assert page.bitspersample == 8
         assert page.samplesperpixel == 3
         assert page.tags['Software'].value == 'Philips DP v1.0'
+
         series = tif.series[0]
         assert series.kind == 'philips'
-        assert series.shape == (89225, 85654, 3)
+        assert series.shape == (89600, 86016, 3)
         assert len(series.levels) == 9
         assert series.is_pyramidal
+        assert series.levels[1].shape == (44800, 43008, 3)
+        assert series.levels[2].shape == (22400, 21504, 3)
+        assert series.levels[3].shape == (11200, 10752, 3)
+        assert series.levels[4].shape == (5600, 5376, 3)
+        assert series.levels[5].shape == (2800, 2688, 3)
+        assert series.levels[6].shape == (1400, 1344, 3)
+        assert series.levels[7].shape == (700, 672, 3)
+        assert series.levels[8].shape == (350, 336, 3)
+
+        page = series.levels[1].keyframe
+        assert page.compression == JPEG
+        assert page.photometric == YCBCR
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 43008
+        assert page.tags['ImageLength'].value == 45056
+        assert page.imagewidth == 43008
+        assert page.imagelength == 44800
+
+        for level in range(1, 9):
+            tif.asarray(series=0, level=level)
+
         # assert data
         image = tif.asarray(series=0, level=5)
-        assert image.shape == (2789, 2677, 3)
+        assert image.shape == (2800, 2688, 3)
         assert image[300, 400, 1] == 206
+        assert_aszarr_method(series, image, level=5)
+        assert_aszarr_method(series, image, level=5, chunkmode='page')
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+)
+def test_read_philips_issue249():
+    """Test write_fsspec with Philips slide missing row of tiles."""
+    # https://github.com/cgohlke/tifffile/issues/249
+    fname = private_file('PhilipsDP/patient_080_node_2.tif')
+    with TiffFile(fname) as tif:
+        assert len(tif.series) == 2
+        assert len(tif.pages) == 11
+        assert tif.is_philips
+        assert tif.philips_metadata.endswith('</DataObject>')
+
+        page = tif.pages.first
+        assert page.compression == JPEG
+        assert page.photometric == YCBCR
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 155136
+        assert page.tags['ImageLength'].value == 78336
+        assert page.imagewidth == 155136
+        assert page.imagelength == 78336
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        assert page.tags['Software'].value == 'Philips DP v1.0'
+
+        series = tif.series[1]
+        assert series.kind == 'philips'
+        assert series.name == 'Macro'
+        assert series.shape == (801, 1756, 3)
+        assert len(series.levels) == 1
+        assert not series.is_pyramidal
+
+        series = tif.series[0]
+        assert series.kind == 'philips'
+        assert series.name == 'Baseline'
+        assert series.shape == (78336, 155136, 3)
+        assert len(series.levels) == 10
+        assert series.is_pyramidal
+
+        page = series.levels[3].keyframe
+        assert page.compression == JPEG
+        assert page.photometric == YCBCR
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 19456
+        assert page.tags['ImageLength'].value == 9728
+        assert page.imagewidth == 19392
+        assert page.imagelength == 9792
+
+        for level in range(1, 10):
+            tif.asarray(series=0, level=level)
+
+        # assert data
+        image = tif.asarray(series=0, level=3)
+        assert image.shape == (9792, 19392, 3)
+        assert image[300, 400, 1] == 226
+        assert image[9791, 0, 1] == 0
+        assert_aszarr_method(series, image, level=3)
+        assert__str__(tif)
+
+        if SKIP_ZARR:
+            return
+
+        # write fsspec
+        from imagecodecs.numcodecs import register_codecs
+
+        register_codecs('imagecodecs_jpeg', verbose=False)
+        url = os.path.dirname(fname).replace('\\', '/')
+        with TempFileName('issue_philips_fsspec', ext='.json') as jsonfile:
+            page.aszarr().write_fsspec(jsonfile, url, version=0)
+            mapper = fsspec.get_mapper(
+                'reference://',
+                fo=jsonfile,
+                target_protocol='file',
+                remote_protocol='file',
+            )
+            zobj = zarr.open(mapper, mode='r')
+            assert_array_equal(zobj[:], image)
+
+
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+)
+def test_read_philips_issue253():
+    """Test read Philips DP pyramid with seemingly extra column of tiles."""
+    # https://github.com/cgohlke/tifffile/issues/253
+    # https://registry.opendata.aws/camelyon/
+    fname = private_file('PhilipsDP/sample.tiff')
+    with TiffFile(fname) as tif:
+        assert len(tif.series) == 3
+        assert len(tif.pages) == 12
+        assert tif.is_philips
+        assert tif.philips_metadata.endswith('</DataObject>')
+
+        page = tif.pages.first
+        assert page.compression == JPEG
+        assert page.photometric == RGB
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 188416
+        assert page.tags['ImageLength'].value == 93696
+        assert page.imagewidth == 188416
+        assert page.imagelength == 93696
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        assert page.tags['Software'].value == 'Philips DP v1.0'
+
+        series = tif.series[1]
+        assert series.kind == 'philips'
+        assert series.name == 'Macro'
+        assert series.shape == (812, 1806, 3)
+        assert not series.is_pyramidal
+
+        series = tif.series[2]
+        assert series.kind == 'philips'
+        assert series.name == 'Label'
+        assert series.shape == (812, 671, 3)
+        assert not series.is_pyramidal
+
+        series = tif.series[0]
+        assert series.kind == 'philips'
+        assert series.name == 'Baseline'
+        assert series.shape == (93696, 188416, 3)
+        assert len(series.levels) == 10
+        assert series.is_pyramidal
+        assert series.levels[1].shape == (46848, 94208, 3)
+        assert series.levels[2].shape == (23424, 47104, 3)
+        assert series.levels[3].shape == (11712, 23552, 3)
+        assert series.levels[4].shape == (5856, 11776, 3)
+        assert series.levels[5].shape == (2928, 5888, 3)
+        assert series.levels[6].shape == (1464, 2944, 3)
+        assert series.levels[7].shape == (732, 1472, 3)
+        assert series.levels[8].shape == (366, 736, 3)
+        assert series.levels[9].shape == (183, 368, 3)
+
+        page = series.levels[1].keyframe
+        assert page.compression == JPEG
+        assert page.photometric == RGB
+        assert page.planarconfig == CONTIG
+        assert page.tags['ImageWidth'].value == 94208
+        assert page.tags['ImageLength'].value == 47104
+        assert page.imagewidth == 94208
+        assert page.imagelength == 46848
+
+        for level in range(1, 10):
+            tif.asarray(series=0, level=level)
+
+        # assert data
+        image = tif.asarray(series=0, level=5)
+        assert image.shape == (2928, 5888, 3)
+        assert image[300, 400, 1] == 254
         assert_aszarr_method(series, image, level=5)
         assert_aszarr_method(series, image, level=5, chunkmode='page')
         assert__str__(tif)
