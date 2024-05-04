@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2024.5.3
+
+- Pass 5080 tests.
+- Fix reading incompletely written LSM.
+- Fix reading Philips DP with extra rows of tiles (#253, breaking).
+
 2024.4.24
 
-- Pass 5077 tests.
 - Fix compatibility issue with numpy 2 (#252).
 
 2024.4.18
