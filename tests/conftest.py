@@ -13,11 +13,10 @@ if os.environ.get('SKIP_CODECS', None):
     sys.modules['imagecodecs'] = None  # type: ignore
 
 
-def pytest_report_header(config, start_path, startdir):
+def pytest_report_header(config, start_path):
     try:
         from numpy import __version__ as numpy
         from test_tifffile import config
-
         from tifffile import __version__ as tifffile
 
         try:
