@@ -400,6 +400,8 @@ Examples
 
 Write a NumPy array to a single-page RGB TIFF file:
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
     >>> imwrite('temp.tif', data, photometric='rgb')
 
