@@ -407,6 +407,8 @@ Write a NumPy array to a single-page RGB TIFF file:
 
 Read the image from the TIFF file as NumPy array:
 
+.. code:: python
+         
     >>> image = imread('temp.tif')
     >>> image.shape
     (256, 256, 3)
@@ -414,6 +416,8 @@ Read the image from the TIFF file as NumPy array:
 Use the `photometric` and `planarconfig` arguments to write a 3x3x3 NumPy
 array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 255, (3, 3, 3), 'uint8')
     >>> imwrite('temp.tif', data, photometric='rgb')
     >>> imwrite('temp.tif', data, photometric='rgb', planarconfig='separate')
@@ -422,16 +426,22 @@ array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 Use the `extrasamples` argument to specify how extra components are
 interpreted, for example, for an RGBA image with unassociated alpha channel:
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 255, (256, 256, 4), 'uint8')
     >>> imwrite('temp.tif', data, photometric='rgb', extrasamples=['unassalpha'])
 
 Write a 3-dimensional NumPy array to a multi-page, 16-bit grayscale TIFF file:
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 2**12, (64, 301, 219), 'uint16')
     >>> imwrite('temp.tif', data, photometric='minisblack')
 
 Read the whole image stack from the multi-page TIFF file as NumPy array:
 
+.. code:: python
+         
     >>> image_stack = imread('temp.tif')
     >>> image_stack.shape
     (64, 301, 219)
@@ -440,18 +450,24 @@ Read the whole image stack from the multi-page TIFF file as NumPy array:
 
 Read the image from the first page in the TIFF file as NumPy array:
 
+.. code:: python
+         
     >>> image = imread('temp.tif', key=0)
     >>> image.shape
     (301, 219)
 
 Read images from a selected range of pages:
 
+.. code:: python
+         
     >>> images = imread('temp.tif', key=range(4, 40, 2))
     >>> images.shape
     (18, 301, 219)
 
 Iterate over all pages in the TIFF file and successively read images:
 
+.. code:: python
+         
     >>> with TiffFile('temp.tif') as tif:
     ...     for page in tif.pages:
     ...         image = page.asarray()
@@ -459,6 +475,8 @@ Iterate over all pages in the TIFF file and successively read images:
 Get information about the image stack in the TIFF file without reading
 any image data:
 
+.. code:: python
+         
     >>> tif = TiffFile('temp.tif')
     >>> len(tif.pages)  # number of pages in the file
     64
@@ -480,6 +498,8 @@ any image data:
 
 Inspect the "XResolution" tag from the first page in the TIFF file:
 
+.. code:: python
+         
     >>> with TiffFile('temp.tif') as tif:
     ...     tag = tif.pages[0].tags['XResolution']
     >>> tag.value
@@ -495,6 +515,8 @@ Inspect the "XResolution" tag from the first page in the TIFF file:
 
 Iterate over all tags in the TIFF file:
 
+.. code:: python
+         
     >>> with TiffFile('temp.tif') as tif:
     ...     for page in tif.pages:
     ...         for tag in page.tags:
@@ -502,6 +524,8 @@ Iterate over all tags in the TIFF file:
 
 Overwrite the value of an existing tag, for example, XResolution:
 
+.. code:: python
+         
     >>> with TiffFile('temp.tif', mode='r+') as tif:
     ...     _ = tif.pages[0].tags['XResolution'].overwrite((96000, 1000))
 
@@ -509,6 +533,8 @@ Write a 5-dimensional floating-point array using BigTIFF format, separate
 color components, tiling, Zlib compression level 8, horizontal differencing
 predictor, and additional metadata:
 
+.. code:: python
+         
     >>> data = numpy.random.rand(2, 5, 3, 301, 219).astype('float32')
     >>> imwrite(
     ...     'temp.tif',
@@ -526,6 +552,8 @@ predictor, and additional metadata:
 Write a 10 fps time series of volumes with xyz voxel size 2.6755x2.6755x3.9474
 micron^3 to an ImageJ hyperstack formatted TIFF file:
 
+.. code:: python
+         
     >>> volume = numpy.random.randn(6, 57, 256, 256).astype('float32')
     >>> image_labels = [f'{i}' for i in range(volume.shape[0] * volume.shape[1])]
     >>> imwrite(
@@ -545,6 +573,8 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
 
 Read the volume and metadata from the ImageJ hyperstack file:
 
+.. code:: python
+         
     >>> with TiffFile('temp.tif') as tif:
     ...     volume = tif.asarray()
     ...     axes = tif.series[0].axes
@@ -560,6 +590,8 @@ Read the volume and metadata from the ImageJ hyperstack file:
 
 Memory-map the contiguous image data in the ImageJ hyperstack file:
 
+.. code:: python
+         
     >>> memmap_volume = memmap('temp.tif')
     >>> memmap_volume.shape
     (6, 57, 256, 256)
@@ -568,6 +600,8 @@ Memory-map the contiguous image data in the ImageJ hyperstack file:
 Create a TIFF file containing an empty image and write to the memory-mapped
 NumPy array (note: this does not work with compression or tiling):
 
+.. code:: python
+         
     >>> memmap_image = memmap(
     ...     'temp.tif',
     ...     shape=(256, 256, 3),
@@ -584,6 +618,8 @@ Write two NumPy arrays to a multi-series TIFF file (note: other TIFF readers
 will not recognize the two series; use the OME-TIFF format for better
 interoperability):
 
+.. code:: python
+         
     >>> series0 = numpy.random.randint(0, 255, (32, 32, 3), 'uint8')
     >>> series1 = numpy.random.randint(0, 255, (4, 256, 256), 'uint16')
     >>> with TiffWriter('temp.tif') as tif:
@@ -592,12 +628,16 @@ interoperability):
 
 Read the second image series from the TIFF file:
 
+.. code:: python
+         
     >>> series1 = imread('temp.tif', series=1)
     >>> series1.shape
     (4, 256, 256)
 
 Successively write the frames of one contiguous series to a TIFF file:
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 255, (30, 301, 219), 'uint8')
     >>> with TiffWriter('temp.tif') as tif:
     ...     for frame in data:
@@ -606,11 +646,15 @@ Successively write the frames of one contiguous series to a TIFF file:
 Append an image series to the existing TIFF file (note: this does not work
 with ImageJ hyperstack or OME-TIFF files):
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 255, (301, 219, 3), 'uint8')
     >>> imwrite('temp.tif', data, photometric='rgb', append=True)
 
 Create a TIFF file from a generator of tiles:
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 2**12, (31, 33, 3), 'uint16')
     >>> def tiles(data, tileshape):
     ...     for y in range(0, data.shape[0], tileshape[0]):
@@ -630,6 +674,8 @@ file with metadata. Sub-resolution images are written to SubIFDs. Limit
 parallel encoding to 2 threads. Write a thumbnail image as a separate image
 series:
 
+.. code:: python
+         
     >>> data = numpy.random.randint(0, 255, (8, 2, 512, 512, 3), 'uint8')
     >>> subresolutions = 2
     >>> pixelsize = 0.29  # micrometer
@@ -677,6 +723,8 @@ series:
 
 Access the image levels in the pyramidal OME-TIFF file:
 
+.. code:: python
+         
     >>> baseimage = imread('temp.ome.tif')
     >>> second_level = imread('temp.ome.tif', series=0, level=1)
     >>> with TiffFile('temp.ome.tif') as tif:
@@ -685,6 +733,8 @@ Access the image levels in the pyramidal OME-TIFF file:
 
 Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
+.. code:: python
+         
     >>> with TiffFile('temp.ome.tif') as tif:
     ...     fh = tif.filehandle
     ...     for page in tif.pages:
@@ -699,6 +749,8 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
 Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 
+.. code:: python
+         
     >>> import zarr
     >>> store = imread('temp.ome.tif', aszarr=True)
     >>> z = zarr.open(store, mode='r')
@@ -712,6 +764,8 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 
 Load the base layer from the Zarr store as a dask array:
 
+.. code:: python
+         
     >>> import dask.array
     >>> store = imread('temp.ome.tif', aszarr=True)
     >>> dask.array.from_zarr(store, 0)
@@ -720,12 +774,16 @@ Load the base layer from the Zarr store as a dask array:
 
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
+.. code:: python
+         
     >>> store = imread('temp.ome.tif', aszarr=True)
     >>> store.write_fsspec('temp.ome.tif.json', url='file://')
     >>> store.close()
 
 Open the fsspec ReferenceFileSystem as a Zarr group:
 
+.. code:: python
+         
     >>> import fsspec
     >>> import imagecodecs.numcodecs
     >>> imagecodecs.numcodecs.register_codecs()
@@ -739,6 +797,8 @@ Open the fsspec ReferenceFileSystem as a Zarr group:
 Create an OME-TIFF file containing an empty, tiled image series and write
 to it via the Zarr interface (note: this does not work with compression):
 
+.. code:: python
+         
     >>> imwrite(
     ...     'temp.ome.tif',
     ...     shape=(8, 800, 600),
@@ -757,6 +817,8 @@ to it via the Zarr interface (note: this does not work with compression):
 Read images from a sequence of TIFF files as NumPy array using two I/O worker
 threads:
 
+.. code:: python
+         
     >>> imwrite('temp_C001T001.tif', numpy.random.rand(64, 64))
     >>> imwrite('temp_C001T002.tif', numpy.random.rand(64, 64))
     >>> image_sequence = imread(
@@ -770,6 +832,8 @@ threads:
 Read an image stack from a series of TIFF files with a file name pattern
 as NumPy or Zarr arrays:
 
+.. code:: python
+         
     >>> image_sequence = TiffSequence(
     ...     'temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)'
     ... )
@@ -787,11 +851,15 @@ as NumPy or Zarr arrays:
 
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
+.. code:: python
+         
     >>> store = image_sequence.aszarr()
     >>> store.write_fsspec('temp.json', url='file://')
 
 Open the fsspec ReferenceFileSystem as a Zarr array:
 
+.. code:: python
+         
     >>> import fsspec
     >>> import tifffile.numcodecs
     >>> tifffile.numcodecs.register_codec()
