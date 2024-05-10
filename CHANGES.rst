@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2024.5.10
+
+- Pass 5082 tests.
+- Support reading JPEGXL compression in DNG 1.7.
+- Read invalid TIFF created by IDEAS software.
+
 2024.5.3
 
-- Pass 5080 tests.
 - Fix reading incompletely written LSM.
 - Fix reading Philips DP with extra rows of tiles (#253, breaking).
 
