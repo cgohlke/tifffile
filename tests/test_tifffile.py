@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.5.3
+:Version: 2024.5.10
 
 """
 
@@ -242,6 +242,7 @@ PNG = TIFF.COMPRESSION.PNG
 LERC = TIFF.COMPRESSION.LERC
 JPEG2000 = TIFF.COMPRESSION.JPEG2000
 JPEGXL = TIFF.COMPRESSION.JPEGXL
+JPEGXL_DNG = TIFF.COMPRESSION.JPEGXL_DNG
 PACKBITS = TIFF.COMPRESSION.PACKBITS
 JPEG = TIFF.COMPRESSION.JPEG
 OJPEG = TIFF.COMPRESSION.OJPEG
@@ -2837,6 +2838,26 @@ def test_issue_buffersize(buffersize, tile):
     assert_array_equal(im, data)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_ideas(caplog):
+    """Test reading invalid TIFF produced by IDEAS."""
+    # https://forum.image.sc/t/96103
+    # NewSubfileType tag is of type bytes
+    # FillOrder tag is zero
+    fname = private_file('IDEAS/IDEAS_file.ome.tif')
+    with TiffFile(fname) as tif:
+        assert '0 is not a valid FILLORDER' in caplog.text
+        assert 'invalid self.subfiletype=b' in caplog.text
+        assert tif.is_ome
+        page = tif.pages.first
+        assert page.tags['NewSubfileType'].value == b'\x02\x00'
+        assert page.tags['FillOrder'].value == 0
+        series = tif.series[0]
+        assert series.shape == (37, 29)
+        assert series.axes == 'YX'
+        assert_array_equal(page.asarray(), series.asarray())
+
+
 class TestExceptions:
     """Test various Exceptions and Warnings."""
 
@@ -3638,7 +3659,7 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
-    numtags = 657
+    numtags = 666
     tags = TIFF.TAGS
     assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
@@ -6083,6 +6104,47 @@ def test_read_dng_floatpredx2(fp):
         else:
             image = page.asarray()
             assert_aszarr_method(page, image)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEGXL, reason=REASON
+)
+def test_read_dng_jpegxl():
+    """Test read JPEGXL in DNG."""
+    fname = private_file('DNG/20240125_204051_1.dng')
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 6
+
+        page = tif.pages.first.pages[0]
+        assert not page.is_reduced
+        assert page.compression == JPEGXL_DNG
+        assert page.photometric == LINEAR_RAW
+        assert page.imagewidth == 5712
+        assert page.imagelength == 4284
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 3
+        image = page.asarray()
+        assert image.shape == (4284, 5712, 3)
+        assert image.dtype == 'uint16'
+        assert image[1024, 1024, 1] == 36
+
+        page = tif.pages.first.pages[1]
+        assert page.is_reduced
+        assert page.compression == JPEGXL_DNG
+        assert page.photometric == RGB
+        assert page.imagewidth == 1024
+        assert page.imagelength == 768
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        image = page.asarray()
+        assert image.shape == (768, 1024, 3)
+        assert image.dtype == 'uint8'
+        assert image[512, 512, 1] == 48
+        assert page.tags['JXLDistance'].value == 2.0
+        assert page.tags['JXLEffort'].value == 7
+        assert page.tags['JXLDecodeSpeed'].value == 4
         assert__str__(tif)
 
 
