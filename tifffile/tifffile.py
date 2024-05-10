@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.5.3
+:Version: 2024.5.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -104,7 +104,7 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.2.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.17.2
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.0
   (required only for opening Zarr stores)
 - `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.3.1
   (required only for opening ReferenceFileSystem files)
@@ -112,9 +112,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.5.10
+
+- Pass 5082 tests.
+- Support reading JPEGXL compression in DNG 1.7.
+- Read invalid TIFF created by IDEAS software.
+
 2024.5.3
 
-- Pass 5080 tests.
 - Fix reading incompletely written LSM.
 - Fix reading Philips DP with extra rows of tiles (#253, breaking).
 
@@ -414,8 +419,8 @@ References
   http://www.cipa.jp/std/documents/e/DC-008-Translation-2016-E.pdf
 - The EER (Electron Event Representation) file format.
   https://github.com/fei-company/EerReaderLib
-- Digital Negative (DNG) Specification. Version 1.5.0.0, June 2012.
-  https://www.adobe.com/content/dam/acom/en/products/photoshop/pdfs/dng_spec_1.5.0.0.pdf
+- Digital Negative (DNG) Specification. Version 1.7.1.0, September 2023.
+  https://helpx.adobe.com/content/dam/help/en/photoshop/pdf/DNG_Spec_1_7_1_0.pdf
 - Roche Digital Pathology. BIF image file format for digital pathology.
   https://diagnostics.roche.com/content/dam/diagnostics/Blueprint/en/pdf/rmd/Roche-Digital-Pathology-BIF-Whitepaper.pdf
 - Astro-TIFF specification. https://astro-tiff.sourceforge.io/
@@ -483,6 +488,7 @@ Iterate over all pages in the TIFF file and successively read images:
 >>> with TiffFile('temp.tif') as tif:
 ...     for page in tif.pages:
 ...         image = page.asarray()
+...
 
 Get information about the image stack in the TIFF file without reading
 any image data:
@@ -510,6 +516,7 @@ Inspect the "XResolution" tag from the first page in the TIFF file:
 
 >>> with TiffFile('temp.tif') as tif:
 ...     tag = tif.pages[0].tags['XResolution']
+...
 >>> tag.value
 (1, 1)
 >>> tag.name
@@ -527,11 +534,13 @@ Iterate over all tags in the TIFF file:
 ...     for page in tif.pages:
 ...         for tag in page.tags:
 ...             tag_name, tag_value = tag.name, tag.value
+...
 
 Overwrite the value of an existing tag, for example, XResolution:
 
 >>> with TiffFile('temp.tif', mode='r+') as tif:
 ...     _ = tif.pages[0].tags['XResolution'].overwrite((96000, 1000))
+...
 
 Write a 5-dimensional floating-point array using BigTIFF format, separate
 color components, tiling, Zlib compression level 8, horizontal differencing
@@ -548,7 +557,7 @@ predictor, and additional metadata:
 ...     compression='zlib',
 ...     compressionargs={'level': 8},
 ...     predictor=True,
-...     metadata={'axes': 'TZCYX'}
+...     metadata={'axes': 'TZCYX'},
 ... )
 
 Write a 10 fps time series of volumes with xyz voxel size 2.6755x2.6755x3.9474
@@ -560,15 +569,15 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
 ...     'temp.tif',
 ...     volume,
 ...     imagej=True,
-...     resolution=(1./2.6755, 1./2.6755),
+...     resolution=(1.0 / 2.6755, 1.0 / 2.6755),
 ...     metadata={
 ...         'spacing': 3.947368,
 ...         'unit': 'um',
-...         'finterval': 1/10,
+...         'finterval': 1 / 10,
 ...         'fps': 10.0,
 ...         'axes': 'TZYX',
 ...         'Labels': image_labels,
-...     }
+...     },
 ... )
 
 Read the volume and metadata from the ImageJ hyperstack file:
@@ -577,6 +586,7 @@ Read the volume and metadata from the ImageJ hyperstack file:
 ...     volume = tif.asarray()
 ...     axes = tif.series[0].axes
 ...     imagej_metadata = tif.imagej_metadata
+...
 >>> volume.shape
 (6, 57, 256, 256)
 >>> axes
@@ -597,10 +607,7 @@ Create a TIFF file containing an empty image and write to the memory-mapped
 NumPy array (note: this does not work with compression or tiling):
 
 >>> memmap_image = memmap(
-...     'temp.tif',
-...     shape=(256, 256, 3),
-...     dtype='float32',
-...     photometric='rgb'
+...     'temp.tif', shape=(256, 256, 3), dtype='float32', photometric='rgb'
 ... )
 >>> type(memmap_image)
 <class 'numpy.memmap'>
@@ -617,6 +624,7 @@ interoperability):
 >>> with TiffWriter('temp.tif') as tif:
 ...     tif.write(series0, photometric='rgb')
 ...     tif.write(series1, photometric='minisblack')
+...
 
 Read the second image series from the TIFF file:
 
@@ -630,6 +638,7 @@ Successively write the frames of one contiguous series to a TIFF file:
 >>> with TiffWriter('temp.tif') as tif:
 ...     for frame in data:
 ...         tif.write(frame, contiguous=True)
+...
 
 Append an image series to the existing TIFF file (note: this does not work
 with ImageJ hyperstack or OME-TIFF files):
@@ -644,13 +653,14 @@ Create a TIFF file from a generator of tiles:
 ...     for y in range(0, data.shape[0], tileshape[0]):
 ...         for x in range(0, data.shape[1], tileshape[1]):
 ...             yield data[y : y + tileshape[0], x : x + tileshape[1]]
+...
 >>> imwrite(
 ...     'temp.tif',
 ...     tiles(data, (16, 16)),
 ...     tile=(16, 16),
 ...     shape=data.shape,
 ...     dtype=data.dtype,
-...     photometric='rgb'
+...     photometric='rgb',
 ... )
 
 Write a multi-dimensional, multi-resolution (pyramidal), multi-series OME-TIFF
@@ -662,7 +672,7 @@ series:
 >>> subresolutions = 2
 >>> pixelsize = 0.29  # micrometer
 >>> with TiffWriter('temp.ome.tif', bigtiff=True) as tif:
-...     metadata={
+...     metadata = {
 ...         'axes': 'TCYXS',
 ...         'SignificantBits': 8,
 ...         'TimeIncrement': 0.1,
@@ -672,36 +682,37 @@ series:
 ...         'PhysicalSizeY': pixelsize,
 ...         'PhysicalSizeYUnit': 'µm',
 ...         'Channel': {'Name': ['Channel 1', 'Channel 2']},
-...         'Plane': {'PositionX': [0.0] * 16, 'PositionXUnit': ['µm'] * 16}
+...         'Plane': {'PositionX': [0.0] * 16, 'PositionXUnit': ['µm'] * 16},
 ...     }
 ...     options = dict(
 ...         photometric='rgb',
 ...         tile=(128, 128),
 ...         compression='jpeg',
 ...         resolutionunit='CENTIMETER',
-...         maxworkers=2
+...         maxworkers=2,
 ...     )
 ...     tif.write(
 ...         data,
 ...         subifds=subresolutions,
 ...         resolution=(1e4 / pixelsize, 1e4 / pixelsize),
 ...         metadata=metadata,
-...         **options
+...         **options,
 ...     )
 ...     # write pyramid levels to the two subifds
 ...     # in production use resampling to generate sub-resolution images
 ...     for level in range(subresolutions):
-...         mag = 2**(level + 1)
+...         mag = 2 ** (level + 1)
 ...         tif.write(
 ...             data[..., ::mag, ::mag, :],
 ...             subfiletype=1,
 ...             resolution=(1e4 / mag / pixelsize, 1e4 / mag / pixelsize),
-...             **options
+...             **options,
 ...         )
 ...     # add a thumbnail image as a separate series
 ...     # it is recognized by QuPath as an associated image
 ...     thumbnail = (data[0, 0, ::8, ::8] >> 2).astype('uint8')
 ...     tif.write(thumbnail, metadata={'Name': 'thumbnail'})
+...
 
 Access the image levels in the pyramidal OME-TIFF file:
 
@@ -710,6 +721,7 @@ Access the image levels in the pyramidal OME-TIFF file:
 >>> with TiffFile('temp.ome.tif') as tif:
 ...     baseimage = tif.series[0].asarray()
 ...     second_level = tif.series[0].levels[1].asarray()
+...
 
 Iterate over and decode single JPEG compressed tiles in the TIFF file:
 
@@ -724,6 +736,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 ...             tile, indices, shape = page.decode(
 ...                 data, index, jpegtables=page.jpegtables
 ...             )
+...
 
 Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 
@@ -773,7 +786,7 @@ to it via the Zarr interface (note: this does not work with compression):
 ...     dtype='uint16',
 ...     photometric='minisblack',
 ...     tile=(128, 128),
-...     metadata={'axes': 'CYX'}
+...     metadata={'axes': 'CYX'},
 ... )
 >>> store = imread('temp.ome.tif', mode='r+', aszarr=True)
 >>> z = zarr.open(store, mode='r+')
@@ -798,9 +811,7 @@ dtype('float64')
 Read an image stack from a series of TIFF files with a file name pattern
 as NumPy or Zarr arrays:
 
->>> image_sequence = TiffSequence(
-...     'temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)'
-... )
+>>> image_sequence = TiffSequence('temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)')
 >>> image_sequence.shape
 (1, 2)
 >>> image_sequence.axes
@@ -837,7 +848,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.5.3'
+__version__ = '2024.5.10'
 
 __all__ = [
     'TiffFile',
@@ -4138,6 +4149,7 @@ class TiffWriter:
             33005,  # JPEG2000
             34712,  # JPEG2000
             50002,  # JPEG XL
+            52546,  # JPEG XL DNG
         }:
             return 1
         if chunksize < 1024 and compression in {
@@ -8188,6 +8200,10 @@ class TiffPage:
                 self.subfiletype = 0b1  # reduced image
             elif value == 3:
                 self.subfiletype = 0b10  # multi-page
+        elif not isinstance(self.subfiletype, int):
+            # files created by IDEAS
+            logger().warning(f'{self!r} invalid {self.subfiletype=}')
+            self.subfiletype = 0
 
         # consolidate private tags; remove them from self.tags
         # if self.is_andor:
@@ -11908,9 +11924,7 @@ class TiffTagRegistry:
         arg: Mapping of codes to names.
 
     Examples:
-        >>> tags = TiffTagRegistry(
-        ...     [(34853, 'GPSTag'), (34853, 'OlympusSIS2')]
-        ... )
+        >>> tags = TiffTagRegistry([(34853, 'GPSTag'), (34853, 'OlympusSIS2')])
         >>> tags.add(37387, 'FlashEnergy')
         >>> tags.add(41483, 'FlashEnergy')
         >>> tags['GPSTag']
@@ -12992,6 +13006,7 @@ class ZarrTiffStore(ZarrStore):
             50000: 'imagecodecs_zstd',  # numcodecs.zstd fails w/ unknown sizes
             50001: 'imagecodecs_webp',
             50002: 'imagecodecs_jpegxl',
+            52546: 'imagecodecs_jpegxl',
             **({} if compressors is None else compressors),
         }
 
@@ -15583,6 +15598,7 @@ class NullContext:
 
     >>> with NullContext():
     ...     pass
+    ...
 
     """
 
@@ -16018,7 +16034,8 @@ class OmeXml:
 
             # TODO: use user-specified start, stop, step, or labels
             moduloalong = ''.join(
-                f'<ModuloAlong{ax} Type="{axtype}" Start="0" End="{size-1}"/>'
+                f'<ModuloAlong{ax} Type="{axtype}" '
+                f'Start="0" End="{size - 1}"/>'
                 for ax, (axtype, size) in modulo.items()
             )
             annotationref = f'<AnnotationRef ID="Annotation:{index}"/>'
@@ -16521,7 +16538,7 @@ class CompressionCodec(collections.abc.Mapping):
                     codec = imagecodecs.webp_decode
             elif key in {65000, 65001, 65002} and not self._encode:
                 codec = imagecodecs.eer_decode
-            elif key == 50002:
+            elif key in {50002, 52546}:
                 if self._encode:
                     codec = imagecodecs.jpegxl_encode
                 else:
@@ -16791,10 +16808,12 @@ class COMPRESSION(enum.IntEnum):
     """Zstandard."""
     WEBP = 50001
     """WebP."""
-    JPEGXL = 50002
+    JPEGXL = 50002  # GDAL
     """JPEG XL."""
     PIXTIFF = 50013
     """ZLIB (Atalasoft)."""
+    JPEGXL_DNG = 52546
+    """JPEG XL (DNG)."""
     EER_V0 = 65000  # FIXED82 Thermo Fisher Scientific
     EER_V1 = 65001  # FIXED72 Thermo Fisher Scientific
     EER_V2 = 65002  # VARIABLE Thermo Fisher Scientific
@@ -17772,6 +17791,15 @@ class _TIFF:
                 (52533, 'IlluminantData1'),  # DNG 1.6
                 (52534, 'IlluminantData2'),  # DNG 1.6
                 (53535, 'IlluminantData3'),  # DNG 1.6
+                (52544, 'ProfileGainTableMap2'),  # DNG 1.7
+                (52547, 'ColumnInterleaveFactor'),  # DNG 1.7
+                (52548, 'ImageSequenceInfo'),  # DNG 1.7
+                (52550, 'ImageStats'),  # DNG 1.7
+                (52551, 'ProfileDynamicRange'),  # DNG 1.7
+                (52552, 'ProfileGroupName'),  # DNG 1.7
+                (52553, 'JXLDistance'),  # DNG 1.7
+                (52554, 'JXLEffort'),  # DNG 1.7
+                (52555, 'JXLDecodeSpeed'),  # DNG 1.7
                 (55000, 'AperioUnknown55000'),
                 (55001, 'AperioMagnification'),
                 (55002, 'AperioMPP'),
@@ -18321,6 +18349,7 @@ class _TIFF:
             48124,  # jetraw
             50001,  # webp
             50002,  # jpegxl
+            52546,  # jpegxl DNG
         }
 
     @cached_property
@@ -23640,8 +23669,10 @@ def byteorder_compare(byteorder: str, other: str, /) -> bool:
 def recarray2dict(recarray: numpy.recarray, /) -> dict[str, Any]:
     """Return numpy.recarray as dictionary.
 
-    >>> r = numpy.array([(1., 2, 'a'), (3., 4, 'bc')],
-    ...                 dtype=[('x', '<f4'), ('y', '<i4'), ('s', 'S2')])
+    >>> r = numpy.array(
+    ...     [(1.0, 2, 'a'), (3.0, 4, 'bc')],
+    ...     dtype=[('x', '<f4'), ('y', '<i4'), ('s', 'S2')],
+    ... )
     >>> recarray2dict(r)
     {'x': [1.0, 3.0], 'y': [2, 4], 's': ['a', 'bc']}
     >>> recarray2dict(r[1])
@@ -24178,7 +24209,7 @@ def parse_kwargs(
 def update_kwargs(kwargs: dict[str, Any], /, **keyvalues: Any) -> None:
     """Update dict with keys and values if keys do not already exist.
 
-    >>> kwargs = {'one': 1, }
+    >>> kwargs = {'one': 1}
     >>> update_kwargs(kwargs, one=None, two=2)
     >>> kwargs == {'one': 1, 'two': 2}
     True
