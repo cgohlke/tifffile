@@ -10540,7 +10540,7 @@ class TiffFrame:
     Properties other than `offset`, `index`, `dataoffsets`, `databytecounts`,
     `subifds`, and `jpegtables` are assumed to be identical with a specified
     TiffPage instance, the keyframe.
-    TiffFrame instances have no `tag` property.
+    TiffFrame instances have no `tags` property.
     Virtual frames just reference the image data in the file. They may not
     have an IFD structure in the file.
 
