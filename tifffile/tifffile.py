@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.5.10
+:Version: 2024.5.22
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -102,19 +102,31 @@ This revision was tested with the following requirements and dependencies
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.4
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.2.1
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.1
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.3.1
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.5.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.5.22
+
+- Pass 5084 tests.
+- Derive TiffPages, TiffPageSeries, FileSequence, StoredShape from Sequence.
+- Truncate circular IFD chain, do not raise TiffFileError (breaking).
+- Deprecate access to TiffPages.pages and FileSequence.files.
+- Enable DeprecationWarning for enums in TIFF namespace.
+- Remove some deprecated code (breaking).
+- Add iccprofile property to TiffPage and parameter to TiffWriter.write.
+- Do not detect VSI as SIS format.
+- Limit length of logged exception messages.
+- Work around GitHub not rendering docstring examples (#254, #255).
+
 2024.5.10
 
-- Pass 5082 tests.
 - Support reading JPEGXL compression in DNG 1.7.
 - Read invalid TIFF created by IDEAS software.
 
@@ -211,57 +223,6 @@ Revisions
 - Raise KeyError if ZarrStore is missing requested chunk.
 
 2023.3.21
-
-- Fix reading MMstack with missing data (#187).
-
-2023.3.15
-
-- Fix corruption using tile generators with prediction/compression (#185).
-- Add parser for Micro-Manager MMStack series (breaking).
-- Return micromanager_metadata IndexMap as numpy array (breaking).
-- Revert optimizations for Micro-Manager OME series.
-- Do not use numcodecs zstd in write_fsspec (kerchunk issue 317).
-- More type annotations.
-
-2023.2.28
-
-- Fix reading some Micro-Manager metadata from corrupted files.
-- Speed up reading Micro-Manager indexmap for creation of OME series.
-
-2023.2.27
-
-- Use Micro-Manager indexmap offsets to create virtual TiffFrames.
-- Fixes for future imagecodecs.
-
-2023.2.3
-
-- Fix overflow in calculation of databytecounts for large NDPI files.
-
-2023.2.2
-
-- Fix regression reading layered NDPI files.
-- Add option to specify offset in FileHandle.read_array.
-
-2023.1.23
-
-- Support reading NDTiffStorage.
-- Support reading PIXTIFF compression.
-- Support LERC with Zstd or Deflate compression.
-- Do not write duplicate and select extratags.
-- Allow to write uncompressed image data beyond 4 GB in classic TIFF.
-- Add option to specify chunkshape and dtype in FileSequence.asarray.
-- Add option for imread to write to output in FileSequence.asarray (#172).
-- Add function to read GDAL structural metadata.
-- Add function to read NDTiff.index files.
-- Fix IndexError accessing TiffFile.mdgel_metadata in non-MDGEL files.
-- Fix unclosed file ResourceWarning in TiffWriter.
-- Fix non-bool predictor arguments (#167).
-- Relax detection of OME-XML (#173).
-- Rename some TiffFrame parameters (breaking).
-- Deprecate squeeze_axes (will change signature).
-- Use defusexml in xml2dict.
-
-2022.10.10
 
 - …
 
@@ -721,6 +682,7 @@ Access the image levels in the pyramidal OME-TIFF file:
 >>> with TiffFile('temp.ome.tif') as tif:
 ...     baseimage = tif.series[0].asarray()
 ...     second_level = tif.series[0].levels[1].asarray()
+...     number_levels = len(tif.series[0].levels)  # includes base level
 ...
 
 Iterate over and decode single JPEG compressed tiles in the TIFF file:
@@ -848,7 +810,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.5.10'
+__version__ = '2024.5.22'
 
 __all__ = [
     'TiffFile',
@@ -932,7 +894,6 @@ __all__ = [
     'lazyattr',
     'imsave',
     'squeeze_axes',
-    '_app_show',
 ]
 
 import binascii
@@ -1382,6 +1343,7 @@ def imwrite(
     predictor: PREDICTOR | int | str | bool | None = None,
     subsampling: tuple[int, int] | None = None,
     jpegtables: bytes | None = None,
+    iccprofile: bytes | None = None,
     colormap: ArrayLike | None = None,
     description: str | bytes | None = None,
     datetime: str | bool | None = None,
@@ -1418,7 +1380,7 @@ def imwrite(
             Passed to :py:class:`TiffWriter`.
         photometric, planarconfig, extrasamples, volumetric, tile,\
         rowsperstrip, bitspersample, compression, compressionargs, predictor,\
-        subsampling, jpegtables, colormap, description, datetime,\
+        subsampling, jpegtables, iccprofile, colormap, description, datetime,\
         resolution, resolutionunit, subfiletype, software,\
         metadata, extratags, maxworkers, buffersize, \
         contiguous, truncate, align:
@@ -1485,6 +1447,7 @@ def imwrite(
             predictor=predictor,
             subsampling=subsampling,
             jpegtables=jpegtables,
+            iccprofile=iccprofile,
             colormap=colormap,
             description=description,
             datetime=datetime,
@@ -1830,6 +1793,7 @@ class TiffWriter:
         predictor: PREDICTOR | int | str | bool | None = None,
         subsampling: tuple[int, int] | None = None,
         jpegtables: bytes | None = None,
+        iccprofile: bytes | None = None,
         colormap: ArrayLike | None = None,
         description: str | bytes | None = None,
         datetime: str | bool | None = None,
@@ -2000,6 +1964,10 @@ class TiffWriter:
                 JPEG quantization and/or Huffman tables.
                 Use for copying pre-compressed JPEG segments.
                 The value is written to the JPEGTables tag.
+            iccprofile:
+                International Color Consortium (ICC) device profile
+                characterizing image color space.
+                The value is written verbatim to the InterColorProfile tag.
             colormap:
                 RGB color values for corresponding data value.
                 The colormap array must be of shape
@@ -2999,6 +2967,8 @@ class TiffWriter:
             )
         if colormap is not None:
             addtag(tags, 320, 3, colormap.size, colormap)
+        if iccprofile is not None:
+            addtag(tags, 34675, 7, len(iccprofile), iccprofile)
         addtag(tags, 277, 3, 1, storedshape.samples)
         if bilevel:
             # PlanarConfiguration
@@ -4341,7 +4311,7 @@ class TiffFile:
                 except Exception as exc:
                     logger().error(
                         f'{self!r} <TiffPages._load_virtual_frames> '
-                        f'raised {exc!r}'
+                        f'raised {exc!r:.128}'
                     )
 
             elif self.is_ndpi:
@@ -4349,7 +4319,7 @@ class TiffFile:
                     self._ndpi_load_pages()
                 except Exception as exc:
                     logger().error(
-                        f'{self!r} <_ndpi_load_pages> raised {exc!r}'
+                        f'{self!r} <_ndpi_load_pages> raised {exc!r:.128}'
                     )
 
             elif _useframes:
@@ -4549,7 +4519,7 @@ class TiffFile:
                 try:
                     logger().warning(
                         f'{self!r} <asarray> failed to reshape '
-                        f'{result.shape} to {shape}, raised {exc!r}'
+                        f'{result.shape} to {shape}, raised {exc!r:.128}'
                     )
                     # try series of expected shapes
                     result.shape = (-1,) + shape
@@ -4685,7 +4655,7 @@ class TiffFile:
         # series = [s for s in series if product(s.shape) > 0]
         assert series is not None
         for i, s in enumerate(series):
-            s.index = i
+            s._index = i
         return series
 
     def _series_uniform(self) -> list[TiffPageSeries] | None:
@@ -4746,7 +4716,7 @@ class TiffFile:
                         subifd = TiffPage(self, (page.index, i))
                     except Exception as exc:
                         logger().warning(
-                            f'{self!r} generic series raised {exc!r}'
+                            f'{self!r} generic series raised {exc!r:.128}'
                         )
                     else:
                         addpage(subifd)
@@ -4815,7 +4785,8 @@ class TiffFile:
                 shape = reshape
             except ValueError as exc:
                 logger().error(
-                    f'{self!r} shaped series failed to reshape, raised {exc!r}'
+                    f'{self!r} shaped series failed to reshape, '
+                    f'raised {exc!r:.128}'
                 )
             series.append(
                 TiffPageSeries(
@@ -4954,7 +4925,8 @@ class TiffFile:
                                     )
                             except Exception as exc:
                                 logger().error(
-                                    f'{self!r} shaped series raised {exc!r}'
+                                    f'{self!r} shaped series '
+                                    f'raised {exc!r:.128}'
                                 )
                                 return None
                             subifds.append(subifd)
@@ -5159,7 +5131,9 @@ class TiffFile:
                 shape = (slices, frames, channels) + page.shape
                 axes = 'ZTC' + page.axes
             except Exception as exc:
-                logger().warning(f'{self!r} ScanImage series raised {exc!r}')
+                logger().warning(
+                    f'{self!r} ScanImage series raised {exc!r:.128}'
+                )
 
         # TODO: older versions of ScanImage store non-varying frame data in
         # the ImageDescription tag. Candidates are scanimage.SI5.channelsSave,
@@ -5273,7 +5247,7 @@ class TiffFile:
         try:
             tree = etree.fromstring(meta)
         except etree.ParseError as exc:
-            logger().error(f'{self!r} Philips series raised {exc!r}')
+            logger().error(f'{self!r} Philips series raised {exc!r:.128}')
             return None
 
         pixel_spacing = [
@@ -5389,7 +5363,7 @@ class TiffFile:
         try:
             tree = etree.fromstring(self.pages.first.description)
         except etree.ParseError as exc:
-            logger().error(f'{self!r} Indica series raised {exc!r}')
+            logger().error(f'{self!r} Indica series raised {exc!r:.128}')
             return series
 
         channel_names = [
@@ -5410,7 +5384,7 @@ class TiffFile:
         meta = self.sis_metadata
         if meta is None:
             return None
-        pages = self.pages._getlist(validate=False)
+        pages = self.pages._getlist(validate=False)  # TODO: this fails for VSI
         page = pages[0]
         lenpages = len(pages)
 
@@ -5798,7 +5772,7 @@ class TiffFile:
             root = etree.fromstring(omexml)
         except etree.ParseError as exc:
             # TODO: test badly encoded OME-XML
-            logger().error(f'{self!r} OME series raised {exc!r}')
+            logger().error(f'{self!r} OME series raised {exc!r:.128}')
             return None
 
         keyframe: TiffPage
@@ -5918,7 +5892,7 @@ class TiffFile:
                         logger().warning(
                             f'{self!r} '
                             'OME series contains invalid TiffData index, '
-                            f'raised {exc!r}',
+                            f'raised {exc!r:.128}',
                         )
                         continue
                     for uuid in data:
@@ -5957,7 +5931,7 @@ class TiffFile:
                                 if files_missing == 0:
                                     logger().warning(
                                         f'{self!r} OME series failed to read '
-                                        f'{fname!r}, raised {exc!r}. '
+                                        f'{fname!r}, raised {exc!r:.128}. '
                                         'Missing data are zeroed'
                                     )
                                 files_missing += 1
@@ -5984,7 +5958,7 @@ class TiffFile:
                             logger().warning(
                                 f'{self!r} '
                                 'OME series contains index out of range, '
-                                f'raised {exc!r}'
+                                f'raised {exc!r:.128}'
                             )
                         # only process first UUID
                         break
@@ -6000,7 +5974,7 @@ class TiffFile:
                             logger().warning(
                                 f'{self!r} '
                                 'OME series contains index out of range, '
-                                f'raised {exc!r}'
+                                f'raised {exc!r:.128}'
                             )
 
                 if not ifds or all(i is None for i in ifds):
@@ -6655,10 +6629,10 @@ class TiffFile:
         self._lsm_fix_strip_bytecounts()
         # assign keyframes for data and thumbnail series
         keyframe = self.pages.first
-        for page in pages.pages[::2]:
+        for page in pages._pages[::2]:
             page.keyframe = keyframe  # type: ignore
         keyframe = cast(TiffPage, pages[1])
-        for page in pages.pages[1::2]:
+        for page in pages._pages[1::2]:
             page.keyframe = keyframe  # type: ignore
 
     def _lsm_fix_strip_offsets(self) -> None:
@@ -6973,6 +6947,17 @@ class TiffFile:
         except IndexError:
             return False
 
+    @property
+    def is_sis(self) -> bool:
+        """File is Olympus SIS format."""
+        try:
+            return (
+                self.pages.first.is_sis
+                and not self.filename.lower().endswith('.vsi')
+            )
+        except IndexError:
+            return False
+
     @cached_property
     def shaped_metadata(self) -> tuple[dict[str, Any], ...] | None:
         """Tifffile metadata from JSON formatted ImageDescription tags."""
@@ -7071,7 +7056,7 @@ class TiffFile:
                 except Exception as exc:
                     result['Datetime' + key] = None
                     logger().warning(
-                        f'{self!r} STK Datetime{key} raised {exc!r}'
+                        f'{self!r} STK Datetime{key} raised {exc!r:.128}'
                     )
         return result
 
@@ -7113,7 +7098,8 @@ class TiffFile:
         #         result['ImageDescription'] = t
         # except Exception as exc:
         #     logger().warning(
-        #         f'{self!r} <fluoview_description_metadata> raised {exc!r}'
+        #         f'{self!r} <fluoview_description_metadata> '
+        #         f'raised {exc!r:.128}'
         #     )
         return result
 
@@ -7151,7 +7137,7 @@ class TiffFile:
     @property
     def sis_metadata(self) -> dict[str, Any] | None:
         """Olympus SIS metadata from OlympusSIS and OlympusINI tags."""
-        if not self.is_sis:
+        if not self.pages.first.is_sis:
             return None
         tags = self.pages.first.tags
         result = {}
@@ -7396,7 +7382,7 @@ class TiffFormat:
 
 
 @final
-class TiffPages:
+class TiffPages(collections.abc.Sequence):
     """Sequence of TIFF image file directories (IFD chain).
 
     TiffPages instances have a state, such as a cache and keyframe, and are not
@@ -7417,9 +7403,7 @@ class TiffPages:
     parent: TiffFile | None = None
     """TiffFile instance pages belongs to."""
 
-    pages: list[TiffPage | TiffFrame | int]
-    """List of pages."""
-
+    _pages: list[TiffPage | TiffFrame | int]  # list of pages
     _keyframe: TiffPage | None
     _tiffpage: type[TiffPage] | type[TiffFrame]  # class used for reading pages
     _indexed: bool
@@ -7438,7 +7422,7 @@ class TiffPages:
     ) -> None:
         offset: int
         self.parent = None
-        self.pages = []  # cache of TiffPages, TiffFrames, or their offsets
+        self._pages = []  # cache of TiffPages, TiffFrames, or their offsets
         self._indexed = False  # True if offsets to all pages were read
         self._cached = False  # True if all pages were read into cache
         self._tiffpage = TiffPage  # class used for reading pages
@@ -7496,18 +7480,33 @@ class TiffPages:
         # read and cache first page
         fh.seek(offset)
         page = TiffPage(self.parent, index=pageindex)
-        self.pages.append(page)
+        self._pages.append(page)
         self._keyframe = page
         if self._nextpageoffset is None:
             # offsets from SubIFDs tag
-            self.pages.extend(offsets[1:])
+            self._pages.extend(offsets[1:])
             self._indexed = True
             self._cached = True
 
     @property
+    def pages(self) -> list[TiffPage | TiffFrame | int]:
+        """Deprecated. Use the TiffPages sequence interface.
+
+        :meta private:
+
+        """
+        warnings.warn(
+            '<tifffile.TiffPages.pages> is deprecated since 2024.5.22. '
+            'Use the TiffPages sequence interface.',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._pages
+
+    @property
     def first(self) -> TiffPage:
         """First page as TiffPage if exists, else raise IndexError."""
-        return cast(TiffPage, self.pages[0])
+        return cast(TiffPage, self._pages[0])
 
     @property
     def is_multipage(self) -> bool:
@@ -7563,16 +7562,16 @@ class TiffPages:
         if self._keyframe is not None and self._keyframe.index == index:
             return
         if index == 0:
-            self._keyframe = cast(TiffPage, self.pages[0])
+            self._keyframe = cast(TiffPage, self._pages[0])
             return
-        if self._indexed or index < len(self.pages):
-            page = self.pages[index]
+        if self._indexed or index < len(self._pages):
+            page = self._pages[index]
             if isinstance(page, TiffPage):
                 self._keyframe = page
                 return
             if isinstance(page, TiffFrame):
                 # remove existing TiffFrame
-                self.pages[index] = page.offset
+                self._pages[index] = page.offset
         # load TiffPage from file
         tiffpage = self._tiffpage
         self._tiffpage = TiffPage
@@ -7581,7 +7580,7 @@ class TiffPages:
         finally:
             self._tiffpage = tiffpage
         # always cache keyframes
-        self.pages[index] = self._keyframe
+        self._pages[index] = self._keyframe
 
     @property
     def next_page_offset(self) -> int | None:
@@ -7634,7 +7633,7 @@ class TiffPages:
         assert self.parent is not None
         if self._cached:
             return
-        pages = self.pages
+        pages = self._pages
         if not pages:
             return
         if not self._indexed:
@@ -7659,7 +7658,7 @@ class TiffPages:
     def _load_virtual_frames(self) -> None:
         """Calculate virtual TiffFrames."""
         assert self.parent is not None
-        pages = self.pages
+        pages = self._pages
         try:
             if len(pages) > 1:
                 raise ValueError('pages already loaded')
@@ -7702,19 +7701,19 @@ class TiffPages:
                         keyframe=page,
                     )
                 )
-            self.pages = pages
+            self._pages = pages
             self._cache = True
             self._cached = True
             self._indexed = True
         except Exception as exc:
             if self.parent.filehandle.size >= 2147483648:
                 logger().warning(
-                    f'{self!r} <_load_virtual_frames> raised {exc!r}'
+                    f'{self!r} <_load_virtual_frames> raised {exc!r:.128}'
                 )
 
     def _clear(self, fully: bool = True, /) -> None:
         """Delete all but first page from cache. Set keyframe to first page."""
-        pages = self.pages
+        pages = self._pages
         if not pages:
             return
         self._keyframe = cast(TiffPage, pages[0])
@@ -7734,7 +7733,7 @@ class TiffPages:
         """Seek file to offset of page specified by index and return offset."""
         assert self.parent is not None
 
-        pages = self.pages
+        pages = self._pages
         lenpages = len(pages)
         if lenpages == 0:
             raise IndexError('index out of range')
@@ -7770,7 +7769,7 @@ class TiffPages:
             except Exception as exc:
                 logger().error(
                     f'{self!r} corrupted tag list of page '
-                    f'{lenpages} @{offset} raised {exc!r}',
+                    f'{lenpages} @{offset} raised {exc!r:.128}',
                 )
                 del pages[-1]
                 lenpages -= 1
@@ -7786,7 +7785,7 @@ class TiffPages:
                 logger().error(
                     f'{self!r} invalid offset to page '
                     f'{lenpages + 1} @{self._nextpageoffset} '
-                    f'raised {exc!r}'
+                    f'raised {exc!r:.128}'
                 )
                 self._indexed = True
                 break
@@ -7805,9 +7804,16 @@ class TiffPages:
 
             # detect some circular references
             if lenpages == 100:
-                for p in pages[:-1]:
+                for i, p in enumerate(pages[:-1]):
                     if offset == (p if isinstance(p, int) else p.offset):
-                        raise TiffFileError('invalid circular IFD reference')
+                        index = i
+                        self._pages = pages[: i + 1]
+                        self._indexed = True
+                        logger().error(
+                            f'{self!r} invalid circular reference to IFD '
+                            f'{i} at {offset=}'
+                        )
+                        break
 
         if index >= lenpages:
             raise IndexError('index out of range')
@@ -7845,9 +7851,9 @@ class TiffPages:
                 self.useframes = _useframes
         elif isinstance(key, slice):
             start, stop, _ = key.indices(2**31 - 1)
-            if not self._indexed and max(stop, start) > len(self.pages):
+            if not self._indexed and max(stop, start) > len(self._pages):
                 self._seek(-1)
-            key = iter(range(*key.indices(len(self.pages))))
+            key = iter(range(*key.indices(len(self._pages))))
         elif isinstance(key, collections.abc.Iterable):
             key = iter(key)
         else:
@@ -7884,7 +7890,7 @@ class TiffPages:
         """Return specified page from cache or file."""
         assert self.parent is not None
         key = int(key)
-        pages = self.pages
+        pages = self._pages
 
         if key < 0:
             key %= len(self)
@@ -7929,7 +7935,7 @@ class TiffPages:
     def __getitem__(
         self, key: int | slice | Iterable[int], /
     ) -> TiffPage | TiffFrame | list[TiffPage | TiffFrame]:
-        pages = self.pages
+        pages = self._pages
         getitem = self._getitem
 
         if isinstance(key, (int, numpy.integer)):
@@ -7962,13 +7968,13 @@ class TiffPages:
 
     def __bool__(self) -> bool:
         """Return True if file contains any pages."""
-        return len(self.pages) > 0
+        return len(self._pages) > 0
 
     def __len__(self) -> int:
         """Return number of pages in file."""
         if not self._indexed:
             self._seek(-1)
-        return len(self.pages)
+        return len(self._pages)
 
     def __repr__(self) -> str:
         return f'<tifffile.TiffPages @{self._offset}>'
@@ -8174,7 +8180,7 @@ class TiffPage:
                     parent, offset=tagoffset + i * tagsize_, header=tagdata
                 )
             except TiffFileError as exc:
-                logger().error(f'<TiffTag.fromfile> raised {exc!r}')
+                logger().error(f'<TiffTag.fromfile> raised {exc!r:.128}')
                 continue
             tags.add(tag)
 
@@ -8314,7 +8320,7 @@ class TiffPage:
                 )
             except Exception as exc:
                 logger().warning(
-                    f'{self!r} <tifffile.read_uic1tag> raised {exc!r}'
+                    f'{self!r} <tifffile.read_uic1tag> raised {exc!r:.128}'
                 )
 
         tag = tags.get(50839)
@@ -8328,7 +8334,7 @@ class TiffPage:
                 )
             except Exception as exc:
                 logger().warning(
-                    f'{self!r} <tifffile.imagej_metadata> raised {exc!r}'
+                    f'{self!r} <tifffile.imagej_metadata> raised {exc!r:.128}'
                 )
 
         # BitsPerSample
@@ -8506,7 +8512,7 @@ class TiffPage:
                 ) = ndpi_jpeg_tile(jpegheader)
             except ValueError as exc:
                 logger().warning(
-                    f'{self!r} <tifffile.ndpi_jpeg_tile> raised {exc!r}'
+                    f'{self!r} <tifffile.ndpi_jpeg_tile> raised {exc!r:.128}'
                 )
             else:
                 # TODO: optimize tuple(ndarray.tolist())
@@ -9405,7 +9411,7 @@ class TiffPage:
             except ValueError as exc:
                 logger().warning(
                     f'{self!r} <asarray> failed to reshape '
-                    f'{result.shape} to {keyframe.shape}, raised {exc!r}'
+                    f'{result.shape} to {keyframe.shape}, raised {exc!r:.128}'
                 )
 
         if closed:
@@ -9612,6 +9618,11 @@ class TiffPage:
         return self.tags.valueof(320)
 
     @property
+    def iccprofile(self) -> bytes | None:
+        """Value of InterColorProfile tag."""
+        return self.tags.valueof(34675)
+
+    @property
     def transferfunction(self) -> NDArray[numpy.uint16] | None:
         """Value of TransferFunction tag."""
         return self.tags.valueof(301)
@@ -9649,7 +9660,9 @@ class TiffPage:
                     resolutionunit = self.tags.valueof(296, default=2)
                     scale = scales[resolutionunit]
             except Exception as exc:
-                logger().warning(f'{self!r} <get_resolution> raised {exc!r}')
+                logger().warning(
+                    f'{self!r} <get_resolution> raised {exc!r:.128}'
+                )
                 scale = 1
             else:
                 scale2 = scales[unit]
@@ -10116,7 +10129,8 @@ class TiffPage:
                 ]
             except Exception as exc:
                 logger().warning(
-                    f'{self!r} corrupted GeoKeyDirectoryTag raised {exc!r}'
+                    f'{self!r} corrupted GeoKeyDirectoryTag '
+                    f'raised {exc!r:.128}'
                 )
                 continue
             if tagid == 0:
@@ -10127,13 +10141,13 @@ class TiffPage:
                 except TiffFileError as exc:
                     logger().warning(
                         f'{self!r} corrupted GeoKeyDirectoryTag {tagid} '
-                        f'raised {exc!r}'
+                        f'raised {exc!r:.128}'
                     )
                     continue
                 except KeyError as exc:
                     logger().warning(
                         f'{self!r} GeoKeyDirectoryTag {tagid} not found, '
-                        f'raised {exc!r}'
+                        f'raised {exc!r:.128}'
                     )
                     continue
                 if tagid == 34737 and count > 1 and value[-1] == '|':
@@ -10540,7 +10554,7 @@ class TiffFrame:
     Properties other than `offset`, `index`, `dataoffsets`, `databytecounts`,
     `subifds`, and `jpegtables` are assumed to be identical with a specified
     TiffPage instance, the keyframe.
-    TiffFrame instances have no `tag` property.
+    TiffFrame instances have no `tags` property.
     Virtual frames just reference the image data in the file. They may not
     have an IFD structure in the file.
 
@@ -10713,7 +10727,7 @@ class TiffFrame:
                     )
                 except TiffFileError as exc:
                     logger().error(
-                        f'{self!r} <TiffTag.fromfile> raised {exc!r}'
+                        f'{self!r} <TiffTag.fromfile> raised {exc!r:.128}'
                     )
                     continue
                 tags.append((code, tag))
@@ -11258,7 +11272,7 @@ class TiffTag:
             except UnicodeDecodeError as exc:
                 logger().warning(
                     f'<tifffile.TiffTag {code} @{offset}> '
-                    f'coercing invalid ASCII to bytes, due to {exc!r}'
+                    f'coercing invalid ASCII to bytes, due to {exc!r:.128}'
                 )
             return value
 
@@ -11269,7 +11283,8 @@ class TiffTag:
             except ValueError as exc:
                 if code not in {259, 317}:  # ignore compression/predictor
                     logger().warning(
-                        f'<tifffile.TiffTag {code} @{offset}> raised {exc!r}'
+                        f'<tifffile.TiffTag {code} @{offset}> '
+                        f'raised {exc!r:.128}'
                     )
 
         if len(value) == 1 and code not in TIFF.TAG_TUPLE:
@@ -12091,8 +12106,8 @@ class TiffTagRegistry:
 
 
 @final
-class TiffPageSeries:
-    """Series of TIFF pages making up multi-dimensional image.
+class TiffPageSeries(collections.abc.Sequence):
+    """Sequence of TIFF pages making up multi-dimensional image.
 
     Many TIFF based formats, such as OME-TIFF, use series of TIFF pages to
     store chunks of larger, multi-dimensional images.
@@ -12155,9 +12170,6 @@ class TiffPageSeries:
     name: str
     """Name of image series from metadata."""
 
-    index: int
-    """Index of series in multi-series files."""
-
     transform: Callable[[NDArray[Any]], NDArray[Any]] | None
     """Function to transform image data after decoding."""
 
@@ -12168,6 +12180,7 @@ class TiffPageSeries:
     """Series contains single page describing multi-dimensional image."""
 
     _pages: list[TiffPage | TiffFrame | None]
+    _index: int  # index of series in multi-series files
     _squeeze: bool
     _axes: str
     _axes_squeezed: str
@@ -12201,7 +12214,7 @@ class TiffPageSeries:
         self._axes_squeezed = ''
         self._attr = {} if attr is None else dict(attr)
 
-        self.index = int(index) if index else 0
+        self._index = int(index) if index else 0
         self._pages = list(
             pages
         )  # might contain only first of contiguous pages
@@ -12397,17 +12410,6 @@ class TiffPageSeries:
         return None
 
     @property
-    def offset(self) -> int | None:
-        # deprecated: use TiffPageSeries.dataoffset
-        warnings.warn(
-            '<tifffile.TiffPageSeries.offset> is deprecated since 2022.4.22. '
-            'Use TiffPageSeries.dataoffset',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.dataoffset
-
-    @property
     def is_pyramidal(self) -> bool:
         """Series contains multiple resolutions."""
         return len(self.levels) > 1
@@ -12504,7 +12506,7 @@ class TiffPageSeries:
         return self._len
 
     def __repr__(self) -> str:
-        return f'<tifffile.TiffPageSeries {self.index} {self.kind}>'
+        return f'<tifffile.TiffPageSeries {self._index} {self.kind}>'
 
     def __str__(self) -> str:
         s = '  '.join(
@@ -12521,7 +12523,7 @@ class TiffPageSeries:
             )
             if s
         )
-        return f'TiffPageSeries {self.index}  {s}'
+        return f'TiffPageSeries {self._index}  {s}'
 
 
 # TODO: derive from zarr.storage.Store
@@ -13639,7 +13641,7 @@ class ZarrFileSequenceStore(ZarrStore):
         del dtype
 
         if chunkshape is None or chunkdtype is None:
-            chunk = filesequence.imread(filesequence.files[0], **kwargs)
+            chunk = filesequence.imread(filesequence[0], **kwargs)
             self._chunks = chunk.shape
             self._dtype = chunk.dtype
         else:
@@ -13651,7 +13653,7 @@ class ZarrFileSequenceStore(ZarrStore):
             filesequence.shape, self._chunks, axestiled=axestiled
         )
         self._lookup = dict(
-            zip(self._tiled.indices(filesequence.indices), filesequence.files)
+            zip(self._tiled.indices(filesequence.indices), filesequence)
         )
 
         zattrs = {} if zattrs is None else dict(zattrs)
@@ -13877,8 +13879,8 @@ class ZarrFileSequenceStore(ZarrStore):
         )
 
 
-class FileSequence:
-    r"""Series of files containing compatible array data.
+class FileSequence(collections.abc.Sequence):
+    r"""Sequence of files containing compatible array data.
 
     Parameters:
         imread:
@@ -13903,8 +13905,10 @@ class FileSequence:
             Additional arguments passed to `parse` function.
 
     Examples:
-        >>> filenames = ['temp_C001T001.tif', 'temp_C001T002.tif']
+        >>> filenames = ['temp_C001T002.tif', 'temp_C001T001.tif']
         >>> ims = TiffSequence(filenames, pattern=r'_(C)(\d+)(T)(\d+)')
+        >>> ims[0]
+        'temp_C001T002.tif'
         >>> ims.shape
         (1, 2)
         >>> ims.axes
@@ -13914,9 +13918,6 @@ class FileSequence:
 
     imread: Callable[..., NDArray[Any]]
     """Function to read image array from single file."""
-
-    files: list[str]
-    """List of file names."""
 
     shape: tuple[int, ...]
     """Shape of file series. Excludes shape of chunks in files."""
@@ -13930,6 +13931,7 @@ class FileSequence:
     indices: tuple[tuple[int, ...]]
     """Indices of files in shape."""
 
+    _files: list[str]  # list of file names
     _container: Any  # TODO: container type?
 
     def __init__(
@@ -13954,6 +13956,8 @@ class FileSequence:
             sort_func = sort
         elif sort:
             sort_func = natural_sorted
+        # elif not sort:
+        #     sort_func = None
 
         self._container = container
         if container is not None:
@@ -14011,7 +14015,7 @@ class FileSequence:
         codes = TIFF.AXES_CODES
         axes = ''.join(codes.get(dim.lower(), dim[0].upper()) for dim in dims)
 
-        self.files = files
+        self._files = files
         self.imread = imread
         self.axes = axes
         self.dims = tuple(dims)
@@ -14076,12 +14080,13 @@ class FileSequence:
 
         """
         # TODO: deprecate kwargs?
+        files = self._files
         if imreadargs is not None:
             kwargs |= imreadargs
 
         if ioworkers is None or ioworkers < 1:
             ioworkers = TIFF.MAXIOWORKERS
-        ioworkers = min(len(self.files), ioworkers)
+        ioworkers = min(len(files), ioworkers)
         assert isinstance(ioworkers, int)  # mypy bug?
 
         if out_inplace is None and self.imread == imread:
@@ -14101,7 +14106,7 @@ class FileSequence:
         del dtype
 
         if chunkshape is None or chunkdtype is None:
-            im = self.imread(self.files[0], **kwargs)
+            im = self.imread(files[0], **kwargs)
             chunkshape = im.shape
             chunkdtype = im.dtype
             del im
@@ -14123,14 +14128,12 @@ class FileSequence:
                     del im  # delete memory-mapped file
 
             if ioworkers < 2:
-                for index, fname in zip(
-                    tiled.slices(self.indices), self.files
-                ):
+                for index, fname in zip(tiled.slices(self.indices), files):
                     func(index, fname)
             else:
                 with ThreadPoolExecutor(ioworkers) as executor:
                     for _ in executor.map(
-                        func, tiled.slices(self.indices), self.files
+                        func, tiled.slices(self.indices), files
                     ):
                         pass
         else:
@@ -14153,11 +14156,11 @@ class FileSequence:
                     del im  # delete memory-mapped file
 
             if ioworkers < 2:
-                for index, fname in zip(self.indices, self.files):
+                for index, fname in zip(self.indices, files):
                     func(index, fname)
             else:
                 with ThreadPoolExecutor(ioworkers) as executor:
-                    for _ in executor.map(func, self.indices, self.files):
+                    for _ in executor.map(func, self.indices, files):
                         pass
 
             result.shape = shape
@@ -14181,29 +14184,38 @@ class FileSequence:
 
     def commonpath(self) -> str:
         """Return longest common sub-path of each file in sequence."""
-        if len(self.files) == 1:
-            commonpath = os.path.dirname(self.files[0])
+        if len(self._files) == 1:
+            commonpath = os.path.dirname(self._files[0])
         else:
-            commonpath = os.path.commonpath(self.files)
+            commonpath = os.path.commonpath(self._files)
         return commonpath
 
     @property
-    def labels(self) -> tuple[str, ...]:
+    def files(self) -> list[str]:
+        """Deprecated. Use the FileSequence sequence interface.
+
+        :meta private:
+
+        """
         warnings.warn(
-            '<tifffile.FileSequence.labels> is deprecated. '
-            'Use FileSequence.dims',
+            '<tifffile.FileSequence.files> is deprecated since 2024.5.22. '
+            'Use the FileSequence sequence interface.',
             DeprecationWarning,
             stacklevel=2,
         )
-        return self.dims
+        return self._files
 
     @property
     def files_missing(self) -> int:
         """Number of empty chunks."""
-        return product(self.shape) - len(self.files)
+        return product(self.shape) - len(self._files)
+
+    def __iter__(self) -> Iterator[str]:
+        """Return iterator over all file names."""
+        return iter(self._files)
 
     def __len__(self) -> int:
-        return len(self.files)
+        return len(self._files)
 
     @overload
     def __getitem__(self, key: int, /) -> str: ...
@@ -14212,7 +14224,7 @@ class FileSequence:
     def __getitem__(self, key: slice, /) -> list[str]: ...
 
     def __getitem__(self, key: int | slice, /) -> str | list[str]:
-        return self.files[key]
+        return self._files[key]
 
     def __enter__(self) -> FileSequence:
         return self
@@ -14224,13 +14236,13 @@ class FileSequence:
         return f'<tifffile.FileSequence @0x{id(self):016X}>'
 
     def __str__(self) -> str:
-        file = str(self._container) if self._container else self.files[0]
+        file = str(self._container) if self._container else self._files[0]
         file = os.path.split(file)[-1]
         return '\n '.join(
             (
                 self.__class__.__name__,
                 file,
-                f'files: {len(self.files)} ({self.files_missing} missing)',
+                f'files: {len(self._files)} ({self.files_missing} missing)',
                 'shape: {}'.format(', '.join(str(i) for i in self.shape)),
                 'dims: {}'.format(', '.join(s for s in self.dims)),
                 # f'axes: {self.axes}',
@@ -14240,10 +14252,10 @@ class FileSequence:
 
 @final
 class TiffSequence(FileSequence):
-    r"""Series of TIFF files containing compatible array data.
+    r"""Sequence of TIFF files containing compatible array data.
 
     Same as :py:class:`FileSequence` with the :py:func:`imread` function,
-    '\*.tif' glob pattern, and `out_inplace` enabled by default.
+    `'\*.tif'` glob pattern, and `out_inplace` enabled by default.
 
     """
 
@@ -15369,7 +15381,7 @@ class FileCache:
 
 
 @final
-class StoredShape:
+class StoredShape(collections.abc.Sequence):
     """Normalized shape of image array in TIFF pages.
 
     Parameters:
@@ -18415,17 +18427,6 @@ class _TIFF:
         return codes
 
     @cached_property
-    def AXES_LABELS(self) -> dict[str, str]:
-        # map axes character codes to dimension names and reverse.
-        warnings.warn(
-            '<tifffile.TIFF.AXES_LABELS> is deprecated. '
-            'Use TIFF.AXES_NAMES or TIFF.AXES_CODES.',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return {**TIFF.AXES_NAMES, **TIFF.AXES_CODES}
-
-    @cached_property
     def GEO_KEYS(self) -> type[enum.IntEnum]:
         """:py:class:`geodb.GeoKeys`."""
         try:
@@ -18932,7 +18933,7 @@ class _TIFF:
     @property
     def NIH_IMAGE_HEADER(self):  # TODO: type this
         return [
-            ('FileID', 'a8'),
+            ('FileID', 'S8'),
             ('nLines', 'i2'),
             ('PixelsPerLine', 'i2'),
             ('Version', 'i2'),
@@ -18955,7 +18956,7 @@ class _TIFF:
             ('nCoefficients', 'i2'),
             ('Coeff', 'f8', 6),
             ('UMsize', 'u1'),
-            ('UM', 'a15'),
+            ('UM', 'S15'),
             ('UnusedBoolean', 'u1'),
             ('BinaryPic', 'b1'),
             ('SliceStart', 'i2'),
@@ -18976,7 +18977,7 @@ class _TIFF:
             ('InvertedTable', 'b1'),
             ('ZeroClip', 'b1'),
             ('XUnitSize', 'u1'),
-            ('XUnit', 'a11'),
+            ('XUnit', 'S11'),
             ('StackType', 'i2'),  # NIH_STACKTYPE_TYPE
             # ('UnusedBytes', 'u1', 200)
         ]
@@ -19045,7 +19046,7 @@ class _TIFF:
         # TVIPS TemData structure from EMMENU Help file
         return [
             ('Version', 'i4'),
-            ('CommentV1', 'a80'),
+            ('CommentV1', 'S80'),
             ('HighTension', 'i4'),
             ('SphericalAberration', 'i4'),
             ('IlluminationAperture', 'i4'),
@@ -19152,16 +19153,16 @@ class _TIFF:
     def MM_HEADER(self) -> list[tuple[Any, ...]]:
         # Olympus FluoView MM_Header
         MM_DIMENSION = [
-            ('Name', 'a16'),
+            ('Name', 'S16'),
             ('Size', 'i4'),
             ('Origin', 'f8'),
             ('Resolution', 'f8'),
-            ('Unit', 'a64'),
+            ('Unit', 'S64'),
         ]
         return [
             ('HeaderFlag', 'i2'),
             ('ImageType', 'u1'),
-            ('ImageName', 'a257'),
+            ('ImageName', 'S257'),
             ('OffsetData', 'u4'),
             ('PaletteSize', 'i4'),
             ('OffsetPalette0', 'u4'),
@@ -19372,74 +19373,138 @@ class _TIFF:
 
     # make enums available in the TIFF namespace for backwards compatibility.
     # These type aliases cannot be used as typing hints.
-    # TODO: raise DeprecationWarning
 
-    @cached_property
+    @property
     def CHUNKMODE(self) -> type[CHUNKMODE]:
         """Deprecated alias of :py:class:`CHUNKMODE`."""
+        warnings.warn(
+            '<tifffile.TIFF.CHUNKMODE> is deprecated since 2022.7.28. '
+            'Use tifffile.CHUNKMODE',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return CHUNKMODE
 
-    @cached_property
+    @property
     def COMPRESSION(self) -> type[COMPRESSION]:
         """Deprecated alias of :py:class:`COMPRESSION`."""
+        warnings.warn(
+            '<tifffile.TIFF.COMPRESSION> is deprecated since 2022.7.28. '
+            'Use tifffile.COMPRESSION',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return COMPRESSION
 
-    @cached_property
+    @property
     def PREDICTOR(self) -> type[PREDICTOR]:
         """Deprecated alias of :py:class:`PREDICTOR`."""
+        warnings.warn(
+            '<tifffile.TIFF.PREDICTOR> is deprecated since 2022.7.28. '
+            'Use tifffile.PREDICTOR',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return PREDICTOR
 
-    @cached_property
+    @property
     def EXTRASAMPLE(self) -> type[EXTRASAMPLE]:
         """Deprecated alias of :py:class:`EXTRASAMPLE`."""
+        warnings.warn(
+            '<tifffile.TIFF.EXTRASAMPLE> is deprecated since 2022.7.28. '
+            'Use tifffile.EXTRASAMPLE',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return EXTRASAMPLE
 
-    @cached_property
+    @property
     def FILETYPE(self) -> type[FILETYPE]:
         """Deprecated alias of :py:class:`FILETYPE`."""
+        warnings.warn(
+            '<tifffile.TIFF.FILETYPE> is deprecated since 2022.7.28. '
+            'Use tifffile.FILETYPE',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return FILETYPE
 
-    @cached_property
+    @property
     def FILLORDER(self) -> type[FILLORDER]:
         """Deprecated alias of :py:class:`FILLORDER`."""
+        warnings.warn(
+            '<tifffile.TIFF.FILLORDER> is deprecated since 2022.7.28. '
+            'Use tifffile.FILLORDER',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return FILLORDER
 
-    @cached_property
+    @property
     def PHOTOMETRIC(self) -> type[PHOTOMETRIC]:
         """Deprecated alias of :py:class:`PHOTOMETRIC`."""
+        warnings.warn(
+            '<tifffile.TIFF.PHOTOMETRIC> is deprecated since 2022.7.28. '
+            'Use tifffile.PHOTOMETRIC',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return PHOTOMETRIC
 
-    @cached_property
+    @property
     def PLANARCONFIG(self) -> type[PLANARCONFIG]:
         """Deprecated alias of :py:class:`PLANARCONFIG`."""
+        warnings.warn(
+            '<tifffile.TIFF.PLANARCONFIG> is deprecated since 2022.7.28. '
+            'Use tifffile.PLANARCONFIG',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return PLANARCONFIG
 
-    @cached_property
+    @property
     def RESUNIT(self) -> type[RESUNIT]:
         """Deprecated alias of :py:class:`RESUNIT`."""
+        warnings.warn(
+            '<tifffile.TIFF.RESUNIT> is deprecated since 2022.7.28. '
+            'Use tifffile.RESUNIT',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return RESUNIT
 
-    @cached_property
+    @property
     def ORIENTATION(self) -> type[ORIENTATION]:
         """Deprecated alias of :py:class:`ORIENTATION`."""
+        warnings.warn(
+            '<tifffile.TIFF.ORIENTATION> is deprecated since 2022.7.28. '
+            'Use tifffile.ORIENTATION',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return ORIENTATION
 
-    @cached_property
+    @property
     def SAMPLEFORMAT(self) -> type[SAMPLEFORMAT]:
         """Deprecated alias of :py:class:`SAMPLEFORMAT`."""
+        warnings.warn(
+            '<tifffile.TIFF.SAMPLEFORMAT> is deprecated since 2022.7.28. '
+            'Use tifffile.SAMPLEFORMAT',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return SAMPLEFORMAT
 
-    @cached_property
+    @property
     def DATATYPES(self) -> type[DATATYPE]:
         """Deprecated alias of :py:class:`DATATYPE`."""
+        warnings.warn(
+            '<tifffile.TIFF.DATATYPES> is deprecated since 2022.7.28. '
+            'Use tifffile.DATATYPE',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return DATATYPE
-
-    # THRESHOLD = THRESHOLD
-    # JPEGPROC = JPEGPROC
-    # YCBCRPOSITION = YCBCRPOSITION
-    # GRAYRESPONSEUNIT = GRAYRESPONSEUNIT
-    # GROUP4OPT = GROUP4OPT
-    # COLORRESPONSEUNIT = COLORRESPONSEUNIT
 
 
 TIFF = _TIFF()
@@ -19524,8 +19589,8 @@ def read_tags(
                 raise TiffFileError(f'suspicious number of tags {tagno}')
         except Exception as exc:
             logger().error(
-                '<tifffile.read_tags> corrupted tag list '
-                f'@{offset} raised {exc!r}'
+                f'<tifffile.read_tags> corrupted tag list @{offset} '
+                f'raised {exc!r:.128}'
             )
             break
 
@@ -19596,7 +19661,7 @@ def read_tags(
                 except UnicodeDecodeError as exc:
                     logger().warning(
                         '<tifffile.read_tags> coercing invalid ASCII to bytes '
-                        f'for tag #{code} due to {exc!r}'
+                        f'for tag #{code}, due to {exc!r:.128}'
                     )
             else:
                 if code in TIFF.TAG_ENUM:
@@ -19608,7 +19673,7 @@ def read_tags(
                             # ignore compression/predictor
                             logger().warning(
                                 f'<tifffile.read_tags> tag #{code} '
-                                f'raised {exc!r}'
+                                f'raised {exc!r:.128}'
                             )
                 if process and len(value) == 1:
                     value = value[0]
@@ -19755,7 +19820,7 @@ def read_json(
     try:
         return json.loads(stripnull(data).decode())
     except ValueError as exc:
-        logger().warning(f'<tifffile.read_json> raised {exc!r}')
+        logger().warning(f'<tifffile.read_json> raised {exc!r:.128}')
     return None
 
 
@@ -19950,7 +20015,7 @@ def read_uic_tag(
         except Exception as exc:
             value = None
             logger().warning(
-                f'<tifffile.read_uic_tag> reading {name} raised {exc!r}'
+                f'<tifffile.read_uic_tag> reading {name} raised {exc!r:.128}'
             )
     elif dtype is read_uic_image_property:
         # ImagePropertyEx
@@ -20325,7 +20390,7 @@ def read_sis_ini(
     try:
         return olympusini_metadata(inistr)
     except Exception as exc:
-        logger().warning(f'<tifffile.olympusini_metadata> raised {exc!r}')
+        logger().warning(f'<tifffile.olympusini_metadata> raised {exc!r:.128}')
         return {}
 
 
@@ -20590,7 +20655,7 @@ def read_micromanager_metadata(
             logger().warning(
                 '<tifffile.read_micromanager_metadata> '
                 f'failed to read NDTiffv{index_offset} summary settings, '
-                f'raised {exc!r}'
+                f'raised {exc!r:.128}'
             )
         return result
 
@@ -20607,7 +20672,7 @@ def read_micromanager_metadata(
     except Exception as exc:
         logger().warning(
             '<tifffile.read_micromanager_metadata> failed to read header, '
-            f'raised {exc!r}'
+            f'raised {exc!r:.128}'
         )
 
     if 'Summary' in keys:
@@ -20621,7 +20686,7 @@ def read_micromanager_metadata(
         except Exception as exc:
             logger().warning(
                 '<tifffile.read_micromanager_metadata> '
-                f'failed to read summary settings, raised {exc!r}'
+                f'failed to read summary settings, raised {exc!r:.128}'
             )
 
     if 'IndexMap' in keys:
@@ -20639,7 +20704,7 @@ def read_micromanager_metadata(
         except Exception as exc:
             logger().warning(
                 '<tifffile.read_micromanager_metadata> '
-                f'failed to read index map, raised {exc!r}'
+                f'failed to read index map, raised {exc!r:.128}'
             )
 
     if 'DisplaySettings' in keys:
@@ -20663,7 +20728,7 @@ def read_micromanager_metadata(
         except Exception as exc:
             logger().warning(
                 '<tifffile.read_micromanager_metadata> '
-                f'failed to read display settings, raised {exc!r}'
+                f'failed to read display settings, raised {exc!r:.128}'
             )
 
     result['MajorVersion'] = 0
@@ -20693,7 +20758,7 @@ def read_micromanager_metadata(
     except Exception as exc:
         logger().warning(
             '<tifffile.read_micromanager_metadata> failed to read comments, '
-            f'raised {exc!r}'
+            f'raised {exc!r:.128}'
         )
 
     return result
@@ -20794,7 +20859,7 @@ def read_gdal_structural_metadata(
                 result[key.strip()] = value.strip()
     except Exception as exc:
         logger().warning(
-            f'<tifffile.read_gdal_structural_metadata> raised {exc!r}'
+            f'<tifffile.read_gdal_structural_metadata> raised {exc!r:.128}'
         )
         return None
     return result
@@ -21544,7 +21609,7 @@ def stk_description_metadata(description: str, /) -> list[dict[str, Any]]:
     #     description = bytes2str(description)
     # except UnicodeDecodeError as exc:
     #     logger().warning(
-    #         '<tifffile.stk_description_metadata> raised {exc!r}'
+    #         '<tifffile.stk_description_metadata> raised {exc!r:.128}'
     #     )
     #     return []
     result = []
@@ -21624,7 +21689,7 @@ def scanimage_artist_metadata(artist: str, /) -> dict[str, Any] | None:
         return json.loads(artist)
     except ValueError as exc:
         logger().warning(
-            f'<tifffile.scanimage_artist_metadata> raised {exc!r}'
+            f'<tifffile.scanimage_artist_metadata> raised {exc!r:.128}'
         )
     return None
 
@@ -24843,13 +24908,6 @@ def imshow(
     return figure, subplot, image
 
 
-def _app_show() -> None:
-    """Block GUI. For use as skimage plugin."""
-    from matplotlib import pyplot
-
-    pyplot.show()
-
-
 def askopenfilename(**kwargs: Any) -> str:
     """Return file name(s) from Tkinter's file open dialog."""
     from tkinter import Tk, filedialog
@@ -25079,7 +25137,7 @@ def main() -> int:
                         images.append((None, notnone(s.pages), None))
                         if settings.debug:
                             raise
-                        print(f'\nSeries {i} raised {exc!r}... ', end='')
+                        print(f'\nSeries {i} raised {exc!r:.128}... ', end='')
         except Exception as exc:
             if settings.debug:
                 raise
@@ -25105,7 +25163,7 @@ def main() -> int:
         try:
             from matplotlib import pyplot
         except ImportError as exc:
-            logger().warning(f'<tifffile.main> raised {exc!r}')
+            logger().warning(f'<tifffile.main> raised {exc!r:.128}')
         else:
             for img, page, series in images:
                 if img is None:
