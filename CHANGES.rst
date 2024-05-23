@@ -1,9 +1,21 @@
 Revisions
 ---------
 
+2024.5.22
+
+- Pass 5084 tests.
+- Derive TiffPages, TiffPageSeries, FileSequence, StoredShape from Sequence.
+- Truncate circular IFD chain, do not raise TiffFileError (breaking).
+- Deprecate access to TiffPages.pages and FileSequence.files.
+- Enable DeprecationWarning for enums in TIFF namespace.
+- Remove some deprecated code (breaking).
+- Add iccprofile property to TiffPage and parameter to TiffWriter.write.
+- Do not detect VSI as SIS format.
+- Limit length of logged exception messages.
+- Work around GitHub not rendering docstring examples (#254, #255).
+
 2024.5.10
 
-- Pass 5082 tests.
 - Support reading JPEGXL compression in DNG 1.7.
 - Read invalid TIFF created by IDEAS software.
 
