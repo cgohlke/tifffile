@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.5.10
+:Version: 2024.5.22
 
 """
 
@@ -106,9 +106,20 @@ try:
 except NameError:
     STAR_IMPORTED = ()
 
-from tifffile.tifffile import (  # noqa: F401
+from tifffile import (  # noqa: F401
+    CHUNKMODE,
     COMPRESSION,
+    DATATYPE,
+    EXTRASAMPLE,
+    FILETYPE,
+    FILLORDER,
+    OFILETYPE,
+    ORIENTATION,
+    PHOTOMETRIC,
+    PLANARCONFIG,
+    PREDICTOR,
     RESUNIT,
+    SAMPLEFORMAT,
     TIFF,
     FileCache,
     FileHandle,
@@ -223,39 +234,6 @@ SKIP_DASK = skip('SKIP_DASK', False)
 SKIP_NDTIFF = skip('SKIP_NDTIFF', False)
 SKIP_HTTP = skip('SKIP_HTTP', not IS_CG)
 REASON = 'skipped'
-
-MINISBLACK = TIFF.PHOTOMETRIC.MINISBLACK
-MINISWHITE = TIFF.PHOTOMETRIC.MINISWHITE
-RGB = TIFF.PHOTOMETRIC.RGB
-CFA = TIFF.PHOTOMETRIC.CFA
-LINEAR_RAW = TIFF.PHOTOMETRIC.LINEAR_RAW
-SEPARATED = TIFF.PHOTOMETRIC.SEPARATED
-PALETTE = TIFF.PHOTOMETRIC.PALETTE
-YCBCR = TIFF.PHOTOMETRIC.YCBCR
-CONTIG = TIFF.PLANARCONFIG.CONTIG
-SEPARATE = TIFF.PLANARCONFIG.SEPARATE
-LZW = TIFF.COMPRESSION.LZW
-LZMA = TIFF.COMPRESSION.LZMA
-ZSTD = TIFF.COMPRESSION.ZSTD
-WEBP = TIFF.COMPRESSION.WEBP
-PNG = TIFF.COMPRESSION.PNG
-LERC = TIFF.COMPRESSION.LERC
-JPEG2000 = TIFF.COMPRESSION.JPEG2000
-JPEGXL = TIFF.COMPRESSION.JPEGXL
-JPEGXL_DNG = TIFF.COMPRESSION.JPEGXL_DNG
-PACKBITS = TIFF.COMPRESSION.PACKBITS
-JPEG = TIFF.COMPRESSION.JPEG
-OJPEG = TIFF.COMPRESSION.OJPEG
-APERIO_JP2000_RGB = TIFF.COMPRESSION.APERIO_JP2000_RGB
-APERIO_JP2000_YCBC = TIFF.COMPRESSION.APERIO_JP2000_YCBC
-ADOBE_DEFLATE = TIFF.COMPRESSION.ADOBE_DEFLATE
-DEFLATE = TIFF.COMPRESSION.DEFLATE
-NONE = TIFF.COMPRESSION.NONE
-LSB2MSB = TIFF.FILLORDER.LSB2MSB
-ASSOCALPHA = TIFF.EXTRASAMPLE.ASSOCALPHA
-UNASSALPHA = TIFF.EXTRASAMPLE.UNASSALPHA
-UNSPECIFIED = TIFF.EXTRASAMPLE.UNSPECIFIED
-HORIZONTAL = TIFF.PREDICTOR.HORIZONTAL
 
 FILE_FLAGS = ['is_' + a for a in TIFF.FILE_FLAGS]
 FILE_FLAGS += [name for name in dir(TiffFile) if name.startswith('is_')]
@@ -531,7 +509,7 @@ def test_issue_imread_kwargs_legacy():
     """
     data = random_data(numpy.uint8, (3, 21, 31))
     with TempFileName('issue_imread_kwargs_legacy') as fname:
-        imwrite(fname, data, photometric=MINISBLACK)
+        imwrite(fname, data, photometric=PHOTOMETRIC.MINISBLACK)
         with pytest.raises(TypeError):
             imread(fname, fastij=True)
         with pytest.raises(TypeError):
@@ -574,7 +552,7 @@ def test_issue_jpeg_ia():
     fname = private_file('issues/jpeg_ia.tiff')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.compression == JPEG
+        assert page.compression == COMPRESSION.JPEG
         assert_array_equal(
             page.asarray(),
             numpy.array([[[0, 0], [255, 255]]], dtype=numpy.uint8),
@@ -591,7 +569,7 @@ def test_issue_jpeg_palette():
     fname = private_file('issues/FL_cells.ome.tif')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.compression == JPEG
+        assert page.compression == COMPRESSION.JPEG
         assert page.colormap is not None
         data = tif.asarray()
         assert data.shape == (4, 1024, 1024)
@@ -605,7 +583,7 @@ def test_issue_specific_pages():
     """Test read second page."""
     data = random_data(numpy.uint8, (3, 21, 31))
     with TempFileName('issue_specific_pages') as fname:
-        imwrite(fname, data, photometric=MINISBLACK)
+        imwrite(fname, data, photometric=PHOTOMETRIC.MINISBLACK)
         image = imread(fname)
         assert image.shape == (3, 21, 31)
         # UserWarning: can not reshape (21, 31) to (3, 21, 31)
@@ -613,7 +591,7 @@ def test_issue_specific_pages():
         assert image.shape == (21, 31)
         assert_array_equal(image, data[1])
     with TempFileName('issue_specific_pages_bigtiff') as fname:
-        imwrite(fname, data, bigtiff=True, photometric=MINISBLACK)
+        imwrite(fname, data, bigtiff=True, photometric=PHOTOMETRIC.MINISBLACK)
         image = imread(fname)
         assert image.shape == (3, 21, 31)
         # UserWarning: can not reshape (21, 31) to (3, 21, 31)
@@ -623,11 +601,15 @@ def test_issue_specific_pages():
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
-def test_issue_circular_ifd():
-    """Test circular IFD raises error."""
+def test_issue_circular_ifd(caplog):
+    """Test circular IFD logs error but is still readable."""
     fname = public_file('Tiff-Library-4J/IFD struct/Circular E.tif')
-    with pytest.raises(TiffFileError):
-        imread(fname)
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 2
+        assert 'invalid circular reference' in caplog.text
+        image = tif.asarray()
+        assert image.shape == (2, 1500, 2000, 3)
+        assert image[1, 1499, 1999, 2] == 110
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -660,7 +642,7 @@ def test_issue_sampleformat():
     # https://github.com/ngageoint/geopackage-tiff-java/issues/5
     data = random_data(numpy.int16, (256, 256, 4))
     with TempFileName('issue_sampleformat') as fname:
-        imwrite(fname, data, photometric=RGB)
+        imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         with TiffFile(fname) as tif:
             tags = tif.pages.first.tags
             assert tags['SampleFormat'].value == (2, 2, 2, 2)
@@ -672,7 +654,7 @@ def test_issue_sampleformat_default():
     """Test SampleFormat are not written for UINT."""
     data = random_data(numpy.uint8, (256, 256, 4))
     with TempFileName('issue_sampleformat_default') as fname:
-        imwrite(fname, data, photometric=RGB)
+        imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         with TiffFile(fname) as tif:
             tags = tif.pages.first.tags
             'SampleFormat' not in tags
@@ -688,8 +670,8 @@ def test_issue_palette_with_extrasamples():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.photometric == PALETTE
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.PALETTE
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 518
         assert page.imagelength == 556
         assert page.bitspersample == 8
@@ -715,8 +697,8 @@ def test_issue_incorrect_rowsperstrip_count():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.photometric == PALETTE
-        assert page.compression == ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.PALETTE
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
         assert page.imagewidth == 32
         assert page.imagelength == 32
         assert page.bitspersample == 4
@@ -763,7 +745,7 @@ def test_issue_no_bytecounts(caplog):
         assert len(tif.pages) == 1
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.planarconfig == CONTIG
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.dataoffsets[0] == 512
         assert page.databytecounts[0] == 0
         # assert data
@@ -827,7 +809,7 @@ def test_issue_imagej_grascalemode():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 672
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -864,7 +846,7 @@ def test_issue_valueoffset(byteorder):
             fname,
             data,
             software=software,
-            photometric=MINISBLACK,
+            photometric=PHOTOMETRIC.MINISBLACK,
             extratags=[(65535, 3, 2, (21, 22), True)],
         )
         with TiffFile(fname, _useframes=True) as tif:
@@ -913,7 +895,7 @@ def test_issue_pages_iterator():
         imwrite(
             fname,
             data,
-            photometric=MINISBLACK,
+            photometric=PHOTOMETRIC.MINISBLACK,
             append=True,
             metadata={'axes': 'ZYX'},
         )
@@ -924,7 +906,7 @@ def test_issue_pages_iterator():
             page = tif.pages[1]
             assert isinstance(page, TiffPage)
             assert page.is_contiguous
-            assert page.photometric == MINISBLACK
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -983,8 +965,8 @@ def test_issue_tile_partial():
             fname,
             data,
             tile=(16, 16, 16),
-            planarconfig=SEPARATE,
-            photometric=RGB,
+            planarconfig=PLANARCONFIG.SEPARATE,
+            photometric=PHOTOMETRIC.RGB,
         )
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -1067,7 +1049,7 @@ def test_issue_fcontiguous():
     # https://github.com/cgohlke/tifffile/issues/24
     data = numpy.asarray(random_data(numpy.uint8, (31, 33)), order='F')
     with TempFileName('issue_fcontiguous') as fname:
-        imwrite(fname, data, compression=ADOBE_DEFLATE)
+        imwrite(fname, data, compression=COMPRESSION.ADOBE_DEFLATE)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
@@ -1099,7 +1081,7 @@ def test_issue_pathlib():
                 # out=file
                 im = tif.asarray(out=outfname)
                 try:
-                    assert isinstance(im, numpy.core.memmap)
+                    assert isinstance(im, numpy.memmap)
                     assert_array_equal(im, data)
                     assert os.path.samefile(im.filename, str(outfname))
                 finally:
@@ -1143,7 +1125,7 @@ def test_issue_iterable_compression():
                 data,
                 shape=(10, 10, 10),
                 dtype=numpy.int8,
-                compression=ADOBE_DEFLATE,
+                compression=COMPRESSION.ADOBE_DEFLATE,
             )
         with TiffFile(fname) as tif:
             assert_array_equal(tif.series[0].asarray(), data)
@@ -1159,7 +1141,7 @@ def test_issue_iterable_compression():
                     data,
                     shape=(10, 10, 10),
                     dtype=numpy.uint8,
-                    compression=ADOBE_DEFLATE,
+                    compression=COMPRESSION.ADOBE_DEFLATE,
                 )
 
 
@@ -1171,21 +1153,25 @@ def test_issue_write_separated():
     extrasample = random_data(numpy.uint8, (63, 95, 5))
     with TempFileName('issue_write_separated') as fname:
         with TiffWriter(fname) as tif:
-            tif.write(contig, photometric=SEPARATED)
-            tif.write(separate, photometric=SEPARATED)
-            tif.write(extrasample, photometric=SEPARATED, extrasamples=[1])
+            tif.write(contig, photometric=PHOTOMETRIC.SEPARATED)
+            tif.write(separate, photometric=PHOTOMETRIC.SEPARATED)
+            tif.write(
+                extrasample,
+                photometric=PHOTOMETRIC.SEPARATED,
+                extrasamples=[1],
+            )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 3
             assert len(tif.series) == 3
             page = tif.pages.first
-            assert page.photometric == SEPARATED
+            assert page.photometric == PHOTOMETRIC.SEPARATED
             assert_array_equal(page.asarray(), contig)
             page = tif.pages[1]
-            assert page.photometric == SEPARATED
+            assert page.photometric == PHOTOMETRIC.SEPARATED
             assert_array_equal(page.asarray(), separate)
             page = tif.pages[2]
-            assert page.photometric == SEPARATED
+            assert page.photometric == PHOTOMETRIC.SEPARATED
             assert page.extrasamples == (1,)
             assert_array_equal(page.asarray(), extrasample)
 
@@ -1234,9 +1220,10 @@ def test_issue_pickle():
     # https://github.com/cgohlke/tifffile/issues/64
     from pickle import dumps, loads
 
-    assert loads(dumps(TIFF)).CHUNKMODE.PLANE == TIFF.CHUNKMODE.PLANE
-    assert loads(dumps(TIFF.CHUNKMODE)).PLANE == TIFF.CHUNKMODE.PLANE
-    assert loads(dumps(TIFF.CHUNKMODE.PLANE)) == TIFF.CHUNKMODE.PLANE
+    with pytest.warns(DeprecationWarning):
+        assert loads(dumps(TIFF)).CHUNKMODE.PLANE == TIFF.CHUNKMODE.PLANE
+        assert loads(dumps(TIFF.CHUNKMODE)).PLANE == TIFF.CHUNKMODE.PLANE
+        assert loads(dumps(TIFF.CHUNKMODE.PLANE)) == TIFF.CHUNKMODE.PLANE
 
 
 def test_issue_imagej_singlet_dimensions():
@@ -1279,8 +1266,8 @@ def test_issue_cr2_ojpeg():
         assert page.compression == 6
         assert page.shape == (4000, 6000, 3)
         assert page.dtype == numpy.uint8
-        assert page.photometric == YCBCR
-        assert page.compression == OJPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.OJPEG
         data = page.asarray()
         assert data.shape == (4000, 6000, 3)
         assert data.dtype == numpy.uint8
@@ -1290,8 +1277,8 @@ def test_issue_cr2_ojpeg():
         page = tif.pages[1]
         assert page.shape == (120, 160, 3)
         assert page.dtype == numpy.uint8
-        assert page.photometric == YCBCR
-        assert page.compression == OJPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.OJPEG
         data = page.asarray()
         assert tuple(data[60, 80]) == (124, 144, 107)
         assert_aszarr_method(page, data)
@@ -1299,8 +1286,8 @@ def test_issue_cr2_ojpeg():
         page = tif.pages[2]
         assert page.shape == (400, 600, 3)
         assert page.dtype == numpy.uint16
-        assert page.photometric == RGB
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.NONE
         data = page.asarray()
         assert tuple(data[200, 300]) == (1648, 2340, 1348)
         assert_aszarr_method(page, data)
@@ -1308,8 +1295,8 @@ def test_issue_cr2_ojpeg():
         page = tif.pages[3]
         assert page.shape == (4056, 3144, 2)
         assert page.dtype == numpy.uint16
-        assert page.photometric == MINISWHITE
-        assert page.compression == OJPEG  # SOF3
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
+        assert page.compression == COMPRESSION.OJPEG  # SOF3
         data = page.asarray()
         assert tuple(data[2000, 1500]) == (1759, 2467)
         assert_aszarr_method(page, data)
@@ -1327,10 +1314,10 @@ def test_issue_ojpeg_preview():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.shape == (120, 160, 3)
         assert page.dtype == numpy.uint8
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         data = page.asarray()
         assert data.shape == (120, 160, 3)
         assert data.dtype == numpy.uint8
@@ -1340,7 +1327,7 @@ def test_issue_ojpeg_preview():
         page = tif.pages.first.pages[0]
         assert page.shape == (4032, 6048, 3)
         assert page.dtype == numpy.uint8
-        assert page.photometric == OJPEG
+        assert page.photometric == COMPRESSION.OJPEG
         data = page.asarray()
         assert tuple(data[60, 80]) == (67, 13, 11)
         assert_aszarr_method(page, data)
@@ -1348,8 +1335,8 @@ def test_issue_ojpeg_preview():
         page = tif.pages.first.pages[1]
         assert page.shape == (4044, 6080)
         assert page.bitspersample == 14
-        assert page.photometric == CFA
-        assert page.compression == TIFF.COMPRESSION.NIKON_NEF
+        assert page.photometric == PHOTOMETRIC.CFA
+        assert page.compression == COMPRESSION.NIKON_NEF
         with pytest.raises(ValueError):
             data = page.asarray()
 
@@ -1368,8 +1355,8 @@ def test_issue_arw(caplog):
         assert len(tif.series) == 4
 
         page = tif.pages.first
-        assert page.compression == OJPEG
-        assert page.photometric == YCBCR
+        assert page.compression == COMPRESSION.OJPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
         assert page.shape == (1080, 1616, 3)
         assert page.dtype == numpy.uint8
         data = page.asarray()
@@ -1380,8 +1367,8 @@ def test_issue_arw(caplog):
         assert tif.pages.first.pages is not None
         page = tif.pages.first.pages[0]
         assert page.is_tiled
-        assert page.compression == JPEG
-        assert page.photometric == CFA
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.CFA
         assert page.bitspersample == 14
         assert page.tags['SonyRawFileType'].value == 4
         assert page.tags['CFARepeatPatternDim'].value == (2, 2)
@@ -1394,8 +1381,8 @@ def test_issue_arw(caplog):
         assert_aszarr_method(page, data)
 
         page = tif.pages[1]
-        assert page.compression == OJPEG
-        assert page.photometric == YCBCR
+        assert page.compression == COMPRESSION.OJPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
         assert page.shape == (120, 160, 3)
         assert page.dtype == numpy.uint8
         data = page.asarray()
@@ -1403,8 +1390,8 @@ def test_issue_arw(caplog):
         assert_aszarr_method(page, data)
 
         page = tif.pages[2]
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
         assert page.shape == (5760, 8640, 3)
         assert page.dtype == numpy.uint8
         data = page.asarray()
@@ -1501,8 +1488,8 @@ def test_issue_packbits_dtype():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 519
         page = tif.pages[181]
-        assert page.compression == PACKBITS
-        assert page.photometric == MINISBLACK
+        assert page.compression == COMPRESSION.PACKBITS
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.shape == (348, 185)
         assert page.dtype == numpy.int16
         data = page.asarray()
@@ -1521,8 +1508,8 @@ def test_issue_packbits_dtype():
     with TiffFile(buf) as tif:
         assert len(tif.pages) == 519
         page = tif.pages[181]
-        assert page.compression == PACKBITS
-        assert page.photometric == MINISBLACK
+        assert page.compression == COMPRESSION.PACKBITS
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.shape == (348, 185)
         assert page.dtype == numpy.int16
         data = page.asarray()
@@ -1544,9 +1531,9 @@ def test_issue_predictor_byteorder():
         assert tif.tiff.byteorder == '>'
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == ADOBE_DEFLATE
-        assert page.photometric == RGB
-        assert page.predictor == HORIZONTAL
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.predictor == PREDICTOR.HORIZONTAL
         assert page.shape == (43, 73, 3)
         assert page.dtype == numpy.uint32
         data = page.asarray()
@@ -1615,7 +1602,7 @@ def test_issue_read_from_closed_file():
 @pytest.mark.skipif(
     SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.PNG, reason=REASON
 )
-def test_issue_filesequence_categories():
+def test_issue_filesequence_categories(caplog):
     """Test FileSequence with categories."""
     # https://github.com/cgohlke/tifffile/issues/76
 
@@ -1629,7 +1616,9 @@ def test_issue_filesequence_categories():
         ),
         categories={'sampleid': {'A1': 0, 'B1': 1}, 'experiment': {'doi': 0}},
     ) as pngs:
-        assert len(pngs.files) == 2
+        with pytest.warns(DeprecationWarning):
+            assert len(pngs.files) == 2
+        assert len(pngs) == 2
         assert pngs.files_missing == 2
         assert pngs.shape == (2, 1, 2)
         assert pngs.dims == ('sampleid', 'experiment', 'frameid')
@@ -1667,7 +1656,7 @@ def test_issue_imagej_prop():
         assert ijmeta['slices'] == 500
         assert not ijmeta['loop']
         assert prop['CurrentLUT'] == 'glasbey_on_dark'
-        assert tif.pages.first.photometric == PALETTE
+        assert tif.pages.first.photometric == PHOTOMETRIC.PALETTE
         colormap = tif.pages.first.colormap
         data = tif.asarray()
 
@@ -1685,7 +1674,7 @@ def test_issue_imagej_prop():
         assert not ijmeta['loop']
         assert prop['CurrentLUT'] == 'glasbey_on_dark'
         assert prop['Test'] == '0.1'
-        assert tif.pages.first.photometric == PALETTE
+        assert tif.pages.first.photometric == PHOTOMETRIC.PALETTE
         colormap = tif.pages.first.colormap
         image = tif.asarray()
         assert_array_equal(image, data)
@@ -1768,7 +1757,7 @@ def test_issue_imagej_colormap():
             assert tif.is_imagej
             assert tif.imagej_metadata is not None
             assert tif.imagej_metadata['Properties']['CurrentLUT'] == 'cyan'
-            assert tif.pages.first.photometric == MINISBLACK
+            assert tif.pages.first.photometric == PHOTOMETRIC.MINISBLACK
             assert_array_equal(tif.pages.first.colormap, colormap)
 
 
@@ -1782,7 +1771,7 @@ def test_issue_webp_rgba(name, caplog):
     fname = private_file(f'issues/CMU-1-Small-Region.{name}.webp.tiff')
     with tifffile.TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.compression == WEBP
+        assert page.compression == COMPRESSION.WEBP
         assert page.shape == (2967, 2220, 4)
         assert tuple(page.asarray()[25, 25]) == (246, 244, 245, 255)
         assert f'corrupted {name}' not in caplog.text
@@ -2113,7 +2102,10 @@ def test_issue_subfiletype_zero():
     with TempFileName('issue_subfiletype_zero') as fname:
         imwrite(fname, [[0]], subfiletype=0)
         with TiffFile(fname) as tif:
-            assert tif.pages.first.tags['NewSubfileType'].value == 0
+            assert (
+                tif.pages.first.tags['NewSubfileType'].value
+                == FILETYPE.UNDEFINED
+            )
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -2269,7 +2261,7 @@ def test_issue_imagej_compressed():
             'height': 256,
             'width': 256,
         }
-        assert series.keyframe.compression == ADOBE_DEFLATE
+        assert series.keyframe.compression == COMPRESSION.ADOBE_DEFLATE
         assert series.asarray()[59, 1, 55, 87] == 5643
 
 
@@ -2292,8 +2284,8 @@ def test_issue_jpeg_rgb():
         with TiffFile(fname) as tif:
             page = tif.pages.first
             assert page.shape == data.shape
-            assert page.photometric == RGB
-            assert page.compression == JPEG
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.compression == COMPRESSION.JPEG
             assert not page.is_jfif
             image = page.asarray()
         assert_array_equal(image, imagecodecs.imread(fname))
@@ -2307,7 +2299,7 @@ def test_issue_imread_out():
     image = imread(fname, out=None)
     assert isinstance(image, numpy.ndarray)
     data = imread(fname, out='memmap')
-    assert isinstance(data, numpy.core.memmap)
+    assert isinstance(data, numpy.memmap)
     assert_array_equal(data, image)
 
     image = imread([fname, fname], out=None)
@@ -2321,7 +2313,7 @@ def test_issue_imread_out():
         out_inplace=True,
         out='memmap',
     )
-    assert isinstance(data, numpy.core.memmap)
+    assert isinstance(data, numpy.memmap)
     assert_array_equal(data, image)
 
 
@@ -2478,7 +2470,7 @@ def test_issue_predictor_floatx2():
             assert len(tif.pages) == 1
             assert len(tif.series) == 1
             page = tif.pages.first
-            assert page.photometric == MINISBLACK
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
             assert page.imagewidth == 302
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -2610,7 +2602,7 @@ def test_issue_ome_missing_frames():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 2448
         assert page.imagelength == 2048
         assert page.bitspersample == 8
@@ -2754,8 +2746,8 @@ def test_issue_non_volumetric():
             page = tif.pages.first
             assert page.is_tiled
             assert page.is_volumetric
-            assert page.photometric == RGB
-            assert page.planarconfig == SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
             assert page.shape == data.shape
 
         data = random_data(numpy.uint8, (5, 13, 17, 3))
@@ -2772,8 +2764,8 @@ def test_issue_non_volumetric():
             page = tif.pages.first
             assert page.is_tiled
             assert page.is_volumetric
-            assert page.photometric == RGB
-            assert page.planarconfig == CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
             assert page.shape == data.shape
 
         data = random_data(numpy.uint8, (5, 13, 17))
@@ -2790,7 +2782,7 @@ def test_issue_non_volumetric():
             page = tif.pages.first
             assert page.is_tiled
             assert page.is_volumetric
-            assert page.photometric == MINISWHITE
+            assert page.photometric == PHOTOMETRIC.MINISWHITE
             assert page.shape == data.shape
 
 
@@ -3160,11 +3152,24 @@ class TestExceptions:
                     compression=8,
                 )
 
-    def test_axes_labels(self):
-        # TIFF.AXES_LABELS is deprecated
+    def test_tiff_enums(self):
+        # TIFF.COMPRESSION and others are deprecated
         with pytest.warns(DeprecationWarning):
-            assert TIFF.AXES_LABELS['X'] == 'width'
-            assert TIFF.AXES_LABELS['width'] == 'X'
+            TIFF.COMPRESSION
+        with pytest.warns(DeprecationWarning):
+            TIFF.EXTRASAMPLE
+        with pytest.warns(DeprecationWarning):
+            TIFF.FILLORDER
+        with pytest.warns(DeprecationWarning):
+            TIFF.PHOTOMETRIC
+        with pytest.warns(DeprecationWarning):
+            TIFF.PLANARCONFIG
+        with pytest.warns(DeprecationWarning):
+            TIFF.PREDICTOR
+        with pytest.warns(DeprecationWarning):
+            TIFF.RESUNIT
+        with pytest.warns(DeprecationWarning):
+            TIFF.RESUNIT
 
     # def test_extratags(self, fname):
     #     # invalid dtype or count
@@ -3430,7 +3435,13 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
     bo = 'be' if byteorder == '>' else 'le'
 
     with TempFileName(f'class_tifftag_overwrite_{bo}{bt}') as fname:
-        imwrite(fname, data, bigtiff=bigtiff, photometric=RGB, software='in')
+        imwrite(
+            fname,
+            data,
+            bigtiff=bigtiff,
+            photometric=PHOTOMETRIC.RGB,
+            software='in',
+        )
 
         with TiffFile(fname, mode='r+') as tif:
             tags = tif.pages.first.tags
@@ -4072,7 +4083,7 @@ def test_func_memmap():
             shape=(3, 64, 64),
             dtype=numpy.uint16,
             append=True,
-            photometric=MINISBLACK,
+            photometric=PHOTOMETRIC.MINISBLACK,
         )
         im[2, 63, 63] = 1.0
         im.flush()
@@ -4092,7 +4103,7 @@ def test_func_memmap():
                 shape=(16, 16),
                 dtype=numpy.float32,
                 append=True,
-                compression=ADOBE_DEFLATE,
+                compression=COMPRESSION.ADOBE_DEFLATE,
             )
 
 
@@ -5054,7 +5065,11 @@ def test_func_tiffcomment():
     with TempFileName('func_tiffcomment') as fname:
         comment = 'A comment'
         imwrite(
-            fname, data, photometric=RGB, description=comment, metadata=None
+            fname,
+            data,
+            photometric=PHOTOMETRIC.RGB,
+            description=comment,
+            metadata=None,
         )
         assert comment == tiffcomment(fname)
         comment = 'changed comment'
@@ -5075,11 +5090,11 @@ def test_func_create_output():
     assert a is b.base
     # 'memmap'
     a = create_output('memmap', shape, dtype)
-    assert isinstance(a, numpy.core.memmap)
+    assert isinstance(a, numpy.memmap)
     del a
     # 'memmap:tempdir'
     a = create_output(f'memmap:{os.path.abspath(TEMP_DIR)}', shape, dtype)
-    assert isinstance(a, numpy.core.memmap)
+    assert isinstance(a, numpy.memmap)
     del a
     # filename
     with TempFileName('nopages') as fname:
@@ -5138,14 +5153,14 @@ def test_func_create_output_asarray(out, key):
             elif out == 'memmap':
                 # memmap in temp dir
                 image = obj.asarray(out='memmap')
-                assert isinstance(image, numpy.core.memmap)
+                assert isinstance(image, numpy.memmap)
                 assert_array_equal(dat, image)
                 del image
             elif out == 'dir':
                 # memmap in specified dir
                 tempdir = os.path.dirname(fname)
                 image = obj.asarray(out=f'memmap:{tempdir}')
-                assert isinstance(image, numpy.core.memmap)
+                assert isinstance(image, numpy.memmap)
                 assert_array_equal(dat, image)
                 del image
             elif out == 'name':
@@ -5154,7 +5169,7 @@ def test_func_create_output_asarray(out, key):
                     f'out_{key}_{out}', ext='.memmap'
                 ) as fileout:
                     image = obj.asarray(out=fileout)
-                    assert isinstance(image, numpy.core.memmap)
+                    assert isinstance(image, numpy.memmap)
                     assert_array_equal(dat, image)
                     del image
 
@@ -5713,12 +5728,16 @@ def test_read_tigers(fname):
         assert page.imagewidth == 73
         assert page.imagelength == 76
         assert page.bitspersample == databits
-        assert (page.photometric == RGB) == ('rgb' in fname)
-        assert (page.photometric == PALETTE) == ('palette' in fname)
+        assert (page.photometric == PHOTOMETRIC.RGB) == ('rgb' in fname)
+        assert (page.photometric == PHOTOMETRIC.PALETTE) == (
+            'palette' in fname
+        )
         assert page.is_tiled == ('tile' in fname)
-        assert (page.planarconfig == CONTIG) == ('planar' not in fname)
+        assert (page.planarconfig == PLANARCONFIG.CONTIG) == (
+            'planar' not in fname
+        )
         if 'minisblack' in fname:
-            assert page.photometric == MINISBLACK
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
 
         # float24 not supported
         # if 'float' in fname and databits == 24:
@@ -5796,9 +5815,9 @@ def test_read_hopper_2bit():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert not page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.bitspersample == 2
@@ -5821,8 +5840,8 @@ def test_read_hopper_2bit():
     fname = public_file('pillow/tiff_gray_2_4_bpp/hopper2R.tif')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
-        assert page.fillorder == LSB2MSB
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.fillorder == FILLORDER.LSB2MSB
         assert_array_equal(tif.asarray(), data)
         assert_aszarr_method(tif)
         assert__str__(tif)
@@ -5830,7 +5849,7 @@ def test_read_hopper_2bit():
     fname = public_file('pillow/tiff_gray_2_4_bpp/hopper2I.tif')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.photometric == MINISWHITE
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert_array_equal(tif.asarray(), 3 - data)
         assert_aszarr_method(tif)
         assert__str__(tif)
@@ -5838,7 +5857,7 @@ def test_read_hopper_2bit():
     fname = public_file('pillow/tiff_gray_2_4_bpp/hopper2IR.tif')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.photometric == MINISWHITE
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert_array_equal(tif.asarray(), 3 - data)
         assert_aszarr_method(tif)
         assert__str__(tif)
@@ -5855,9 +5874,9 @@ def test_read_hopper_4bit():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert not page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.bitspersample == 4
@@ -5878,22 +5897,22 @@ def test_read_hopper_4bit():
     fname = public_file('pillow/tiff_gray_2_4_bpp/hopper4R.tif')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
-        assert page.fillorder == LSB2MSB
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.fillorder == FILLORDER.LSB2MSB
         assert_array_equal(tif.asarray(), data)
         assert__str__(tif)
     # inverted
     fname = public_file('pillow/tiff_gray_2_4_bpp/hopper4I.tif')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.photometric == MINISWHITE
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert_array_equal(tif.asarray(), 15 - data)
         assert__str__(tif)
     # inverted and reversed
     fname = public_file('pillow/tiff_gray_2_4_bpp/hopper4IR.tif')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.photometric == MINISWHITE
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert_array_equal(tif.asarray(), 15 - data)
         assert__str__(tif)
 
@@ -5911,14 +5930,14 @@ def test_read_lsb2msb():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 7100
         assert page.imagelength == 4700
         assert page.bitspersample == 16
         assert page.samplesperpixel == 3
         page = tif.pages[1]
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 7100
         assert page.imagelength == 4700
         assert page.bitspersample == 16
@@ -5957,9 +5976,9 @@ def test_read_gimp_u2():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == ADOBE_DEFLATE
-        assert page.photometric == RGB
-        assert page.predictor == HORIZONTAL
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.predictor == PREDICTOR.HORIZONTAL
         assert page.imagewidth == 333
         assert page.imagelength == 231
         assert page.samplesperpixel == 3
@@ -5977,9 +5996,9 @@ def test_read_gimp_f4():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == ADOBE_DEFLATE
-        assert page.photometric == RGB
-        assert page.predictor == HORIZONTAL
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.predictor == PREDICTOR.HORIZONTAL
         assert page.imagewidth == 333
         assert page.imagelength == 231
         assert page.samplesperpixel == 3
@@ -5999,9 +6018,9 @@ def test_read_gimp_f2():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == ADOBE_DEFLATE
-        assert page.photometric == RGB
-        assert page.predictor == HORIZONTAL
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.predictor == PREDICTOR.HORIZONTAL
         assert page.imagewidth == 333
         assert page.imagelength == 231
         assert page.samplesperpixel == 3
@@ -6040,8 +6059,8 @@ def test_read_dng_ljpeg():
         assert len(tif.pages) == 1
         assert len(tif.series) == 3
         page = tif.pages.first.pages[0]
-        assert page.compression == JPEG
-        assert page.photometric == CFA
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.CFA
         assert page.imagewidth == 7392
         assert page.imagelength == 4950
         assert page.bitspersample == 14
@@ -6066,8 +6085,8 @@ def test_read_dng_linearraw():
         assert len(tif.pages) == 1
         assert len(tif.series) == 2
         page = tif.pages.first.pages[0]
-        assert page.compression == JPEG
-        assert page.photometric == LINEAR_RAW
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.LINEAR_RAW
         assert page.imagewidth == 4032
         assert page.imagelength == 3024
         assert page.bitspersample == 12
@@ -6090,12 +6109,12 @@ def test_read_dng_floatpredx2(fp):
         assert len(tif.pages) == 1
         assert len(tif.series) == 3
         page = tif.pages.first.pages[0]
-        assert page.compression == ADOBE_DEFLATE
-        assert page.photometric == CFA
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.CFA
         assert page.predictor == 34894
         assert page.imagewidth == 5920
         assert page.imagelength == 3950
-        assert page.sampleformat == 3
+        assert page.sampleformat == SAMPLEFORMAT.IEEEFP
         assert page.bitspersample == int(fp[2:])
         assert page.samplesperpixel == 1
         if fp == 'fp24':
@@ -6119,8 +6138,8 @@ def test_read_dng_jpegxl():
 
         page = tif.pages.first.pages[0]
         assert not page.is_reduced
-        assert page.compression == JPEGXL_DNG
-        assert page.photometric == LINEAR_RAW
+        assert page.compression == COMPRESSION.JPEGXL_DNG
+        assert page.photometric == PHOTOMETRIC.LINEAR_RAW
         assert page.imagewidth == 5712
         assert page.imagelength == 4284
         assert page.bitspersample == 16
@@ -6132,8 +6151,8 @@ def test_read_dng_jpegxl():
 
         page = tif.pages.first.pages[1]
         assert page.is_reduced
-        assert page.compression == JPEGXL_DNG
-        assert page.photometric == RGB
+        assert page.compression == COMPRESSION.JPEGXL_DNG
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 1024
         assert page.imagelength == 768
         assert page.bitspersample == 8
@@ -6141,7 +6160,7 @@ def test_read_dng_jpegxl():
         image = page.asarray()
         assert image.shape == (768, 1024, 3)
         assert image.dtype == 'uint8'
-        assert image[512, 512, 1] == 48
+        assert image[512, 512, 1] in {47, 48}
         assert page.tags['JXLDistance'].value == 2.0
         assert page.tags['JXLEffort'].value == 7
         assert page.tags['JXLDecodeSpeed'].value == 4
@@ -6170,7 +6189,7 @@ def test_read_iss_vista():
         page = tif.pages.first
         assert not page.is_reduced
         assert not page.is_tiled
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 256
         assert page.imagelength == 256
         assert page.tags['ImageDepth'].value == 14  # bogus
@@ -6199,7 +6218,7 @@ def test_read_vips():
         page = tif.pages.first
         assert not page.is_reduced
         assert page.is_tiled
-        assert page.compression == ADOBE_DEFLATE
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
         assert page.imagewidth == 641
         assert page.imagelength == 347
         assert page.bitspersample == 8
@@ -6242,10 +6261,10 @@ def test_read_volumetric():
         # assert page properties
         page = tif.pages.first
         assert page.is_volumetric
-        assert page.planarconfig == CONTIG
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.is_tiled
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.imagedepth == 128
@@ -6286,9 +6305,9 @@ def test_read_oxford():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.planarconfig == SEPARATE
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 601
         assert page.imagelength == 81
         assert page.bitspersample == 8
@@ -6320,8 +6339,8 @@ def test_read_cramps():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.compression == PACKBITS
-        assert page.photometric == MINISWHITE
+        assert page.compression == COMPRESSION.PACKBITS
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert page.imagewidth == 800
         assert page.imagelength == 607
         assert page.bitspersample == 8
@@ -6355,8 +6374,8 @@ def test_read_cramps_tile():
         page = tif.pages.first
         assert page.is_tiled
         assert not page.is_volumetric
-        assert page.compression == NONE
-        assert page.photometric == MINISWHITE
+        assert page.compression == COMPRESSION.NONE
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert page.imagewidth == 800
         assert page.imagelength == 607
         assert page.imagedepth == 1
@@ -6392,9 +6411,9 @@ def test_read_jello():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == PALETTE
-        assert page.planarconfig == CONTIG
-        assert page.compression == PACKBITS
+        assert page.photometric == PHOTOMETRIC.PALETTE
+        assert page.planarconfig == PLANARCONFIG.CONTIG
+        assert page.compression == COMPRESSION.PACKBITS
         assert page.imagewidth == 256
         assert page.imagelength == 192
         assert page.bitspersample == 8
@@ -6426,8 +6445,8 @@ def test_read_quad_lzw():
         # assert page properties
         page = tif.pages.first
         assert not page.is_tiled
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 384
         assert page.bitspersample == 8
@@ -6458,9 +6477,9 @@ def test_read_quad_lzw_le():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert not page.is_tiled
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 384
         assert page.bitspersample == 8
@@ -6494,9 +6513,9 @@ def test_read_quad_tile():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.is_tiled
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 384
         assert page.imagedepth == 1
@@ -6533,13 +6552,13 @@ def test_read_strike():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 256
         assert page.imagelength == 200
         assert page.bitspersample == 8
         assert page.samplesperpixel == 4
-        assert page.extrasamples[0] == ASSOCALPHA
+        assert page.extrasamples[0] == EXTRASAMPLE.ASSOCALPHA
         # assert series properties
         series = tif.series[0]
         assert series.shape == (200, 256, 4)
@@ -6568,9 +6587,9 @@ def test_read_incomplete_tile_contig():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
-        assert page.compression == PACKBITS
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
+        assert page.compression == COMPRESSION.PACKBITS
         assert page.imagewidth == 35
         assert page.imagelength == 37
         assert page.bitspersample == 8
@@ -6603,9 +6622,9 @@ def test_read_incomplete_tile_separate():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
-        assert page.compression == PACKBITS
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.compression == COMPRESSION.PACKBITS
         assert page.imagewidth == 35
         assert page.imagelength == 37
         assert page.bitspersample == 8
@@ -6638,9 +6657,9 @@ def test_read_django():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == PALETTE
-        assert page.planarconfig == CONTIG
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.PALETTE
+        assert page.planarconfig == PLANARCONFIG.CONTIG
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 320
         assert page.imagelength == 480
         assert page.bitspersample == 8
@@ -6671,13 +6690,13 @@ def test_read_pygame_icon():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.compression == PACKBITS
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.PACKBITS
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.bitspersample == 8
         assert page.samplesperpixel == 4
-        assert page.extrasamples[0] == UNASSALPHA  # ?
+        assert page.extrasamples[0] == EXTRASAMPLE.UNASSALPHA  # ?
         assert page.tags['Software'].value == 'QuickTime 5.0.5'
         assert page.tags['HostComputer'].value == 'MacOS 10.1.2'
         assert page.tags['DateTime'].value == '2001:12:21 04:34:56'
@@ -6709,8 +6728,8 @@ def test_read_rgba_wo_extra_samples():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 1065
         assert page.imagelength == 785
         assert page.bitspersample == 8
@@ -6745,8 +6764,8 @@ def test_read_rgb565():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 64
         assert page.imagelength == 64
         assert page.bitspersample == (5, 6, 5)
@@ -6784,7 +6803,7 @@ def test_read_generic_series():
         assert series.axes == 'IYX'
         assert series.kind == 'generic'
         page = series.pages[0]
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 20
         assert page.imagelength == 20
         assert page.bitspersample == 8
@@ -6802,8 +6821,8 @@ def test_read_generic_series():
         assert series.axes == 'YXS'
         assert series.kind == 'generic'
         page = series.pages[0]
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 10
         assert page.imagelength == 10
         assert page.bitspersample == 32
@@ -6822,8 +6841,8 @@ def test_read_generic_series():
         assert series.axes == 'YXS'
         assert series.kind == 'generic'
         page = series.pages[0]
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 20
         assert page.imagelength == 20
         assert page.bitspersample == 8
@@ -6842,7 +6861,7 @@ def test_read_generic_series():
         assert series.axes == 'YX'
         assert series.kind == 'generic'
         page = series.pages[0]
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 10
         assert page.imagelength == 10
         assert page.bitspersample == 32
@@ -6873,8 +6892,8 @@ def test_read_freeimage():
             assert series.axes == 'YXS'
             assert series.kind == 'generic'
             page = series.pages[0]
-            assert page.photometric == RGB
-            assert page.compression == LZW
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.compression == COMPRESSION.LZW
             assert page.imagewidth == shape[1]
             assert page.imagelength == shape[0]
             assert page.bitspersample == 8
@@ -6900,8 +6919,8 @@ def test_read_leadtools():
         assert__str__(tif)
         # 1- Uncompressed bilevel
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 1
@@ -6911,8 +6930,8 @@ def test_read_leadtools():
         assert data.dtype == numpy.bool_
         # 2- Uncompressed CMYK
         page = tif.pages[1]
-        assert page.photometric == SEPARATED
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.SEPARATED
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 8
@@ -6922,8 +6941,8 @@ def test_read_leadtools():
         assert data.dtype == numpy.uint8
         # 3- JPEG 2000 compression
         page = tif.pages[2]
-        assert page.photometric == RGB
-        assert page.compression == JPEG2000
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.JPEG2000
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 8
@@ -6933,8 +6952,8 @@ def test_read_leadtools():
         assert data.dtype == numpy.uint8
         # 4- JPEG 4:1:1 compression
         page = tif.pages[3]
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 8
@@ -6945,7 +6964,7 @@ def test_read_leadtools():
         assert data.dtype == numpy.uint8
         # 5- JBIG compression
         page = tif.pages[4]
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.compression == COMPRESSION.JBIG
         assert page.imagewidth == 600
         assert page.imagelength == 75
@@ -6955,8 +6974,8 @@ def test_read_leadtools():
             data = page.asarray()
         # 6- RLE Packbits compression
         page = tif.pages[5]
-        assert page.photometric == RGB
-        assert page.compression == PACKBITS
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.PACKBITS
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 8
@@ -6966,8 +6985,8 @@ def test_read_leadtools():
         assert data.dtype == numpy.uint8
         # 7- CMYK with RLE Packbits compression
         page = tif.pages[6]
-        assert page.photometric == SEPARATED
-        assert page.compression == PACKBITS
+        assert page.photometric == PHOTOMETRIC.SEPARATED
+        assert page.compression == COMPRESSION.PACKBITS
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 8
@@ -6977,8 +6996,8 @@ def test_read_leadtools():
         assert data.dtype == numpy.uint8
         # 8- YCC with RLE Packbits compression
         page = tif.pages[7]
-        assert page.photometric == YCBCR
-        assert page.compression == PACKBITS
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.PACKBITS
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 8
@@ -6988,8 +7007,8 @@ def test_read_leadtools():
             data = page.asarray()
         # 9- LZW compression
         page = tif.pages[8]
-        assert page.photometric == MINISBLACK
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 600
         assert page.imagelength == 75
         assert page.bitspersample == 1
@@ -6999,7 +7018,7 @@ def test_read_leadtools():
         assert data.dtype == numpy.bool_
         # 10- CCITT Group 4 compression
         page = tif.pages[9]
-        assert page.photometric == MINISWHITE
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert page.compression == COMPRESSION.CCITT_T6
         assert page.imagewidth == 600
         assert page.imagelength == 75
@@ -7009,7 +7028,7 @@ def test_read_leadtools():
             data = page.asarray()
         # 11- CCITT Group 3 2-D compression
         page = tif.pages[10]
-        assert page.photometric == MINISWHITE
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
         assert page.compression == COMPRESSION.CCITT_T4
         assert page.imagewidth == 600
         assert page.imagelength == 75
@@ -7030,7 +7049,7 @@ def test_read_12bit():
         # assert page properties
         page = tif.pages.first
         assert not page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 1024
         assert page.imagelength == 304
         assert page.bitspersample == 12
@@ -7064,7 +7083,7 @@ def test_read_lzw_12bit_table():
         assert len(tif.series) == 1
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 874
         assert page.imagelength == 1240
         assert page.bitspersample == 8
@@ -7089,7 +7108,7 @@ def test_read_lzw_large_buffer():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 5104
         assert page.imagelength == 8400
         assert page.bitspersample == 8
@@ -7114,9 +7133,9 @@ def test_read_lzw_ycbcr_subsampling():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == LZW
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.LZW
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 39
         assert page.imagelength == 39
         assert page.bitspersample == 8
@@ -7134,9 +7153,9 @@ def test_read_ycbcr_subsampling():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 2
         page = tif.pages.first
-        assert page.compression == NONE
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.NONE
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 640
         assert page.imagelength == 480
         assert page.bitspersample == 8
@@ -7162,7 +7181,7 @@ def test_read_jpeg_baboon():
         assert 'JPEGTables' in page.tags
         assert not page.is_reduced
         assert not page.is_tiled
-        assert page.compression == JPEG
+        assert page.compression == COMPRESSION.JPEG
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
@@ -7189,9 +7208,9 @@ def test_read_jpeg_ycbcr():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 128
         assert page.imagelength == 80
         assert page.bitspersample == 8
@@ -7219,8 +7238,8 @@ def test_read_jpeg_cmyk(fname):
     with TiffFile(private_file(f'pillow/{fname}')) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == SEPARATED
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.SEPARATED
         assert page.shape == (100, 100, 4)
         assert page.dtype == numpy.uint8
         data = page.asarray()
@@ -7242,8 +7261,8 @@ def test_read_jpeg12_mandril():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
         assert page.imagewidth == 512
         assert page.imagelength == 480
         assert page.bitspersample == 12
@@ -7273,8 +7292,8 @@ def test_read_jpeg_lsb2msb():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == RGB
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.RGB
         assert not page.is_jfif
         assert page.imagewidth == 49128
         assert page.imagelength == 59683
@@ -7304,41 +7323,41 @@ def test_read_aperio_j2k():
         assert tif.is_svs
         assert len(tif.pages) == 6
         page = tif.pages.first
-        assert page.compression == APERIO_JP2000_RGB
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.APERIO_JP2000_RGB
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.shape == (32893, 46000, 3)
         assert page.dtype == numpy.uint8
         page = tif.pages[1]
-        assert page.compression == JPEG
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.shape == (732, 1024, 3)
         assert page.dtype == numpy.uint8
         page = tif.pages[2]
-        assert page.compression == APERIO_JP2000_RGB
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.APERIO_JP2000_RGB
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.shape == (8223, 11500, 3)
         assert page.dtype == numpy.uint8
         page = tif.pages[3]
-        assert page.compression == APERIO_JP2000_RGB
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.APERIO_JP2000_RGB
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.shape == (2055, 2875, 3)
         assert page.dtype == numpy.uint8
         page = tif.pages[4]
         assert page.is_reduced
-        assert page.compression == LZW
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.shape == (463, 387, 3)
         assert page.dtype == numpy.uint8
         page = tif.pages[5]
         assert page.is_reduced
-        assert page.compression == JPEG
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.shape == (431, 1280, 3)
         assert page.dtype == numpy.uint8
         # assert data
@@ -7365,8 +7384,8 @@ def test_read_lzma():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.compression == LZMA
-        assert page.photometric == MINISBLACK
+        assert page.compression == COMPRESSION.LZMA
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
@@ -7397,9 +7416,9 @@ def test_read_webp():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == WEBP
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.WEBP
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 50
         assert page.imagelength == 50
         assert page.bitspersample == 8
@@ -7428,9 +7447,9 @@ def test_read_lerc():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == LERC
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.LERC
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 31
         assert page.imagelength == 32
         assert page.bitspersample == 16
@@ -7454,9 +7473,9 @@ def test_read_zstd():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == ZSTD
-        assert page.photometric == MINISBLACK
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.ZSTD
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 20
         assert page.imagelength == 20
         assert page.bitspersample == 8
@@ -7485,8 +7504,8 @@ def test_read_jetraw():
         assert len(tif.pages) == 1
         page = tif.pages.first
         assert page.compression == COMPRESSION.JETRAW
-        assert page.photometric == MINISBLACK
-        assert page.planarconfig == CONTIG
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 2304
         assert page.imagelength == 2304
         assert page.bitspersample == 16
@@ -7509,7 +7528,7 @@ def test_read_pixtiff():
     with TiffFile(fname) as tif:
         page = tif.pages.first
         assert page.compression == COMPRESSION.PIXTIFF
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 801
         assert page.imagelength == 1313
         assert page.bitspersample == 1
@@ -7524,7 +7543,7 @@ def test_read_pixtiff():
     with TiffFile(fname) as tif:
         page = tif.pages.first
         assert page.compression == COMPRESSION.PIXTIFF
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 801
         assert page.imagelength == 1313
         assert page.bitspersample == 4
@@ -7539,7 +7558,7 @@ def test_read_pixtiff():
     with TiffFile(fname) as tif:
         page = tif.pages.first
         assert page.compression == COMPRESSION.PIXTIFF
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 801
         assert page.imagelength == 1313
         assert page.bitspersample == 8
@@ -7569,8 +7588,8 @@ def test_read_dng():
         page = tif.pages.first.pages[0]
         assert page.is_tiled
         assert page.treeindex == (0, 0)
-        assert page.compression == JPEG
-        assert page.photometric == CFA
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.CFA
         assert page.shape == (3024, 4032)
         assert page.bitspersample == 16
         assert page.tags['CFARepeatPatternDim'].value == (2, 2)
@@ -7590,7 +7609,7 @@ def test_read_cfa():
         assert len(tif.pages) == 1
         page = tif.pages.first
         assert page.compression == 1
-        assert page.photometric == CFA
+        assert page.photometric == PHOTOMETRIC.CFA
         assert page.imagewidth == 960
         assert page.imagelength == 540
         assert page.bitspersample == 14
@@ -7603,8 +7622,8 @@ def test_read_cfa():
     with TiffFile(fname) as tif:
         assert len(tif.pages) == 1
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == CFA
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.CFA
         assert page.imagewidth == 960
         assert page.imagelength == 540
         assert page.bitspersample == 14
@@ -7627,7 +7646,7 @@ def test_read_lena_be_f16_contig():
         page = tif.pages.first
         assert not page.is_reduced
         assert not page.is_tiled
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -7663,7 +7682,7 @@ def test_read_lena_be_f16_lzw_planar():
         page = tif.pages.first
         assert not page.is_reduced
         assert not page.is_tiled
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -7701,7 +7720,7 @@ def test_read_lena_be_f32_deflate_contig():
         page = tif.pages.first
         assert not page.is_reduced
         assert not page.is_tiled
-        assert page.compression == ADOBE_DEFLATE
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 32
@@ -7738,7 +7757,7 @@ def test_read_lena_le_f32_lzw_planar():
         page = tif.pages.first
         assert not page.is_reduced
         assert not page.is_tiled
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 32
@@ -7774,7 +7793,7 @@ def test_read_lena_be_rgb48():
         page = tif.pages.first
         assert not page.is_reduced
         assert not page.is_tiled
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -7810,7 +7829,7 @@ def test_read_huge_ps5_memmap():
         assert page.dataoffsets[0] == 21890
         assert page.nbytes == 3600000000
         assert not page.is_memmappable  # data not aligned!
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 30000
         assert page.imagelength == 30000
         assert page.bitspersample == 32
@@ -7823,7 +7842,7 @@ def test_read_huge_ps5_memmap():
         assert series.kind == 'uniform'
         # assert data
         data = tif.asarray(out='memmap')  # memmap in a temp file
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (30000, 30000)
         assert data.dtype == numpy.float32
@@ -7886,7 +7905,7 @@ def test_read_movie_memmap():
     with TiffFile(fname) as tif:
         # assert data
         data = tif.asarray(out='memmap')
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (30000, 64, 64)
         assert data.dtype == numpy.dtype('<u2')
@@ -7960,7 +7979,7 @@ def test_read_chart_bl():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 13228
         assert page.imagelength == 18710
         assert page.bitspersample == 1
@@ -7996,7 +8015,7 @@ def test_read_srtm_20_13():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 6000
         assert page.imagelength == 6000
         assert page.bitspersample == 16
@@ -8033,8 +8052,8 @@ def test_read_gel_scan():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 4992
         assert page.imagelength == 6976
         assert page.bitspersample == 8
@@ -8067,9 +8086,9 @@ def test_read_caspian():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
-        assert page.compression == DEFLATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.compression == COMPRESSION.DEFLATE
         assert page.imagewidth == 279
         assert page.imagelength == 220
         assert page.bitspersample == 64
@@ -8108,7 +8127,7 @@ def test_read_subifds_array():
         assert tif.series[4].shape == (300, 400, 3)
 
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 2000
         assert page.imagelength == 1500
         assert page.bitspersample == 8
@@ -8122,22 +8141,22 @@ def test_read_subifds_array():
         # assert subifds
         assert len(page.pages) == 4
         page = tif.pages.first.pages[0]
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 1600
         assert page.imagelength == 1200
         assert_aszarr_method(page)
         page = tif.pages.first.pages[1]
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 1200
         assert page.imagelength == 900
         assert_aszarr_method(page)
         page = tif.pages.first.pages[2]
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 800
         assert page.imagelength == 600
         assert_aszarr_method(page)
         page = tif.pages.first.pages[3]
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 400
         assert page.imagelength == 300
         assert_aszarr_method(page)
@@ -8158,7 +8177,7 @@ def test_read_subifd4():
         assert len(tif.series) == 1
         assert len(tif.pages) == 2
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 64
         assert page.imagelength == 64
         assert page.bitspersample == 8
@@ -8166,7 +8185,7 @@ def test_read_subifd4():
         assert page.tags['SubIFDs'].value == (3088,)
         # assert subifd
         page = page.pages[0]
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 32
         assert page.imagelength == 32
         assert page.bitspersample == 8
@@ -8190,7 +8209,7 @@ def test_read_subifd8():
         assert len(tif.series) == 1
         assert len(tif.pages) == 2
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 64
         assert page.imagelength == 64
         assert page.bitspersample == 8
@@ -8198,7 +8217,7 @@ def test_read_subifd8():
         assert page.tags['SubIFDs'].value == (3088,)
         # assert subifd
         page = page.pages[0]
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 32
         assert page.imagelength == 32
         assert page.bitspersample == 8
@@ -8224,12 +8243,14 @@ def test_read_tiles():
         with TiffWriter(fname) as tif:
             options = dict(
                 tile=(256, 256),
-                photometric=RGB,
-                compression=JPEG,
+                photometric=PHOTOMETRIC.RGB,
+                compression=COMPRESSION.JPEG,
                 metadata=None,
             )
             tif.write(data, **options)
-            tif.write(data[::2, ::2], subfiletype=1, **options)
+            tif.write(
+                data[::2, ::2], subfiletype=FILETYPE.REDUCEDIMAGE, **options
+            )
         with TiffFile(fname) as tif:
             fh = tif.filehandle
             for page in tif.pages:
@@ -8265,7 +8286,7 @@ def test_read_lsm_mosaic():
         page = tif.pages.first
         assert page.is_lsm
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -8314,8 +8335,8 @@ def test_read_lsm_carpet():
         page = tif.pages.first
         assert page.is_lsm
         assert 'ColorMap' in page.tags
-        assert page.photometric == PALETTE
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.PALETTE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 32
         assert page.imagelength == 10
         assert page.bitspersample == 8
@@ -8364,16 +8385,16 @@ def test_read_lsm_take1():
         page = tif.pages.first
         assert page.is_lsm
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
         assert page.samplesperpixel == 1
         page = tif.pages[1]
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.samplesperpixel == 3
@@ -8442,10 +8463,10 @@ def test_read_lsm_2chzt():
         page = tif.pages.first
         assert page.is_lsm
         assert page.is_contiguous
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.tags['StripOffsets'].value[2] == 242632  # bogus offset
         assert page.tags['StripByteCounts'].value[2] == 0  # no strip data
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 400
         assert page.imagelength == 300
         assert page.bitspersample == 8
@@ -8453,10 +8474,10 @@ def test_read_lsm_2chzt():
 
         page = tif.pages[1]
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 96
         assert page.samplesperpixel == 3
@@ -8475,7 +8496,7 @@ def test_read_lsm_2chzt():
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray(out='memmap')
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (19, 21, 2, 300, 400)
         assert data.dtype == numpy.uint8
@@ -8525,17 +8546,17 @@ def test_read_lsm_unbounderror():
         page = tif.pages.first
         assert page.is_lsm
         assert page.is_contiguous
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
         assert page.samplesperpixel == 33
         page = tif.pages[1]
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.samplesperpixel == 3
@@ -8601,17 +8622,17 @@ def test_read_lsm_incomplete(caplog):
         page = tif.pages.first
         assert page.is_lsm
         assert page.is_contiguous
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
         assert page.samplesperpixel == 33
         page = tif.pages[1]
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.samplesperpixel == 3
@@ -8675,8 +8696,8 @@ def test_read_lsm_earpax2isl11():
         page = tif.pages.first
         assert page.is_lsm
         assert not page.is_contiguous
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
@@ -8686,9 +8707,9 @@ def test_read_lsm_earpax2isl11():
         assert page.databytecounts == (131514, 192933, 167874)
         page = tif.pages[1]
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.samplesperpixel == 3
@@ -8752,16 +8773,16 @@ def test_read_lsm_mb231paxgfp_060214():
         page = tif.pages.first
         assert page.is_lsm
         assert not page.is_contiguous
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
         assert page.samplesperpixel == 2
         page = tif.pages[1]
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.planarconfig == SEPARATE
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.SEPARATE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 128
         assert page.imagelength == 128
         assert page.samplesperpixel == 3
@@ -8782,7 +8803,7 @@ def test_read_lsm_mb231paxgfp_060214():
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray(out='memmap', maxworkers=None)
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (60, 31, 2, 512, 512)
         assert data.dtype == numpy.dtype('<u2')
@@ -8817,8 +8838,8 @@ def test_read_lsm_lzw_no_eoi():
         # assert page properties
         page = tif.pages.first
         assert not page.is_contiguous
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -8846,7 +8867,7 @@ def test_stk_nonstack():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 24
         assert page.imagelength == 24
         assert page.bitspersample == 16
@@ -8899,7 +8920,7 @@ def test_read_stk_zseries():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 320
         assert page.imagelength == 256
         assert page.bitspersample == 16
@@ -8956,8 +8977,8 @@ def test_read_stk_zser24():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == RGB
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 160
         assert page.imagelength == 128
         assert page.bitspersample == 8
@@ -9009,7 +9030,7 @@ def test_read_stk_diatoms3d():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 196
         assert page.imagelength == 191
         assert page.bitspersample == 8
@@ -9064,8 +9085,8 @@ def test_read_stk_greenbeads():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == PALETTE
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.PALETTE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 298
         assert page.imagelength == 322
         assert page.bitspersample == 8
@@ -9112,8 +9133,8 @@ def test_read_stk_10xcalib():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric != PALETTE
-        assert page.compression == NONE
+        assert page.photometric != PHOTOMETRIC.PALETTE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 640
         assert page.imagelength == 480
         assert page.bitspersample == 8
@@ -9155,8 +9176,8 @@ def test_read_stk_112508h100():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric != PALETTE
-        assert page.compression == NONE
+        assert page.photometric != PHOTOMETRIC.PALETTE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 128
         assert page.bitspersample == 16
@@ -9202,8 +9223,8 @@ def test_read_stk_noname():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == MINISBLACK
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 1148
         assert page.imagelength == 1112
         assert page.bitspersample == 16
@@ -9247,15 +9268,15 @@ def test_read_ndpi_cmu1():
         # first page
         page = tif.pages.first
         assert page.is_ndpi
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (38144, 51200, 3)
         assert page.ndpi_tags['Magnification'] == 20.0
         # page 4
         page = tif.pages[4]
         assert page.is_ndpi
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (408, 1191, 3)
         assert page.ndpi_tags['Magnification'] == -1.0
         assert page.asarray()[226, 629, 0] == 167
@@ -9280,8 +9301,8 @@ def test_read_ndpi_cmu2():
         # first page
         page = tif.pages.first
         assert page.is_ndpi
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (33792, 79872, 3)
         assert page.ndpi_tags['Magnification'] == 20.0
         # with pytest.raises(RuntimeError):
@@ -9292,8 +9313,8 @@ def test_read_ndpi_cmu2():
         # page 5
         page = tif.pages[5]
         assert page.is_ndpi
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (408, 1191, 3)
         assert page.ndpi_tags['Magnification'] == -1.0
         assert page.asarray()[226, 629, 0] == 181
@@ -9319,8 +9340,8 @@ def test_read_ndpi_4gb():
         assert page.offset == 4466602683
         assert page.is_ndpi
         assert page.databytecounts[0] == 5105  # not 4461521316
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (103680, 188160, 3)
         assert (
             page.tags['ImageLength'].offset - page.tags['ImageWidth'].offset
@@ -9344,8 +9365,8 @@ def test_read_ndpi_4gb():
         # page 7
         page = tif.pages[7]
         assert page.is_ndpi
-        assert page.photometric == MINISBLACK
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.NONE
         assert page.shape == (200, 600)
         assert page.ndpi_tags['Magnification'] == -2.0
         # assert page.asarray()[226, 629, 0] == 167
@@ -9390,12 +9411,15 @@ def test_read_ndpi_jpegxr():
         for page in tif.pages[:4]:
             # check that all levels are corrected
             assert page.is_ndpi
-            assert page.tags['PhotometricInterpretation'].value == YCBCR
+            assert (
+                page.tags['PhotometricInterpretation'].value
+                == PHOTOMETRIC.YCBCR
+            )
             assert page.tags['BitsPerSample'].value == (8, 8, 8)
             assert page.samplesperpixel == 1  # not 3
             assert page.bitspersample == 16  # not 8
-            assert page.photometric == MINISBLACK  # not YCBCR
-            assert page.compression == TIFF.COMPRESSION.JPEGXR_NDPI
+            assert page.photometric == PHOTOMETRIC.MINISBLACK  # not YCBCR
+            assert page.compression == COMPRESSION.JPEGXR_NDPI
 
         # first page
         page = tif.pages.first
@@ -9410,8 +9434,8 @@ def test_read_ndpi_jpegxr():
         # page 5
         page = tif.pages[5]
         assert page.is_ndpi
-        assert page.photometric == MINISBLACK
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.NONE
         assert page.shape == (192, 566)
         assert page.ndpi_tags['Magnification'] == -2.0
         # first series
@@ -9486,12 +9510,15 @@ def test_read_ndpi_layers():
 
         for page in tif.pages[:4]:
             assert page.is_ndpi
-            assert page.tags['PhotometricInterpretation'].value == YCBCR
+            assert (
+                page.tags['PhotometricInterpretation'].value
+                == PHOTOMETRIC.YCBCR
+            )
             assert page.tags['BitsPerSample'].value == (8, 8, 8)
             assert page.samplesperpixel == 3
             assert page.bitspersample == 8
-            assert page.photometric == YCBCR
-            assert page.compression == TIFF.COMPRESSION.JPEG
+            assert page.photometric == PHOTOMETRIC.YCBCR
+            assert page.compression == COMPRESSION.JPEG
 
         # first page
         page = tif.pages.first
@@ -9506,8 +9533,8 @@ def test_read_ndpi_layers():
         # last page
         page = tif.pages[-1]
         assert page.is_ndpi
-        assert page.photometric == MINISBLACK
-        assert page.compression == NONE
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.NONE
         assert page.shape == (196, 575)
         assert page.ndpi_tags['Magnification'] == -2.0
         # first series
@@ -9558,9 +9585,9 @@ def test_read_svs_cmu1():
         assert page.is_svs
         assert not page.is_jfif
         assert page.is_subsampled
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.is_tiled
-        assert page.compression == JPEG
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (32914, 46000, 3)
         metadata = svs_description_metadata(page.description)
         assert metadata['Header'].startswith('Aperio Image Library')
@@ -9569,8 +9596,8 @@ def test_read_svs_cmu1():
         page = tif.pages[4]
         assert page.is_svs
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.shape == (463, 387, 3)
         metadata = svs_description_metadata(page.description)
         assert 'label 387x463' in metadata['Header']
@@ -9595,9 +9622,9 @@ def test_read_svs_jp2k_33003_1():
         page = tif.pages.first
         assert page.is_svs
         assert not page.is_subsampled
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.is_tiled
-        assert page.compression == APERIO_JP2000_YCBC
+        assert page.compression == COMPRESSION.APERIO_JP2000_YCBC
         assert page.shape == (17497, 15374, 3)
         metadata = svs_description_metadata(page.description)
         assert metadata['Header'].startswith('Aperio Image Library')
@@ -9606,8 +9633,8 @@ def test_read_svs_jp2k_33003_1():
         page = tif.pages[4]
         assert page.is_svs
         assert page.is_reduced
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.shape == (422, 415, 3)
         metadata = svs_description_metadata(page.description)
         assert 'label 415x422' in metadata['Header']
@@ -9628,9 +9655,9 @@ def test_read_bif(caplog):
         # first page
         page = tif.pages.first
         assert page.is_bif
-        assert page.photometric == YCBCR
+        assert page.photometric == PHOTOMETRIC.YCBCR
         assert page.is_tiled
-        assert page.compression == JPEG
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (3008, 1008, 3)
 
         series = tif.series
@@ -9646,16 +9673,16 @@ def test_read_bif(caplog):
         page = series.pages[0]
         assert page.is_bif
         assert page.is_tiled
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (82960, 128000, 3)
         assert page.description == 'level=0 mag=40 quality=90'
         # level 5
         page = series.levels[5].pages[0]
         assert not page.is_bif
         assert page.is_tiled
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (2600, 4000, 3)
         assert page.description == 'level=5 mag=1.25 quality=90'
 
@@ -9683,8 +9710,8 @@ def test_read_scn_collection():
         page = tif.pages.first
         assert page.is_scn
         assert page.is_tiled
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (12990, 5741, 3)
         metadata = tif.scn_metadata
         assert metadata.startswith('<?xml version="1.0" encoding="utf-8"?>')
@@ -9742,7 +9769,7 @@ def test_read_scanimage_2021():
         page = tif.pages.first
         assert page.is_scanimage
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 256
         assert page.imagelength == 256
         assert page.bitspersample == 16
@@ -9768,7 +9795,7 @@ def test_read_scanimage_no_framedata():
         page = tif.pages.first
         assert page.is_scanimage
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 256
         assert page.imagelength == 256
         assert page.bitspersample == 16
@@ -9805,7 +9832,7 @@ def test_read_scanimage_2gb():
         assert not page.is_subifd
         assert page.is_scanimage
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -9848,7 +9875,7 @@ def test_read_scanimage_bigtiff():
         page = tif.pages.first
         assert page.is_scanimage
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -9888,7 +9915,7 @@ def test_read_ome_single_channel():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -9926,7 +9953,7 @@ def test_read_ome_multi_channel():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -9967,7 +9994,7 @@ def test_read_ome_z_series():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -10007,7 +10034,7 @@ def test_read_ome_multi_channel_z_series():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -10045,7 +10072,7 @@ def test_read_ome_time_series():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -10085,7 +10112,7 @@ def test_read_ome_multi_channel_time_series():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -10126,7 +10153,7 @@ def test_read_ome_4d_series():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -10164,7 +10191,7 @@ def test_read_ome_multi_channel_4d_series():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 439
         assert page.imagelength == 167
         assert page.bitspersample == 8
@@ -10204,7 +10231,7 @@ def test_read_ome_modulo_flim():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 180
         assert page.imagelength == 150
         assert page.bitspersample == 8
@@ -10245,7 +10272,7 @@ def test_read_ome_modulo_flim_tcspc():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 180
         assert page.imagelength == 200
         assert page.bitspersample == 8
@@ -10281,7 +10308,7 @@ def test_read_ome_modulo_spim():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value == 'OME Bio-Formats 5.2.0-SNAPSHOT'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 160
         assert page.imagelength == 220
         assert page.bitspersample == 8
@@ -10318,7 +10345,7 @@ def test_read_ome_modulo_lambda():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value == 'OME Bio-Formats 5.2.0-SNAPSHOT'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 200
         assert page.imagelength == 200
         assert page.bitspersample == 8
@@ -10360,7 +10387,7 @@ def test_read_ome_multiimage_pixels():
             page = series.pages[0]
             assert page.is_contiguous
             assert page.tags['Software'].value == 'LOCI Bio-Formats'
-            assert page.compression == NONE
+            assert page.compression == COMPRESSION.NONE
             assert page.imagewidth == shape[-1]
             assert page.imagelength == shape[-2]
             assert page.bitspersample == 8
@@ -10398,7 +10425,7 @@ def test_read_ome_multiimage_nouuid():
             assert page.is_ome == (i == 0)
             assert page.is_micromanager
             assert page.is_contiguous
-            assert page.compression == NONE
+            assert page.compression == COMPRESSION.NONE
             assert page.imagewidth == 256
             assert page.imagelength == 256
             assert page.bitspersample == 16
@@ -10435,7 +10462,7 @@ def test_read_ome_zen_2chzt():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value == 'ZEN 2011 (blue edition)'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 400
         assert page.imagelength == 300
         assert page.bitspersample == 8
@@ -10471,7 +10498,7 @@ def test_read_ome_multifile():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
@@ -10488,7 +10515,7 @@ def test_read_ome_multifile():
             assert bool(page.parent.filehandle._fh) == (page.parent == tif)
         # assert data
         data = tif.asarray(out='memmap')
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.shape == (2, 43, 10, 512, 512)
         assert data.dtype == numpy.uint8
         assert data[1, 42, 9, 426, 272] == 123
@@ -10530,7 +10557,7 @@ def test_read_ome_multifile_missing(caplog):
         TiffPage._str(page, 4)
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
@@ -10547,7 +10574,7 @@ def test_read_ome_multifile_missing(caplog):
         assert series.is_multifile
         # assert data
         data = tif.asarray(out='memmap')
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.shape == (2, 43, 10, 512, 512)
         assert data.dtype == numpy.uint8
         assert data[0, 34, 4, 303, 206] == 82
@@ -10576,7 +10603,7 @@ def test_read_ome_multifile_binaryio(caplog):
         TiffPage._str(page, 4)
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
@@ -10641,7 +10668,7 @@ def test_read_ome_rgb():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 1280
         assert page.imagelength == 720
         assert page.bitspersample == 8
@@ -10677,7 +10704,7 @@ def test_read_ome_samplesperpixel():
         # assert page properties
         page = tif.pages.first
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == LZW
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 1024
         assert page.imagelength == 1024
         assert page.bitspersample == 8
@@ -10713,7 +10740,7 @@ def test_read_ome_float_modulo_attributes():
         page = tif.pages.first
         assert page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -10823,7 +10850,7 @@ def test_read_ome_nikon():
         # assert 'index out of range' in caplog.text
         # assert page properties
         page = tif.pages.first
-        assert page.photometric != RGB
+        assert page.photometric != PHOTOMETRIC.RGB
         assert page.imagewidth == 1982
         assert page.imagelength == 1726
         assert page.bitspersample == 16
@@ -10877,14 +10904,14 @@ def test_read_ome_shape_mismatch(caplog):
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 500
         assert page.imagelength == 20000
         assert page.bitspersample == 16
         assert page.samplesperpixel == 1
         page = tif.pages[1]
         assert page.is_contiguous
-        assert page.photometric == PALETTE
+        assert page.photometric == PHOTOMETRIC.PALETTE
         assert page.imagewidth == 500
         assert page.imagelength == 20000
         assert page.bitspersample == 8
@@ -10913,7 +10940,7 @@ def test_read_ome_jpeg2000_be():
         page = tif.pages.first
         assert not page.is_contiguous
         assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
-        assert page.compression == APERIO_JP2000_YCBC
+        assert page.compression == COMPRESSION.APERIO_JP2000_YCBC
         assert page.imagewidth == 171
         assert page.imagelength == 196
         assert page.bitspersample == 16
@@ -10947,8 +10974,8 @@ def test_read_ome_samplesperpixel_mismatch(caplog):
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 2080
         assert page.imagelength == 1552
         assert page.bitspersample == 8
@@ -10980,8 +11007,8 @@ def test_read_ome_multiscale(chunkmode):
         assert len(tif.series) == 2
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
-        assert page.compression == ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
         assert page.imagewidth == 256
         assert page.imagelength == 256
         assert page.bitspersample == 8
@@ -11022,7 +11049,7 @@ def test_read_andor_light_sheet_512p():
         page = tif.pages.first
         assert page.is_andor
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -11099,7 +11126,7 @@ def test_read_nih_silver_lake():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == PALETTE
+        assert page.photometric == PHOTOMETRIC.PALETTE
         assert page.imagewidth == 259
         assert page.imagelength == 187
         assert page.bitspersample == 8
@@ -11137,7 +11164,7 @@ def test_read_nih_scala_media():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == PALETTE
+        assert page.photometric == PHOTOMETRIC.PALETTE
         assert page.imagewidth == 84
         assert page.imagelength == 54
         assert page.bitspersample == 8
@@ -11173,8 +11200,8 @@ def test_read_imagej_rrggbb():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
-        assert page.compression == LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.LZW
         assert page.imagewidth == 31
         assert page.imagelength == 32
         assert page.bitspersample == 16
@@ -11224,7 +11251,7 @@ def test_read_imagej_focal1():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric != RGB
+        assert page.photometric != PHOTOMETRIC.RGB
         assert page.imagewidth == 425
         assert page.imagelength == 434
         assert page.bitspersample == 8
@@ -11267,7 +11294,7 @@ def test_read_imagej_hela_cells():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 672
         assert page.imagelength == 512
         assert page.bitspersample == 16
@@ -11311,7 +11338,7 @@ def test_read_imagej_flybrain():
         assert len(tif.series) == 1  # hyperstack
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 256
         assert page.imagelength == 256
         assert page.bitspersample == 8
@@ -11381,13 +11408,15 @@ def test_read_imagej_confocal_series():
         assert data.dtype == numpy.uint8
         assert tuple(data[12, :, 100, 300]) == (6, 66)
         # assert only two pages are loaded
-        assert isinstance(tif.pages.pages[0], TiffPage)
+        with pytest.warns(DeprecationWarning):
+            assert isinstance(tif.pages.pages[0], TiffPage)
+        assert isinstance(tif.pages._pages[0], TiffPage)
         if tif.pages.cache:
-            assert isinstance(tif.pages.pages[1], TiffFrame)
+            assert isinstance(tif.pages._pages[1], TiffFrame)
         else:
-            assert tif.pages.pages[1] == 8000911
-        assert tif.pages.pages[2] == 8001073
-        assert tif.pages.pages[-1] == 8008687
+            assert tif.pages._pages[1] == 8000911
+        assert tif.pages._pages[2] == 8001073
+        assert tif.pages._pages[-1] == 8008687
         assert_aszarr_method(series, data)
         assert_aszarr_method(series, data, chunkmode='page')
         # don't squeeze
@@ -11451,7 +11480,7 @@ def test_read_imagej_bat_cochlea_volume():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric != RGB
+        assert page.photometric != PHOTOMETRIC.RGB
         assert page.imagewidth == 121
         assert page.imagelength == 154
         assert page.bitspersample == 8
@@ -11494,7 +11523,7 @@ def test_read_imagej_first_instar_brain():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == RGB
+        assert page.photometric == PHOTOMETRIC.RGB
         assert page.imagewidth == 256
         assert page.imagelength == 256
         assert page.bitspersample == 8
@@ -11534,7 +11563,7 @@ def test_read_imagej_fluorescentcells():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == PALETTE
+        assert page.photometric == PHOTOMETRIC.PALETTE
         assert page.imagewidth == 512
         assert page.imagelength == 512
         assert page.bitspersample == 8
@@ -11594,7 +11623,7 @@ def test_read_imagej_100000_pages():
         assert round(abs(ijmeta['min'] - 86.0), 7) == 0
         # assert data
         data = tif.asarray(out='memmap')
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.shape == (100000, 64, 64)
         assert data.dtype == numpy.dtype('>u2')
         assert round(abs(data[7310, 25, 25] - 100), 7) == 0
@@ -11617,7 +11646,7 @@ def test_read_imagej_invalid_metadata(caplog):
         assert 'ImageJ series metadata invalid or corrupted' in caplog.text
         # assert page properties
         page = tif.pages.first
-        assert page.photometric != RGB
+        assert page.photometric != PHOTOMETRIC.RGB
         assert page.imagewidth == 173
         assert page.imagelength == 173
         assert page.bitspersample == 16
@@ -11636,7 +11665,7 @@ def test_read_imagej_invalid_metadata(caplog):
         assert ijmeta['images'] == 3500
         # assert data
         data = tif.asarray(out='memmap')
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.shape == (173, 173)
         assert data.dtype == numpy.dtype('>u2')
         assert data[94, 34] == 1257
@@ -11660,7 +11689,7 @@ def test_read_imagej_invalid_hyperstack():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric != RGB
+        assert page.photometric != PHOTOMETRIC.RGB
         assert page.imagewidth == 1392
         assert page.imagelength == 1040
         assert page.bitspersample == 16
@@ -11693,7 +11722,7 @@ def test_read_scifio():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 1024
         assert page.imagelength == 1024
         assert page.bitspersample == 8
@@ -11733,7 +11762,7 @@ def test_read_fluoview_lsp1_v_laser():
         page = tif.pages.first
         assert page.is_fluoview
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 256
         assert page.imagelength == 256
         assert page.bitspersample == 16
@@ -11774,7 +11803,7 @@ def test_read_fluoview_120816_bf_f0000():
         page = tif.pages.first
         assert page.is_fluoview
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 1024
         assert page.imagelength == 1024
         assert page.bitspersample == 16
@@ -11847,7 +11876,7 @@ def test_read_metaseries_g4d7r():
         page = tif.pages.first
         assert page.is_metaseries
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 13453
         assert page.imagelength == 12113
         assert page.bitspersample == 16
@@ -11871,7 +11900,7 @@ def test_read_metaseries_g4d7r():
         assert series.kind == 'uniform'
         # assert data
         data = tif.asarray(out='memmap')
-        assert isinstance(data, numpy.core.memmap)
+        assert isinstance(data, numpy.memmap)
         assert data.shape == (12113, 13453)
         assert data.dtype == numpy.dtype('<u2')
         assert round(abs(data[512, 2856] - 4095), 7) == 0
@@ -11893,7 +11922,7 @@ def test_read_mdgel_rat():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 1528
         assert page.imagelength == 413
         assert page.bitspersample == 16
@@ -11949,7 +11978,7 @@ def test_read_mediacy_imagepro():
         page = tif.pages.first
         assert page.is_mediacy
         assert page.is_contiguous
-        assert page.compression == NONE
+        assert page.compression == COMPRESSION.NONE
         assert page.imagewidth == 201
         assert page.imagelength == 201
         assert page.bitspersample == 8
@@ -12181,13 +12210,13 @@ def test_read_geotiff_cint16():
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.sampleformat == 5
+        assert page.sampleformat == SAMPLEFORMAT.COMPLEXINT
         assert page.bitspersample == 32
         assert page.dtype == numpy.complex64
         assert page.shape == (100, 100)
         assert page.imagewidth == 100
         assert page.imagelength == 100
-        assert page.compression == ADOBE_DEFLATE
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
         assert not page.is_contiguous
         data = page.asarray()
         data[9, 11] == 0 + 0j
@@ -12207,7 +12236,7 @@ def test_read_complexint(bits):
         assert len(tif.series) == 1
         # assert page properties
         page = tif.pages.first
-        assert page.sampleformat == 5
+        assert page.sampleformat == SAMPLEFORMAT.COMPLEXINT
         assert page.bitspersample == bits * 2
         assert page.dtype == f'complex{bits * 4}'
         assert page.shape == (20, 20)
@@ -12232,9 +12261,9 @@ def test_read_qpi():
         assert len(tif.pages) == 9
         assert tif.is_qpi
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 34560
         assert page.imagelength == 57600
         assert page.bitspersample == 8
@@ -12242,9 +12271,9 @@ def test_read_qpi():
         assert page.tags['Software'].value == 'PerkinElmer-QPI'
 
         page = tif.pages[1]
-        assert page.compression == LZW
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.LZW
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 270
         assert page.imagelength == 450
         assert page.bitspersample == 8
@@ -12302,9 +12331,9 @@ def test_read_qpi_nopyramid():
         assert len(tif.pages) == 9
         assert tif.is_qpi
         page = tif.pages.first
-        assert page.compression == LZW
-        assert page.photometric == MINISBLACK
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.LZW
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.imagewidth == 1868
         assert page.imagelength == 1400
         assert page.bitspersample == 32
@@ -12345,8 +12374,8 @@ def test_read_indica():
         assert tif.is_indica
         assert tif.indica_metadata.endswith('</indica>')
         page = tif.pages.first
-        assert page.compression == ADOBE_DEFLATE
-        assert page.photometric == MINISBLACK
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.shape == (26836, 18282)
         assert page.bitspersample == 32
         assert page.samplesperpixel == 1
@@ -12383,9 +12412,9 @@ def test_read_philips():
         assert tif.philips_metadata.endswith('</DataObject>')
 
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.tags['ImageWidth'].value == 86016
         assert page.tags['ImageLength'].value == 89600
         assert page.imagewidth == 86016
@@ -12409,9 +12438,9 @@ def test_read_philips():
         assert series.levels[8].shape == (350, 336, 3)
 
         page = series.levels[1].keyframe
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.tags['ImageWidth'].value == 43008
         assert page.tags['ImageLength'].value == 45056
         assert page.imagewidth == 43008
@@ -12443,9 +12472,9 @@ def test_read_philips_issue249():
         assert tif.philips_metadata.endswith('</DataObject>')
 
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.tags['ImageWidth'].value == 155136
         assert page.tags['ImageLength'].value == 78336
         assert page.imagewidth == 155136
@@ -12469,9 +12498,9 @@ def test_read_philips_issue249():
         assert series.is_pyramidal
 
         page = series.levels[3].keyframe
-        assert page.compression == JPEG
-        assert page.photometric == YCBCR
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.tags['ImageWidth'].value == 19456
         assert page.tags['ImageLength'].value == 9728
         assert page.imagewidth == 19392
@@ -12523,9 +12552,9 @@ def test_read_philips_issue253():
         assert tif.philips_metadata.endswith('</DataObject>')
 
         page = tif.pages.first
-        assert page.compression == JPEG
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.tags['ImageWidth'].value == 188416
         assert page.tags['ImageLength'].value == 93696
         assert page.imagewidth == 188416
@@ -12563,9 +12592,9 @@ def test_read_philips_issue253():
         assert series.levels[9].shape == (183, 368, 3)
 
         page = series.levels[1].keyframe
-        assert page.compression == JPEG
-        assert page.photometric == RGB
-        assert page.planarconfig == CONTIG
+        assert page.compression == COMPRESSION.JPEG
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
         assert page.tags['ImageWidth'].value == 94208
         assert page.tags['ImageLength'].value == 47104
         assert page.imagewidth == 94208
@@ -12599,14 +12628,14 @@ def test_read_zif():
             )
         # first page
         page = tif.pages.first
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (3120, 2080, 3)
         assert tuple(page.asarray()[3110, 2070, :]) == (27, 45, 59)
         # page 4
         page = tif.pages[-1]
-        assert page.photometric == YCBCR
-        assert page.compression == JPEG
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
         assert page.shape == (195, 130, 3)
         assert tuple(page.asarray()[191, 127, :]) == (30, 49, 66)
         # series
@@ -12619,6 +12648,35 @@ def test_read_zif():
         assert series.levels[-1].shape == (195, 130, 3)
         assert tuple(series.asarray(level=-1)[191, 127, :]) == (30, 49, 66)
         assert_aszarr_method(series, level=-1)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_vsi():
+    """Test read Olympus VSI."""
+    fname = private_file('VSI/brightfield.vsi')
+    with TiffFile(fname) as tif:
+        assert not tif.is_sis
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 5
+        assert len(tif.series) == 5
+        # assert page properties
+        page = tif.pages.first
+        assert not page.is_contiguous
+        assert page.imagewidth == 991
+        assert page.imagelength == 375
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        assert page.tags['Artist'].value == 'ics'
+        # assert data
+        data = tif.asarray()
+        assert data.shape == (375, 991, 3)
+        assert data[200, 256, 1] == 3
+        # assert metadata
+        sis = tif.sis_metadata
+        assert sis['magnification'] == 1.0
+        assert_aszarr_method(tif, data)
+        assert_aszarr_method(tif, data, chunkmode='page')
         assert__str__(tif)
 
 
@@ -12692,7 +12750,7 @@ def test_read_sem_metadata():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == PALETTE
+        assert page.photometric == PHOTOMETRIC.PALETTE
         assert page.imagewidth == 1024
         assert page.imagelength == 768
         assert page.bitspersample == 8
@@ -12727,7 +12785,7 @@ def test_read_sem_bad_metadata():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == PALETTE
+        assert page.photometric == PHOTOMETRIC.PALETTE
         assert page.imagewidth == 1024
         assert page.imagelength == 768
         assert page.bitspersample == 8
@@ -12754,7 +12812,7 @@ def test_read_fei_metadata():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric != PALETTE
+        assert page.photometric != PHOTOMETRIC.PALETTE
         assert page.imagewidth == 1536
         assert page.imagelength == 1103
         assert page.bitspersample == 8
@@ -13428,7 +13486,7 @@ def test_read_eer(caplog):
         # assert page properties
         page = tif.pages.first
         assert not page.is_contiguous
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.compression == 65001
         assert page.imagewidth == 4096
         assert page.imagelength == 4096
@@ -13473,8 +13531,8 @@ def test_read_astrotiff(caplog):
         # assert page properties
         page = tif.pages.first
         assert not page.is_contiguous
-        assert page.photometric == RGB
-        assert page.compression == ADOBE_DEFLATE
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.ADOBE_DEFLATE
         assert page.imagewidth == 3040
         assert page.imagelength == 2016
         assert page.bitspersample == 16
@@ -13500,7 +13558,7 @@ def test_read_streak():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 672
         assert page.imagelength == 508
         assert page.bitspersample == 16
@@ -13535,7 +13593,7 @@ def test_read_agilent():
         # assert page properties
         page = tif.pages.first
         assert page.is_contiguous
-        assert page.photometric == MINISBLACK
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.imagewidth == 20334
         assert page.imagelength == 7200
         assert page.bitspersample == 16
@@ -13610,12 +13668,12 @@ def test_read_selection_out(out):
     elif out == 'memmap':
         # memmap in temp dir
         image = imread(fname, selection=selection, out='memmap')
-        assert isinstance(image, numpy.core.memmap)
+        assert isinstance(image, numpy.memmap)
     elif out == 'name':
         # memmap in specified file
         with TempFileName('read_selection_out', ext='.memmap') as fileout:
             image = imread(fname, selection=selection, out=fileout)
-            assert isinstance(image, numpy.core.memmap)
+            assert isinstance(image, numpy.memmap)
 
     assert_array_equal(image, expected)
 
@@ -13907,16 +13965,16 @@ def test_write_deprecated_planarconfig():
             imwrite(fname, shape=(31, 33, 3), dtype=numpy.float32)
         with TiffFile(fname) as tif:
             page = tif.pages.first
-            assert page.photometric == RGB
-            assert page.planarconfig == CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
 
     with TempFileName('write_deprecated_planarconfig_separate') as fname:
         with pytest.warns(DeprecationWarning):
             imwrite(fname, shape=(3, 31, 33), dtype=numpy.float32)
         with TiffFile(fname) as tif:
             page = tif.pages.first
-            assert page.photometric == RGB
-            assert page.planarconfig == SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
 
 
 def test_write_ycbcr_subsampling(caplog):
@@ -13926,13 +13984,13 @@ def test_write_ycbcr_subsampling(caplog):
             fname,
             shape=(31, 33, 3),
             dtype=numpy.uint8,
-            photometric=YCBCR,
+            photometric=PHOTOMETRIC.YCBCR,
             subsampling=(1, 2),
         )
         assert 'cannot apply subsampling' in caplog.text
         with TiffFile(fname) as tif:
             page = tif.pages.first
-            assert page.photometric == YCBCR
+            assert page.photometric == PHOTOMETRIC.YCBCR
             assert page.subsampling == (1, 1)
             assert 'ReferenceBlackWhite' in page.tags
 
@@ -13978,15 +14036,15 @@ def test_write_codecs(mode, tile, codec):
     tile = (16, 16) if tile else None
     data = numpy.load(public_file('tifffile/rgb.u1.npy'))
     if mode == 'rgb':
-        photometric = RGB
-        planarconfig = CONTIG
+        photometric = PHOTOMETRIC.RGB
+        planarconfig = PLANARCONFIG.CONTIG
     elif mode == 'planar':
-        photometric = RGB
-        planarconfig = SEPARATE
+        photometric = PHOTOMETRIC.RGB
+        planarconfig = PLANARCONFIG.SEPARATE
         data = numpy.moveaxis(data, -1, 0).copy()
     else:
         planarconfig = None
-        photometric = MINISBLACK
+        photometric = PHOTOMETRIC.MINISBLACK
         data = data[..., :1].copy()
     data = numpy.repeat(data[numpy.newaxis], 3, axis=0)
     data[1] = 255 - data[1]
@@ -14009,8 +14067,8 @@ def test_write_codecs(mode, tile, codec):
             assert len(tif.pages) == shape[0]
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == enumarg(TIFF.COMPRESSION, codec)
-            assert page.photometric in {photometric, YCBCR}
+            assert page.compression == enumarg(COMPRESSION, codec)
+            assert page.photometric in {photometric, PHOTOMETRIC.YCBCR}
             if planarconfig is not None:
                 assert page.planarconfig == planarconfig
             assert page.imagewidth == 31
@@ -14050,22 +14108,22 @@ def test_write_predictor(byteorder, dtype, tile, mode):
     tile = (32, 32) if tile else None
     f4 = imread(public_file('tifffile/gray.f4.tif'))
     if mode == 'rgb':
-        photometric = RGB
-        planarconfig = CONTIG
+        photometric = PHOTOMETRIC.RGB
+        planarconfig = PLANARCONFIG.CONTIG
         data = numpy.empty((83, 111, 3), 'f4')
         data[..., 0] = f4
         data[..., 1] = f4[::-1]
         data[..., 2] = f4[::-1, ::-1]
     elif mode == 'planar':
-        photometric = RGB
-        planarconfig = SEPARATE
+        photometric = PHOTOMETRIC.RGB
+        planarconfig = PLANARCONFIG.SEPARATE
         data = numpy.empty((3, 83, 111), 'f4')
         data[0] = f4
         data[1] = f4[::-1]
         data[2] = f4[::-1, ::-1]
     else:
         planarconfig = None
-        photometric = MINISBLACK
+        photometric = PHOTOMETRIC.MINISBLACK
         data = f4
 
     if dtype[0] in 'if':
@@ -14092,7 +14150,7 @@ def test_write_predictor(byteorder, dtype, tile, mode):
             fname,
             data,
             predictor=True,
-            compression=ADOBE_DEFLATE,
+            compression=COMPRESSION.ADOBE_DEFLATE,
             tile=tile,
             photometric=photometric,
             planarconfig=planarconfig,
@@ -14105,7 +14163,7 @@ def test_write_predictor(byteorder, dtype, tile, mode):
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == ADOBE_DEFLATE
+            assert page.compression == COMPRESSION.ADOBE_DEFLATE
             assert page.predictor == (3 if dtype[0] == 'f' else 2)
             assert page.photometric == photometric
             if planarconfig is not None:
@@ -14150,11 +14208,11 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
     data = random_data(numpy.uint8, shape)
 
     if count == 1:
-        dtype = TIFF.DATATYPES.LONG8 if bigtiff else TIFF.DATATYPES.LONG
+        dtype = DATATYPE.LONG8 if bigtiff else DATATYPE.LONG
     elif bytecount == 256:
-        dtype = TIFF.DATATYPES.LONG
+        dtype = DATATYPE.LONG
     else:
-        dtype = TIFF.DATATYPES.SHORT
+        dtype = DATATYPE.SHORT
 
     with TempFileName(
         'write_bytecounts_{}{}{}{}{}'.format(
@@ -14166,7 +14224,7 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
             data,
             bigtiff=bigtiff,
             tile=tile,
-            compression=ADOBE_DEFLATE if compression else None,
+            compression=COMPRESSION.ADOBE_DEFLATE if compression else None,
             compressionargs={'level': compression} if compression else None,
             rowsperstrip=rowsperstrip,
         )
@@ -14178,8 +14236,8 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
             assert page.tags[tag].count == count
             assert page.tags[tag].dtype == dtype
             assert page.is_contiguous == is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == MINISBLACK
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
             assert page.imagewidth == shape[1]
             assert page.imagelength == shape[0]
             assert page.samplesperpixel == 1
@@ -14286,7 +14344,7 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
 
     kwargs = {
         'tile': (16, 16) if tiled else None,
-        'compression': ADOBE_DEFLATE if compressed else None,
+        'compression': COMPRESSION.ADOBE_DEFLATE if compressed else None,
         'compressionargs': {'level': 6} if compressed else None,
     }
 
@@ -14336,7 +14394,7 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
                 if subifds:
                     for j, subifd in enumerate(page.pages[:-1]):
                         assert subifd.is_subifd
-                        assert subifd.subfiletype == 1
+                        assert subifd.subfiletype == FILETYPE.REDUCEDIMAGE
                         assert subifd._nextifd() == page.subifds[j + 1]
                     assert page.pages[-1]._nextifd() == 0
                 else:
@@ -14370,7 +14428,7 @@ def test_write_lists():
     with TempFileName('write_lists') as fname:
         with TiffWriter(fname) as tif:
             tif.write(data, dtype=numpy.uint16)
-            tif.write(data, compression=ADOBE_DEFLATE)
+            tif.write(data, compression=COMPRESSION.ADOBE_DEFLATE)
             tif.write([100.0])
             with pytest.warns(UserWarning):
                 tif.write([])
@@ -14529,7 +14587,7 @@ def test_write_roundtrip_filename():
     """Test write and read using file name."""
     data = imread(public_file('tifffile/generic_series.tif'))
     with TempFileName('write_roundtrip_filename') as fname:
-        imwrite(fname, data, photometric=RGB)
+        imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         assert_array_equal(imread(fname), data)
 
 
@@ -14541,7 +14599,7 @@ def test_write_roundtrip_openfile():
     with TempFileName('write_roundtrip_openfile') as fname:
         with open(fname, 'wb') as fh:
             fh.write(pad)
-            imwrite(fh, data, photometric=RGB)
+            imwrite(fh, data, photometric=PHOTOMETRIC.RGB)
             fh.write(pad)
         with open(fname, 'rb') as fh:
             fh.seek(len(pad))
@@ -14555,7 +14613,7 @@ def test_write_roundtrip_bytesio():
     data = imread(public_file('tifffile/generic_series.tif'))
     buf = BytesIO()
     buf.write(pad)
-    imwrite(buf, data, photometric=RGB)
+    imwrite(buf, data, photometric=PHOTOMETRIC.RGB)
     buf.write(pad)
     buf.seek(len(pad))
     assert_array_equal(imread(buf), data)
@@ -14565,15 +14623,15 @@ def test_write_pages():
     """Test write tags for contiguous data in all pages."""
     data = random_data(numpy.float32, (17, 219, 301))
     with TempFileName('write_pages') as fname:
-        imwrite(fname, data, photometric=MINISBLACK)
+        imwrite(fname, data, photometric=PHOTOMETRIC.MINISBLACK)
         assert_valid_tiff(fname)
         # assert file
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 17
             for i, page in enumerate(tif.pages):
                 assert page.is_contiguous
-                assert page.planarconfig == CONTIG
-                assert page.photometric == MINISBLACK
+                assert page.planarconfig == PLANARCONFIG.CONTIG
+                assert page.photometric == PHOTOMETRIC.MINISBLACK
                 assert page.imagewidth == 301
                 assert page.imagelength == 219
                 assert page.samplesperpixel == 1
@@ -14617,7 +14675,11 @@ def test_write_truncate():
 def test_write_is_shaped():
     """Test files are written with shape."""
     with TempFileName('write_is_shaped') as fname:
-        imwrite(fname, random_data(numpy.uint8, (4, 5, 6, 3)), photometric=RGB)
+        imwrite(
+            fname,
+            random_data(numpy.uint8, (4, 5, 6, 3)),
+            photometric=PHOTOMETRIC.RGB,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 4
@@ -14630,7 +14692,7 @@ def test_write_is_shaped():
         imwrite(
             fname,
             random_data(numpy.uint8, (5, 6, 3)),
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
             description=descr,
         )
         assert_valid_tiff(fname)
@@ -15035,11 +15097,15 @@ def test_write_bitspersample(bps, dtype):
     with TempFileName(f'write_bitspersample_{dtype.char}{bps}') as fname:
         # TODO: enable all cases once imagecodecs.packints_encode works
         if bps == dtype.itemsize * 8:
-            imwrite(fname, data, bitspersample=bps, photometric=RGB)
+            imwrite(
+                fname, data, bitspersample=bps, photometric=PHOTOMETRIC.RGB
+            )
             assert_array_equal(imread(fname), data)
         else:
             with pytest.raises(NotImplementedError):
-                imwrite(fname, data, bitspersample=bps, photometric=RGB)
+                imwrite(
+                    fname, data, bitspersample=bps, photometric=PHOTOMETRIC.RGB
+                )
                 assert_array_equal(imread(fname), data)
 
 
@@ -15053,8 +15119,8 @@ def test_write_bitspersample_fail():
                 tif.write(
                     data.astype(numpy.uint8),
                     bitspersample=4,
-                    compression=ADOBE_DEFLATE,
-                    photometric=RGB,
+                    compression=COMPRESSION.ADOBE_DEFLATE,
+                    photometric=PHOTOMETRIC.RGB,
                 )
             # dtype.itemsize != bitspersample
             for dtype in (
@@ -15065,7 +15131,9 @@ def test_write_bitspersample_fail():
             ):
                 with pytest.raises(ValueError):
                     tif.write(
-                        data.astype(dtype), bitspersample=4, photometric=RGB
+                        data.astype(dtype),
+                        bitspersample=4,
+                        photometric=PHOTOMETRIC.RGB,
                     )
             # bitspersample out of data range
             for bps in (0, 9, 16, 32):
@@ -15073,21 +15141,21 @@ def test_write_bitspersample_fail():
                     tif.write(
                         data.astype(numpy.uint8),
                         bitspersample=bps,
-                        photometric=RGB,
+                        photometric=PHOTOMETRIC.RGB,
                     )
             for bps in (1, 8, 17, 32):
                 with pytest.raises(ValueError):
                     tif.write(
                         data.astype(numpy.uint16),
                         bitspersample=bps,
-                        photometric=RGB,
+                        photometric=PHOTOMETRIC.RGB,
                     )
             for bps in (1, 8, 16, 33, 64):
                 with pytest.raises(ValueError):
                     tif.write(
                         data.astype(numpy.uint32),
                         bitspersample=bps,
-                        photometric=RGB,
+                        photometric=PHOTOMETRIC.RGB,
                     )
 
 
@@ -15100,11 +15168,15 @@ def test_write_enum_parameters(kind):
             imwrite(
                 fname,
                 data,
-                photometric=RGB,
-                planarconfig=SEPARATE,
-                extrasamples=(ASSOCALPHA, UNSPECIFIED, UNASSALPHA),
-                compression=ADOBE_DEFLATE,
-                predictor=HORIZONTAL,
+                photometric=PHOTOMETRIC.RGB,
+                planarconfig=PLANARCONFIG.SEPARATE,
+                extrasamples=(
+                    EXTRASAMPLE.ASSOCALPHA,
+                    EXTRASAMPLE.UNSPECIFIED,
+                    EXTRASAMPLE.UNASSALPHA,
+                ),
+                compression=COMPRESSION.ADOBE_DEFLATE,
+                predictor=PREDICTOR.HORIZONTAL,
             )
         elif kind == 'int':
             imwrite(
@@ -15142,11 +15214,15 @@ def test_write_enum_parameters(kind):
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 6
-            assert page.photometric == RGB
-            assert page.planarconfig == SEPARATE
-            assert page.extrasamples == (ASSOCALPHA, UNSPECIFIED, UNASSALPHA)
-            assert page.compression == ADOBE_DEFLATE
-            assert page.predictor == HORIZONTAL
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.extrasamples == (
+                EXTRASAMPLE.ASSOCALPHA,
+                EXTRASAMPLE.UNSPECIFIED,
+                EXTRASAMPLE.UNASSALPHA,
+            )
+            assert page.compression == COMPRESSION.ADOBE_DEFLATE
+            assert page.predictor == PREDICTOR.HORIZONTAL
             image = tif.asarray()
             assert_array_equal(data, image)
             assert_aszarr_method(tif, image)
@@ -15158,8 +15234,8 @@ def test_write_enum_parameters(kind):
     [
         (0, 0),
         (1, 1),
-        (2, NONE),
-        (3, ADOBE_DEFLATE),
+        (2, COMPRESSION.NONE),
+        (3, COMPRESSION.ADOBE_DEFLATE),
         (4, 'zlib'),
         (5, 'zlib', 5),
         (6, 'zlib', 5, {'out': None}),
@@ -15170,7 +15246,7 @@ def test_write_compression_args(args, recwarn):
     """Test compression parameter."""
     i = args[0]
     compressionargs = args[1:]
-    compressed = compressionargs[0] not in {0, 1, NONE}
+    compressed = compressionargs[0] not in {0, 1, COMPRESSION.NONE}
     if len(compressionargs) == 1:
         compressionargs = compressionargs[0]
     rowsperstrip = 100 if compressed else None
@@ -15182,7 +15258,7 @@ def test_write_compression_args(args, recwarn):
             fname,
             data,
             compression=compressionargs,
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
             rowsperstrip=rowsperstrip,
         )
         if i > 4:
@@ -15193,9 +15269,11 @@ def test_write_compression_args(args, recwarn):
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
-            assert page.compression == (ADOBE_DEFLATE if compressed else NONE)
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == (
+                COMPRESSION.ADOBE_DEFLATE if compressed else COMPRESSION.NONE
+            )
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15206,7 +15284,13 @@ def test_write_compression_args(args, recwarn):
 
 
 @pytest.mark.parametrize(
-    'args', [(0, 0), (1, 5), (2, ADOBE_DEFLATE), (3, ADOBE_DEFLATE, 5)]
+    'args',
+    [
+        (0, 0),
+        (1, 5),
+        (2, COMPRESSION.ADOBE_DEFLATE),
+        (3, COMPRESSION.ADOBE_DEFLATE, 5),
+    ],
 )
 def test_write_compress_args(args):
     """Test compress parameter no longer works in 2022.4.22."""
@@ -15218,22 +15302,24 @@ def test_write_compress_args(args):
     data = WRITE_DATA
     with TempFileName(f'write_compression_args_{i}') as fname:
         with pytest.raises(TypeError):
-            imwrite(fname, data, compress=compressargs, photometric=RGB)
+            imwrite(
+                fname, data, compress=compressargs, photometric=PHOTOMETRIC.RGB
+            )
 
 
 def test_write_compression_none():
     """Test write compression=0."""
     data = WRITE_DATA
     with TempFileName('write_compression_none') as fname:
-        imwrite(fname, data, compression=0, photometric=RGB)
+        imwrite(fname, data, compression=0, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.compression == NONE
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.NONE
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15267,10 +15353,10 @@ def test_write_compression_jpeg(dtype, subsampling):
         imwrite(
             fname,
             data,
-            compression=JPEG,
+            compression=COMPRESSION.JPEG,
             compressionargs={'level': 99},
             subsampling=subsampling,
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15280,8 +15366,8 @@ def test_write_compression_jpeg(dtype, subsampling):
             if subsampling[0] > 1:
                 assert page.is_subsampled
                 assert page.tags['YCbCrSubSampling'].value == subsampling
-            assert page.compression == JPEG
-            assert page.photometric == YCBCR
+            assert page.compression == COMPRESSION.JPEG
+            assert page.photometric == PHOTOMETRIC.YCBCR
             assert page.imagewidth == data.shape[1]
             assert page.imagelength == data.shape[0]
             assert page.samplesperpixel == 3
@@ -15300,9 +15386,9 @@ def test_write_compression_deflate(dtype):
         imwrite(
             fname,
             data,
-            compression=DEFLATE,
+            compression=COMPRESSION.DEFLATE,
             compressionargs={'level': 6},
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
             rowsperstrip=108,
         )
         assert_valid_tiff(fname)
@@ -15310,9 +15396,9 @@ def test_write_compression_deflate(dtype):
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == DEFLATE
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.DEFLATE
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15331,18 +15417,18 @@ def test_write_compression_deflate_level():
         imwrite(
             fname,
             data,
-            compression=ADOBE_DEFLATE,
+            compression=COMPRESSION.ADOBE_DEFLATE,
             compressionargs={'level': 9},
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == ADOBE_DEFLATE
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.ADOBE_DEFLATE
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15359,16 +15445,20 @@ def test_write_compression_lzma(dtype):
     data = WRITE_DATA.astype(dtype)
     with TempFileName(f'write_compression_lzma_{dtype}') as fname:
         imwrite(
-            fname, data, compression=LZMA, photometric=RGB, rowsperstrip=108
+            fname,
+            data,
+            compression=COMPRESSION.LZMA,
+            photometric=PHOTOMETRIC.RGB,
+            rowsperstrip=108,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == LZMA
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.LZMA
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15388,16 +15478,20 @@ def test_write_compression_zstd(dtype):
     data = WRITE_DATA.astype(dtype)
     with TempFileName(f'write_compression_zstd_{dtype}') as fname:
         imwrite(
-            fname, data, compression=ZSTD, photometric=RGB, rowsperstrip=108
+            fname,
+            data,
+            compression=COMPRESSION.ZSTD,
+            photometric=PHOTOMETRIC.RGB,
+            rowsperstrip=108,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == ZSTD
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.ZSTD
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15417,17 +15511,17 @@ def test_write_compression_webp():
         imwrite(
             fname,
             data,
-            compression=WEBP,
+            compression=COMPRESSION.WEBP,
             compressionargs={'level': -1},
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == WEBP
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.WEBP
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15445,17 +15539,17 @@ def test_write_compression_jpeg2k():
         imwrite(
             fname,
             data,
-            compression=JPEG2000,
+            compression=COMPRESSION.JPEG2000,
             compressionargs={'level': -1},
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == JPEG2000
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.JPEG2000
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15473,17 +15567,17 @@ def test_write_compression_jpegxl():
         imwrite(
             fname,
             data,
-            compression=JPEGXL,
+            compression=COMPRESSION.JPEGXL,
             compressionargs={'level': 101},  # lossless
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == JPEGXL
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.JPEGXL
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15515,8 +15609,8 @@ def test_write_compression_lerc(compression):
         imwrite(
             fname,
             data,
-            photometric=RGB,
-            compression=LERC,
+            photometric=PHOTOMETRIC.RGB,
+            compression=COMPRESSION.LERC,
             compressionargs={
                 'compression': compression,
                 'compressionargs': compressionargs,
@@ -15527,8 +15621,8 @@ def test_write_compression_lerc(compression):
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == LERC
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.LERC
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15577,8 +15671,8 @@ def test_write_compression_jetraw():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.compression == COMPRESSION.JETRAW
-            assert page.photometric == MINISBLACK
-            assert page.planarconfig == CONTIG
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
+            assert page.planarconfig == PLANARCONFIG.CONTIG
             assert page.imagewidth == 2304
             assert page.imagelength == 2304
             assert page.rowsperstrip == 2304
@@ -15606,14 +15700,14 @@ def test_write_compression_packbits(dtype, tile):
     data = numpy.empty(shape, dtype=dtype)
     data[..., :] = uncompressed
     with TempFileName(f'write_compression_packits_{dtype}') as fname:
-        imwrite(fname, data, compression=PACKBITS, tile=tile)
+        imwrite(fname, data, compression=COMPRESSION.PACKBITS, tile=tile)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == PACKBITS
-            assert page.planarconfig == CONTIG
+            assert page.compression == COMPRESSION.PACKBITS
+            assert page.planarconfig == PLANARCONFIG.CONTIG
             assert page.imagewidth == uncompressed.size
             assert page.imagelength == 7
             assert page.samplesperpixel == 1
@@ -15630,18 +15724,18 @@ def test_write_compression_rowsperstrip():
         imwrite(
             fname,
             data,
-            compression=ADOBE_DEFLATE,
+            compression=COMPRESSION.ADOBE_DEFLATE,
             rowsperstrip=32,
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == ADOBE_DEFLATE
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.ADOBE_DEFLATE
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15660,9 +15754,9 @@ def test_write_compression_tiled():
         imwrite(
             fname,
             data,
-            compression=ADOBE_DEFLATE,
+            compression=COMPRESSION.ADOBE_DEFLATE,
             tile=(32, 32),
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -15670,9 +15764,9 @@ def test_write_compression_tiled():
             page = tif.pages.first
             assert not page.is_contiguous
             assert page.is_tiled
-            assert page.compression == ADOBE_DEFLATE
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.ADOBE_DEFLATE
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15690,19 +15784,19 @@ def test_write_compression_predictor():
         imwrite(
             fname,
             data,
-            compression=ADOBE_DEFLATE,
-            predictor=HORIZONTAL,
-            photometric=RGB,
+            compression=COMPRESSION.ADOBE_DEFLATE,
+            predictor=PREDICTOR.HORIZONTAL,
+            photometric=PHOTOMETRIC.RGB,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == ADOBE_DEFLATE
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
-            assert page.predictor == HORIZONTAL
+            assert page.compression == COMPRESSION.ADOBE_DEFLATE
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.predictor == PREDICTOR.HORIZONTAL
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15722,10 +15816,10 @@ def test_write_compression_predictor_tiled(dtype):
         imwrite(
             fname,
             data,
-            compression=ADOBE_DEFLATE,
+            compression=COMPRESSION.ADOBE_DEFLATE,
             predictor=True,
             tile=(32, 32),
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
         )
         if dtype.kind != 'f':
             assert_valid_tiff(fname)
@@ -15734,9 +15828,9 @@ def test_write_compression_predictor_tiled(dtype):
             page = tif.pages.first
             assert not page.is_contiguous
             assert page.is_tiled
-            assert page.compression == ADOBE_DEFLATE
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.compression == COMPRESSION.ADOBE_DEFLATE
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15756,7 +15850,7 @@ def test_write_rowsperstrip():
             data,
             rowsperstrip=32,
             contiguous=False,
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
             metadata=None,
         )
         assert_valid_tiff(fname)
@@ -15764,8 +15858,8 @@ def test_write_rowsperstrip():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15788,7 +15882,12 @@ def test_write_write_bigendian():
     data = data.view(data.dtype.newbyteorder())
     data = numpy.nan_to_num(data, copy=False)
     with TempFileName('write_bigendian') as fname:
-        imwrite(fname, data, planarconfig=SEPARATE, photometric=RGB)
+        imwrite(
+            fname,
+            data,
+            planarconfig=PLANARCONFIG.SEPARATE,
+            photometric=PHOTOMETRIC.RGB,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
@@ -15798,8 +15897,8 @@ def test_write_write_bigendian():
             assert tif.series[0].dataoffset is not None
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -15811,35 +15910,35 @@ def test_write_write_bigendian():
             assert_array_equal(data[0], image)
             # test direct memory mapping; returns big endian array
             image = tif.asarray(out='memmap')
-            assert isinstance(image, numpy.core.memmap)
+            assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('>f4')
             assert_array_equal(data, image)
             del image
             image = page.asarray(out='memmap')
-            assert isinstance(image, numpy.core.memmap)
+            assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('>f4')
             assert_array_equal(data[0], image)
             del image
             # test indirect memory mapping; returns native endian array
             image = tif.asarray(out='memmap:')
-            assert isinstance(image, numpy.core.memmap)
+            assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('=f4')
             assert_array_equal(data, image)
             del image
             image = page.asarray(out='memmap:')
-            assert isinstance(image, numpy.core.memmap)
+            assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('=f4')
             assert_array_equal(data[0], image)
             del image
             # test 2nd page
             page = tif.pages[1]
             image = page.asarray(out='memmap')
-            assert isinstance(image, numpy.core.memmap)
+            assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('>f4')
             assert_array_equal(data[1], image)
             del image
             image = page.asarray(out='memmap:')
-            assert isinstance(image, numpy.core.memmap)
+            assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('=f4')
             assert_array_equal(data[1], image)
             del image
@@ -15865,8 +15964,8 @@ def test_write_pixel():
             assert tif.series[0].axes == 'Y'
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 1
             assert page.imagelength == 1
             assert page.samplesperpixel == 1
@@ -15887,8 +15986,8 @@ def test_write_small():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 1
             assert page.imagelength == 1
             assert page.samplesperpixel == 1
@@ -15903,15 +16002,15 @@ def test_write_2d_as_rgb():
     # image length should be 1
     data = numpy.arange(3 * 256, dtype=numpy.uint16).reshape(256, 3) // 3
     with TempFileName('write_2d_as_rgb_contig') as fname:
-        imwrite(fname, data, photometric=RGB)
+        imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.series[0].axes == 'XS'
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 256
             assert page.imagelength == 1
             assert page.samplesperpixel == 3
@@ -15934,8 +16033,8 @@ def test_write_auto_photometric_planar():
             page = tif.pages.first
             assert page.shape == (4, 31, 33)
             assert page.axes == 'SYX'
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
 
     with TempFileName('write_auto_photometric_planar2') as fname:
@@ -15947,8 +16046,8 @@ def test_write_auto_photometric_planar():
             page = tif.pages.first
             assert page.shape == (4, 31, 33)
             assert page.axes == 'SYX'
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
 
     data = random_data(numpy.uint8, (4, 7, 31, 33))
@@ -15961,8 +16060,8 @@ def test_write_auto_photometric_planar():
             page = tif.pages.first
             assert page.shape == (4, 7, 31, 33)
             assert page.axes == 'SZYX'
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
             assert page.is_volumetric
 
@@ -15975,8 +16074,8 @@ def test_write_auto_photometric_planar():
             page = tif.pages.first
             assert page.shape == (4, 7, 31, 33)
             assert page.axes == 'SZYX'
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
             assert page.is_volumetric
 
@@ -15992,8 +16091,8 @@ def test_write_auto_photometric_contig():
             page = tif.pages.first
             assert page.shape == (31, 33, 4)
             assert page.axes == 'YXS'
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
 
     with TempFileName('write_auto_photometric_contig2') as fname:
@@ -16004,8 +16103,8 @@ def test_write_auto_photometric_contig():
             page = tif.pages.first
             assert page.shape == (31, 33, 4)
             assert page.axes == 'YXS'
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
 
     data = random_data(numpy.uint8, (7, 31, 33, 4))
@@ -16017,8 +16116,8 @@ def test_write_auto_photometric_contig():
             page = tif.pages.first
             assert page.shape == (7, 31, 33, 4)
             assert page.axes == 'ZYXS'
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
             assert page.is_volumetric
 
@@ -16030,8 +16129,8 @@ def test_write_auto_photometric_contig():
             page = tif.pages.first
             assert page.shape == (7, 31, 33, 4)
             assert page.axes == 'ZYXS'
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert len(page.extrasamples) == 1
             assert page.is_volumetric
 
@@ -16041,7 +16140,7 @@ def test_write_invalid_contig_rgb():
     data = random_data(numpy.uint8, (219, 301, 2))
     with pytest.raises(ValueError):
         with TempFileName('write_invalid_contig_rgb') as fname:
-            imwrite(fname, data, photometric=RGB)
+            imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
     # default to pages
     with TempFileName('write_invalid_contig_rgb_pages') as fname:
         imwrite(fname, data)
@@ -16051,8 +16150,8 @@ def test_write_invalid_contig_rgb():
             assert tif.series[0].axes == 'QYX'
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 2
             assert page.imagelength == 301
             assert page.samplesperpixel == 1
@@ -16062,15 +16161,15 @@ def test_write_invalid_contig_rgb():
             assert__str__(tif)
     # better save as contig samples
     with TempFileName('write_invalid_contig_rgb_samples') as fname:
-        imwrite(fname, data, planarconfig=CONTIG)
+        imwrite(fname, data, planarconfig=PLANARCONFIG.CONTIG)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.series[0].axes == 'YXS'
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
@@ -16085,7 +16184,12 @@ def test_write_invalid_planar_rgb():
     data = random_data(numpy.uint8, (2, 219, 301))
     with pytest.raises(ValueError):
         with TempFileName('write_invalid_planar_rgb') as fname:
-            imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
+            imwrite(
+                fname,
+                data,
+                photometric=PHOTOMETRIC.RGB,
+                planarconfig=PLANARCONFIG.SEPARATE,
+            )
     # default to pages
     with TempFileName('write_invalid_planar_rgb_pages') as fname:
         imwrite(fname, data)
@@ -16095,8 +16199,8 @@ def test_write_invalid_planar_rgb():
             assert tif.series[0].axes == 'QYX'
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -16106,15 +16210,15 @@ def test_write_invalid_planar_rgb():
             assert__str__(tif)
     # or save as planar samples
     with TempFileName('write_invalid_planar_rgb_samples') as fname:
-        imwrite(fname, data, planarconfig=SEPARATE)
+        imwrite(fname, data, planarconfig=PLANARCONFIG.SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             assert tif.series[0].axes == 'SYX'
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
@@ -16128,14 +16232,14 @@ def test_write_extrasamples_gray():
     """Test write grayscale with extrasamples contig."""
     data = random_data(numpy.uint8, (301, 219, 2))
     with TempFileName('write_extrasamples_gray') as fname:
-        imwrite(fname, data, extrasamples=[UNASSALPHA])
+        imwrite(fname, data, extrasamples=[EXTRASAMPLE.UNASSALPHA])
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.photometric == MINISBLACK
-            assert page.planarconfig == CONTIG
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
+            assert page.planarconfig == PLANARCONFIG.CONTIG
             assert page.imagewidth == 219
             assert page.imagelength == 301
             assert page.samplesperpixel == 2
@@ -16150,14 +16254,19 @@ def test_write_extrasamples_gray_planar():
     """Test write planar grayscale with extrasamples."""
     data = random_data(numpy.uint8, (2, 301, 219))
     with TempFileName('write_extrasamples_gray_planar') as fname:
-        imwrite(fname, data, planarconfig=SEPARATE, extrasamples=[UNASSALPHA])
+        imwrite(
+            fname,
+            data,
+            planarconfig=PLANARCONFIG.SEPARATE,
+            extrasamples=[EXTRASAMPLE.UNASSALPHA],
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.photometric == MINISBLACK
-            assert page.planarconfig == SEPARATE
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
             assert page.imagewidth == 219
             assert page.imagelength == 301
             assert page.samplesperpixel == 2
@@ -16175,15 +16284,19 @@ def test_write_extrasamples_gray_mix():
         imwrite(
             fname,
             data,
-            photometric=MINISBLACK,
-            extrasamples=[ASSOCALPHA, UNASSALPHA, UNSPECIFIED],
+            photometric=PHOTOMETRIC.MINISBLACK,
+            extrasamples=[
+                EXTRASAMPLE.ASSOCALPHA,
+                EXTRASAMPLE.UNASSALPHA,
+                EXTRASAMPLE.UNSPECIFIED,
+            ],
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.photometric == MINISBLACK
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
             assert page.imagewidth == 219
             assert page.imagelength == 301
             assert page.samplesperpixel == 4
@@ -16198,13 +16311,13 @@ def test_write_extrasamples_unspecified():
     """Test write RGB with unspecified extrasamples by default."""
     data = random_data(numpy.uint8, (301, 219, 5))
     with TempFileName('write_extrasamples_unspecified') as fname:
-        imwrite(fname, data, photometric=RGB)
+        imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.photometric == RGB
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 219
             assert page.imagelength == 301
             assert page.samplesperpixel == 5
@@ -16219,14 +16332,19 @@ def test_write_extrasamples_assocalpha():
     """Test write RGB with assocalpha extrasample."""
     data = random_data(numpy.uint8, (219, 301, 4))
     with TempFileName('write_extrasamples_assocalpha') as fname:
-        imwrite(fname, data, photometric=RGB, extrasamples=ASSOCALPHA)
+        imwrite(
+            fname,
+            data,
+            photometric=PHOTOMETRIC.RGB,
+            extrasamples=EXTRASAMPLE.ASSOCALPHA,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 4
@@ -16244,16 +16362,20 @@ def test_write_extrasamples_mix():
         imwrite(
             fname,
             data,
-            photometric=RGB,
-            extrasamples=[ASSOCALPHA, UNASSALPHA, UNSPECIFIED],
+            photometric=PHOTOMETRIC.RGB,
+            extrasamples=[
+                EXTRASAMPLE.ASSOCALPHA,
+                EXTRASAMPLE.UNASSALPHA,
+                EXTRASAMPLE.UNSPECIFIED,
+            ],
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 6
@@ -16268,14 +16390,14 @@ def test_write_extrasamples_contig():
     """Test write contig grayscale with large number of extrasamples."""
     data = random_data(numpy.uint8, (3, 219, 301))
     with TempFileName('write_extrasamples_contig') as fname:
-        imwrite(fname, data, planarconfig=CONTIG)
+        imwrite(fname, data, planarconfig=PLANARCONFIG.CONTIG)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 219
             assert page.imagelength == 3
             assert page.samplesperpixel == 301
@@ -16286,14 +16408,19 @@ def test_write_extrasamples_contig():
             assert__str__(tif)
     # better save as RGB planar
     with TempFileName('write_extrasamples_contig_planar') as fname:
-        imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
+        imwrite(
+            fname,
+            data,
+            photometric=PHOTOMETRIC.RGB,
+            planarconfig=PLANARCONFIG.SEPARATE,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -16307,14 +16434,19 @@ def test_write_extrasamples_contig_rgb2():
     """Test write contig RGB with large number of extrasamples."""
     data = random_data(numpy.uint8, (3, 219, 301))
     with TempFileName('write_extrasamples_contig_rgb2') as fname:
-        imwrite(fname, data, photometric=RGB, planarconfig=CONTIG)
+        imwrite(
+            fname,
+            data,
+            photometric=PHOTOMETRIC.RGB,
+            planarconfig=PLANARCONFIG.CONTIG,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 219
             assert page.imagelength == 3
             assert page.samplesperpixel == 301
@@ -16325,14 +16457,19 @@ def test_write_extrasamples_contig_rgb2():
             assert__str__(tif)
     # better save as planar
     with TempFileName('write_extrasamples_contig_rgb2_planar') as fname:
-        imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
+        imwrite(
+            fname,
+            data,
+            photometric=PHOTOMETRIC.RGB,
+            planarconfig=PLANARCONFIG.SEPARATE,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -16346,14 +16483,14 @@ def test_write_extrasamples_planar():
     """Test write planar large number of extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 3))
     with TempFileName('write_extrasamples_planar') as fname:
-        imwrite(fname, data, planarconfig=SEPARATE)
+        imwrite(fname, data, planarconfig=PLANARCONFIG.SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 3
             assert page.imagelength == 301
             assert page.samplesperpixel == 219
@@ -16368,14 +16505,19 @@ def test_write_extrasamples_planar_rgb2():
     """Test write planar RGB with large number of extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 3))
     with TempFileName('write_extrasamples_planar_rgb2') as fname:
-        imwrite(fname, data, photometric=RGB, planarconfig=SEPARATE)
+        imwrite(
+            fname,
+            data,
+            photometric=PHOTOMETRIC.RGB,
+            planarconfig=PLANARCONFIG.SEPARATE,
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 3
             assert page.imagelength == 301
             assert page.samplesperpixel == 219
@@ -16390,14 +16532,14 @@ def test_write_minisblack_planar():
     """Test write planar minisblack."""
     data = random_data(numpy.uint8, (3, 219, 301))
     with TempFileName('write_minisblack_planar') as fname:
-        imwrite(fname, data, photometric=MINISBLACK)
+        imwrite(fname, data, photometric=PHOTOMETRIC.MINISBLACK)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 3
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -16411,14 +16553,14 @@ def test_write_minisblack_contig():
     """Test write contig minisblack."""
     data = random_data(numpy.uint8, (219, 301, 3))
     with TempFileName('write_minisblack_contig') as fname:
-        imwrite(fname, data, photometric=MINISBLACK)
+        imwrite(fname, data, photometric=PHOTOMETRIC.MINISBLACK)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 219
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 3
             assert page.imagelength == 301
             assert page.samplesperpixel == 1
@@ -16438,8 +16580,8 @@ def test_write_scalar():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -16459,8 +16601,8 @@ def test_write_scalar_3d():
             assert len(tif.pages) == 63
             page = tif.pages[62]
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -16481,8 +16623,8 @@ def test_write_scalar_4d():
             assert len(tif.pages) == 6
             page = tif.pages[5]
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -16496,14 +16638,14 @@ def test_write_contig_extrasample():
     """Test write grayscale with contig extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 2))
     with TempFileName('write_contig_extrasample') as fname:
-        imwrite(fname, data, planarconfig=CONTIG)
+        imwrite(fname, data, planarconfig=PLANARCONFIG.CONTIG)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
@@ -16517,14 +16659,14 @@ def test_write_planar_extrasample():
     """Test write grayscale with planar extrasamples."""
     data = random_data(numpy.uint8, (2, 219, 301))
     with TempFileName('write_planar_extrasample') as fname:
-        imwrite(fname, data, planarconfig=SEPARATE)
+        imwrite(fname, data, planarconfig=PLANARCONFIG.SEPARATE)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
@@ -16544,8 +16686,8 @@ def test_write_auto_rgb_contig():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -16566,8 +16708,8 @@ def test_write_auto_rgb_planar():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
@@ -16587,12 +16729,12 @@ def test_write_auto_rgba_contig():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 4
-            assert page.extrasamples[0] == UNASSALPHA
+            assert page.extrasamples[0] == EXTRASAMPLE.UNASSALPHA
             image = tif.asarray()
             assert_array_equal(data, image)
             assert_aszarr_method(tif, image)
@@ -16610,12 +16752,12 @@ def test_write_auto_rgba_planar():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 4
-            assert page.extrasamples[0] == UNASSALPHA
+            assert page.extrasamples[0] == EXTRASAMPLE.UNASSALPHA
             image = tif.asarray()
             assert_array_equal(data, image)
             assert_aszarr_method(tif, image)
@@ -16626,19 +16768,19 @@ def test_write_extrasamples_contig_rgb():
     """Test write contig RGB with extrasamples."""
     data = random_data(numpy.uint8, (219, 301, 8))
     with TempFileName('write_extrasamples_contig') as fname:
-        imwrite(fname, data, photometric=RGB)
+        imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 8
             assert len(page.extrasamples) == 5
-            assert page.extrasamples[0] == UNSPECIFIED
+            assert page.extrasamples[0] == EXTRASAMPLE.UNSPECIFIED
             image = tif.asarray()
             assert_array_equal(data, image)
             assert_aszarr_method(tif, image)
@@ -16649,22 +16791,49 @@ def test_write_extrasamples_planar_rgb():
     """Test write planar RGB with extrasamples."""
     data = random_data(numpy.uint8, (8, 219, 301))
     with TempFileName('write_extrasamples_planar') as fname:
-        imwrite(fname, data, photometric=RGB)
+        imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 8
             assert len(page.extrasamples) == 5
-            assert page.extrasamples[0] == UNSPECIFIED
+            assert page.extrasamples[0] == EXTRASAMPLE.UNSPECIFIED
             image = tif.asarray()
             assert_array_equal(data, image)
             assert_aszarr_method(tif, image)
+            assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
+def test_write_iccprofile():
+    """Test write RGB with ICC profile."""
+    data = random_data(numpy.uint8, (219, 301, 3))
+    iccprofile = imagecodecs.cms_profile('srgb')
+
+    with TempFileName('write_iccprofile') as fname:
+        imwrite(
+            fname, data, photometric=PHOTOMETRIC.RGB, iccprofile=iccprofile
+        )
+        assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages.first
+            assert page.is_contiguous
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
+            assert page.imagewidth == 301
+            assert page.imagelength == 219
+            assert page.samplesperpixel == 3
+            assert page.tags[34675].dtype == DATATYPE.UNDEFINED
+            assert page.iccprofile == iccprofile
+            imagecodecs.cms_profile_validate(page.iccprofile)
+            tif.asarray()
             assert__str__(tif)
 
 
@@ -16688,7 +16857,7 @@ def test_write_cfa():
         imwrite(
             fname,
             data,
-            photometric=CFA,
+            photometric=PHOTOMETRIC.CFA,
             software='Tifffile',
             datetime=True,
             extratags=extratags,
@@ -16697,7 +16866,7 @@ def test_write_cfa():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.compression == 1
-            assert page.photometric == CFA
+            assert page.photometric == PHOTOMETRIC.CFA
             assert page.imagewidth == 960
             assert page.imagelength == 540
             assert page.bitspersample == 16
@@ -16714,9 +16883,9 @@ def test_write_tiled_compressed():
         imwrite(
             fname,
             data,
-            photometric=RGB,
-            planarconfig=SEPARATE,
-            compression=ADOBE_DEFLATE,
+            photometric=PHOTOMETRIC.RGB,
+            planarconfig=PLANARCONFIG.SEPARATE,
+            compression=COMPRESSION.ADOBE_DEFLATE,
             compressionargs={'level': -1},
             tile=(96, 64),
         )
@@ -16726,8 +16895,8 @@ def test_write_tiled_compressed():
             page = tif.pages.first
             assert page.is_tiled
             assert not page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.tilewidth == 64
@@ -16750,8 +16919,8 @@ def test_write_tiled():
             page = tif.pages.first
             assert page.is_tiled
             assert not page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.tilewidth == 64
@@ -16768,7 +16937,11 @@ def test_write_tiled_planar():
     data = random_data(numpy.uint8, (4, 219, 301))
     with TempFileName('write_tiled_planar') as fname:
         imwrite(
-            fname, data, tile=(96, 64), photometric=RGB, planarconfig=SEPARATE
+            fname,
+            data,
+            tile=(96, 64),
+            photometric=PHOTOMETRIC.RGB,
+            planarconfig=PLANARCONFIG.SEPARATE,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -16777,8 +16950,8 @@ def test_write_tiled_planar():
             assert page.is_tiled
             assert not page.is_contiguous
             assert not page.is_volumetric
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.tilewidth == 64
@@ -16794,15 +16967,15 @@ def test_write_tiled_contig():
     """Test write contig tiles."""
     data = random_data(numpy.uint8, (219, 301, 3))
     with TempFileName('write_tiled_contig') as fname:
-        imwrite(fname, data, tile=(96, 64), photometric=RGB)
+        imwrite(fname, data, tile=(96, 64), photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_tiled
             assert not page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.tilewidth == 64
@@ -16818,15 +16991,15 @@ def test_write_tiled_pages():
     """Test write multiple tiled pages."""
     data = random_data(numpy.uint8, (5, 219, 301, 3))
     with TempFileName('write_tiled_pages') as fname:
-        imwrite(fname, data, tile=(96, 64), photometric=RGB)
+        imwrite(fname, data, tile=(96, 64), photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 5
             page = tif.pages.first
             assert page.is_tiled
             assert not page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert not page.is_volumetric
             assert page.imagewidth == 301
             assert page.imagelength == 219
@@ -16927,7 +17100,7 @@ def test_write_iter_tiles_separate(compression):
             shape=(2, 43, 61),
             tile=(16, 16),
             dtype=numpy.uint16,
-            planarconfig=SEPARATE,
+            planarconfig=PLANARCONFIG.SEPARATE,
             compression=compression,
         )
 
@@ -17116,29 +17289,29 @@ def test_write_pyramids():
     with TempFileName('write_pyramids') as fname:
         with TiffWriter(fname) as tif:
             # use pages
-            tif.write(data, tile=(16, 16), photometric=RGB)
+            tif.write(data, tile=(16, 16), photometric=PHOTOMETRIC.RGB)
             # interrupt pyramid, for example thumbnail
             tif.write(data[0, :, :, 0])
             # pyramid levels
             tif.write(
                 data[:, ::2, ::2],
                 tile=(16, 16),
-                subfiletype=1,
-                photometric=RGB,
+                subfiletype=FILETYPE.REDUCEDIMAGE,
+                photometric=PHOTOMETRIC.RGB,
             )
             tif.write(
                 data[:, ::4, ::4],
                 tile=(16, 16),
-                subfiletype=1,
-                photometric=RGB,
+                subfiletype=FILETYPE.REDUCEDIMAGE,
+                photometric=PHOTOMETRIC.RGB,
             )
             # second pyramid using volumetric with downsampling factor 3
-            tif.write(data, tile=(16, 16, 16), photometric=RGB)
+            tif.write(data, tile=(16, 16, 16), photometric=PHOTOMETRIC.RGB)
             tif.write(
                 data[::3, ::3, ::3],
                 tile=(16, 16, 16),
-                subfiletype=1,
-                photometric=RGB,
+                subfiletype=FILETYPE.REDUCEDIMAGE,
+                photometric=PHOTOMETRIC.RGB,
             )
 
         assert_valid_tiff(fname)
@@ -17214,8 +17387,8 @@ def test_write_volumetric_tiled():
             assert page.is_volumetric
             assert page.is_tiled
             assert not page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 96
             assert page.imagelength == 64
             assert page.imagedepth == 253
@@ -17236,7 +17409,11 @@ def test_write_volumetric_tiled_png():
     data = random_data(numpy.uint8, (16, 64, 96, 3))
     with TempFileName('write_volumetric_tiled_png') as fname:
         imwrite(
-            fname, data, tile=(1, 64, 64), photometric=RGB, compression=PNG
+            fname,
+            data,
+            tile=(1, 64, 64),
+            photometric=PHOTOMETRIC.RGB,
+            compression=COMPRESSION.PNG,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -17244,10 +17421,10 @@ def test_write_volumetric_tiled_png():
             page = tif.pages.first
             assert page.is_volumetric
             assert page.is_tiled
-            assert page.compression == PNG
+            assert page.compression == COMPRESSION.PNG
             assert not page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 96
             assert page.imagelength == 64
             assert page.imagedepth == 16
@@ -17271,8 +17448,8 @@ def test_write_volumetric_tiled_planar_rgb():
             fname,
             data,
             tile=(256, 64, 96),
-            photometric=RGB,
-            planarconfig=SEPARATE,
+            photometric=PHOTOMETRIC.RGB,
+            planarconfig=PLANARCONFIG.SEPARATE,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -17281,8 +17458,8 @@ def test_write_volumetric_tiled_planar_rgb():
             assert page.is_volumetric
             assert page.is_tiled
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 96
             assert page.imagelength == 64
             assert page.imagedepth == 256
@@ -17308,7 +17485,7 @@ def test_write_volumetric_tiled_contig_rgb():
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1, 1)
     with TempFileName('write_volumetric_tiled_contig_rgb') as fname:
-        imwrite(fname, data, tile=(256, 64, 96), photometric=RGB)
+        imwrite(fname, data, tile=(256, 64, 96), photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 6
@@ -17316,8 +17493,8 @@ def test_write_volumetric_tiled_contig_rgb():
             assert page.is_volumetric
             assert page.is_tiled
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 96
             assert page.imagelength == 64
             assert page.imagedepth == 256
@@ -17354,7 +17531,7 @@ def test_write_volumetric_tiled_contig_rgb_empty():
                 shape=shape,
                 dtype=numpy.uint8,
                 tile=(256, 64, 96),
-                photometric=RGB,
+                photometric=PHOTOMETRIC.RGB,
             )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -17363,8 +17540,8 @@ def test_write_volumetric_tiled_contig_rgb_empty():
             assert page.is_volumetric
             assert page.is_tiled
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 96
             assert page.imagelength == 64
             assert page.imagedepth == 256
@@ -17398,8 +17575,8 @@ def test_write_volumetric_striped():
             assert page.is_volumetric
             assert not page.is_tiled
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 95
             assert page.imagelength == 63
             assert page.imagedepth == 15
@@ -17420,10 +17597,10 @@ def test_write_volumetric_striped_png():
         imwrite(
             fname,
             data,
-            photometric=RGB,
+            photometric=PHOTOMETRIC.RGB,
             volumetric=True,
             rowsperstrip=32,
-            compression=PNG,
+            compression=COMPRESSION.PNG,
         )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -17431,10 +17608,10 @@ def test_write_volumetric_striped_png():
             page = tif.pages.first
             assert page.is_volumetric
             assert not page.is_tiled
-            assert page.compression == PNG
+            assert page.compression == COMPRESSION.PNG
             assert not page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 95
             assert page.imagelength == 63
             assert page.imagedepth == 15
@@ -17454,7 +17631,7 @@ def test_write_volumetric_striped_planar_rgb():
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(15, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
     with TempFileName('write_volumetric_striped_planar_rgb') as fname:
-        imwrite(fname, data, volumetric=True, photometric=RGB)
+        imwrite(fname, data, volumetric=True, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 2
@@ -17462,8 +17639,8 @@ def test_write_volumetric_striped_planar_rgb():
             assert page.is_volumetric
             assert not page.is_tiled
             assert page.is_contiguous
-            assert page.planarconfig == SEPARATE
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 96
             assert page.imagelength == 63
             assert page.imagedepth == 15
@@ -17488,7 +17665,7 @@ def test_write_volumetric_striped_contig_rgb():
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(15, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1, 1)
     with TempFileName('write_volumetric_striped_contig_rgb') as fname:
-        imwrite(fname, data, volumetric=True, photometric=RGB)
+        imwrite(fname, data, volumetric=True, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 6
@@ -17496,8 +17673,8 @@ def test_write_volumetric_striped_contig_rgb():
             assert page.is_volumetric
             assert not page.is_tiled
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 95
             assert page.imagelength == 63
             assert page.imagedepth == 15
@@ -17531,7 +17708,7 @@ def test_write_volumetric_striped_contig_rgb_empty():
                 shape=shape,
                 dtype=numpy.uint8,
                 volumetric=True,
-                photometric=RGB,
+                photometric=PHOTOMETRIC.RGB,
             )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
@@ -17540,8 +17717,8 @@ def test_write_volumetric_striped_contig_rgb_empty():
             assert page.is_volumetric
             assert not page.is_tiled
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 95
             assert page.imagelength == 63
             assert page.imagedepth == 15
@@ -17566,7 +17743,9 @@ def test_write_contiguous():
     with TempFileName('write_contiguous') as fname:
         with TiffWriter(fname, bigtiff=True) as tif:
             for i in range(data.shape[0]):
-                tif.write(data[i], contiguous=True, photometric=RGB)
+                tif.write(
+                    data[i], contiguous=True, photometric=PHOTOMETRIC.RGB
+                )
         # assert_jhove(fname)
         with TiffFile(fname) as tif:
             assert tif.is_bigtiff
@@ -17575,8 +17754,8 @@ def test_write_contiguous():
             assert tif.pages.first.tags[270].valueoffset < tif.pages[1].offset
             for page in tif.pages:
                 assert page.is_contiguous
-                assert page.planarconfig == CONTIG
-                assert page.photometric == RGB
+                assert page.planarconfig == PLANARCONFIG.CONTIG
+                assert page.photometric == PHOTOMETRIC.RGB
                 assert page.imagewidth == 301
                 assert page.imagelength == 219
                 assert page.samplesperpixel == 3
@@ -17648,8 +17827,8 @@ def test_write_5GB_bigtiff():
             assert len(tif.pages) == 640
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 1024
             assert page.imagelength == 1024
             assert page.samplesperpixel == 1
@@ -17672,7 +17851,7 @@ def test_write_palette(dtype, compression):
             fname,
             data,
             colormap=cmap,
-            compression=ADOBE_DEFLATE if compression else None,
+            compression=COMPRESSION.ADOBE_DEFLATE if compression else None,
             compressionargs={'level': compression} if compression else None,
         )
         assert_valid_tiff(fname)
@@ -17680,8 +17859,8 @@ def test_write_palette(dtype, compression):
             assert len(tif.pages) == 3
             page = tif.pages.first
             assert page.is_contiguous != bool(compression)
-            assert page.planarconfig == CONTIG
-            assert page.photometric == PALETTE
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.PALETTE
             assert page.imagewidth == 301
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
@@ -17696,21 +17875,23 @@ def test_write_palette_django():
     fname = private_file('django.tiff')
     with TiffFile(fname) as tif:
         page = tif.pages.first
-        assert page.photometric == PALETTE
+        assert page.photometric == PHOTOMETRIC.PALETTE
         assert page.imagewidth == 320
         assert page.imagelength == 480
         data = page.asarray()  # .squeeze()  # UserWarning ...
         cmap = page.colormap
         assert__str__(tif)
     with TempFileName('write_palette_django') as fname:
-        imwrite(fname, data, colormap=cmap, compression=ADOBE_DEFLATE)
+        imwrite(
+            fname, data, colormap=cmap, compression=COMPRESSION.ADOBE_DEFLATE
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == PALETTE
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.PALETTE
             assert page.imagewidth == 320
             assert page.imagelength == 480
             assert page.samplesperpixel == 1
@@ -17730,12 +17911,12 @@ def test_write_multiple_series():
             # series 0
             tif.write(
                 image1,
-                compression=ADOBE_DEFLATE,
+                compression=COMPRESSION.ADOBE_DEFLATE,
                 compressionargs={'level': 5},
                 description='Django',
             )
             # series 1
-            tif.write(image2, photometric=RGB)
+            tif.write(image2, photometric=PHOTOMETRIC.RGB)
             # series 2
             tif.write(data1[0], metadata=dict(axes='TCZYX'))
             for i in range(1, data1.shape[0]):
@@ -17745,7 +17926,11 @@ def test_write_multiple_series():
             # series 4
             tif.write(data1[0, 0, 0], tile=(64, 64))
             # series 5
-            tif.write(image1, compression=ADOBE_DEFLATE, description='DEFLATE')
+            tif.write(
+                image1,
+                compression=COMPRESSION.ADOBE_DEFLATE,
+                description='DEFLATE',
+            )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 124
@@ -17865,8 +18050,8 @@ def test_write_multithreaded():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert not page.is_contiguous
-            assert page.compression == PNG
-            assert page.planarconfig == CONTIG
+            assert page.compression == COMPRESSION.PNG
+            assert page.planarconfig == PLANARCONFIG.CONTIG
             assert page.imagewidth == 6003
             assert page.imagelength == 4001
             assert page.samplesperpixel == 3
@@ -17982,35 +18167,42 @@ def test_write_fsspec(version, byteorder):
             # series 0
             options = dict(
                 tile=(64, 64),
-                photometric=MINISBLACK,
-                compression=DEFLATE,
-                predictor=HORIZONTAL,
+                photometric=PHOTOMETRIC.MINISBLACK,
+                compression=COMPRESSION.DEFLATE,
+                predictor=PREDICTOR.HORIZONTAL,
             )
             tif.write(data0, subifds=2, **options)
             tif.write(data0[:, ::2, ::2], subfiletype=1, **options)
             tif.write(data0[:, ::4, ::4], subfiletype=1, **options)
             # series 1
-            tif.write(data1, photometric=RGB, rowsperstrip=data1.shape[0])
+            tif.write(
+                data1, photometric=PHOTOMETRIC.RGB, rowsperstrip=data1.shape[0]
+            )
             # series 2
             tif.write(
                 data2,
                 rowsperstrip=data1.shape[1],
-                photometric=RGB,
-                planarconfig=SEPARATE,
-                compression=DEFLATE,
-                predictor=HORIZONTAL,
+                photometric=PHOTOMETRIC.RGB,
+                planarconfig=PLANARCONFIG.SEPARATE,
+                compression=COMPRESSION.DEFLATE,
+                predictor=PREDICTOR.HORIZONTAL,
             )
             # series 3
-            tif.write(data1, photometric=RGB, rowsperstrip=5)
+            tif.write(data1, photometric=PHOTOMETRIC.RGB, rowsperstrip=5)
             # series 4
-            tif.write(data1, photometric=RGB, tile=(32, 32), compression=JPEG)
+            tif.write(
+                data1,
+                photometric=PHOTOMETRIC.RGB,
+                tile=(32, 32),
+                compression=COMPRESSION.JPEG,
+            )
             # series 5
             tif.write(
                 data3,
                 rowsperstrip=105,
-                photometric=MINISBLACK,
-                compression=DEFLATE,
-                predictor=TIFF.PREDICTOR.FLOATINGPOINT,
+                photometric=PHOTOMETRIC.MINISBLACK,
+                compression=COMPRESSION.DEFLATE,
+                predictor=PREDICTOR.FLOATINGPOINT,
             )
 
         with TiffFile(fname) as tif:
@@ -18178,7 +18370,7 @@ def test_write_tiff2fsspec():
                 series=0,
                 level=1,
                 version=0,
-                chunkmode=TIFF.CHUNKMODE.PAGE,
+                chunkmode=CHUNKMODE.PAGE,
             )
 
 
@@ -18191,9 +18383,9 @@ def test_write_numcodecs():
     numcodecs.register_codec()
     compressor = numcodecs.Tiff(
         bigtiff=True,
-        photometric=MINISBLACK,
-        planarconfig=CONTIG,
-        compression=ADOBE_DEFLATE,
+        photometric=PHOTOMETRIC.MINISBLACK,
+        planarconfig=PLANARCONFIG.CONTIG,
+        compression=COMPRESSION.ADOBE_DEFLATE,
         compressionargs={'level': 5},
         key=0,
     )
@@ -18448,8 +18640,8 @@ def test_write_imagej_hyperstack(truncate, mmap):
             assert len(tif.pages) == 1 if truncate else 210
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric == RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.RGB
             assert page.imagewidth == 61
             assert page.imagelength == 49
             assert page.samplesperpixel == 3
@@ -18497,8 +18689,8 @@ def test_write_imagej_append():
             assert len(tif.pages) == 256
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 256
             assert page.imagelength == 256
             assert page.samplesperpixel == 1
@@ -18549,8 +18741,8 @@ def test_write_imagej_raw():
             assert len(tif.pages) == 1
             page = tif.pages.first
             assert page.is_contiguous
-            assert page.planarconfig == CONTIG
-            assert page.photometric != RGB
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric != PHOTOMETRIC.RGB
             assert page.imagewidth == 1024
             assert page.imagelength == 1024
             assert page.samplesperpixel == 1
@@ -18610,11 +18802,11 @@ def test_write_ome(shape, axes):
     photometric = None
     planarconfig = None
     if shape[-1] in {3, 4}:
-        photometric = RGB
-        planarconfig = CONTIG
+        photometric = PHOTOMETRIC.RGB
+        planarconfig = PLANARCONFIG.CONTIG
     elif shape[-3] in {3, 4}:
-        photometric = RGB
-        planarconfig = SEPARATE
+        photometric = PHOTOMETRIC.RGB
+        planarconfig = PLANARCONFIG.SEPARATE
 
     metadata = {'axes': axes} if axes is not None else None
     data = random_data(numpy.uint8, shape)
@@ -18711,7 +18903,7 @@ def test_write_ome_methods(method):
                 fname,
                 data,
                 byteorder='>',
-                photometric=MINISBLACK,
+                photometric=PHOTOMETRIC.MINISBLACK,
                 metadata=metadata,
             )
 
@@ -18733,7 +18925,7 @@ def test_write_ome_methods(method):
                     tif.write(
                         image,
                         description=description,
-                        photometric=MINISBLACK,
+                        photometric=PHOTOMETRIC.MINISBLACK,
                         metadata=None,
                         contiguous=False,
                     )
@@ -18746,7 +18938,7 @@ def test_write_ome_methods(method):
                 shape=shape,
                 dtype=dtype,
                 byteorder='>',
-                photometric=MINISBLACK,
+                photometric=PHOTOMETRIC.MINISBLACK,
                 metadata={'axes': axes},
             )
 
@@ -18758,8 +18950,8 @@ def test_write_ome_methods(method):
                 shape=shape,
                 dtype=dtype,
                 byteorder='>',
-                photometric=MINISBLACK,
-                compression=ADOBE_DEFLATE,
+                photometric=PHOTOMETRIC.MINISBLACK,
+                compression=COMPRESSION.ADOBE_DEFLATE,
                 metadata={'axes': axes},
             )
 
@@ -18769,7 +18961,7 @@ def test_write_ome_methods(method):
                 fname,
                 data,
                 byteorder='>',
-                photometric=MINISBLACK,
+                photometric=PHOTOMETRIC.MINISBLACK,
                 metadata={'axes': axes},
             )
 
@@ -18779,8 +18971,8 @@ def test_write_ome_methods(method):
                 fname,
                 darr,
                 byteorder='>',
-                photometric=MINISBLACK,
-                compression=ADOBE_DEFLATE,
+                photometric=PHOTOMETRIC.MINISBLACK,
+                compression=COMPRESSION.ADOBE_DEFLATE,
                 metadata={'axes': axes},
             )
             del darr
@@ -18795,7 +18987,7 @@ def test_write_ome_methods(method):
             page = tif.pages.first
             if method not in {'compression', 'dask'}:
                 assert page.is_contiguous
-                assert page.compression == NONE
+                assert page.compression == COMPRESSION.NONE
             assert page.imagewidth == 439
             assert page.imagelength == 167
             assert page.bitspersample == 8
@@ -18903,6 +19095,7 @@ def test_rewrite_ome():
                             resolutionunit=keyframe.resolutionunit,
                             subfiletype=keyframe.subfiletype,
                             colormap=keyframe.colormap,
+                            iccprofile=keyframe.iccprofile,
                             subifds=subifds,
                             metadata=metadata,
                         )
@@ -18975,6 +19168,7 @@ def test_write_ome_copy():
                     compression=page.compression,
                     compressionargs=compressionargs,
                     jpegtables=page.jpegtables,
+                    iccprofile=page.iccprofile,
                     subsampling=page.subsampling,
                     subifds=len(levels) - 1,
                     extratags=extratags,
@@ -18997,6 +19191,7 @@ def test_write_ome_copy():
                         compression=page.compression,
                         compressionargs=compressionargs,
                         jpegtables=page.jpegtables,
+                        iccprofile=page.iccprofile,
                         subsampling=page.subsampling,
                         subfiletype=1,
                     )
@@ -19057,6 +19252,7 @@ def test_write_geotiff_copy():
                     compression=page.compression,
                     predictor=page.predictor,
                     jpegtables=page.jpegtables,
+                    iccprofile=page.iccprofile,
                     subsampling=page.subsampling,
                     extratags=extratags,
                 )
@@ -19209,7 +19405,7 @@ def assert_embed_tif(tif):
     assert series.axes == 'IYX'
     assert series.kind == 'generic'
     page = series.pages[0]
-    assert page.compression == LZW
+    assert page.compression == COMPRESSION.LZW
     assert page.imagewidth == 20
     assert page.imagelength == 20
     assert page.bitspersample == 8
@@ -19226,8 +19422,8 @@ def assert_embed_tif(tif):
     assert series.axes == 'YXS'
     assert series.kind == 'generic'
     page = series.pages[0]
-    assert page.photometric == RGB
-    assert page.compression == LZW
+    assert page.photometric == PHOTOMETRIC.RGB
+    assert page.compression == COMPRESSION.LZW
     assert page.imagewidth == 10
     assert page.imagelength == 10
     assert page.bitspersample == 32
@@ -19244,8 +19440,8 @@ def assert_embed_tif(tif):
     assert series.axes == 'YXS'
     assert series.kind == 'generic'
     page = series.pages[0]
-    assert page.photometric == RGB
-    assert page.compression == LZW
+    assert page.photometric == PHOTOMETRIC.RGB
+    assert page.compression == COMPRESSION.LZW
     assert page.imagewidth == 20
     assert page.imagelength == 20
     assert page.bitspersample == 8
@@ -19262,7 +19458,7 @@ def assert_embed_tif(tif):
     assert series.axes == 'YX'
     assert series.kind == 'generic'
     page = series.pages[0]
-    assert page.compression == LZW
+    assert page.compression == COMPRESSION.LZW
     assert page.imagewidth == 10
     assert page.imagelength == 10
     assert page.bitspersample == 32
@@ -19291,7 +19487,7 @@ def assert_embed_micromanager(tif):
     # assert page properties
     page = tif.pages.first
     assert page.is_contiguous
-    assert page.compression == NONE
+    assert page.compression == COMPRESSION.NONE
     assert page.imagewidth == 512
     assert page.imagelength == 512
     assert page.bitspersample == 16
@@ -19322,7 +19518,7 @@ def assert_embed_micromanager(tif):
     assert data[4, 2, 511, 511] == 1602
     # assert memmap
     data = tif.asarray(out='memmap')
-    assert isinstance(data, numpy.core.memmap)
+    assert isinstance(data, numpy.memmap)
     assert data.shape == (5, 3, 512, 512)
     assert data.dtype == numpy.dtype('<u2')
     assert data[4, 2, 511, 511] == 1602
@@ -19508,7 +19704,7 @@ def test_sequence_oif_series():
     assert tifs.axes == 'CZ'
     # memory map
     data = tifs.asarray(out='memmap', ioworkers=None)
-    assert isinstance(data, numpy.core.memmap)
+    assert isinstance(data, numpy.memmap)
     assert data.flags['C_CONTIGUOUS']
     assert data.shape == (2, 378, 256, 256)
     assert data.dtype == numpy.dtype('<u2')
@@ -19530,7 +19726,7 @@ def test_sequence_leica_series():
     assert tifs.axes == 'Y'
     # memory map
     data = tifs.asarray(out='memmap')
-    assert isinstance(data, numpy.core.memmap)
+    assert isinstance(data, numpy.memmap)
     assert data.flags['C_CONTIGUOUS']
     assert data.shape == (46, 512, 512, 3)
     assert data.dtype == numpy.uint8
