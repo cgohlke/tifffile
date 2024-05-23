@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Updated on Feb 12, 2024
+Updated on May 22, 2024
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -286,7 +286,7 @@ fileseq = tifffile.TiffSequence(
         coherence_label: coherence_category,
     },
 )
-assert len(fileseq.files) == 444821
+assert len(fileseq) == 444821
 assert fileseq.files_missing == 5119339
 assert fileseq.shape == (161, 360, 4, 4, 6)
 assert fileseq.dims == (
