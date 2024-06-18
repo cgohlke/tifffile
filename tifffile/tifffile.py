@@ -39,7 +39,7 @@ Tifffile is a Python library to
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
 SGI, NIHImage, ImageJ, MMStack, NDTiff, FluoView, ScanImage, SEQ, GEL,
 SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
-Philips DP, and GeoTIFF formatted files.
+AVS, Philips DP, and GeoTIFF formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -60,7 +60,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.5.22
+:Version: 2024.6.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -96,25 +96,30 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.9, 3.12.3, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.4
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.9, 3.12.4, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.4
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.0
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.1
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.5.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.6.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.6.18
+
+- Pass 5086 tests.
+- Ensure TiffPage.nodata is castable to dtype (breaking, #260).
+- Support Argos AVS slides.
+
 2024.5.22
 
-- Pass 5084 tests.
 - Derive TiffPages, TiffPageSeries, FileSequence, StoredShape from Sequence.
 - Truncate circular IFD chain, do not raise TiffFileError (breaking).
 - Deprecate access to TiffPages.pages and FileSequence.files.
@@ -123,7 +128,7 @@ Revisions
 - Add iccprofile property to TiffPage and parameter to TiffWriter.write.
 - Do not detect VSI as SIS format.
 - Limit length of logged exception messages.
-- Work around GitHub not rendering docstring examples (#254, #255).
+- Fix docstring examples not correctly rendered on GitHub (#254, #255).
 
 2024.5.10
 
@@ -390,6 +395,8 @@ References
 - PerkinElmer image format.
   https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_Image%20Format.docx
 - NDTiffStorage. https://github.com/micro-manager/NDTiffStorage
+- Argos AVS File Format.
+  https://github.com/user-attachments/files/15580286/ARGOS.AVS.File.Format.pdf
 
 Examples
 --------
@@ -810,7 +817,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.5.22'
+__version__ = '2024.6.18'
 
 __all__ = [
     'TiffFile',
@@ -4625,6 +4632,7 @@ class TiffFile:
             'qpi',
             'ndpi',
             'bif',
+            'avs',
             'philips',
             'scanimage',
             # 'indica',  # TODO: rewrite _series_indica()
@@ -5178,18 +5186,18 @@ class TiffFile:
         self.pages.set_keyframe(0)
 
         if meta['FileTag'] in {2, 128}:
-            dtype = numpy.dtype('float32')
+            dtype = numpy.dtype(numpy.float32)
             scale = meta['ScalePixel']
             scale = scale[0] / scale[1]  # rational
             if meta['FileTag'] == 2:
                 # squary root data format
                 def transform(a: NDArray[Any], /) -> NDArray[Any]:
-                    return a.astype('float32') ** 2 * scale
+                    return a.astype(numpy.float32) ** 2 * scale
 
             else:
 
                 def transform(a: NDArray[Any], /) -> NDArray[Any]:
-                    return a.astype('float32') * scale
+                    return a.astype(numpy.float32) * scale
 
         else:
             transform = None
@@ -5227,6 +5235,29 @@ class TiffFile:
                 elif mag == -2.0:
                     s.name = 'Map'
                     # s.kind += '_map'
+        self.is_uniform = False
+        return series
+
+    def _series_avs(self) -> list[TiffPageSeries] | None:
+        """Return pyramidal image series in AVS file."""
+        series = self._series_generic()
+        if series is None:
+            return None
+        if len(series) != 3:
+            logger().warning(
+                f'{self!r} AVS series expected 3 series, got {len(series)}'
+            )
+        s = series[0]
+        s.kind = 'avs'
+        if s.axes[0] == 'I':
+            s._set_dimensions(s.shape, 'Z' + s.axes[1:], None, True)
+        if s.is_pyramidal:
+            s.name = 'Baseline'
+        if len(series) == 3:
+            series[1].name = 'Map'
+            series[1].kind = 'avs'
+            series[2].name = 'Macro'
+            series[2].kind = 'avs'
         self.is_uniform = False
         return series
 
@@ -6751,7 +6782,7 @@ class TiffFile:
                 page.sampleformat = SAMPLEFORMAT.UINT
                 page.samplesperpixel = 1
                 page.bitspersample = 16
-                page.dtype = page._dtype = numpy.dtype('uint16')
+                page.dtype = page._dtype = numpy.dtype(numpy.uint16)
                 if page.shaped[-1] > 1:
                     page.axes = page.axes[:-1]
                     page.shape = page.shape[:-1]
@@ -7006,6 +7037,13 @@ class TiffFile:
         if not self.is_indica:
             return None
         return self.pages.first.description
+
+    @property
+    def avs_metadata(self) -> str | None:
+        """Argos AVS XML metadata from tag 65000."""
+        if not self.is_avs:
+            return None
+        return self.pages.first.tags.valueof(65000)
 
     @property
     def lsm_metadata(self) -> dict[str, Any] | None:
@@ -8117,7 +8155,7 @@ class TiffPage:
     """Value of second ImageDescription tag."""
 
     nodata: int | float = 0
-    """Value used for missing data."""
+    """Value used for missing data. The value of the GDAL_NODATA tag or 0."""
 
     def __init__(
         self,
@@ -8489,19 +8527,28 @@ class TiffPage:
                 pytype = type(dtype.type(0).item())
                 value = value.replace(',', '.')  # comma decimal separator
                 self.nodata = pytype(value)
-            except Exception:
-                pass
+                if not numpy.can_cast(
+                    numpy.min_scalar_type(self.nodata), self.dtype
+                ):
+                    raise ValueError(
+                        f'{self.nodata} is not castable to {self.dtype}'
+                    )
+            except Exception as exc:
+                logger().warning(
+                    f'{self!r} parsing GDAL_NODATA tag raised {exc!r:.128}'
+                )
+                self.nodata = 0
 
         mcustarts = tags.valueof(65426)
         if mcustarts is not None and self.is_ndpi:
             # use NDPI JPEG McuStarts as tile offsets
-            mcustarts = mcustarts.astype('int64')
+            mcustarts = mcustarts.astype(numpy.int64)
             high = tags.valueof(65432)
             if high is not None:
                 # McuStartsHighBytes
-                high = high.astype('uint64')
+                high = high.astype(numpy.uint64)
                 high <<= 32
-                mcustarts += high.astype('int64')
+                mcustarts += high.astype(numpy.int64)
             fh.seek(self.dataoffsets[0])
             jpegheader = fh.read(mcustarts[0])
             try:
@@ -9456,7 +9503,7 @@ class TiffPage:
             if uint8:
                 if colormap.max() > 255:
                     colormap >>= 8
-                colormap = colormap.astype('uint8')
+                colormap = colormap.astype(numpy.uint8)
             if 'S' in keyframe.axes:
                 data = data[..., 0] if keyframe.planarconfig == 1 else data[0]
             data = apply_colormap(data, colormap)
@@ -10093,9 +10140,9 @@ class TiffPage:
         if 'McuStarts' in result:
             mcustarts = result['McuStarts']
             if 'McuStartsHighBytes' in result:
-                high = result['McuStartsHighBytes'].astype('uint64')
+                high = result['McuStartsHighBytes'].astype(numpy.uint64)
                 high <<= 32
-                mcustarts = mcustarts.astype('uint64')
+                mcustarts = mcustarts.astype(numpy.uint64)
                 mcustarts += high
                 del result['McuStartsHighBytes']
             result['McuStarts'] = mcustarts
@@ -10471,6 +10518,16 @@ class TiffPage:
     def is_indica(self) -> bool:
         """Page contains IndicaLabs metadata."""
         return self.software[:21] == 'IndicaLabsImageWriter'
+
+    @property
+    def is_avs(self) -> bool:
+        """Page contains Argos AVS XML metadata."""
+        try:
+            return (
+                65000 in self.tags and self.tags.valueof(65000)[:6] == '<Argos'
+            )
+        except Exception:
+            return False
 
     @property
     def is_qpi(self) -> bool:
@@ -16730,7 +16787,9 @@ class DATATYPE(enum.IntEnum):
     IFD = 13
     """Unsigned 4 byte IFD offset."""
     UNICODE = 14
+    """UTF-16 (2-byte) unicode string."""
     COMPLEX = 15
+    """Single precision (8-byte) complex number."""
     LONG8 = 16
     """Unsigned 8 byte integer (BigTIFF)."""
     SLONG8 = 17
@@ -18509,6 +18568,7 @@ class _TIFF:
             'gel',
             'seq',
             'svs',
+            'avs',
             'scn',
             'zif',
             'ndpi',
@@ -20194,7 +20254,8 @@ def read_lsm_channelcolors(fh: FileHandle, /) -> dict[str, Any]:
     result['Mono'] = bool(mono)
     # Colors
     fh.seek(pos + coffset)
-    colors = fh.read_array('uint8', count=ncolors * 4).reshape((ncolors, 4))
+    colors = fh.read_array(numpy.uint8, count=ncolors * 4)
+    colors = colors.reshape((ncolors, 4))
     result['Colors'] = colors.tolist()
     # ColorNames
     fh.seek(pos + noffset)
@@ -21025,7 +21086,7 @@ def imagej_metadata(
         return struct.unpack(byteorder + ('d' * (len(data) // 8)), data)
 
     def _lut(data: bytes, byteorder: ByteOrder, /) -> NDArray[numpy.uint8]:
-        return numpy.frombuffer(data, 'uint8').reshape(-1, 256)
+        return numpy.frombuffer(data, numpy.uint8).reshape(-1, 256)
 
     def _bytes(data: bytes, byteorder: ByteOrder, /) -> bytes:
         return data
@@ -21786,18 +21847,19 @@ def olympusini_metadata(inistr: str, /) -> dict[str, Any]:
         result['shape'] = tuple(shape)
     try:
         result['Z']['ZPos'] = numpy.array(
-            result['Z']['ZPos'][: result['Dimension']['Z']], 'float64'
+            result['Z']['ZPos'][: result['Dimension']['Z']], numpy.float64
         )
     except Exception:
         pass
     try:
         result['Time']['TimePos'] = numpy.array(
-            result['Time']['TimePos'][: result['Dimension']['Time']], 'int32'
+            result['Time']['TimePos'][: result['Dimension']['Time']],
+            numpy.int32,
         )
     except Exception:
         pass
     for band in bands:
-        band['LUT'] = numpy.array(band['LUT'], 'uint8')
+        band['LUT'] = numpy.array(band['LUT'], numpy.uint8)
     return result
 
 
@@ -24619,7 +24681,7 @@ def imshow(
     isrgb = photometric in {'RGB', 'YCBCR'}  # 'PALETTE', 'YCBCR'
 
     if data.dtype == 'float16':
-        data = data.astype('float32')
+        data = data.astype(numpy.float32)
 
     if data.dtype.kind == 'b':
         isrgb = False
