@@ -12,7 +12,7 @@ Tifffile is a Python library to
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
 SGI, NIHImage, ImageJ, MMStack, NDTiff, FluoView, ScanImage, SEQ, GEL,
 SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
-Philips DP, and GeoTIFF formatted files.
+AVS, Philips DP, and GeoTIFF formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -33,7 +33,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.5.22
+:Version: 2024.6.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -69,25 +69,30 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.9, 3.12.3, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 1.26.4
+- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.9, 3.12.4, 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.8.4
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.0
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.1
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.5.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.6.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.6.18
+
+- Pass 5086 tests.
+- Ensure TiffPage.nodata is castable to dtype (breaking, #260).
+- Support Argos AVS slides.
+
 2024.5.22
 
-- Pass 5084 tests.
 - Derive TiffPages, TiffPageSeries, FileSequence, StoredShape from Sequence.
 - Truncate circular IFD chain, do not raise TiffFileError (breaking).
 - Deprecate access to TiffPages.pages and FileSequence.files.
@@ -96,7 +101,7 @@ Revisions
 - Add iccprofile property to TiffPage and parameter to TiffWriter.write.
 - Do not detect VSI as SIS format.
 - Limit length of logged exception messages.
-- Work around GitHub not rendering docstring examples (#254, #255).
+- Fix docstring examples not correctly rendered on GitHub (#254, #255).
 
 2024.5.10
 
@@ -363,6 +368,8 @@ References
 - PerkinElmer image format.
   https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_Image%20Format.docx
 - NDTiffStorage. https://github.com/micro-manager/NDTiffStorage
+- Argos AVS File Format.
+  https://github.com/user-attachments/files/15580286/ARGOS.AVS.File.Format.pdf
 
 Examples
 --------
