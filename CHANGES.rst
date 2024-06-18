@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2024.6.18
+
+- Pass 5086 tests.
+- Ensure TiffPage.nodata is castable to dtype (breaking, #260).
+- Support Argos AVS slides.
+
 2024.5.22
 
-- Pass 5084 tests.
 - Derive TiffPages, TiffPageSeries, FileSequence, StoredShape from Sequence.
 - Truncate circular IFD chain, do not raise TiffFileError (breaking).
 - Deprecate access to TiffPages.pages and FileSequence.files.
@@ -12,7 +17,7 @@ Revisions
 - Add iccprofile property to TiffPage and parameter to TiffWriter.write.
 - Do not detect VSI as SIS format.
 - Limit length of logged exception messages.
-- Work around GitHub not rendering docstring examples (#254, #255).
+- Fix docstring examples not correctly rendered on GitHub (#254, #255).
 
 2024.5.10
 
