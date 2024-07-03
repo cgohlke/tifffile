@@ -1,9 +1,14 @@
 Revisions
 ---------
 
-2024.6.18
+2024.7.2
 
 - Pass 5086 tests.
+- Enable memmap to create empty files with non-native byte order.
+- Deprecate Python 3.9, support Python 3.13.
+
+2024.6.18
+
 - Ensure TiffPage.nodata is castable to dtype (breaking, #260).
 - Support Argos AVS slides.
 
