@@ -9,10 +9,12 @@ Tifffile is a Python library to
 (1) store NumPy arrays in TIFF (Tagged Image File Format) files, and
 (2) read image and metadata from TIFF-like files used in bioimaging.
 
-Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, DNG, STK, LSM,
-SGI, NIHImage, ImageJ, MMStack, NDTiff, FluoView, ScanImage, SEQ, GEL,
-SVS, SCN, SIS, BIF, ZIF (Zoomable Image File Format), QPTIFF (QPI, PKI), NDPI,
-AVS, Philips DP, and GeoTIFF formatted files.
+Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, GeoTIFF,
+Adobe DNG, ZIF (Zoomable Image File Format), MetaMorph STK, Zeiss LSM,
+ImageJ hyperstack, Micro-Manager MMStack and NDTiff, SGI, NIHImage,
+Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
+Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
+Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
@@ -33,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.6.18
+:Version: 2024.7.2
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -69,7 +71,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.9.13, 3.10.11, 3.11.9, 3.12.4, 64-bit
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.4, 3.13.0b3, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.0.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -79,15 +81,20 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.18.2
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.6.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.6.1
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
-2024.6.18
+2024.7.2
 
 - Pass 5086 tests.
+- Enable memmap to create empty files with non-native byte order.
+- Deprecate Python 3.9, support Python 3.13.
+
+2024.6.18
+
 - Ensure TiffPage.nodata is castable to dtype (breaking, #260).
 - Support Argos AVS slides.
 
@@ -210,12 +217,7 @@ Notes
 -----
 
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
-Adobe Systems Incorporated. STK, LSM, FluoView, SGI, SEQ, GEL, QPTIFF, NDPI,
-SCN, SVS, ZIF, BIF, and OME-TIFF, are custom extensions defined by Molecular
-Devices (Universal Imaging Corporation), Carl Zeiss MicroImaging, Olympus,
-Silicon Graphics International, Media Cybernetics, Molecular Dynamics,
-PerkinElmer, Hamamatsu, Leica, ObjectivePathology, Roche Digital Pathology,
-and the Open Microscopy Environment consortium, respectively.
+Adobe Systems Incorporated.
 
 Tifffile supports a subset of the TIFF6 specification, mainly 8, 16, 32, and
 64-bit integer, 16, 32 and 64-bit float, grayscale and multi-sample images.
