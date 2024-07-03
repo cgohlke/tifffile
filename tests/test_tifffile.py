@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.6.18
+:Version: 2024.7.2
 
 """
 
@@ -4138,16 +4138,36 @@ def test_func_memmap():
             )
 
 
-def test_func_memmap_fail():
-    """Test non-native byteorder can not be memory mapped."""
-    with TempFileName('func_memmap_fail') as fname:
-        with pytest.raises(ValueError):
-            memmap(
-                fname,
-                shape=(16, 16),
-                dtype=numpy.float32,
-                byteorder='>' if sys.byteorder == 'little' else '<',
-            )
+@pytest.mark.parametrize('byteorder', ['>', '<'])
+def test_func_memmap_byteorder(byteorder):
+    """Test non-native byteorder can be memory mapped."""
+    bo = {'<': 'le', '>': 'be'}[byteorder]
+
+    with TempFileName(f'func_memmap_byteorder_{bo}') as fname:
+        if os.path.exists(fname):
+            os.remove(fname)
+
+        # new, empty file
+        im = memmap(
+            fname, shape=(16, 16), dtype=numpy.uint16, byteorder=byteorder
+        )
+        assert im.dtype.byteorder == byteorder
+        im[0, 0] = 253
+        im[1, 1] = 257
+        del im
+
+        with TiffFile(fname) as tif:
+            assert tif.byteorder == byteorder
+            im = tif.asarray()
+            assert im.dtype.byteorder in {'<', '='}  # native
+            assert im[0, 0] == 253
+            assert im[1, 1] == 257
+
+        im = memmap(fname, mode='r')
+        assert im.dtype.byteorder == '=' if byteorder == '<' else '>'
+        assert im[0, 0] == 253
+        assert im[1, 1] == 257
+        del im
 
 
 def test_func_repeat_nd():
