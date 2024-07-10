@@ -107,6 +107,10 @@ setup(
         # 'imagecodecs>=2023.8.12',
     ],
     extras_require={
+        'codecs': ['imagecodecs>=2023.8.12'],
+        'xml': ['defusedxml', 'lxml'],
+        'zarr': ['zarr', 'fsspec'],
+        'plot': ['matplotlib'],
         'all': [
             'imagecodecs>=2023.8.12',
             'matplotlib',
@@ -114,7 +118,7 @@ setup(
             'lxml',
             'zarr',
             'fsspec',
-        ]
+        ],
     },
     tests_require=[
         'pytest',
