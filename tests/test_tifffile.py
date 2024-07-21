@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.7.2
+:Version: 2024.7.21
 
 """
 
@@ -2884,6 +2884,21 @@ def test_issue_nodata_invalid(caplog):
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_issue_tag_readfunc(caplog):
+    """Test allow tag reader functions to fail."""
+    # file has an OlympusSIS tag, which is pointing to invalid structure
+    fname = private_file('SIS/cirb_NOT_SIS.tif')
+    with TiffFile(fname) as tif:
+        # assert 'invalid OlympusSIS structure' in caplog.text
+        assert tif.pages.first.tags[33560].value == (1382303888,)
+        assert 'invalid OlympusSIS structure' in caplog.text
+        assert tif.series[0].kind == 'generic'
+        data = tif.asarray()
+        assert data.shape == (800, 800, 4)
+        assert data[166, 290, 2] == 255
+
+
 class TestExceptions:
     """Test various Exceptions and Warnings."""
 
@@ -4138,6 +4153,7 @@ def test_func_memmap():
             )
 
 
+@pytest.mark.skipif(IS_BE, reason=REASON)
 @pytest.mark.parametrize('byteorder', ['>', '<'])
 def test_func_memmap_byteorder(byteorder):
     """Test non-native byteorder can be memory mapped."""
@@ -4393,6 +4409,7 @@ def test_func_product():
     """Test product function."""
     assert product([2**8, 2**30]) == 274877906944
     assert product([]) == 1
+    assert product(numpy.array([2**8, 2**30], numpy.int32)) == 274877906944
 
 
 def test_func_squeeze_axes():
@@ -8418,6 +8435,66 @@ def test_read_lsm_carpet():
         # assert lsm_scan_info tags
         tags = tif.lsm_metadata['ScanInformation']
         assert tags['ScanMode'] == 'Plane'
+        assert tags['User'] == 'LSM User'
+        # assert_aszarr_method(tif)
+        assert__str__(tif, 0)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+def test_read_lsm_sfcs():
+    """Test read LSM linescan: TX (time series y), 1 page."""
+    # second page/series is corrupted: ImageLength=128 but StripByteCounts=1
+
+    fname = private_file('lsm/sFCS_780_2069Hz_3p94us.lsm')
+    with TiffFile(fname) as tif:
+        assert tif.is_lsm
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 2
+        assert len(tif.series) == 2
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_lsm
+        assert 'ColorMap' in page.tags
+        assert page.photometric == PHOTOMETRIC.PALETTE
+        assert page.compression == COMPRESSION.NONE
+        assert page.imagewidth == 52
+        assert page.imagelength == 100000
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        # assert series properties
+        series = tif.series[0]
+        assert series.dtype == numpy.uint16
+        assert series.shape == (100000, 1, 52)
+        assert series.axes == 'TYX'
+        assert series.kind == 'lsm'
+        assert series.get_shape(False) == (1, 1, 100000, 1, 1, 1, 52)
+        assert series.get_axes(False) == 'MPTCZYX'
+        data = series.asarray()
+        assert data.shape == (100000, 1, 52)
+        assert data.dtype == numpy.uint16
+        assert data[1000, 0].sum() == 4
+
+        if 1:
+            series = tif.series[1]
+            assert series.dtype == numpy.uint8
+            assert series.shape == (3, 128, 1)
+            assert series.axes == 'SYX'
+            assert series.get_shape(False) == (3, 128, 1)
+            assert series.get_axes(False) == 'SYX'
+            assert series.kind == 'lsm'
+            with pytest.raises(TiffFileError):
+                # strip cannot be reshaped from (1,) to (1, 128, 1, 1)
+                series.asarray()
+        # assert lsm_info tags
+        tags = tif.lsm_metadata
+        assert tags['DimensionX'] == 52
+        assert tags['DimensionY'] == 1
+        assert tags['DimensionZ'] == 1
+        assert tags['DimensionTime'] == 100000
+        assert tags['DimensionChannels'] == 1
+        # assert lsm_scan_info tags
+        tags = tif.lsm_metadata['ScanInformation']
+        assert tags['ScanMode'] == 'Line'
         assert tags['User'] == 'LSM User'
         # assert_aszarr_method(tif)
         assert__str__(tif, 0)
@@ -15972,7 +16049,7 @@ def test_write_rowsperstrip():
 
 
 @pytest.mark.skipif(IS_BE, reason=REASON)
-def test_write_write_bigendian():
+def test_write_bigendian():
     """Test write big endian file."""
     # also test memory mapping non-native byte order
     data = random_data(numpy.float32, (2, 3, 219, 301))
@@ -16950,7 +17027,7 @@ def test_write_cfa():
         # (37399, 'H', 1, 0)  # SensingMethod Undefined
         # (50706, 'B', 4, b'\x01\x04\x00\x00', False),  # DNGVersion
     ]
-    with TempFileName('write_write_cfa') as fname:
+    with TempFileName('write_cfa') as fname:
         imwrite(
             fname,
             data,
@@ -20160,7 +20237,9 @@ def test_dependent_opentile():
         level = tiler.get_level(0)
         offset = level._page.dataoffsets[50]
         length = level._page.databytecounts[50]
-        data = level._fh.read(offset, length)
+        fh = level._page.parent.filehandle
+        fh.seek(offset)
+        data = fh.read(length)
         assert length == 700
         assert offset == 33451
         assert md5(data).hexdigest() == '2a903c6e05bd10f10d856eecceb591f0'
