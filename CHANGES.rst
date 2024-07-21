@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2024.7.21
+
+- Pass 5088 tests.
+- Fix integer overflow in product function caused by numpy types.
+- Allow tag reader functions to fail.
+
 2024.7.2
 
-- Pass 5086 tests.
 - Enable memmap to create empty files with non-native byte order.
 - Deprecate Python 3.9, support Python 3.13.
 
