@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.7.2
+:Version: 2024.7.21
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,11 +98,11 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.4, 3.13.0b3, 64-bit
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.4, 3.13.0b4, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.0.0
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.0
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.1
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
   (required only for validating and printing XML)
@@ -114,9 +114,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.7.21
+
+- Pass 5088 tests.
+- Fix integer overflow in product function caused by numpy types.
+- Allow tag reader functions to fail.
+
 2024.7.2
 
-- Pass 5086 tests.
 - Enable memmap to create empty files with non-native byte order.
 - Deprecate Python 3.9, support Python 3.13.
 
@@ -819,7 +824,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.7.2'
+__version__ = '2024.7.21'
 
 __all__ = [
     'TiffFile',
@@ -7190,7 +7195,7 @@ class TiffFile:
             result.update(tags.valueof(33560))  # OlympusSIS
         except Exception:
             pass
-        return result
+        return result if result else None
 
     @cached_property
     def mdgel_metadata(self) -> dict[str, Any] | None:
@@ -11288,8 +11293,18 @@ class TiffTag:
         fh.seek(valueoffset)
         if code in TIFF.TAG_READERS:
             readfunc = TIFF.TAG_READERS[code]
-            value = readfunc(fh, tiff.byteorder, dtype, count, tiff.offsetsize)
-        elif dtype in {1, 2, 7}:
+            try:
+                value = readfunc(
+                    fh, tiff.byteorder, dtype, count, tiff.offsetsize
+                )
+            except Exception as exc:
+                logger().warning(
+                    f'<tifffile.TiffTag {code} @{offset}> raised {exc!r:.128}'
+                )
+            else:
+                return value
+
+        if dtype in {1, 2, 7}:
             # BYTES, ASCII, UNDEFINED
             value = fh.read(valuesize)
             if len(value) != valuesize:
@@ -16075,7 +16090,7 @@ class OmeXml:
         if any(ax in 'APRHEQ' for ax in hiaxes):
             # modulo axes
             modulo = {}
-            dimorder = []
+            dimorder = ''
             axestype = {
                 'A': 'angle',
                 'P': 'phase',
@@ -16095,14 +16110,14 @@ class OmeXml:
                         for x in 'TZC':
                             if x not in dimorder and x not in modulo:
                                 modulo[x] = axestype[ax], shape[i]
-                                dimorder.append(x)
+                                dimorder += x
                                 break
                         else:
                             # TODO: support any order of axes, such as, APRTZC
                             raise OmeXmlError('more than 3 modulo dimensions')
                 else:
-                    dimorder.append(ax)
-            hiaxes = ''.join(dimorder)
+                    dimorder += ax
+            hiaxes = dimorder
 
             # TODO: use user-specified start, stop, step, or labels
             moduloalong = ''.join(
@@ -23647,10 +23662,10 @@ def sequence(value: Any, /) -> Sequence[Any]:
 
 
 def product(iterable: Iterable[int], /) -> int:
-    """Return product of sequence of numbers.
+    """Return product of integers.
 
-    Equivalent of ``functools.reduce(operator.mul, iterable, 1)``.
-    Multiplying NumPy integers might overflow.
+    Equivalent of ``math.prod(iterable)``, but multiplying NumPy integers
+    does not overflow.
 
     >>> product([2**8, 2**30])
     274877906944
@@ -23660,7 +23675,7 @@ def product(iterable: Iterable[int], /) -> int:
     """
     prod = 1
     for i in iterable:
-        prod *= i
+        prod *= int(i)
     return prod
 
 
