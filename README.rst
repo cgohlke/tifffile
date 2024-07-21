@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.7.2
+:Version: 2024.7.21
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,11 +71,11 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.4, 3.13.0b3, 64-bit
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.4, 3.13.0b4, 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.0.0
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.1.1
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.0
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.1
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
   (required only for validating and printing XML)
@@ -87,9 +87,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.7.21
+
+- Pass 5088 tests.
+- Fix integer overflow in product function caused by numpy types.
+- Allow tag reader functions to fail.
+
 2024.7.2
 
-- Pass 5086 tests.
 - Enable memmap to create empty files with non-native byte order.
 - Deprecate Python 3.9, support Python 3.13.
 
