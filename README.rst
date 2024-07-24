@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.7.21
+:Version: 2024.7.24
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.7.24
+
+- Pass 5092 tests.
+- Fix reading contiguous multi-page series via Zarr store (#67).
+
 2024.7.21
 
-- Pass 5088 tests.
 - Fix integer overflow in product function caused by numpy types.
 - Allow tag reader functions to fail.
 
