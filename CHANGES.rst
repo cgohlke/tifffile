@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2024.7.24
+
+- Pass 5092 tests.
+- Fix reading contiguous multi-page series via Zarr store (#67).
+
 2024.7.21
 
-- Pass 5088 tests.
 - Fix integer overflow in product function caused by numpy types.
 - Allow tag reader functions to fail.
 
