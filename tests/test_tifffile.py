@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.7.21
+:Version: 2024.7.24
 
 """
 
@@ -1563,6 +1563,46 @@ def test_issue_dask_multipage(truncate, chunkmode):
         with imread(fname, aszarr=True, chunkmode=chunkmode) as store:
             daskarray = dask.array.from_zarr(store).compute()
             assert_array_equal(data, daskarray)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
+@pytest.mark.parametrize('chunkmode', [0, 2])
+def test_issue_zarr_store_closed(chunkmode):
+    """Test Zarr store filehandle is open when reading from unloaded pages."""
+    # https://github.com/cgohlke/tifffile/issues/67#issuecomment-2246367891
+    fname = private_file('ImageJ/_malaria_parasites.tif')
+    data = imread(fname)
+    store = imread(fname, aszarr=True, chunkmode=chunkmode)
+    try:
+        z = zarr.open(store, mode='r')
+        chunk = z[10:11, 3:-3]  # seek of closed file
+    finally:
+        store.close()
+    assert_array_equal(chunk, data[10:11, 3:-3])
+
+    store = imread(fname, aszarr=True, chunkmode=chunkmode)
+    try:
+        z = zarr.open(store, mode='r')
+        chunk = z[:]
+    finally:
+        store.close()
+    assert_array_equal(chunk, data)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
+@pytest.mark.parametrize('chunkmode', [0, 2])
+def test_issue_zarr_store_multifile_closed(chunkmode):
+    """Test Zarr store can read from closed files."""
+    fname = private_file('OME/tubhiswt-4D-lzw/tubhiswt_C0_T0.ome.tif')
+    data = imread(fname)
+    assert data.shape == (43, 10, 2, 512, 512)
+    store = imread(fname, aszarr=True, chunkmode=chunkmode)
+    try:
+        z = zarr.open(store, mode='r')
+        chunk = z[32:35, 3:7, :, 31:-31, 33:-33]  # seek of closed file
+    finally:
+        store.close()
+    assert_array_equal(chunk, data[32:35, 3:7, :, 31:-31, 33:-33])
 
 
 @pytest.mark.skipif(
@@ -18940,6 +18980,24 @@ def test_write_imagej_raw():
             image = tif.asarray(out='memmap')
             assert_array_equal(data.squeeze(), image.squeeze())
             del image
+
+            if not SKIP_ZARR:
+                store = imread(fname, aszarr=True)
+                try:
+                    z = zarr.open(store, mode='r')
+                    chunk = z[333:356, 99:513, 31:127]
+                finally:
+                    store.close()
+                assert_array_equal(chunk, data[333:356, 0, 99:513, 31:127])
+
+                store = imread(fname, aszarr=True, chunkmode=2)
+                try:
+                    z = zarr.open(store, mode='r')
+                    chunk = z[333:356, 99:513, 31:127]
+                finally:
+                    store.close()
+                assert_array_equal(chunk, data[333:356, 0, 99:513, 31:127])
+
             assert__str__(tif)
 
 
