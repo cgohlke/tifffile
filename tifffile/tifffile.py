@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.7.21
+:Version: 2024.7.24
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.7.24
+
+- Pass 5092 tests.
+- Fix reading contiguous multi-page series via Zarr store (#67).
+
 2024.7.21
 
-- Pass 5088 tests.
 - Fix integer overflow in product function caused by numpy types.
 - Allow tag reader functions to fail.
 
@@ -824,7 +828,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.7.21'
+__version__ = '2024.7.24'
 
 __all__ = [
     'TiffFile',
@@ -12255,6 +12259,9 @@ class TiffPageSeries(collections.abc.Sequence):
     """Series contains single page describing multi-dimensional image."""
 
     _pages: list[TiffPage | TiffFrame | None]
+    # List of pages in series.
+    # Might contain only first page of contiguous series
+
     _index: int  # index of series in multi-series files
     _squeeze: bool
     _axes: str
@@ -12290,9 +12297,7 @@ class TiffPageSeries(collections.abc.Sequence):
         self._attr = {} if attr is None else dict(attr)
 
         self._index = int(index) if index else 0
-        self._pages = list(
-            pages
-        )  # might contain only first of contiguous pages
+        self._pages = list(pages)
         self.levels = [self]
         npages = len(self._pages)
         try:
@@ -13395,7 +13400,18 @@ class ZarrTiffStore(ZarrStore):
 
         fh = page.parent.filehandle
 
-        if self._chunkmode and offset is None:
+        if self._chunkmode:
+            if offset is not None:
+                # contiguous image data in page or series
+                # create virtual frame instead of loading page from file
+                assert bytecount is not None
+                page = TiffFrame(
+                    page.parent,
+                    index=0,
+                    keyframe=keyframe,
+                    dataoffsets=(offset,),
+                    databytecounts=(bytecount,),
+                )
             self._filecache.open(fh)
             chunk = page.asarray(
                 lock=self._filecache.lock,
@@ -13471,10 +13487,8 @@ class ZarrTiffStore(ZarrStore):
             series = self._data[0]
         keyframe = series.keyframe
         pageindex, chunkindex = self._indices(key, series)
-        if pageindex > 0 and len(series) == 1:
-            # truncated ImageJ, STK, or shaped
-            if series.dataoffset is None:
-                raise RuntimeError('truncated series is not contiguous')
+        if series.dataoffset is not None:
+            # contiguous or truncated
             page = series[0]
             if page is None or page.dtype is None or page.keyframe is None:
                 return keyframe, None, chunkindex, 0, 0
