@@ -452,6 +452,28 @@ numpy.set_printoptions(suppress=True, precision=5)
 
 # Tests for specific issues
 
+@pytest.mark.parametrize('bitspersample,dtype', [(6, "uint8"), (14, "uint16")])
+def test_issue_preencoded_tiles(bitspersample, dtype):
+    """Test writing pre-encoded tiles.
+
+    Use-case: Pre-encoded Lossless JPEG tiles
+    of various bit-depths (2--16).
+    """
+    buf = BytesIO()
+    dummy_tile = b'aabb'
+    imwrite(
+        buf,
+        iter((dummy_tile,)),
+        compression='jpeg',
+        shape=(1088, 1920),
+        tile=(1088, 1920),
+        dtype=dtype,
+        bitspersample=bitspersample,
+    )
+    buf.seek(0)
+    tiff_encoded = buf.read()
+    assert dummy_tile in tiff_encoded
+
 
 def test_issue_star_import():
     """Test from tifffile import *."""
@@ -3136,7 +3158,7 @@ class TestExceptions:
     def test_bitspersample_jpeg(self, fname):
         # invalid bitspersample for jpeg
         with pytest.raises(ValueError):
-            imwrite(fname, self.data, compression='jpeg', bitspersample=13)
+            imwrite(fname, self.data, compression='jpeg', bitspersample=17)
 
     def test_datetime(self, fname):
         # invalid datetime
@@ -15332,7 +15354,7 @@ def test_write_bitspersample_fail():
             with pytest.raises(ValueError):
                 tif.write(
                     data.astype(numpy.uint8),
-                    bitspersample=4,
+                    bitspersample=9,
                     compression=COMPRESSION.ADOBE_DEFLATE,
                     photometric=PHOTOMETRIC.RGB,
                 )
