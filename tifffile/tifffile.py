@@ -2777,12 +2777,13 @@ class TiffWriter:
             if bitspersample is not None and bitspersample != 1:
                 raise ValueError(f'{bitspersample=} must be 1 for bilevel')
             bitspersample = 1
-        elif compressiontag == 7 and datadtype == 'uint16':
+        elif compressiontag in {6, 7, 34892, 33007}:
+            # JPEG
             if bitspersample is None:
-                bitspersample = 12  # use 12-bit JPEG compression
-            elif not (9 <= bitspersample <= 16):
+                bitspersample = 12 if datadtype == 'uint16' else 8
+            if not 2 <= bitspersample <= 16:
                 raise ValueError(
-                    f'{bitspersample=} is not valid for JPEG compressed uint16'
+                    f'{bitspersample=} invalid for JPEG compression'
                 )
         elif bitspersample is None:
             bitspersample = datadtype.itemsize * 8
@@ -2796,7 +2797,7 @@ class TiffWriter:
         ):
             raise ValueError(f'{bitspersample=} out of range of {datadtype=}')
         elif compression:
-            if bitspersample > datadtype.itemsize * 8:
+            if bitspersample != datadtype.itemsize * 8:
                 raise ValueError(
                     f'{bitspersample=} cannot be used with compression'
                 )
