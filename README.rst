@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.7.24
+:Version: 2024.8.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,8 +71,8 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.4, 3.13.0b4, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.0
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.5, 3.13.0rc1 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.1
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.1
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.8.10
+
+- Pass 5093 tests.
+- Relax bitspersample check for JPEG, JPEG2K, and JPEGXL compression (#265).
+
 2024.7.24
 
-- Pass 5092 tests.
 - Fix reading contiguous multi-page series via Zarr store (#67).
 
 2024.7.21
@@ -189,34 +193,6 @@ Revisions
 - Drop support for imagecodecs < 2023.3.16.
 
 2023.7.18
-
-- Limit threading via TIFFFILE_NUM_THREADS environment variable (#215).
-- Remove maxworkers parameter from tiff2fsspec (breaking).
-
-2023.7.10
-
-- Increase default strip size to 256 KB when writing with compression.
-- Fix ZarrTiffStore with non-default chunkmode.
-
-2023.7.4
-
-- Add option to return selection from imread (#200).
-- Fix reading OME series with missing trailing frames (#199).
-- Fix fsspec reference for WebP compressed segments missing alpha channel.
-- Fix linting issues.
-- Detect files written by Agilent Technologies.
-- Drop support for Python 3.8 and numpy < 1.21 (NEP29).
-
-2023.4.12
-
-- Do not write duplicate ImageDescription tags from extratags (breaking).
-- Support multifocal SVS files (#193).
-- Log warning when filtering out extratags.
-- Fix writing OME-TIFF with image description in extratags.
-- Ignore invalid predictor tag value if prediction is not used.
-- Raise KeyError if ZarrStore is missing requested chunk.
-
-2023.3.21
 
 - …
 
