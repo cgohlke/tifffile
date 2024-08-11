@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.7.24
+:Version: 2024.8.10
 
 """
 
@@ -544,7 +544,8 @@ def test_issue_infinite_loop():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_issue_jpeg_ia():
     """Test JPEG compressed intensity image with alpha channel."""
@@ -561,7 +562,8 @@ def test_issue_jpeg_ia():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_issue_jpeg_palette():
     """Test invalid JPEG compressed intensity image with palette."""
@@ -1252,7 +1254,8 @@ def test_issue_imagej_singlet_dimensions():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_issue_cr2_ojpeg():
     """Test read OJPEG image from CR2."""
@@ -1303,7 +1306,8 @@ def test_issue_cr2_ojpeg():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_issue_ojpeg_preview():
     """Test read JPEGInterchangeFormat from RAW image."""
@@ -1342,7 +1346,8 @@ def test_issue_ojpeg_preview():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_issue_arw(caplog):
     """Test read Sony ARW RAW image."""
@@ -1606,7 +1611,7 @@ def test_issue_zarr_store_multifile_closed(chunkmode):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LZW, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LZW.available, reason=REASON
 )
 def test_issue_read_from_closed_file():
     """Test read from closed file handles."""
@@ -1640,7 +1645,7 @@ def test_issue_read_from_closed_file():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.PNG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.PNG.available, reason=REASON
 )
 def test_issue_filesequence_categories(caplog):
     """Test FileSequence with categories."""
@@ -1802,7 +1807,8 @@ def test_issue_imagej_colormap():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.WEBP, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.WEBP.available,
+    reason=REASON,
 )
 @pytest.mark.parametrize('name', ['tile', 'strip'])
 def test_issue_webp_rgba(name, caplog):
@@ -1818,7 +1824,7 @@ def test_issue_webp_rgba(name, caplog):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_ZARR or SKIP_CODECS or not imagecodecs.WEBP,
+    SKIP_PRIVATE or SKIP_ZARR or SKIP_CODECS or not imagecodecs.WEBP.available,
     reason=REASON,
 )
 def test_issue_webp_fsspec():
@@ -2618,7 +2624,8 @@ def test_issue_extratags_filter(caplog):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_issue_invalid_predictor(caplog):
     """Test decoding JPEG compression with invalid predictor tag."""
@@ -2939,6 +2946,89 @@ def test_issue_tag_readfunc(caplog):
         assert data[166, 290, 2] == 255
 
 
+@pytest.mark.skipif(
+    SKIP_CODECS
+    or not imagecodecs.JPEG8.available
+    or not imagecodecs.JPEG2K.available
+    or not imagecodecs.JPEGXL.available
+    or imagecodecs.JPEG8.legacy,
+    reason=REASON,
+)
+def test_issue_jpeg_bitspersample():
+    """Test write JPEG with many bitpersample."""
+    # https://github.com/cgohlke/tifffile/pull/265
+
+    data6 = random_data(numpy.uint8, (131, 128, 3)) >> 2
+    data12 = random_data(numpy.uint16, (131, 128, 3)) >> 4
+    jpeg12 = imagecodecs.jpeg_encode(data12, bitspersample=12, lossless=True)
+
+    with TempFileName('issue_jpeg_bitspersample') as fname:
+        with TiffWriter(fname) as tif:
+            tif.write(
+                data6,
+                photometric='rgb',
+                compression='jpeg',
+                compressionargs={'lossless': True},
+                bitspersample=6,
+            )
+            tif.write(
+                data12,
+                photometric='rgb',
+                compression='jpeg',
+                compressionargs={'lossless': True, 'bitspersample': 12},
+                # bitspersample=12,
+            )
+            tif.write(
+                iter((jpeg12,)),
+                shape=data12.shape,
+                dtype=data12.dtype,
+                photometric='rgb',
+                compression='jpeg',
+                bitspersample=14,
+            )
+            tif.write(
+                data12,
+                photometric='rgb',
+                compression='jpeg2000',
+                compressionargs={'bitspersample': 12},
+            )
+            tif.write(
+                data12,
+                photometric='rgb',
+                compression='jpegxl',
+                compressionargs={'bitspersample': 12},
+            )
+            with pytest.raises(ValueError):
+                tif.write(
+                    data12,
+                    photometric='rgb',
+                    compression='jpeg',
+                    bitspersample=17,
+                )
+            with pytest.raises(ValueError):
+                tif.write(
+                    data12,
+                    photometric='rgb',
+                    compression='jpeg2000',
+                    compressionargs={'bitspersample': 0},
+                )
+
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 5
+            assert tif.pages[0].bitspersample == 6
+            assert tif.pages[1].bitspersample == 12
+            assert tif.pages[2].bitspersample == 14
+            assert tif.pages[3].bitspersample == 12
+            assert tif.pages[4].bitspersample == 12
+            assert_array_equal(tif.series[0].asarray(), data6)
+            assert_array_equal(tif.series[1].asarray(), data12)
+            assert_array_equal(tif.series[2].asarray(), data12)
+            assert_array_equal(tif.series[3].asarray(), data12)
+            assert_array_equal(tif.series[4].asarray(), data12)
+
+            assert__str__(tif)
+
+
 class TestExceptions:
     """Test various Exceptions and Warnings."""
 
@@ -3136,7 +3226,7 @@ class TestExceptions:
     def test_bitspersample_jpeg(self, fname):
         # invalid bitspersample for jpeg
         with pytest.raises(ValueError):
-            imwrite(fname, self.data, compression='jpeg', bitspersample=13)
+            imwrite(fname, self.data, compression='jpeg', bitspersample=17)
 
     def test_datetime(self, fname):
         # invalid datetime
@@ -3338,7 +3428,9 @@ class TestExceptions:
         with pytest.raises(ValueError):
             imread(fname, mode='no')
 
-    @pytest.mark.skipif(SKIP_CODECS or not imagecodecs.LERC, reason=REASON)
+    @pytest.mark.skipif(
+        SKIP_CODECS or not imagecodecs.LERC.available, reason=REASON
+    )
     def test_lerc_compression(self, fname):
         # invalid LERC compression
         with pytest.raises(ValueError):
@@ -3647,7 +3739,10 @@ def test_class_tifftag_overwrite(bigtiff, byteorder):
 
 
 @pytest.mark.skipif(
-    SKIP_LARGE or SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG,
+    SKIP_LARGE
+    or SKIP_PRIVATE
+    or SKIP_CODECS
+    or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_class_tifftag_overwrite_ndpi():
@@ -6143,7 +6238,8 @@ def test_read_gimp_f2():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG8, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG8.available,
+    reason=REASON,
 )
 def test_read_dng_jpeglossy():
     """Test read JPEG_LOSSY in DNG."""
@@ -6158,7 +6254,8 @@ def test_read_dng_jpeglossy():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG.available,
+    reason=REASON,
 )
 def test_read_dng_ljpeg():
     """Test read 14-bit CFA LJPEG in DNG."""
@@ -6184,7 +6281,8 @@ def test_read_dng_ljpeg():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG.available,
+    reason=REASON,
 )
 def test_read_dng_linearraw():
     """Test read 12-bit LinearRAW LJPEG in DNG."""
@@ -6235,7 +6333,8 @@ def test_read_dng_floatpredx2(fp):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEGXL, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEGXL.available,
+    reason=REASON,
 )
 def test_read_dng_jpegxl():
     """Test read JPEGXL in DNG."""
@@ -7275,7 +7374,8 @@ def test_read_ycbcr_subsampling():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_jpeg_baboon():
     """Test JPEG compression."""
@@ -7308,7 +7408,8 @@ def test_read_jpeg_baboon():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_jpeg_ycbcr():
     """Test read YCBCR JPEG is returned as RGB."""
@@ -7336,7 +7437,8 @@ def test_read_jpeg_ycbcr():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 @pytest.mark.parametrize(
     'fname', ['tiff_tiled_cmyk_jpeg.tif', 'tiff_strip_cmyk_jpeg.tif']
@@ -7360,7 +7462,8 @@ def test_read_jpeg_cmyk(fname):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG8, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG8.available,
+    reason=REASON,
 )
 def test_read_jpeg12_mandril():
     """Test read JPEG 12-bit compression."""
@@ -7387,7 +7490,10 @@ def test_read_jpeg12_mandril():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or SKIP_LARGE or not imagecodecs.JPEG,
+    SKIP_PRIVATE
+    or SKIP_CODECS
+    or SKIP_LARGE
+    or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_read_jpeg_lsb2msb():
@@ -7516,7 +7622,7 @@ def test_read_lzma():
 
 
 @pytest.mark.skipif(
-    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.WEBP, reason=REASON
+    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.WEBP.available, reason=REASON
 )
 def test_read_webp():
     """Test read WebP compression."""
@@ -7544,7 +7650,7 @@ def test_read_webp():
 
 
 @pytest.mark.skipif(
-    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.LERC, reason=REASON
+    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.LERC.available, reason=REASON
 )
 def test_read_lerc():
     """Test read LERC compression."""
@@ -7573,7 +7679,7 @@ def test_read_lerc():
 
 
 @pytest.mark.skipif(
-    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.ZSTD, reason=REASON
+    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.ZSTD.available, reason=REASON
 )
 def test_read_zstd():
     """Test read ZStd compression."""
@@ -7602,7 +7708,7 @@ def test_read_zstd():
 def test_read_jetraw():
     """Test read Jetraw compression."""
     try:
-        have_jetraw = imagecodecs.JETRAW
+        have_jetraw = imagecodecs.JETRAW.available
     except AttributeError:
         # requires imagecodecs > 2022.22.2
         have_jetraw = False
@@ -7679,7 +7785,8 @@ def test_read_pixtiff():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG.available,
+    reason=REASON,
 )
 def test_read_dng():
     """Test read JPEG compressed CFA image in SubIFD."""
@@ -7708,7 +7815,8 @@ def test_read_dng():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.LJPEG.available,
+    reason=REASON,
 )
 def test_read_cfa():
     """Test read 14-bit uncompressed and JPEG compressed CFA image."""
@@ -8341,7 +8449,9 @@ def test_read_subifd8():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_CODECS or not imagecodecs.JPEG, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_CODECS or not imagecodecs.JPEG.available, reason=REASON
+)
 def test_read_tiles():
     """Test iteration over tiles, manually and via page.segments."""
     data = numpy.arange(600 * 500 * 3, dtype=numpy.uint8).reshape(
@@ -9422,7 +9532,8 @@ def test_read_stk_noname():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_ndpi_cmu1():
     """Test read Hamamatsu NDPI slide, JPEG."""
@@ -9453,7 +9564,10 @@ def test_read_ndpi_cmu1():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or SKIP_LARGE or not imagecodecs.JPEG,
+    SKIP_PRIVATE
+    or SKIP_CODECS
+    or SKIP_LARGE
+    or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_read_ndpi_cmu2():
@@ -9491,7 +9605,10 @@ def test_read_ndpi_cmu2():
 
 
 @pytest.mark.skipif(
-    SKIP_LARGE or SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG,
+    SKIP_LARGE
+    or SKIP_PRIVATE
+    or SKIP_CODECS
+    or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_read_ndpi_4gb():
@@ -9563,7 +9680,8 @@ def test_read_ndpi_4gb():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEGXR, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEGXR.available,
+    reason=REASON,
 )
 def test_read_ndpi_jpegxr():
     """Test read Hamamatsu NDPI slide with JPEG XR compression."""
@@ -9625,7 +9743,10 @@ def test_read_ndpi_jpegxr():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_LARGE or SKIP_CODECS or not imagecodecs.JPEG,
+    SKIP_PRIVATE
+    or SKIP_LARGE
+    or SKIP_CODECS
+    or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_read_ndpi_databytecounts():
@@ -9664,7 +9785,8 @@ def test_read_ndpi_databytecounts():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_ndpi_layers():
     """Test read Hamamatsu NDPI slide with 5 layers."""
@@ -9736,7 +9858,8 @@ def test_read_ndpi_layers():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_svs_cmu1():
     """Test read Aperio SVS slide, JPEG and LZW."""
@@ -9774,7 +9897,8 @@ def test_read_svs_cmu1():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG2K, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG2K.available,
+    reason=REASON,
 )
 def test_read_svs_jp2k_33003_1():
     """Test read Aperio SVS slide, JP2000 and LZW."""
@@ -9811,7 +9935,8 @@ def test_read_svs_jp2k_33003_1():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_bif(caplog):
     """Test read Ventana BIF slide."""
@@ -9859,7 +9984,10 @@ def test_read_bif(caplog):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_LARGE or SKIP_CODECS or not imagecodecs.JPEG,
+    SKIP_PRIVATE
+    or SKIP_LARGE
+    or SKIP_CODECS
+    or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_read_scn_collection():
@@ -11094,7 +11222,8 @@ def test_read_ome_shape_mismatch(caplog):
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG2K, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG2K.available,
+    reason=REASON,
 )
 def test_read_ome_jpeg2000_be():
     """Test read JPEG2000 compressed big-endian OME-TIFF."""
@@ -12613,7 +12742,8 @@ def test_read_avs():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_philips():
     """Test read Philips DP pyramid."""
@@ -12673,7 +12803,8 @@ def test_read_philips():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_philips_issue249():
     """Test write_fsspec with Philips slide missing row of tiles."""
@@ -12752,7 +12883,8 @@ def test_read_philips_issue249():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_philips_issue253():
     """Test read Philips DP pyramid with seemingly extra column of tiles."""
@@ -12827,7 +12959,8 @@ def test_read_philips_issue253():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_read_zif():
     """Test read Zoomable Image Format ZIF."""
@@ -15547,7 +15680,7 @@ def test_write_compression_none():
 # @pytest.mark.parametrize('optimize', [None, False, True])
 # @pytest.mark.parametrize('smoothing', [None, 10])
 @pytest.mark.skipif(
-    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.JPEG.available, reason=REASON
 )
 @pytest.mark.parametrize('subsampling', ['444', '422', '420', '411'])
 @pytest.mark.parametrize('dtype', [numpy.uint8, numpy.uint16])
@@ -15684,7 +15817,9 @@ def test_write_compression_lzma(dtype):
             assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_CODECS or not imagecodecs.ZSTD, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_CODECS or not imagecodecs.ZSTD.available, reason=REASON
+)
 @pytest.mark.parametrize('dtype', [numpy.uint8, bool])
 def test_write_compression_zstd(dtype):
     """Test write ZSTD compression."""
@@ -15717,7 +15852,9 @@ def test_write_compression_zstd(dtype):
             assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_CODECS or not imagecodecs.WEBP, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_CODECS or not imagecodecs.WEBP.available, reason=REASON
+)
 def test_write_compression_webp():
     """Test write WEBP compression."""
     data = WRITE_DATA.astype(numpy.uint8).reshape((219, 301, 3))
@@ -15745,7 +15882,9 @@ def test_write_compression_webp():
             assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_CODECS or not imagecodecs.JPEG2K, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_CODECS or not imagecodecs.JPEG2K.available, reason=REASON
+)
 def test_write_compression_jpeg2k():
     """Test write JPEG 2000 compression."""
     data = WRITE_DATA.astype(numpy.uint8).reshape((219, 301, 3))
@@ -15773,7 +15912,9 @@ def test_write_compression_jpeg2k():
             assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_CODECS or not imagecodecs.JPEGXL, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_CODECS or not imagecodecs.JPEGXL.available, reason=REASON
+)
 def test_write_compression_jpegxl():
     """Test write JPEG XL compression."""
     data = WRITE_DATA.astype(numpy.uint8).reshape((219, 301, 3))
@@ -15852,7 +15993,7 @@ def test_write_compression_lerc(compression):
 def test_write_compression_jetraw():
     """Test write Jetraw compression."""
     try:
-        have_jetraw = imagecodecs.JETRAW
+        have_jetraw = imagecodecs.JETRAW.available
     except AttributeError:
         # requires imagecodecs > 2022.22.2
         have_jetraw = False
@@ -18253,7 +18394,9 @@ def test_write_multiple_series():
         )
 
 
-@pytest.mark.skipif(SKIP_CODECS or not imagecodecs.PNG, reason=REASON)
+@pytest.mark.skipif(
+    SKIP_CODECS or not imagecodecs.PNG.available, reason=REASON
+)
 def test_write_multithreaded():
     """Test write large tiled multithreaded."""
     data = (
@@ -18359,7 +18502,7 @@ def assert_fsspec(url, data, target_protocol='http'):
 
 
 @pytest.mark.skipif(
-    SKIP_HTTP or SKIP_ZARR or SKIP_CODECS or not imagecodecs.JPEG,
+    SKIP_HTTP or SKIP_ZARR or SKIP_CODECS or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 @pytest.mark.parametrize('byteorder', ['<', '>'])
@@ -19294,7 +19437,7 @@ def test_write_ome_manual(contiguous):
 
 
 @pytest.mark.skipif(
-    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.JPEG,
+    SKIP_PUBLIC or SKIP_CODECS or not imagecodecs.JPEG.available,
     reason=REASON,
 )
 def test_rewrite_ome():
@@ -19450,7 +19593,8 @@ def test_write_ome_copy():
 
 
 @pytest.mark.skipif(
-    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG, reason=REASON
+    SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
 )
 def test_write_geotiff_copy():
     """Test write a copy of striped, compressed GeoTIFF."""
