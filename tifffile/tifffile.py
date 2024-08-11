@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.7.24
+:Version: 2024.8.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,8 +98,8 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.4, 3.13.0b4, 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.0
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.5, 3.13.0rc1 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.1
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.1
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.8.10
+
+- Pass 5093 tests.
+- Relax bitspersample check for JPEG, JPEG2K, and JPEGXL compression (#265).
+
 2024.7.24
 
-- Pass 5092 tests.
 - Fix reading contiguous multi-page series via Zarr store (#67).
 
 2024.7.21
@@ -216,34 +220,6 @@ Revisions
 - Drop support for imagecodecs < 2023.3.16.
 
 2023.7.18
-
-- Limit threading via TIFFFILE_NUM_THREADS environment variable (#215).
-- Remove maxworkers parameter from tiff2fsspec (breaking).
-
-2023.7.10
-
-- Increase default strip size to 256 KB when writing with compression.
-- Fix ZarrTiffStore with non-default chunkmode.
-
-2023.7.4
-
-- Add option to return selection from imread (#200).
-- Fix reading OME series with missing trailing frames (#199).
-- Fix fsspec reference for WebP compressed segments missing alpha channel.
-- Fix linting issues.
-- Detect files written by Agilent Technologies.
-- Drop support for Python 3.8 and numpy < 1.21 (NEP29).
-
-2023.4.12
-
-- Do not write duplicate ImageDescription tags from extratags (breaking).
-- Support multifocal SVS files (#193).
-- Log warning when filtering out extratags.
-- Fix writing OME-TIFF with image description in extratags.
-- Ignore invalid predictor tag value if prediction is not used.
-- Raise KeyError if ZarrStore is missing requested chunk.
-
-2023.3.21
 
 - …
 
@@ -828,7 +804,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.7.24'
+__version__ = '2024.8.10'
 
 __all__ = [
     'TiffFile',
@@ -2777,12 +2753,39 @@ class TiffWriter:
             if bitspersample is not None and bitspersample != 1:
                 raise ValueError(f'{bitspersample=} must be 1 for bilevel')
             bitspersample = 1
-        elif compressiontag == 7 and datadtype == 'uint16':
-            if bitspersample is not None and bitspersample != 12:
+        elif compressiontag in {6, 7, 34892, 33007}:
+            # JPEG
+            # TODO: add bitspersample to compressionargs?
+            if bitspersample is None:
+                if (
+                    compressionargs is not None
+                    and 'bitspersample' in compressionargs
+                ):
+                    bitspersample = compressionargs['bitspersample']
+                else:
+                    bitspersample = 12 if datadtype == 'uint16' else 8
+            if not 2 <= bitspersample <= 16:
                 raise ValueError(
-                    f'{bitspersample=} must be 12 for JPEG compressed uint16'
+                    f'{bitspersample=} invalid for JPEG compression'
                 )
-            bitspersample = 12  # use 12-bit JPEG compression
+        elif compressiontag in {33003, 33004, 33005, 34712, 50002, 52546}:
+            # JPEG2K, JPEGXL
+            # TODO: unify with JPEG?
+            if bitspersample is None:
+                if (
+                    compressionargs is not None
+                    and 'bitspersample' in compressionargs
+                ):
+                    bitspersample = compressionargs['bitspersample']
+                else:
+                    bitspersample = datadtype.itemsize * 8
+            if not (
+                bitspersample > {1: 0, 2: 8, 4: 16}[datadtype.itemsize]
+                and bitspersample <= datadtype.itemsize * 8
+            ):
+                raise ValueError(
+                    f'{bitspersample=} out of range of {datadtype=}'
+                )
         elif bitspersample is None:
             bitspersample = datadtype.itemsize * 8
         elif (
@@ -4113,6 +4116,7 @@ class TiffWriter:
         if chunksize < 131072 and compression in {
             7,  # JPEG
             33007,  # ALT_JPG
+            34892,  # JPEG_LOSSY
             32773,  # PackBits
             34887,  # LERC
         }:
