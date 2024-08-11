@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2024.8.10
+
+- Pass 5093 tests.
+- Relax bitspersample check for JPEG, JPEG2K, and JPEGXL compression (#265).
+
 2024.7.24
 
-- Pass 5092 tests.
 - Fix reading contiguous multi-page series via Zarr store (#67).
 
 2024.7.21
