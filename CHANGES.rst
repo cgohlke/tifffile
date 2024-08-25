@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2024.8.24
+
+- Pass 5095 tests.
+- Do not remove trailing length-1 dimension writing non-shaped file (breaking).
+- Fix writing OME-TIFF with certain modulo axes orders.
+- Make imshow NaN aware.
+
 2024.8.10
 
-- Pass 5093 tests.
 - Relax bitspersample check for JPEG, JPEG2K, and JPEGXL compression (#265).
 
 2024.7.24
