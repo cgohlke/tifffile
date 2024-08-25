@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.8.10
+:Version: 2024.8.24
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -102,7 +102,7 @@ This revision was tested with the following requirements and dependencies
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.0.1
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.1
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.2
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
   (required only for validating and printing XML)
@@ -114,9 +114,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.8.24
+
+- Pass 5095 tests.
+- Do not remove trailing length-1 dimension writing non-shaped file (breaking).
+- Fix writing OME-TIFF with certain modulo axes orders.
+- Make imshow NaN aware.
+
 2024.8.10
 
-- Pass 5093 tests.
 - Relax bitspersample check for JPEG, JPEG2K, and JPEGXL compression (#265).
 
 2024.7.24
@@ -804,7 +810,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.8.10'
+__version__ = '2024.8.24'
 
 __all__ = [
     'TiffFile',
@@ -2693,30 +2699,16 @@ class TiffWriter:
                         storedshape.depth = shape[-3]
             storedshape.extrasamples = storedshape.samples - 1
 
-        # TODO: do not squeeze data when writing OME or ImageJ files (breaking)
-        # elif self._ome or self._imagej or metadata in (None, False):
-        #     planarconfig = None
-        #     if extrasamples is None:
-        #         if len(shape) < 3:
-        #             volumetric = False
-        #         if len(shape) < 3 or shape[-1] != 1:
-        #             storedshape = (
-        #                 (-1, 1) + shape[(-3 if volumetric else -2) :] + (1,)
-        #             )
-        #         else:
-        #             storedshape = (-1, 1) +shape[(-4 if volumetric else -3):]
-        #     else:
-        #         assert len(shape) > 2
-        #         if len(shape) < 4:
-        #             volumetric = False
-        #         storedshape = (-1, 1) + shape[(-4 if volumetric else -3) :]
-        #         samplesperpixel = storedshape[-1]
-        #         storedshape.extrasamples = samplesperpixel - 1
         else:
-            # shaped series
+            # photometricsamples == 1
             planarconfig = None
-            while len(shape) > 2 and shape[-1] == 1:
-                shape = shape[:-1]  # remove trailing 1s
+            if self._tifffile and (metadata or metadata == {}):
+                # remove trailing 1s in shaped series
+                while len(shape) > 2 and shape[-1] == 1:
+                    shape = shape[:-1]
+            elif self._imagej and len(shape) > 2 and shape[-1] == 1:
+                # TODO: remove this and sync with ImageJ shape
+                shape = shape[:-1]
             if len(shape) < 3:
                 volumetric = False
             if not extrasamples:
@@ -16126,7 +16118,11 @@ class OmeXml:
                     else:
                         # use next unused axis
                         for x in 'TZC':
-                            if x not in dimorder and x not in modulo:
+                            if (
+                                x not in dimorder
+                                and x not in hiaxes
+                                and x not in modulo
+                            ):
                                 modulo[x] = axestype[ax], shape[i]
                                 dimorder += x
                                 break
@@ -16173,7 +16169,9 @@ class OmeXml:
             if hiaxes in dimorder:
                 break
         else:
-            raise OmeXmlError(f'dimension order {axes!r} not supported')
+            raise OmeXmlError(
+                f'dimension order {axes!r} not supported ({hiaxes=})'
+            )
 
         dimsizes = []
         for ax in dimorder:
@@ -24815,9 +24813,9 @@ def imshow(
     elif data.dtype.kind == 'f':
         if nodata:
             data = data.copy()
-            data[data > 1e30] = 0.0
+            data[data == nodata] = numpy.nan
         try:
-            datamax = numpy.max(data)
+            datamax = numpy.nanmax(data)
         except ValueError:
             datamax = 1
         if isrgb and datamax > 1.0:
@@ -24831,7 +24829,7 @@ def imshow(
     elif data.dtype.kind == 'c':
         data = numpy.absolute(data)
         try:
-            datamax = numpy.max(data)
+            datamax = numpy.nanmax(data)
         except ValueError:
             datamax = 1
 
@@ -24852,11 +24850,11 @@ def imshow(
             elif data.dtype.kind == 'f':
                 fmin = float(numpy.finfo(data.dtype).min)
                 try:
-                    vmin = numpy.min(data)
+                    vmin = numpy.nanmin(data)
                 except ValueError:
                     vmin = 0.0
                 if vmin == fmin:
-                    vmin = numpy.min(data[data > fmin])
+                    vmin = numpy.nanmin(data[data > fmin])
             else:
                 vmin = 0
 
@@ -25270,7 +25268,11 @@ def main() -> int:
                 vmin, vmax = settings.vmin, settings.vmax
                 if keyframe.nodata:
                     try:
-                        vmin = numpy.min(img[img > keyframe.nodata])
+                        if img.dtype.kind == 'f':
+                            img[img == keyframe.nodata] = numpy.nan
+                            vmin = numpy.nanmin(img)
+                        else:
+                            vmin = numpy.min(img[img > keyframe.nodata])
                     except ValueError:
                         pass
                 if tif.is_stk:
