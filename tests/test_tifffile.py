@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.8.10
+:Version: 2024.8.24
 
 """
 
@@ -3027,6 +3027,40 @@ def test_issue_jpeg_bitspersample():
             assert_array_equal(tif.series[4].asarray(), data12)
 
             assert__str__(tif)
+
+
+def test_issue_ometiff_modulo():
+    """Test writing OME-TIFF with modulo dimension."""
+    # required for PhasorPy
+    data = random_data(numpy.uint8, (3, 3, 31, 33))
+    with TempFileName('issue_ometiff_modulo') as fname:
+        with TiffWriter(fname, ome=True) as tif:
+            tif.write(
+                data, photometric='minisblack', metadata={'axes': 'HTYX'}
+            )
+            tif.write(
+                data, photometric='minisblack', metadata={'axes': 'QZYX'}
+            )
+        with TiffFile(fname) as tif:
+            series = tif.series[0]
+            assert series.axes == 'HTYX'
+            assert series.shape == (3, 3, 31, 33)
+            series = tif.series[1]
+            assert series.axes == 'QZYX'
+            assert series.shape == (3, 3, 31, 33)
+
+
+def test_issue_ometiff_pixel():
+    """Test writing OME-TIFF three one pixel images."""
+    # required for PhasorPy
+    data = random_data(numpy.uint8, (3, 1, 1))
+    with TempFileName('issue_ometiff_pixel') as fname:
+        with TiffWriter(fname, ome=True) as tif:
+            tif.write(data, photometric='minisblack', metadata={'axes': 'TYX'})
+        with TiffFile(fname) as tif:
+            series = tif.series[0]
+            assert series.axes == 'TYX'
+            assert series.shape == (3, 1, 1)
 
 
 class TestExceptions:
