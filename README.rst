@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.8.10
+:Version: 2024.8.24
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -75,7 +75,7 @@ This revision was tested with the following requirements and dependencies
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.0.1
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.1
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.2
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
   (required only for validating and printing XML)
@@ -87,9 +87,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.8.24
+
+- Pass 5095 tests.
+- Do not remove trailing length-1 dimension writing non-shaped file (breaking).
+- Fix writing OME-TIFF with certain modulo axes orders.
+- Make imshow NaN aware.
+
 2024.8.10
 
-- Pass 5093 tests.
 - Relax bitspersample check for JPEG, JPEG2K, and JPEGXL compression (#265).
 
 2024.7.24
