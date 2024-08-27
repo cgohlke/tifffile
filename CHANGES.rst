@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2024.8.28
+
+- Pass 5096 tests.
+- Fix LSM scan types and dimension orders (#269, breaking).
+- Use IO[bytes] instead of BinaryIO for typing (#268).
+
 2024.8.24
 
-- Pass 5095 tests.
 - Do not remove trailing length-1 dimension writing non-shaped file (breaking).
 - Fix writing OME-TIFF with certain modulo axes orders.
 - Make imshow NaN aware.
