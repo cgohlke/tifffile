@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.8.24
+:Version: 2024.8.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,7 +99,7 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.5, 3.13.0rc1 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.1
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.2
@@ -114,9 +114,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.8.28
+
+- Pass 5096 tests.
+- Fix LSM scan types and dimension orders (#269, breaking).
+- Use IO[bytes] instead of BinaryIO for typing (#268).
+
 2024.8.24
 
-- Pass 5095 tests.
 - Do not remove trailing length-1 dimension writing non-shaped file (breaking).
 - Fix writing OME-TIFF with certain modulo axes orders.
 - Make imshow NaN aware.
@@ -810,7 +815,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.8.24'
+__version__ = '2024.8.28'
 
 __all__ = [
     'TiffFile',
@@ -926,7 +931,7 @@ except ImportError:
     except ImportError:
         import _imagecodecs as imagecodecs  # type: ignore
 
-from typing import TYPE_CHECKING, BinaryIO, cast, final, overload
+from typing import IO, TYPE_CHECKING, cast, final, overload
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -946,7 +951,7 @@ if TYPE_CHECKING:
     from numpy.typing import ArrayLike, DTypeLike, NDArray
 
     ByteOrder = Literal['>', '<']
-    OutputType = Union[str, BinaryIO, NDArray[Any], None]
+    OutputType = Union[str, IO[bytes], NDArray[Any], None]
     TagTuple = tuple[
         Union[int, str], Union[int, str], Optional[int], Any, bool
     ]
@@ -958,7 +963,7 @@ def imread(
         str
         | os.PathLike[Any]
         | FileHandle
-        | BinaryIO
+        | IO[bytes]
         | Sequence[str | os.PathLike[Any]]
         | None
     ) = None,
@@ -1004,7 +1009,7 @@ def imread(
         str
         | os.PathLike[Any]
         | FileHandle
-        | BinaryIO
+        | IO[bytes]
         | Sequence[str | os.PathLike[Any]]
         | None
     ) = None,
@@ -1052,7 +1057,7 @@ def imread(
         str
         | os.PathLike[Any]
         | FileHandle
-        | BinaryIO
+        | IO[bytes]
         | Sequence[str | os.PathLike[Any]]
         | None
     ) = None,
@@ -1099,7 +1104,7 @@ def imread(
         str
         | os.PathLike[Any]
         | FileHandle
-        | BinaryIO
+        | IO[bytes]
         | Sequence[str | os.PathLike[Any]]
         | None
     ) = None,
@@ -1265,7 +1270,7 @@ def imread(
                     out=out,
                 )
 
-    elif isinstance(files, (FileHandle, BinaryIO)):
+    elif isinstance(files, (FileHandle, IO)):
         raise ValueError('BinaryIO not supported')
 
     imread_kwargs = kwargs_notnone(
@@ -1316,7 +1321,7 @@ def imread(
 
 
 def imwrite(
-    file: str | os.PathLike[Any] | FileHandle | BinaryIO,
+    file: str | os.PathLike[Any] | FileHandle | IO[bytes],
     /,
     data: (
         ArrayLike | Iterator[NDArray[Any] | None] | Iterator[bytes] | None
@@ -1676,7 +1681,7 @@ class TiffWriter:
 
     def __init__(
         self,
-        file: str | os.PathLike[Any] | FileHandle | BinaryIO,
+        file: str | os.PathLike[Any] | FileHandle | IO[bytes],
         /,
         *,
         mode: Literal['w', 'x', 'r+'] | None = None,
@@ -4222,7 +4227,7 @@ class TiffFile:
 
     def __init__(
         self,
-        file: str | os.PathLike[Any] | FileHandle | BinaryIO,
+        file: str | os.PathLike[Any] | FileHandle | IO[bytes],
         /,
         *,
         mode: Literal['r', 'r+'] | None = None,
@@ -6615,13 +6620,17 @@ class TiffFile:
         if lsmi is None:
             return None
         axes = TIFF.CZ_LSMINFO_SCANTYPE[lsmi['ScanType']]
-        if self.pages.first.photometric == 2:  # RGB; more than one channel
-            axes = axes.replace('C', '').replace('XY', 'XYC')
+        if self.pages.first.planarconfig == 1:
+            axes = axes.replace('C', '').replace('X', 'XC')
+        elif self.pages.first.planarconfig == 2:
+            # keep axis for `get_shape(False)`
+            pass
+        elif self.pages.first.samplesperpixel == 1:
+            axes = axes.replace('C', '')
         if lsmi.get('DimensionP', 0) > 0:
-            axes += 'P'
+            axes = 'P' + axes
         if lsmi.get('DimensionM', 0) > 0:
-            axes += 'M'
-        axes = axes[::-1]
+            axes = 'M' + axes
         shape = tuple(int(lsmi[TIFF.CZ_LSMINFO_DIMENSIONS[i]]) for i in axes)
 
         name = lsmi.get('Name', '')
@@ -14592,7 +14601,7 @@ class FileHandle:
 
     """
 
-    # TODO: make FileHandle a subclass of BinaryIO
+    # TODO: make FileHandle a subclass of IO[bytes]
 
     __slots__ = (
         '_fh',
@@ -14606,8 +14615,8 @@ class FileHandle:
         '_close',
     )
 
-    _file: str | os.PathLike[Any] | FileHandle | BinaryIO | None
-    _fh: BinaryIO | None
+    _file: str | os.PathLike[Any] | FileHandle | IO[bytes] | None
+    _fh: IO[bytes] | None
     _mode: str
     _name: str
     _dir: str
@@ -14618,7 +14627,7 @@ class FileHandle:
 
     def __init__(
         self,
-        file: str | os.PathLike[Any] | FileHandle | BinaryIO,
+        file: str | os.PathLike[Any] | FileHandle | IO[bytes],
         /,
         mode: (
             Literal['r', 'r+', 'w', 'x', 'rb', 'r+b', 'wb', 'xb'] | None
@@ -14677,8 +14686,8 @@ class FileHandle:
             self._dir = self._file._dir
         elif hasattr(self._file, 'seek'):
             # binary stream: open file, BytesIO, fsspec LocalFileOpener
-            # cast to BinaryIO even it might not be
-            self._fh = cast(BinaryIO, self._file)
+            # cast to IO[bytes] even it might not be
+            self._fh = cast(IO[bytes], self._file)
             try:
                 self._fh.tell()
             except Exception as exc:
@@ -14704,7 +14713,7 @@ class FileHandle:
         elif hasattr(self._file, 'open'):
             # fsspec OpenFile
             _file: Any = self._file
-            self._fh = cast(BinaryIO, _file.open())
+            self._fh = cast(IO[bytes], _file.open())
             try:
                 self._fh.tell()
             except Exception as exc:
@@ -18725,17 +18734,17 @@ class _TIFF:
     def CZ_LSMINFO_SCANTYPE(self) -> dict[int, str]:
         # map CZ_LSMINFO.ScanType to dimension order
         return {
-            0: 'XYZCT',  # 'Stack' normal x-y-z-scan
-            1: 'XYZCT',  # 'Z-Scan' x-z-plane Y=1
-            2: 'XYZCT',  # 'Line'
-            3: 'XYTCZ',  # 'Time Series Plane' time series x-y  XYCTZ ? Z=1
-            4: 'XYZTC',  # 'Time Series z-Scan' time series x-z
-            5: 'XYTCZ',  # 'Time Series Mean-of-ROIs'
-            6: 'XYZTC',  # 'Time Series Stack' time series x-y-z
-            7: 'XYCTZ',  # Spline Scan
-            8: 'XYCZT',  # Spline Plane x-z
-            9: 'XYTCZ',  # Time Series Spline Plane x-z
-            10: 'XYZCT',  # 'Time Series Point' point mode
+            0: 'ZCYX',  # Stack, normal x-y-z-scan
+            1: 'CZX',  # Z-Scan, x-z-plane
+            2: 'CTX',  # Line or Time Series Line
+            3: 'TCYX',  # Time Series Plane, x-y
+            4: 'TCZX',  # Time Series z-Scan, x-z
+            5: 'CTX',  # Time Series Mean-of-ROIs
+            6: 'TZCYX',  # Time Series Stack, x-y-z
+            7: 'TZCYX',  # TODO: Spline Scan
+            8: 'CZX',  # Spline Plane, x-z
+            9: 'TCZX',  # Time Series Spline Plane, x-z
+            10: 'CTX',  # Point or Time Series Point
         }
 
     @property
@@ -20672,7 +20681,7 @@ def read_scanimage_metadata(
 
 
 def read_micromanager_metadata(
-    fh: FileHandle | BinaryIO, /, keys: Container[str] | None = None
+    fh: FileHandle | IO[bytes], /, keys: Container[str] | None = None
 ) -> dict[str, Any]:
     """Return Micro-Manager non-TIFF settings from file.
 
@@ -20925,7 +20934,7 @@ def read_ndtiff_index(
 
 
 def read_gdal_structural_metadata(
-    fh: FileHandle | BinaryIO, /
+    fh: FileHandle | IO[bytes], /
 ) -> dict[str, str] | None:
     """Read non-TIFF GDAL structural metadata from file.
 
@@ -20960,7 +20969,7 @@ def read_gdal_structural_metadata(
     return result
 
 
-def read_metaseries_catalog(fh: FileHandle | BinaryIO, /) -> None:
+def read_metaseries_catalog(fh: FileHandle | IO[bytes], /) -> None:
     """Read MetaSeries non-TIFF hint catalog from file.
 
     Raise ValueError if the file does not contain a valid hint catalog.
@@ -24445,7 +24454,7 @@ def validate_jhove(
 
 
 def tiffcomment(
-    arg: str | os.PathLike[Any] | FileHandle | BinaryIO,
+    arg: str | os.PathLike[Any] | FileHandle | IO[bytes],
     /,
     comment: str | bytes | None = None,
     pageindex: int | None = None,
@@ -24600,7 +24609,15 @@ def lsm2bin(
             ),
             flush=True,
         )
-        if not series.axes.endswith('TZCYX'):
+        if axes == 'CYX':
+            shape = (1, 1) + shape
+        elif axes == 'ZCYX':
+            shape = (1,) + shape
+        elif axes == 'MPCYX':
+            shape = shape[:2] + (1, 1) + shape[2:]
+        elif axes == 'MPZCYX':
+            shape = shape[:2] + (1,) + shape[2:]
+        elif not axes.endswith('TZCYX'):
             raise ValueError('not a *TZCYX LSM file')
 
         prints('Copying image from LSM to BIN files', end='', flush=True)
