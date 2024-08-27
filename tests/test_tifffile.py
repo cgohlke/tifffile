@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.8.24
+:Version: 2024.8.28
 
 """
 
@@ -8575,7 +8575,7 @@ def test_read_lsm_mosaic():
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
 def test_read_lsm_carpet():
-    """Test read LSM: ZCTYX (time series x-y), 72000 pages."""
+    """Test read LSM: TYX (time series x-y), 72000 pages."""
     # reads very slowly, ensure colormap is not applied
     fname = private_file('lsm/Cardarelli_carpet_3.lsm')
     with TiffFile(fname) as tif:
@@ -8599,15 +8599,15 @@ def test_read_lsm_carpet():
         assert series.shape == (36000, 10, 32)
         assert series.axes == 'TYX'
         assert series.kind == 'lsm'
-        assert series.get_shape(False) == (1, 1, 36000, 10, 32)
-        assert series.get_axes(False) == 'ZCTYX'
+        assert series.get_shape(False) == (36000, 1, 10, 32)
+        assert series.get_axes(False) == 'TCYX'
         if 1:
             series = tif.series[1]
             assert series.dtype == numpy.uint8
             assert series.shape == (36000, 3, 40, 128)
             assert series.axes == 'TSYX'
-            assert series.get_shape(False) == (1, 1, 36000, 3, 40, 128)
-            assert series.get_axes(False) == 'ZCTSYX'
+            assert series.get_shape(False) == (36000, 3, 40, 128)
+            assert series.get_axes(False) == 'TSYX'
             assert series.kind == 'lsm'
         # assert lsm_info tags
         tags = tif.lsm_metadata
@@ -8648,15 +8648,15 @@ def test_read_lsm_sfcs():
         # assert series properties
         series = tif.series[0]
         assert series.dtype == numpy.uint16
-        assert series.shape == (100000, 1, 52)
-        assert series.axes == 'TYX'
+        assert series.shape == (100000, 52)
+        assert series.axes == 'TX'
         assert series.kind == 'lsm'
-        assert series.get_shape(False) == (1, 1, 100000, 1, 1, 1, 52)
-        assert series.get_axes(False) == 'MPTCZYX'
+        assert series.get_shape(False) == (1, 1, 1, 100000, 52)
+        assert series.get_axes(False) == 'MPCTX'
         data = series.asarray()
-        assert data.shape == (100000, 1, 52)
+        assert data.shape == (100000, 52)
         assert data.dtype == numpy.uint16
-        assert data[1000, 0].sum() == 4
+        assert data[1000].sum() == 4
 
         if 1:
             series = tif.series[1]
@@ -8684,9 +8684,70 @@ def test_read_lsm_sfcs():
         assert__str__(tif, 0)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+def test_read_lsm_line_2channel():
+    """Test read LSM point scan with 2 channels: CTX, 1 page."""
+    # https://github.com/cgohlke/tifffile/issues/269
+    # second page/series is corrupted: ImageLength=128 but StripByteCounts=1
+
+    fname = private_file('lsm/issue269.lsm')
+    with TiffFile(fname) as tif:
+        assert tif.is_lsm
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 2
+        assert len(tif.series) == 2
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_lsm
+        assert 'ColorMap' not in page.tags
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.NONE
+        assert page.imagewidth == 512
+        assert page.imagelength == 70000
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 2
+        # assert series properties
+        series = tif.series[0]
+        assert series.dtype == numpy.uint8
+        assert series.shape == (2, 70000, 512)
+        assert series.axes == 'CTX'
+        assert series.kind == 'lsm'
+        assert series.get_axes(False) == 'MPCTX'
+        assert series.get_shape(False) == (1, 1, 2, 70000, 512)
+        data = series.asarray()
+        assert data.shape == (2, 70000, 512)
+        assert data.dtype == numpy.uint8
+        assert data[0, 1000].sum() == 13241
+
+        if 1:
+            series = tif.series[1]
+            assert series.dtype == numpy.uint8
+            assert series.shape == (3, 128, 1)
+            assert series.axes == 'SYX'
+            assert series.get_shape(False) == (3, 128, 1)
+            assert series.get_axes(False) == 'SYX'
+            assert series.kind == 'lsm'
+            with pytest.raises(TiffFileError):
+                # strip cannot be reshaped from (1,) to (1, 128, 1, 1)
+                series.asarray()
+        # assert lsm_info tags
+        tags = tif.lsm_metadata
+        assert tags['DimensionX'] == 512
+        assert tags['DimensionY'] == 1
+        assert tags['DimensionZ'] == 1
+        assert tags['DimensionTime'] == 70000
+        assert tags['DimensionChannels'] == 2
+        # assert lsm_scan_info tags
+        tags = tif.lsm_metadata['ScanInformation']
+        assert tags['ScanMode'] == 'Line'
+        assert tags['User'] == 'LSMUser'
+        assert_aszarr_method(tif)
+        assert__str__(tif, 0)
+
+
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_read_lsm_take1():
-    """Test read LSM: TCZYX (Plane mode), single image, uint8."""
+    """Test read LSM: TZCYX (Plane mode), single image, uint8."""
     fname = private_file('lsm/take1.lsm')
     with TiffFile(fname) as tif:
         assert tif.is_lsm
@@ -8717,8 +8778,8 @@ def test_read_lsm_take1():
         assert series.shape == (512, 512)
         assert series.axes == 'YX'
         assert series.kind == 'lsm'
-        assert series.get_shape(False) == (1, 1, 1, 512, 512)
-        assert series.get_axes(False) == 'TCZYX'
+        assert series.get_shape(False) == (1, 1, 512, 512)
+        assert series.get_axes(False) == 'ZCYX'
         if 1:
             series = tif.series[1]
             assert series.shape == (3, 128, 128)
@@ -8731,7 +8792,7 @@ def test_read_lsm_take1():
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (512, 512)
         assert data.dtype == numpy.uint8
-        assert data[..., 256, 256] == 101
+        assert data[256, 256] == 101
         if 1:
             data = tif.asarray(series=1)
             assert isinstance(data, numpy.ndarray)
@@ -8876,18 +8937,18 @@ def test_read_lsm_unbounderror():
         # assert series properties
         series = tif.series[0]
         assert series.shape == (196, 2, 33, 512, 512)
-        assert series.get_shape(False) == (196, 1, 1, 2, 33, 512, 512)
         assert series.dtype == numpy.uint16
         assert series.axes == 'MZCYX'
-        assert series.get_axes(False) == 'MPTZCYX'
+        assert series.get_axes(False) == 'MPZCYX'
+        assert series.get_shape(False) == (196, 1, 2, 33, 512, 512)
         assert series.kind == 'lsm'
         if 1:
             series = tif.series[1]
             assert series.shape == (196, 2, 3, 128, 128)
-            assert series.get_shape(False) == (196, 1, 1, 2, 3, 128, 128)
             assert series.dtype == numpy.uint8
             assert series.axes == 'MZSYX'
-            assert series.get_axes(False) == 'MPTZSYX'
+            assert series.get_axes(False) == 'MPZSYX'
+            assert series.get_shape(False) == (196, 1, 2, 3, 128, 128)
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray()
@@ -8953,18 +9014,18 @@ def test_read_lsm_incomplete(caplog):
         series = tif.series[0]
         assert series.pages[-1].dataoffsets[0] == 0
         assert series.shape == (25, 49, 33, 512, 512)
-        assert series.get_shape(False) == (25, 1, 1, 49, 33, 512, 512)
         assert series.dtype == numpy.uint16
         assert series.axes == 'MTCYX'
-        assert series.get_axes(False) == 'MPZTCYX'
+        assert series.get_axes(False) == 'MPTCYX'
+        assert series.get_shape(False) == (25, 1, 49, 33, 512, 512)
         assert series.kind == 'lsm'
         if 1:
             series = tif.series[1]
             assert series.shape == (25, 49, 3, 128, 128)
-            assert series.get_shape(False) == (25, 1, 1, 49, 3, 128, 128)
+            assert series.get_shape(False) == (25, 1, 49, 3, 128, 128)
             assert series.dtype == numpy.uint8
             assert series.axes == 'MTSYX'
-            assert series.get_axes(False) == 'MPZTSYX'
+            assert series.get_axes(False) == 'MPTSYX'
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray()
@@ -8997,7 +9058,7 @@ def test_read_lsm_incomplete(caplog):
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_lsm_earpax2isl11():
-    """Test read LSM: TZCYX (1, 19, 3, 512, 512) uint8, RGB, LZW."""
+    """Test read LSM: ZCYX (19, 3, 512, 512) uint8, RGB, LZW."""
     fname = private_file('lsm/earpax2isl11.lzw.lsm')
     with TiffFile(fname) as tif:
         assert tif.is_lsm
@@ -9029,18 +9090,18 @@ def test_read_lsm_earpax2isl11():
         # assert series properties
         series = tif.series[0]
         assert series.shape == (19, 3, 512, 512)
-        assert series.get_shape(False) == (1, 19, 3, 512, 512)
         assert series.dtype == numpy.uint8
         assert series.axes == 'ZCYX'
-        assert series.get_axes(False) == 'TZCYX'
+        assert series.get_axes(False) == 'ZCYX'
+        assert series.get_shape(False) == (19, 3, 512, 512)
         assert series.kind == 'lsm'
         if 1:
             series = tif.series[1]
             assert series.shape == (19, 3, 128, 128)
-            assert series.get_shape(False) == (1, 19, 3, 128, 128)
+            assert series.get_shape(False) == (19, 3, 128, 128)
             assert series.dtype == numpy.uint8
             assert series.axes == 'ZSYX'
-            assert series.get_axes(False) == 'TZSYX'
+            assert series.get_axes(False) == 'ZSYX'
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray()
