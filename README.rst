@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.8.24
+:Version: 2024.8.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -72,7 +72,7 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.5, 3.13.0rc1 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.0.1
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.2
@@ -87,9 +87,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2024.8.28
+
+- Pass 5096 tests.
+- Fix LSM scan types and dimension orders (#269, breaking).
+- Use IO[bytes] instead of BinaryIO for typing (#268).
+
 2024.8.24
 
-- Pass 5095 tests.
 - Do not remove trailing length-1 dimension writing non-shaped file (breaking).
 - Fix writing OME-TIFF with certain modulo axes orders.
 - Make imshow NaN aware.
