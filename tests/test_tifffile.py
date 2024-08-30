@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.8.28
+:Version: 2024.8.30
 
 """
 
@@ -4177,10 +4177,11 @@ def test_class_omexml_attributes():
         UUID=uuid,
         Creator=f'test_tifffile.py {tifffile.__version__}',
         # image
-        axes='ZYXS',
+        axes='QZYXS',
         Name='ImageName',
         Acquisitiondate='2011-09-16T10:45:48',
         Description='Image "Description" < & >\n{test}',
+        TypeDescription={'Q': 'Phasor'},
         SignificantBits=12,
         PhysicalSizeX=1.1,
         PhysicalSizeXUnit='nm',
@@ -4191,23 +4192,139 @@ def test_class_omexml_attributes():
         TimeIncrement=1.4,
         TimeIncrementUnit='\xb5s',
         Channel=dict(Name='ChannelName'),  # one channel with 3 samples
-        Plane=dict(PositionZ=[0.0, 2.0, 4.0]),  # 3 Z-planes
+        Plane=dict(PositionZ=[0.0, 0.0, 2.0, 2.0, 4.0, 4.0]),  # 6 TZ-planes
+        CommentAnnotation='Tifffile test',
+        BooleanAnnotation=True,
+        LongAnnotation=[1, 2],
+        DoubleAnnotation={'Description': 'A double', 'Value': 1.0},
+        MapAnnotation=[
+            {'Description': 'description', 'key': '<str/>', 'key2': 1.0},
+            {'Namespace': 'ns.org', 'key2': 1, 'key3': 2},
+        ],
     )
 
     omexml = OmeXml(**metadata)
     omexml.addimage(
-        numpy.uint16, (3, 32, 32, 3), (3, 1, 1, 32, 32, 3), **metadata
+        numpy.uint16, (2, 3, 32, 32, 3), (6, 1, 1, 32, 32, 3), **metadata
     )
     xml = omexml.tostring()
-    assert uuid in xml
-    assert 'SignificantBits="12"' in xml
-    assert 'SamplesPerPixel="3" Name="ChannelName"' in xml
-    assert 'TheC="0" TheZ="2" TheT="0" PositionZ="4.0"' in xml
+    for value in (
+        f'UUID="urn:uuid:{uuid}"',
+        'SizeX="32" SizeY="32" SizeC="3" SizeZ="3" SizeT="2"',
+        'Interleaved="true" SignificantBits="12"',
+        '<Channel ID="Channel:0:0" SamplesPerPixel="3" Name="ChannelName">',
+        '<Plane TheC="0" TheZ="2" TheT="1" PositionZ="4.0"/>',
+        '<StructuredAnnotations><XMLAnnotation ID="Annotation:0" Namespace',
+        '<ModuloAlongT Type="other" TypeDescription="Phasor" '
+        'Start="0" End="1"/>',
+        '<CommentAnnotation ID="Annotation:1">'
+        '<Value>Tifffile test</Value></CommentAnnotation>',
+        '<BooleanAnnotation ID="Annotation:2">'
+        '<Value>true</Value></BooleanAnnotation>',
+        '<LongAnnotation ID="Annotation:3"><Value>1</Value></LongAnnotation>'
+        '<LongAnnotation ID="Annotation:4"><Value>2</Value>',
+        '<DoubleAnnotation ID="Annotation:5">'
+        '<Description>A double</Description>'
+        '<Value>1.0</Value></DoubleAnnotation>',
+        '<MapAnnotation ID="Annotation:6">'
+        '<Description>description</Description>'
+        '<Value><M K="key">&lt;str/&gt;</M><M K="key2">1.0</M></Value>'
+        '</MapAnnotation>',
+        '<MapAnnotation ID="Annotation:7" Namespace="ns.org">'
+        '<Value><M K="key2">1</M><M K="key3">2</M></Value></MapAnnotation>',
+    ):
+        assert value in xml
     if IS_PYPY:
         pytest.xfail('lxml bug?')
     assert__repr__(omexml)
     assert_valid_omexml(xml)
     assert '\n  ' in str(omexml)
+
+    with TempFileName('class_omexml_attributes') as fname:
+        imwrite(
+            fname,
+            shape=(2, 3, 32, 32, 3),
+            dtype=numpy.uint16,
+            ome=True,
+            photometric='rgb',
+            metadata=metadata,
+        )
+        assert imread(fname).shape == (2, 3, 32, 32, 3)
+
+
+def test_class_omexml_datasets():
+    """Test OmeXml class with datasets."""
+    args = numpy.uint8, (3, 7), (1, 1, 1, 3, 7, 1)
+    kwargs = {'dtype': numpy.uint8, 'shape': (3, 7)}
+
+    omexml = OmeXml()
+    # no dataset
+    omexml.addimage(*args, CommentAnnotation='0')
+    # first dataset explicit
+    omexml.addimage(
+        *args,
+        Dataset={
+            'Name': 'First',
+            'Description': 'Dataset',
+            'CommentAnnotation': '1',
+        },
+    )
+    # first dataset implicit
+    omexml.addimage(*args, CommentAnnotation='2')
+    # no dataset
+    omexml.addimage(*args, Dataset=None, CommentAnnotation='3')
+    # first dataset implicit
+    omexml.addimage(*args, CommentAnnotation='4')
+    # second dataset explicit
+    omexml.addimage(*args, Dataset={'CommentAnnotation': '5'})
+
+    xml = omexml.tostring()
+    for value in (
+        '<Dataset ID="Dataset:0" Name="First">'
+        '<Description>Dataset</Description>'
+        '<ImageRef ID="Image:1"/>'
+        '<ImageRef ID="Image:2"/>'
+        '<ImageRef ID="Image:4"/>'
+        '<AnnotationRef ID="Annotation:1"/>'
+        '</Dataset>',
+        '<Dataset ID="Dataset:1">'
+        '<ImageRef ID="Image:5"/>'
+        '<AnnotationRef ID="Annotation:5"/>'
+        '</Dataset>',
+        '<AnnotationRef ID="Annotation:4"/></Image>'
+        '<Image ID="Image:5" Name="Image5">',
+    ):
+        assert value in xml
+    if IS_PYPY:
+        pytest.xfail('lxml bug?')
+    assert__repr__(omexml)
+    assert_valid_omexml(xml)
+    assert '\n  ' in str(omexml)
+
+    with TempFileName('class_omexml_datasets') as fname:
+        with TiffWriter(fname, ome=True) as tif:
+            tif.write(**kwargs, metadata={'CommentAnnotation': '0'})
+            tif.write(
+                **kwargs,
+                metadata={
+                    'Dataset': {
+                        'Name': 'First',
+                        'Description': 'Dataset',
+                        'CommentAnnotation': '1',
+                    }
+                },
+            )
+            tif.write(**kwargs, metadata={'CommentAnnotation': '2'})
+            tif.write(
+                **kwargs, metadata={'Dataset': None, 'CommentAnnotation': '3'}
+            )
+            tif.write(**kwargs, metadata={'CommentAnnotation': '4'})
+            tif.write(
+                **kwargs, metadata={'Dataset': {'CommentAnnotation': '5'}}
+            )
+
+        with TiffFile(fname) as tif:
+            assert len(tif.series) == 6
 
 
 def test_class_omexml_multiimage():
