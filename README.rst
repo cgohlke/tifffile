@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.8.28
+:Version: 2024.8.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2024.8.28
+2024.8.30
 
 - Pass 5096 tests.
+- Support writing OME Dataset and some StructuredAnnotations elements.
+
+2024.8.28
+
 - Fix LSM scan types and dimension orders (#269, breaking).
 - Use IO[bytes] instead of BinaryIO for typing (#268).
 
@@ -649,9 +653,9 @@ Create a TIFF file from a generator of tiles:
     ... )
 
 Write a multi-dimensional, multi-resolution (pyramidal), multi-series OME-TIFF
-file with metadata. Sub-resolution images are written to SubIFDs. Limit
-parallel encoding to 2 threads. Write a thumbnail image as a separate image
-series:
+file with optional metadata. Sub-resolution images are written to SubIFDs.
+Limit parallel encoding to 2 threads. Write a thumbnail image as a separate
+image series:
 
 .. code-block:: python
 
@@ -670,6 +674,12 @@ series:
     ...         'PhysicalSizeYUnit': 'µm',
     ...         'Channel': {'Name': ['Channel 1', 'Channel 2']},
     ...         'Plane': {'PositionX': [0.0] * 16, 'PositionXUnit': ['µm'] * 16},
+    ...         'Description': 'A multi-dimensional, multi-resolution image',
+    ...         'MapAnnotation': {  # for OMERO
+    ...             'Namespace': 'openmicroscopy.org/PyramidResolution',
+    ...             '1': '256 256',
+    ...             '2': '128 128',
+    ...         },
     ...     }
     ...     options = dict(
     ...         photometric='rgb',
@@ -783,14 +793,14 @@ to it via the Zarr interface (note: this does not work with compression):
 .. code-block:: python
 
     >>> imwrite(
-    ...     'temp.ome.tif',
+    ...     'temp2.ome.tif',
     ...     shape=(8, 800, 600),
     ...     dtype='uint16',
     ...     photometric='minisblack',
     ...     tile=(128, 128),
     ...     metadata={'axes': 'CYX'},
     ... )
-    >>> store = imread('temp.ome.tif', mode='r+', aszarr=True)
+    >>> store = imread('temp2.ome.tif', mode='r+', aszarr=True)
     >>> z = zarr.open(store, mode='r+')
     >>> z
     <zarr.core.Array (8, 800, 600) uint16>
