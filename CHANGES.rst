@@ -1,9 +1,13 @@
 Revisions
 ---------
 
-2024.8.28
+2024.8.30
 
 - Pass 5096 tests.
+- Support writing OME Dataset and some StructuredAnnotations elements.
+
+2024.8.28
+
 - Fix LSM scan types and dimension orders (#269, breaking).
 - Use IO[bytes] instead of BinaryIO for typing (#268).
 
