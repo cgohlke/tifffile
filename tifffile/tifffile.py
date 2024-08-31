@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.8.28
+:Version: 2024.8.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2024.8.28
+2024.8.30
 
 - Pass 5096 tests.
+- Support writing OME Dataset and some StructuredAnnotations elements.
+
+2024.8.28
+
 - Fix LSM scan types and dimension orders (#269, breaking).
 - Use IO[bytes] instead of BinaryIO for typing (#268).
 
@@ -630,9 +634,9 @@ Create a TIFF file from a generator of tiles:
 ... )
 
 Write a multi-dimensional, multi-resolution (pyramidal), multi-series OME-TIFF
-file with metadata. Sub-resolution images are written to SubIFDs. Limit
-parallel encoding to 2 threads. Write a thumbnail image as a separate image
-series:
+file with optional metadata. Sub-resolution images are written to SubIFDs.
+Limit parallel encoding to 2 threads. Write a thumbnail image as a separate
+image series:
 
 >>> data = numpy.random.randint(0, 255, (8, 2, 512, 512, 3), 'uint8')
 >>> subresolutions = 2
@@ -649,6 +653,12 @@ series:
 ...         'PhysicalSizeYUnit': 'µm',
 ...         'Channel': {'Name': ['Channel 1', 'Channel 2']},
 ...         'Plane': {'PositionX': [0.0] * 16, 'PositionXUnit': ['µm'] * 16},
+...         'Description': 'A multi-dimensional, multi-resolution image',
+...         'MapAnnotation': {  # for OMERO
+...             'Namespace': 'openmicroscopy.org/PyramidResolution',
+...             '1': '256 256',
+...             '2': '128 128',
+...         },
 ...     }
 ...     options = dict(
 ...         photometric='rgb',
@@ -748,14 +758,14 @@ Create an OME-TIFF file containing an empty, tiled image series and write
 to it via the Zarr interface (note: this does not work with compression):
 
 >>> imwrite(
-...     'temp.ome.tif',
+...     'temp2.ome.tif',
 ...     shape=(8, 800, 600),
 ...     dtype='uint16',
 ...     photometric='minisblack',
 ...     tile=(128, 128),
 ...     metadata={'axes': 'CYX'},
 ... )
->>> store = imread('temp.ome.tif', mode='r+', aszarr=True)
+>>> store = imread('temp2.ome.tif', mode='r+', aszarr=True)
 >>> z = zarr.open(store, mode='r+')
 >>> z
 <zarr.core.Array (8, 800, 600) uint16>
@@ -815,7 +825,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.8.28'
+__version__ = '2024.8.30'
 
 __all__ = [
     'TiffFile',
@@ -15858,10 +15868,12 @@ class OmeXml:
         ...     axes='CYX',
         ...     Name='First Image',
         ...     PhysicalSizeX=2.0,
+        ...     MapAnnotation={'key': 'value'},
+        ...     Dataset={'Name': 'FirstDataset'},
         ... )
         >>> xml = omexml.tostring()
         >>> xml
-        '<OME ...<Image ID="Image:0" Name="First Image">...</Image></OME>'
+        '<OME ...<Image ID="Image:0" Name="First Image">...</Image>...</OME>'
         >>> OmeXml.validate(xml)
         True
 
@@ -15873,8 +15885,8 @@ class OmeXml:
     annotations: list[str]
     """OME-XML Annotation elements."""
 
-    elements: list[str]
-    """Other OME-XML elements."""
+    datasets: list[str]
+    """OME-XML Dataset elements."""
 
     _xml: str
     _ifd: int
@@ -15885,10 +15897,9 @@ class OmeXml:
         self._ifd = 0
         self.images = []
         self.annotations = []
-        self.elements = []
+        self.datasets = []
         # TODO: parse other OME elements from metadata
         #   Project
-        #   Dataset
         #   Folder
         #   Experiment
         #   Plate
@@ -15896,7 +15907,6 @@ class OmeXml:
         #   Experimenter
         #   ExperimenterGroup
         #   Instrument
-        #   StructuredAnnotations
         #   ROI
         if 'UUID' in metadata:
             uuid = metadata['UUID'].split(':')[-1]
@@ -15913,10 +15923,10 @@ class OmeXml:
             f'<OME xmlns="{schema}" '
             'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
             f'xsi:schemaLocation="{schema} {schema}/ome.xsd" '
-            f'UUID="urn:uuid:{uuid}" {creator}>'
+            f'UUID="urn:uuid:{uuid}"{creator}>'
+            '{datasets}'
             '{images}'
             '{annotations}'
-            '{elements}'
             '</OME>'
         )
 
@@ -15957,11 +15967,15 @@ class OmeXml:
                 Additional OME-XML attributes or elements to be stored.
 
                 Image/Pixels:
-                    Name, AcquisitionDate, Description, DimensionOrder,
+                    Name, Description,
+                    DimensionOrder, TypeDescription,
                     PhysicalSizeX, PhysicalSizeXUnit,
                     PhysicalSizeY, PhysicalSizeYUnit,
                     PhysicalSizeZ, PhysicalSizeZUnit,
-                    TimeIncrement, TimeIncrementUnit.
+                    TimeIncrement, TimeIncrementUnit,
+                    StructuredAnnotations, BooleanAnnotation, DoubleAnnotation,
+                    LongAnnotation, CommentAnnotation, MapAnnotation,
+                    Dataset
                 Per Plane:
                     DeltaT, DeltaTUnit,
                     ExposureTime, ExposureTimeUnit,
@@ -15980,6 +15994,7 @@ class OmeXml:
 
         """
         index = len(self.images)
+        annotation_refs = []
 
         # get Image and Pixels metadata
         metadata = metadata.get('OME', metadata)
@@ -16118,12 +16133,17 @@ class OmeXml:
                 'E': 'lambda',
                 'Q': 'other',
             }
+            axestypedescr = metadata.get('TypeDescription', {})
             for i, ax in enumerate(hiaxes):
                 if ax in 'APRHEQ':
+                    if ax in axestypedescr:
+                        typedescr = f'TypeDescription="{axestypedescr[ax]}" '
+                    else:
+                        typedescr = ''
                     x = hiaxes[i - 1 : i]
                     if x and x in 'TZC':
                         # use previous axis
-                        modulo[x] = axestype[ax], shape[i]
+                        modulo[x] = axestype[ax], shape[i], typedescr
                     else:
                         # use next unused axis
                         for x in 'TZC':
@@ -16132,7 +16152,7 @@ class OmeXml:
                                 and x not in hiaxes
                                 and x not in modulo
                             ):
-                                modulo[x] = axestype[ax], shape[i]
+                                modulo[x] = axestype[ax], shape[i], typedescr
                                 dimorder += x
                                 break
                         else:
@@ -16144,13 +16164,15 @@ class OmeXml:
 
             # TODO: use user-specified start, stop, step, or labels
             moduloalong = ''.join(
-                f'<ModuloAlong{ax} Type="{axtype}" '
+                f'<ModuloAlong{ax} Type="{axtype}" {typedescr}'
                 f'Start="0" End="{size - 1}"/>'
-                for ax, (axtype, size) in modulo.items()
+                for ax, (axtype, size, typedescr) in modulo.items()
             )
-            annotationref = f'<AnnotationRef ID="Annotation:{index}"/>'
-            annotations = (
-                f'<XMLAnnotation ID="Annotation:{index}" '
+            annotation_refs.append(
+                f'<AnnotationRef ID="Annotation:{len(self.annotations)}"/>'
+            )
+            self.annotations.append(
+                f'<XMLAnnotation ID="Annotation:{len(self.annotations)}" '
                 'Namespace="openmicroscopy.org/omero/dimension/modulo">'
                 '<Value>'
                 '<Modulo namespace='
@@ -16160,7 +16182,6 @@ class OmeXml:
                 '</Value>'
                 '</XMLAnnotation>'
             )
-            self.annotations.append(annotations)
         else:
             modulo = {}
             annotationref = ''
@@ -16307,6 +16328,15 @@ class OmeXml:
         else:
             interleaved = ''
 
+        self._dataset(
+            metadata.get('Dataset', {}), f'<ImageRef ID="Image:{index}"/>'
+        )
+
+        self._annotations(
+            metadata.get('StructuredAnnotations', metadata), annotation_refs
+        )
+        annotationref = ''.join(annotation_refs)
+
         self.images.append(
             f'<Image ID="Image:{index}"{name}>'
             f'{elements}'
@@ -16333,7 +16363,7 @@ class OmeXml:
 
         """
         # TODO: support other top-level elements
-        elements = ''.join(self.elements)
+        datasets = ''.join(self.datasets)
         images = ''.join(self.images)
         annotations = ''.join(self.annotations)
         if annotations:
@@ -16348,7 +16378,7 @@ class OmeXml:
             declaration=declaration_str,
             images=images,
             annotations=annotations,
-            elements=elements,
+            datasets=datasets,
         )
         return xml
 
@@ -16451,6 +16481,119 @@ class OmeXml:
                 OmeXml._attribute(metadata, name, index_) for name in names
             )
         return ''.join(a for a in attributes if a)
+
+    def _dataset(self, metadata: dict[str, Any] | None, imageref: str) -> None:
+        """Add Dataset element to self.datasets."""
+        index = len(self.datasets)
+        if metadata is None:
+            # dataset explicitly disabled
+            return None
+        if not metadata and index == 0:
+            # no dataset provided yet
+            return None
+        if not metadata:
+            # use previous dataset
+            index -= 1
+            if '<AnnotationRef' in self.datasets[index]:
+                self.datasets[index] = self.datasets[index].replace(
+                    '<AnnotationRef', f'{imageref}<AnnotationRef'
+                )
+            else:
+                self.datasets[index] = self.datasets[index].replace(
+                    '</Dataset>', f'{imageref}</Dataset>'
+                )
+            return None
+
+        # new dataset
+        name = metadata.get('Name', '')
+        if name:
+            name = f' Name="{OmeXml._escape(name)}"'
+
+        description = metadata.get('Description', '')
+        if description:
+            description = (
+                f'<Description>{OmeXml._escape(description)}</Description>'
+            )
+
+        annotation_refs: list[str] = []
+        self._annotations(metadata, annotation_refs)
+        annotationref = ''.join(annotation_refs)
+
+        self.datasets.append(
+            f'<Dataset ID="Dataset:{index}"{name}>'
+            f'{description}'
+            f'{imageref}'
+            f'{annotationref}'
+            '</Dataset>'
+        )
+        return None  # f'<DatasetRef ID="Dataset:{index}"/>'
+
+    def _annotations(
+        self, metadata: dict[str, Any], annotation_refs: list[str]
+    ) -> None:
+        """Add annotations to self.annotations and annotation_refs."""
+        values: Any
+        for name, values in metadata.items():
+            if name not in {
+                'BooleanAnnotation',
+                'DoubleAnnotation',
+                'LongAnnotation',
+                'CommentAnnotation',
+                'MapAnnotation',
+                # 'FileAnnotation',
+                # 'ListAnnotation',
+                # 'TimestampAnnotation,
+                # 'XmlAnnotation',
+            }:
+                continue
+            if not values:
+                continue
+            if not isinstance(values, (list, tuple)):
+                values = [values]
+            for value in values:
+                namespace = ''
+                description = ''
+                if isinstance(value, dict):
+                    value = value.copy()
+                    description = value.pop('Description', '')
+                    if description:
+                        description = (
+                            '<Description>'
+                            f'{OmeXml._escape(description)}'
+                            '</Description>'
+                        )
+                    namespace = value.pop('Namespace', '')
+                    if namespace:
+                        namespace = f' Namespace="{OmeXml._escape(namespace)}"'
+                    value = value.pop('Value', value)
+                if name == 'MapAnnotation':
+                    if not isinstance(value, dict):
+                        raise ValueError('MapAnnotation is not a dict')
+                    values = [
+                        f'<M K="{OmeXml._escape(k)}">{OmeXml._escape(v)}</M>'
+                        for k, v in value.items()
+                    ]
+                elif name == 'BooleanAnnotation':
+                    values = [f'{bool(value)}'.lower()]
+                else:
+                    values = [OmeXml._escape(str(value))]
+                annotation_refs.append(
+                    f'<AnnotationRef ID="Annotation:{len(self.annotations)}"/>'
+                )
+                self.annotations.append(
+                    ''.join(
+                        (
+                            f'<{name} '
+                            f'ID="Annotation:{len(self.annotations)}"'
+                            f'{namespace}>',
+                            description,
+                            '<Value>',
+                            ''.join(values),
+                            '</Value>',
+                            f'</{name}>',
+                        )
+                    )
+                )
 
     @staticmethod
     def validate(
