@@ -55,36 +55,49 @@ __all__ = [
     'zlib_encode',
 ]
 
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, overload
 
 import numpy
+
+if TYPE_CHECKING:
+    from typing import Any, Literal
+
+    from numpy.typing import DTypeLike, NDArray
 
 try:
     import lzma
 
     def lzma_encode(
-        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+        data: bytes | NDArray[Any],
+        /,
+        level: int | None = None,
+        *,
+        out: Any = None,
     ) -> bytes:
         """Compress LZMA."""
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return lzma.compress(data)
 
-    def lzma_decode(data: bytes, /, *, out=None) -> bytes:
+    def lzma_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Decompress LZMA."""
         return lzma.decompress(data)
 
 except ImportError:
     # Python was built without lzma
     def lzma_encode(
-        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+        data: bytes | NDArray[Any],
+        /,
+        level: int | None = None,
+        *,
+        out: Any = None,
     ) -> bytes:
         """Raise ImportError."""
         import lzma  # noqa
 
         return b''
 
-    def lzma_decode(data: bytes, /, *, out=None) -> bytes:
+    def lzma_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Raise ImportError."""
         import lzma  # noqa
 
@@ -95,14 +108,18 @@ try:
     import zlib
 
     def zlib_encode(
-        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+        data: bytes | NDArray[Any],
+        /,
+        level: int | None = None,
+        *,
+        out: Any = None,
     ) -> bytes:
         """Compress Zlib DEFLATE."""
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return zlib.compress(data, 6 if level is None else level)
 
-    def zlib_decode(data: bytes, /, *, out=None) -> bytes:
+    def zlib_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Decompress Zlib DEFLATE."""
         return zlib.decompress(data)
 
@@ -110,21 +127,25 @@ except ImportError:
     # Python was built without zlib
 
     def zlib_encode(
-        data: bytes | numpy.ndarray, /, level: int | None = None, *, out=None
+        data: bytes | NDArray[Any],
+        /,
+        level: int | None = None,
+        *,
+        out: Any = None,
     ) -> bytes:
         """Raise ImportError."""
         import zlib  # noqa
 
         return b''
 
-    def zlib_decode(data: bytes, /, *, out=None) -> bytes:
+    def zlib_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Raise ImportError."""
         import zlib  # noqa
 
         return b''
 
 
-def packbits_decode(encoded: bytes, /, *, out=None) -> bytes:
+def packbits_decode(encoded: bytes, /, *, out: Any = None) -> bytes:
     r"""Decompress PackBits encoded byte string.
 
     >>> packbits_decode(b'\x80\x80')  # NOP
@@ -159,24 +180,29 @@ def packbits_decode(encoded: bytes, /, *, out=None) -> bytes:
 
 @overload
 def delta_encode(
-    data: bytes | bytearray, /, axis: int = -1, dist: int = 1, *, out=None
+    data: bytes | bytearray,
+    /,
+    axis: int = -1,
+    dist: int = 1,
+    *,
+    out: Any = None,
 ) -> bytes: ...
 
 
 @overload
 def delta_encode(
-    data: numpy.ndarray, /, axis: int = -1, dist: int = 1, *, out=None
-) -> numpy.ndarray: ...
+    data: NDArray[Any], /, axis: int = -1, dist: int = 1, *, out: Any = None
+) -> NDArray[Any]: ...
 
 
 def delta_encode(
-    data: bytes | bytearray | numpy.ndarray,
+    data: bytes | bytearray | NDArray[Any],
     /,
     axis: int = -1,
     dist: int = 1,
     *,
-    out=None,
-) -> bytes | numpy.ndarray:
+    out: Any = None,
+) -> bytes | NDArray[Any]:
     """Encode Delta."""
     if dist != 1:
         raise NotImplementedError(
@@ -210,18 +236,18 @@ def delta_decode(
 
 @overload
 def delta_decode(
-    data: numpy.ndarray, /, axis: int, dist: int, *, out: Any
-) -> numpy.ndarray: ...
+    data: NDArray[Any], /, axis: int, dist: int, *, out: Any
+) -> NDArray[Any]: ...
 
 
 def delta_decode(
-    data: bytes | bytearray | numpy.ndarray,
+    data: bytes | bytearray | NDArray[Any],
     /,
     axis: int = -1,
     dist: int = 1,
     *,
-    out=None,
-) -> bytes | numpy.ndarray:
+    out: Any = None,
+) -> bytes | NDArray[Any]:
     """Decode Delta."""
     if dist != 1:
         raise NotImplementedError(
@@ -231,7 +257,9 @@ def delta_decode(
         out = None
     if isinstance(data, (bytes, bytearray)):
         data = numpy.frombuffer(data, dtype=numpy.uint8)
-        return numpy.cumsum(data, axis=0, dtype=numpy.uint8, out=out).tobytes()
+        return numpy.cumsum(  # type: ignore[no-any-return]
+            data, axis=0, dtype=numpy.uint8, out=out
+        ).tobytes()
     if data.dtype.kind == 'f':
         if not data.dtype.isnative:
             raise NotImplementedError(
@@ -241,28 +269,30 @@ def delta_decode(
         view = data.view(f'{data.dtype.byteorder}u{data.dtype.itemsize}')
         view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
         return view.view(data.dtype)
-    return numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
+    return numpy.cumsum(  # type: ignore[no-any-return]
+        data, axis=axis, dtype=data.dtype, out=out
+    )
 
 
 @overload
 def bitorder_decode(
-    data: bytes | bytearray, /, *, out=None, _bitorder: list[Any] = []
+    data: bytes | bytearray, /, *, out: Any = None, _bitorder: list[Any] = []
 ) -> bytes: ...
 
 
 @overload
 def bitorder_decode(
-    data: numpy.ndarray, /, *, out=None, _bitorder: list[Any] = []
-) -> numpy.ndarray: ...
+    data: NDArray[Any], /, *, out: Any = None, _bitorder: list[Any] = []
+) -> NDArray[Any]: ...
 
 
 def bitorder_decode(
-    data: bytes | bytearray | numpy.ndarray,
+    data: bytes | bytearray | NDArray[Any],
     /,
     *,
-    out=None,
+    out: Any = None,
     _bitorder: list[Any] = [],
-) -> bytes | numpy.ndarray:
+) -> bytes | NDArray[Any]:
     r"""Reverse bits in each byte of bytes or numpy array.
 
     Decode data where pixels with lower column values are stored in the
@@ -310,18 +340,18 @@ def bitorder_decode(
         raise NotImplementedError(
             "bitorder_decode of slices requires the 'imagecodecs' package"
         ) from exc
-    return None
+    return None  # type: ignore[unreachable]
 
 
 def packints_decode(
     data: bytes,
     /,
-    dtype: numpy.dtype | str,
+    dtype: DTypeLike,
     bitspersample: int,
     runlen: int = 0,
     *,
-    out=None,
-) -> numpy.ndarray:
+    out: Any = None,
+) -> NDArray[Any]:
     """Decompress bytes to array of integers.
 
     This implementation only handles itemsizes 1, 8, 16, 32, and 64 bits.
@@ -358,7 +388,12 @@ def packints_decode(
 
 
 def packints_encode(
-    data: numpy.ndarray, /, bitspersample: int, axis: int = -1, *, out=None
+    data: NDArray[Any],
+    /,
+    bitspersample: int,
+    axis: int = -1,
+    *,
+    out: Any = None,
 ) -> bytes:
     """Tightly pack integers."""
     raise NotImplementedError(
@@ -368,7 +403,7 @@ def packints_encode(
 
 def float24_decode(
     data: bytes, /, byteorder: Literal['>', '<']
-) -> numpy.ndarray:
+) -> NDArray[Any]:
     """Return float32 array from float24."""
     raise NotImplementedError(
         "float24_decode requires the 'imagecodecs' package"
