@@ -7,6 +7,8 @@ Usage: ``tiffcomment [--set comment] file``
 
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
@@ -19,8 +21,10 @@ except ImportError:
         from tifffile import tiffcomment
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     """Tiffcomment command line usage main function."""
+    comment: str | bytes | None
+
     if argv is None:
         argv = sys.argv
 
@@ -34,7 +38,7 @@ def main(argv=None):
     if len(files) == 0 or any(f.startswith('-') for f in files):
         print()
         print(__doc__.strip())
-        return
+        return 1
 
     if comment is None:
         pass
@@ -46,6 +50,7 @@ def main(argv=None):
             comment = comment.encode('ascii')
         except UnicodeEncodeError as exc:
             print(f'{exc}')
+            assert isinstance(comment, str)
             comment = comment.encode()
 
     for file in files:
@@ -56,6 +61,7 @@ def main(argv=None):
         else:
             if result:
                 print(result)
+    return 0
 
 
 if __name__ == '__main__':
