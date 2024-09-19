@@ -22,6 +22,8 @@ For example:
 
 """
 
+from __future__ import annotations
+
 import argparse
 
 try:
@@ -33,7 +35,7 @@ except ImportError:
         from tifffile import tiff2fsspec
 
 
-def main():
+def main() -> int:
     """Tiff2fsspec command line usage main function."""
     parser = argparse.ArgumentParser(
         'tiff2fsspec',
@@ -78,6 +80,7 @@ def main():
         chunkmode=args.chunkmode,
         version=args.ver,
     )
+    return 0
 
 
 if __name__ == '__main__':
