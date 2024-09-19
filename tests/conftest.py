@@ -1,7 +1,10 @@
 # tifffile/tests/conftest.py
 
+from __future__ import annotations
+
 import os
 import sys
+from typing import Any
 
 if os.environ.get('VSCODE_CWD'):
     # work around pytest not using PYTHONPATH in VSCode
@@ -10,10 +13,10 @@ if os.environ.get('VSCODE_CWD'):
     )
 
 if os.environ.get('SKIP_CODECS', None):
-    sys.modules['imagecodecs'] = None  # type: ignore
+    sys.modules['imagecodecs'] = None  # type: ignore[assignment]
 
 
-def pytest_report_header(config, start_path):
+def pytest_report_header(config: Any, start_path: Any) -> Any:
     try:
         from numpy import __version__ as numpy
         from test_tifffile import config
