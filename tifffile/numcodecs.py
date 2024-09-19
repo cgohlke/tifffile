@@ -36,7 +36,7 @@ from __future__ import annotations
 __all__ = ['register_codec', 'Tiff']
 
 from io import BytesIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from numcodecs import registry
 from numcodecs.abc import Codec
@@ -45,6 +45,7 @@ from .tifffile import TiffFile, TiffWriter
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
+    from typing import Any
 
     from .tifffile import (
         COMPRESSION,
@@ -57,7 +58,7 @@ if TYPE_CHECKING:
     )
 
 
-class Tiff(Codec):
+class Tiff(Codec):  # type: ignore[misc]
     """TIFF codec for Numcodecs."""
 
     codec_id = 'tifffile'
@@ -88,7 +89,7 @@ class Tiff(Codec):
         extratags: Sequence[TagTuple] | None = None,
         truncate: bool = False,
         maxworkers: int | None = None,
-    ):
+    ) -> None:
         self.key = key
         self.series = series
         self.level = level
@@ -111,7 +112,7 @@ class Tiff(Codec):
         self.truncate = truncate
         self.maxworkers = maxworkers
 
-    def encode(self, buf):
+    def encode(self, buf: Any) -> bytes:
         """Return TIFF file as bytes."""
         with BytesIO() as fh:
             with TiffWriter(
@@ -141,7 +142,7 @@ class Tiff(Codec):
             result = fh.getvalue()
         return result
 
-    def decode(self, buf, out=None):
+    def decode(self, buf: Any, out: Any = None) -> Any:
         """Return decoded image as NumPy array."""
         with BytesIO(buf) as fh:
             with TiffFile(fh) as tif:
