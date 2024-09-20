@@ -101,7 +101,7 @@ setup(
     },
     packages=['tifffile'],
     package_data={'tifffile': ['py.typed']},
-    python_requires='>=3.9',
+    python_requires='>=3.10',
     install_requires=[
         'numpy',
         # 'imagecodecs>=2023.8.12',
