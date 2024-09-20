@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2024.9.20
+
+- Pass 5107 tests.
+- Fix writing colormap to ImageJ files (breaking).
+- Improve typing.
+- Remove support for Python 3.9.
+
 2024.8.30
 
-- Pass 5096 tests.
 - Support writing OME Dataset and some StructuredAnnotations elements.
 
 2024.8.28
