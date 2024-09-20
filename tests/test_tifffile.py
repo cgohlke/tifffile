@@ -37,9 +37,11 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.8.30
+:Version: 2024.9.20
 
 """
+
+from __future__ import annotations
 
 import binascii
 import datetime
@@ -58,6 +60,12 @@ import tempfile
 import urllib.error
 import urllib.request
 from io import BytesIO
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any
+    from types import ModuleType
+    from numpy.typing import ArrayLike, DTypeLike, NDArray
 
 import numpy
 import pytest
@@ -215,7 +223,7 @@ IS_CG = os.environ.get('COMPUTERNAME', '').startswith('CG-K')
 
 
 # skip certain tests
-def skip(key, default):
+def skip(key: str, default: bool) -> bool:
     return os.getenv(key, default) in {True, 1, '1'}
 
 
@@ -258,37 +266,41 @@ if not SKIP_CODECS:
     except ImportError:
         SKIP_CODECS = True
 
+zarr: ModuleType | None
+fsspec: ModuleType | None
+
 if IS_PYPY:
     SKIP_ZARR = True
     SKIP_DASK = True
     SKIP_HTTP = True
-
 if SKIP_ZARR:
     zarr = None
 else:
     try:
-        import fsspec  # type: ignore
-        import zarr  # type: ignore
+        import fsspec  # type: ignore[no-redef]
+        import zarr  # type: ignore[no-redef]
     except ImportError:
         zarr = None
-        fsspec = None  # type: ignore
+        fsspec = None
         SKIP_ZARR = True
 
+dask: ModuleType | None
 if SKIP_DASK:
     dask = None
 else:
     try:
-        import dask  # type: ignore
-        import dask.array  # type: ignore
+        import dask
+        import dask.array
     except ImportError:
         dask = None
         SKIP_DASK = True
 
+ndtiff: ModuleType | None
 if SKIP_NDTIFF:
     ndtiff = None
 else:
     try:
-        import ndtiff  # type: ignore
+        import ndtiff  # type: ignore[no-redef]
     except ImportError:
         ndtiff = None
         SKIP_NDTIFF = True
@@ -302,7 +314,9 @@ def config() -> str:
     )
 
 
-def data_file(pathname, base, expand=True):
+def _data_file(
+    pathname: str, base: str, expand: bool = True
+) -> str | list[str]:
     """Return path to test file(s)."""
     path = os.path.join(base, *pathname.split('/'))
     if expand and any(i in path for i in '*?'):
@@ -310,39 +324,58 @@ def data_file(pathname, base, expand=True):
     return path
 
 
-def private_file(pathname, base=PRIVATE_DIR, expand=True):
+def private_file(pathname: str, base: str = PRIVATE_DIR) -> str:
     """Return path to private test file(s)."""
-    return data_file(pathname, base, expand=expand)
+    files = _data_file(pathname, base, expand=False)
+    assert isinstance(files, str)
+    return files
 
 
-def public_file(pathname, base=PUBLIC_DIR, expand=True):
+def private_files(pathname: str, base: str = PRIVATE_DIR) -> list[str]:
+    """Return path to private test file(s)."""
+    files = _data_file(pathname, base, expand=True)
+    assert isinstance(files, list)
+    return files
+
+
+def public_file(pathname: str, base: str = PUBLIC_DIR) -> str | list[str]:
     """Return path to public test file(s)."""
-    return data_file(pathname, base, expand=expand)
+    files = _data_file(pathname, base, expand=False)
+    assert isinstance(files, str)
+    return files
 
 
-def random_data(dtype, shape):
+def public_files(pathname: str, base: str = PUBLIC_DIR) -> list[str]:
+    """Return path to public test file(s)."""
+    files = _data_file(pathname, base, expand=True)
+    assert isinstance(files, list)
+    return files
+
+
+def random_data(dtype: DTypeLike, shape: tuple[int, ...]) -> NDArray[Any]:
     """Return random numpy array."""
     # TODO: use nd noise
-    if dtype == '?':
+    dtype = numpy.dtype(dtype)
+    if dtype.char == '?':
         return numpy.random.rand(*shape) < 0.5
     data = numpy.random.rand(*shape) * 255
     data = data.astype(dtype)
     return data
 
 
-def assert_file_flags(tiff_file):
+def assert_file_flags(tiff_file: TiffFile) -> None:
     """Access all flags of TiffFile."""
     for flag in FILE_FLAGS:
         getattr(tiff_file, flag)
 
 
-def assert_page_flags(tiff_page):
+def assert_page_flags(tiff_page: TiffPage) -> None:
     """Access all flags of TiffPage."""
     for flag in PAGE_FLAGS:
         getattr(tiff_page, flag)
 
 
-def assert__str__(tif, detail=3):
+def assert__str__(tif: TiffFile, detail: int = 3) -> None:
     """Call TiffFile._str and __repr__ functions."""
     for i in range(detail + 1):
         tif._str(detail=i)
@@ -368,26 +401,28 @@ def assert__str__(tif, detail=3):
         str(series)
 
 
-def assert__repr__(obj):
+def assert__repr__(obj: object) -> None:
     """Call object's __repr__ and __str__ function."""
     repr(obj)
     str(obj)
 
 
-def assert_valid_omexml(omexml):
+def assert_valid_omexml(omexml: str) -> None:
     """Validate OME-XML schema."""
     if not SKIP_HTTP:
         OmeXml.validate(omexml, assert_=True)
 
 
-def assert_valid_tiff(filename, *args, **kwargs):
+def assert_valid_tiff(filename: str, *args: Any, **kwargs: Any) -> None:
     """Validate TIFF file using jhove script."""
     if SKIP_VALIDATE:
         return
     validate_jhove(filename, 'jhove.cmd', *args, **kwargs)
 
 
-def assert_decode_method(page, image=None):
+def assert_decode_method(
+    page: TiffPage, image: ArrayLike | None = None
+) -> None:
     """Call TiffPage.decode on all segments and compare to TiffPage.asarray."""
     fh = page.parent.filehandle
     if page.is_tiled:
@@ -398,14 +433,21 @@ def assert_decode_method(page, image=None):
         bytecounts = page.tags['StripByteCounts'].value
     if image is None:
         image = page.asarray()
+    else:
+        image = numpy.asarray(image)
     for i, (o, b) in enumerate(zip(offsets, bytecounts)):
         fh.seek(o)
-        strile = fh.read(b)
-        strile, index, shape = page.decode(strile, i)
+        strile, index, shape = page.decode(fh.read(b), i)
+        assert strile is not None
         assert image.reshape(page.shaped)[index] == strile[0, 0, 0, 0]
 
 
-def assert_aszarr_method(obj, image=None, chunkmode=None, **kwargs):
+def assert_aszarr_method(
+    obj: TiffFile | TiffPage,
+    image: ArrayLike | None = None,
+    chunkmode: int | None = None,
+    **kwargs: Any,
+) -> None:
     """Assert aszarr returns same data as asarray."""
     if SKIP_ZARR or zarr is None:
         return
@@ -425,7 +467,9 @@ class TempFileName:
     name: str
     remove: bool
 
-    def __init__(self, name=None, ext='.tif', remove=False):
+    def __init__(
+        self, name: str | None = None, ext: str = '.tif', remove: bool = False
+    ) -> None:
         self.remove = remove or TEMP_DIR == tempfile.gettempdir()
         if not name:
             fh = tempfile.NamedTemporaryFile(prefix='test_')
@@ -437,7 +481,7 @@ class TempFileName:
     def __enter__(self) -> str:
         return self.name
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         if self.remove:
             try:
                 os.remove(self.name)
@@ -1653,7 +1697,7 @@ def test_issue_filesequence_categories(caplog):
 
     with tifffile.FileSequence(
         imagecodecs.imread,
-        private_file('dataset-A1-20200531/*.png'),
+        private_files('dataset-A1-20200531/*.png'),
         pattern=(
             r'(?P<sampleid>.{2})-'
             r'(?P<experiment>.+)-\d{8}T\d{6}-PSII0-'
@@ -1677,7 +1721,7 @@ def test_issue_filesequence_file_parameter():
     """Test FileSequence.asarray with 'file' parameter removed in 2022.4.22."""
     # https://github.com/bluesky/tiled/pull/97
 
-    files = public_file('tifffile/temp_C001T00*.tif')
+    files = public_files('tifffile/temp_C001T00*.tif')
     with TiffSequence(files) as tiffs:
         assert tiffs.shape == (2,)
         with pytest.raises(TypeError):
@@ -2590,7 +2634,7 @@ def test_issue_tile_generator(compression, predictor, samples):
         )
         assert_array_equal(imread(fname), data.squeeze())
         if (
-            imagecodecs is None
+            SKIP_CODECS
             or not imagecodecs.TIFF.available
             or (compression == 'packbits' and predictor == 'horizontal')
         ):
@@ -3222,6 +3266,26 @@ class TestExceptions:
                 colormap=numpy.empty((3, 254), 'u2'),
             )
 
+    def test_colormap_shape2(self, fname):
+        # invalid colormap shape
+        with pytest.raises(ValueError):
+            imwrite(
+                fname,
+                self.data.astype('u1'),
+                colormap=numpy.empty((3, 254), 'u2'),
+            )
+
+    def test_colormap_shape3(self, fname):
+        # invalid dtype for colormap
+        with pytest.warns(UserWarning):
+            imwrite(
+                fname,
+                self.data.astype('f2'),
+                colormap=numpy.empty((3, 256), 'u2'),
+            )
+        with TiffFile(fname) as tif:
+            assert tif.pages.first.colormap is None
+
     def test_colormap_dtype(self, fname):
         # invalid colormap dtype
         with pytest.raises(ValueError):
@@ -3406,6 +3470,31 @@ class TestExceptions:
                 colormap=[1, 2, 3],
             )
 
+    def test_imagej_colormap_u2(self, fname):
+        # ImageJ does not support TIFF colormap shape
+        with pytest.raises(ValueError):
+            imwrite(
+                fname,
+                self.data.astype('u2'),
+                imagej=True,
+                colormap=numpy.empty((3, 2**16), 'u2'),
+            )
+
+    def test_imagej_colormap_rgb(self, fname):
+        # do not write colormap with RGB
+        data = self.data.astype('u1')[:3]
+        data = numpy.moveaxis(data, 0, -1)
+        with pytest.warns(UserWarning):
+            imwrite(
+                fname,
+                data,
+                photometric='rgb',
+                imagej=True,
+                colormap=numpy.empty((3, 256), 'u2'),
+            )
+        with TiffFile(fname) as tif:
+            assert tif.pages.first.colormap is None
+
     def test_photometric(self, fname):
         # not a RGB image
         with pytest.raises(ValueError):
@@ -3479,7 +3568,7 @@ class TestExceptions:
     @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
     def test_sequence_imread_dtype(self):
         # dtype argument is deprecated
-        files = public_file('tifffile/temp_C001T00*.tif')
+        files = public_files('tifffile/temp_C001T00*.tif')
         with pytest.warns(DeprecationWarning):
             stack = imread(files, dtype=numpy.float64)
         assert_array_equal(stack[0], imread(files[0]))
@@ -3487,7 +3576,7 @@ class TestExceptions:
     @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
     def test_filesequence_dtype(self):
         # dtype argument is deprecated
-        files = public_file('tifffile/temp_C001T00*.tif')
+        files = public_files('tifffile/temp_C001T00*.tif')
         with pytest.warns(DeprecationWarning):
             TiffSequence(files).asarray(dtype=numpy.float64)
         with pytest.warns(DeprecationWarning):
@@ -6047,10 +6136,10 @@ if SKIP_EXTENDED or SKIP_PRIVATE:
     TIGER_IDS = []
 else:
     TIGER_FILES = (
-        public_file('graphicsmagick.org/be/*.tif')
-        + public_file('graphicsmagick.org/le/*.tif')
-        + public_file('graphicsmagick.org/bigtiff-be/*.tif')
-        + public_file('graphicsmagick.org/bigtiff-le/*.tif')
+        public_files('graphicsmagick.org/be/*.tif')
+        + public_files('graphicsmagick.org/le/*.tif')
+        + public_files('graphicsmagick.org/bigtiff-be/*.tif')
+        + public_files('graphicsmagick.org/bigtiff-le/*.tif')
     )
     TIGER_IDS = [
         '-'.join(f.split(os.path.sep)[-2:])
@@ -13262,6 +13351,7 @@ def test_read_sis():
         assert data[30, 1, 256, 256] == 210
         # assert metadata
         sis = tif.sis_metadata
+        assert sis is not None
         assert sis['axes'] == 'TC'
         assert sis['shape'] == (61, 2)
         assert sis['Band'][1]['BandName'] == 'Fura380'
@@ -14240,7 +14330,7 @@ def test_read_selection_out(out):
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_read_selection_filesequence():
     """Test read selection from file sequence via imread."""
-    fname = private_file('TiffSequence/*.tif')
+    fname = private_files('TiffSequence/*.tif')
     assert_array_equal(
         imread(fname)[5:8, 51:99, 51:99],
         imread(fname, selection=(slice(5, 8), slice(51, 99), slice(51, 99))),
@@ -18879,8 +18969,8 @@ def test_write_fsspec_sequence(version):
     # https://bbbc.broadinstitute.org/BBBC006
     categories = {'p': {chr(i + 97): i for i in range(25)}}
     ptrn = r'(?:_(z)_(\d+)).*_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
-    fnames = private_file('BBBC/BBBC006_v1_images_z_00/*.tif')
-    fnames += private_file('BBBC/BBBC006_v1_images_z_01/*.tif')
+    fnames = private_files('BBBC/BBBC006_v1_images_z_00/*.tif')
+    fnames += private_files('BBBC/BBBC006_v1_images_z_01/*.tif')
     tifs = TiffSequence(
         fnames,
         imread=imagecodecs.imread,
@@ -19070,6 +19160,35 @@ def test_write_imagej_metadata():
             assert tif.imagej_metadata is not None
             assert 'unit' in tif.imagej_metadata
             assert tif.imagej_metadata['unit'] == 'um'
+            assert__str__(tif)
+        assert_valid_tiff(fname)
+
+
+@pytest.mark.parametrize('dtype', ['u1', 'u2', 'f4'])
+@pytest.mark.parametrize('photometric', [None, 'minisblack'])
+def test_write_imagej_colormap(dtype, photometric):
+    """Test write ImageJ with colormap."""
+    # https://forum.image.sc/t/101788
+    data = numpy.empty((4, 256, 256), dtype=numpy.uint8)
+    data[:] = numpy.arange(256 * 256, dtype=numpy.uint8).reshape(1, 256, 256)
+    colormap = numpy.arange(3 * 256, dtype=numpy.uint16).reshape(3, 256)
+    photometric_out = (
+        PHOTOMETRIC.PALETTE if dtype == 'u1' else PHOTOMETRIC.MINISBLACK
+    )
+
+    with TempFileName(f'write_imagej_colormap_{dtype}_{photometric}') as fname:
+        imwrite(
+            fname,
+            data.astype(dtype),
+            imagej=True,
+            colormap=colormap,
+            photometric=photometric,
+        )
+        with TiffFile(fname) as tif:
+            assert tif.is_imagej
+            page = tif.pages.first
+            assert page.photometric == photometric_out
+            assert_array_equal(page.colormap, colormap)
             assert__str__(tif)
         assert_valid_tiff(fname)
 
@@ -20221,7 +20340,7 @@ def test_sequence_stream_list():
 @pytest.mark.parametrize('case', [0, 1, 2, 3])
 def test_sequence_glob_pattern(case):
     """Test TiffSequence with glob pattern without axes pattern."""
-    fname = private_file('TiffSequence/*.tif')
+    fname = private_files('TiffSequence/*.tif')
     tifs = TiffSequence(fname, pattern=None)
     assert len(tifs) == 10
     assert tifs.shape == (10,)
@@ -20289,7 +20408,7 @@ def test_sequence_name_list():
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_sequence_oif_series():
     """Test TiffSequence with files from Olympus OIF, memory mapped."""
-    fname = private_file(
+    fname = private_files(
         'oif/MB231cell1_paxgfp_PDMSgasket_PMMAflat_30nm_378sli.oif.files/*.tif'
     )
     tifs = TiffSequence(fname, pattern='axes')
@@ -20313,7 +20432,7 @@ def test_sequence_oif_series():
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_sequence_leica_series():
     """Test TiffSequence with Leica TIFF series, memory mapped."""
-    fname = private_file('leicaseries/Series019_*.tif')
+    fname = private_files('leicaseries/Series019_*.tif')
     tifs = TiffSequence(fname, pattern='axes')
     assert len(tifs) == 46
     assert tifs.shape == (46,)
@@ -20354,8 +20473,8 @@ def test_sequence_wells_axesorder():
     # https://bbbc.broadinstitute.org/BBBC006
     categories = {'p': {chr(i + 97): i for i in range(25)}}
     ptrn = r'(?:_(z)_(\d+)).*_(?P<p>[a-z])(?P<a>\d+)(?:_(s)(\d))(?:_(w)(\d))'
-    fnames = private_file('BBBC/BBBC006_v1_images_z_00/*.tif')
-    fnames += private_file('BBBC/BBBC006_v1_images_z_01/*.tif')
+    fnames = private_files('BBBC/BBBC006_v1_images_z_00/*.tif')
+    fnames += private_files('BBBC/BBBC006_v1_images_z_01/*.tif')
     tifs = TiffSequence(
         fnames, pattern=ptrn, categories=categories, axesorder=(1, 2, 0, 3, 4)
     )
@@ -20381,7 +20500,7 @@ def test_sequence_tiled(tiled):
     ptrn = re.compile(
         r'\[(?P<U>\d+) x (?P<V>\d+)\].*(C)(\d+).*(Z)(\d+)', re.IGNORECASE
     )
-    fnames = private_file('TiffSequenceTiled/*.tif', expand=False)
+    fnames = private_file('TiffSequenceTiled/*.tif')
     tifs = TiffSequence(fnames, pattern=ptrn)
     assert len(tifs) == 60
     assert tifs.shape == (2, 3, 2, 5)
@@ -20414,7 +20533,7 @@ def test_sequence_tiled(tiled):
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_sequence_imread():
     """Test TiffSequence with imagecodecs.imread."""
-    fname = private_file('PNG/*.png')
+    fname = private_files('PNG/*.png')
     pngs = TiffSequence(fname, imread=imagecodecs.imread)
     assert len(pngs) == 4
     assert pngs.shape == (4,)
@@ -20432,7 +20551,7 @@ def test_sequence_imread():
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_sequence_imread_glob():
     """Test imread function with glob pattern."""
-    fname = private_file('TiffSequence/*.tif')
+    fname = private_files('TiffSequence/*.tif')
     data = imread(
         fname,
         imreadargs={'key': 0},
