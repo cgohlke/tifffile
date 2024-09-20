@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.8.30
+:Version: 2024.9.20
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,25 +71,31 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.5, 3.13.0rc1 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.0
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.6, 3.13.0rc2 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.1
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.2
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.2.2
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.3.0
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.2
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.3
   (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.6.1
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.9.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.9.20
+
+- Pass 5107 tests.
+- Fix writing colormap to ImageJ files (breaking).
+- Improve typing.
+- Remove support for Python 3.9.
+
 2024.8.30
 
-- Pass 5096 tests.
 - Support writing OME Dataset and some StructuredAnnotations elements.
 
 2024.8.28
