@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(files) == 0 or any(f.startswith('-') for f in files):
         print()
         print(__doc__.strip())
-        return 1
+        return 0
 
     if comment is None:
         pass
