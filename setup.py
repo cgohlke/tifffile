@@ -109,14 +109,14 @@ setup(
     extras_require={
         'codecs': ['imagecodecs>=2023.8.12'],
         'xml': ['defusedxml', 'lxml'],
-        'zarr': ['zarr', 'fsspec'],
+        'zarr': ['zarr<3', 'fsspec'],
         'plot': ['matplotlib'],
         'all': [
             'imagecodecs>=2023.8.12',
             'matplotlib',
             'defusedxml',
             'lxml',
-            'zarr',
+            'zarr<3',
             'fsspec',
         ],
         'test': [
@@ -129,7 +129,7 @@ setup(
             'psdtags',
             'roifile',
             'lxml',
-            'zarr',
+            'zarr<3',
             'dask',
             'xarray',
             'fsspec',
