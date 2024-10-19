@@ -1441,7 +1441,7 @@ def imwrite(
             datasize > 2**32 - 2**25
             and not imagej
             and not truncate
-            and compression in {None, 0, 1, 'NONE', 'none'}
+            and compression in {None, 0, 1, 'NONE', 'None', 'none'}
         )
 
     with TiffWriter(
@@ -2242,18 +2242,18 @@ class TiffWriter:
             not compression
             or (
                 not isinstance(compression, bool)  # because True == 1
-                and compression in ('NONE', 'none', 1)
+                and compression in ('NONE', 'None', 'none', 1)
             )
             or (
                 isinstance(compression, (tuple, list))
-                and compression[0] in (None, 0, 1, 'NONE', 'none')
+                and compression[0] in (None, 0, 1, 'NONE', 'None', 'none')
             )
         ):
             compression = False
 
         if not predictor or (
             not isinstance(predictor, bool)  # because True == 1
-            and predictor in {'NONE', 'none', 1}
+            and predictor in {'NONE', 'None', 'none', 1}
         ):
             predictor = False
 
