@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.9.20
+:Version: 2024.12.12
 
 """
 
@@ -3105,6 +3105,22 @@ def test_issue_ometiff_pixel():
             series = tif.series[0]
             assert series.axes == 'TYX'
             assert series.shape == (3, 1, 1)
+
+
+@pytest.mark.parametrize('arg', [None, 'none', 'None', 'NONE', 1])
+def test_issue_none_str(arg):
+    """Test predictor and compression none arguments."""
+    # https://github.com/cgohlke/tifffile/pull/274
+
+    with TempFileName(f'issue_none_str_{arg}') as fname:
+        imwrite(
+            fname,
+            shape=(27, 23),
+            dtype=numpy.uint8,
+            compression=arg,
+            predictor=arg,
+        )
+        assert imread(fname).shape == (27, 23)
 
 
 class TestExceptions:
@@ -9469,6 +9485,12 @@ def test_stk_nonstack():
         assert tuple(tags['StagePosition'][0]) == (16204.6, 444.7)
         assert tuple(tags['CameraChipOffset'][0]) == (192.0, 219.0)
         assert tags['PlaneDescriptions'][0].startswith('Exposure: 150 ms')
+        assert len(tags['PlaneProperty']) == 23
+        assert tags['PlaneProperty'][-1] == {
+            'name': 'Ti TIRF Angle',
+            'flags': 0,
+            'value': 0.0,
+        }
         # assert series properties
         series = tif.series[0]
         assert not series.is_truncated
