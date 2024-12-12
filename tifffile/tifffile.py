@@ -20214,7 +20214,13 @@ def read_uic1tag(
                 fh.read(4)
                 continue
             name, value = read_uic_tag(fh, tagid, planecount, True)
-            result[name] = value
+            if name == "PlaneProperty":
+                cur = fh.tell()
+                fh.seek(value + 4)
+                result.setdefault(name, []).append(read_uic_image_property(fh))
+                fh.seek(cur)
+            else:
+                result[name] = value
     return result
 
 
@@ -20399,14 +20405,14 @@ def read_uic_image_property(fh: FileHandle, /) -> dict[str, Any]:
     """Read UIC ImagePropertyEx tag value from file."""
     # TODO: test this
     size = struct.unpack('B', fh.read(1))[0]
-    name = struct.unpack(f'{size}s', fh.read(size))[0][:-1]
+    name = bytes2str(struct.unpack(f'{size}s', fh.read(size))[0])
     flags, prop = struct.unpack('<IB', fh.read(5))
     if prop == 1:
         value = struct.unpack('II', fh.read(8))
         value = value[0] / value[1]
     else:
         size = struct.unpack('B', fh.read(1))[0]
-        value = struct.unpack(f'{size}s', fh.read(size))[0]
+        value = bytes2str(struct.unpack(f'{size}s', fh.read(size))[0])
     return {'name': name, 'flags': flags, 'value': value}
 
 
