@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2024.12.12
+
+- Pass 5110 tests.
+- Read PlaneProperty from STK UIC1Tag (#280).
+- Allow 'None' as alias for COMPRESSION.NONE and PREDICTOR.NONE (#274).
+- Zarr 3 is not supported (#272).
+
 2024.9.20
 
-- Pass 5107 tests.
 - Fix writing colormap to ImageJ files (breaking).
 - Improve typing.
 - Remove support for Python 3.9.
