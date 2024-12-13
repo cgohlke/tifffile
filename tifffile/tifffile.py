@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.9.20
+:Version: 2024.12.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,25 +98,31 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.6, 3.13.0rc2 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.1
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.8, 3.13.1 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.3
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.9.22
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.2
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.3
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.3.0
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.3
-  (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.9.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
+  (required only for opening Zarr stores; Zarr 3 is not compatible)
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.10.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.12.12
+
+- Pass 5110 tests.
+- Read PlaneProperty from STK UIC1Tag (#280).
+- Allow 'None' as alias for COMPRESSION.NONE and PREDICTOR.NONE (#274).
+- Zarr 3 is not supported (#272).
+
 2024.9.20
 
-- Pass 5107 tests.
 - Fix writing colormap to ImageJ files (breaking).
 - Improve typing.
 - Remove support for Python 3.9.
@@ -203,44 +209,6 @@ Revisions
 - Parse sequence of numbers in xml2dict.
 
 2023.12.9
-
-- Read 32-bit Indica Labs TIFF as float32.
-- Fix UnboundLocalError reading big LSM files without time axis.
-- Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
-- Limit the number of default worker threads to 32.
-
-2023.9.26
-
-- Lazily convert dask array to ndarray when writing.
-- Allow to specify buffersize for reading and writing.
-- Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
-
-2023.9.18
-
-- Raise exception when writing non-volume data with volumetric tiles (#225).
-- Improve multi-threaded writing of compressed multi-page files.
-- Fix fsspec reference for big-endian files with predictors.
-
-2023.8.30
-
-- Support exclusive file creation mode (#221, #223).
-
-2023.8.25
-
-- Verify shaped metadata is compatible with page shape.
-- Support out parameter when returning selection from imread (#222).
-
-2023.8.12
-
-- Support decompressing EER frames.
-- Facilitate filtering logged warnings (#216).
-- Read more tags from UIC1Tag (#217).
-- Fix premature closing of files in main (#218).
-- Don't force matplotlib backend to tkagg in main (#219).
-- Add py.typed marker.
-- Drop support for imagecodecs < 2023.3.16.
-
-2023.7.18
 
 - …
 
@@ -721,7 +689,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 ...             )
 ...
 
-Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
+Use Zarr 2 to read parts of the tiled, pyramidal images in the TIFF file:
 
 >>> import zarr
 >>> store = imread('temp.ome.tif', aszarr=True)
@@ -734,7 +702,7 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 (256, 256, 3)
 >>> store.close()
 
-Load the base layer from the Zarr store as a dask array:
+Load the base layer from the Zarr 2 store as a dask array:
 
 >>> import dask.array
 >>> store = imread('temp.ome.tif', aszarr=True)
@@ -742,7 +710,7 @@ Load the base layer from the Zarr store as a dask array:
 dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
 >>> store.close()
 
-Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
+Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
 
 >>> store = imread('temp.ome.tif', aszarr=True)
 >>> store.write_fsspec('temp.ome.tif.json', url='file://')
@@ -807,7 +775,7 @@ as NumPy or Zarr arrays:
 <zarr.core.Array (1, 2, 64, 64) float64 read-only>
 >>> image_sequence.close()
 
-Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
+Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
 
 >>> store = image_sequence.aszarr()
 >>> store.write_fsspec('temp.json', url='file://')
@@ -831,7 +799,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.9.20'
+__version__ = '2024.12.12'
 
 __all__ = [
     '__version__',
@@ -1162,7 +1130,7 @@ def imread(
     _useframes: bool | None = None,
     **kwargs: Any,
 ) -> NDArray[Any] | ZarrTiffStore | ZarrFileSequenceStore:
-    """Return image from TIFF file(s) as NumPy array or Zarr store.
+    """Return image from TIFF file(s) as NumPy array or Zarr 2 store.
 
     The first image series in the file(s) is returned by default.
 
@@ -1180,7 +1148,7 @@ def imread(
             it may be more efficient to read the whole image from file and
             then index it.
         aszarr:
-            Return file sequences, series, or single pages as Zarr store
+            Return file sequences, series, or single pages as Zarr 2 store
             instead of NumPy array if `selection` is None.
         mode, name, offset, size, omexml, _multifile, _useframes:
             Passed to :py:class:`TiffFile`.
@@ -1209,7 +1177,7 @@ def imread(
 
     Returns:
         Images from specified files, series, or pages.
-        Zarr store instances must be closed after use.
+        Zarr 2 store instances must be closed after use.
         See :py:meth:`TiffPage.asarray` for operations that are applied
         (or not) to the image data stored in the file.
 
@@ -1441,7 +1409,7 @@ def imwrite(
             datasize > 2**32 - 2**25
             and not imagej
             and not truncate
-            and compression in {None, 0, 1, 'NONE', 'none'}
+            and compression in {None, 0, 1, 'NONE', 'None', 'none'}
         )
 
     with TiffWriter(
@@ -2242,18 +2210,18 @@ class TiffWriter:
             not compression
             or (
                 not isinstance(compression, bool)  # because True == 1
-                and compression in ('NONE', 'none', 1)
+                and compression in ('NONE', 'None', 'none', 1)
             )
             or (
                 isinstance(compression, (tuple, list))
-                and compression[0] in (None, 0, 1, 'NONE', 'none')
+                and compression[0] in (None, 0, 1, 'NONE', 'None', 'none')
             )
         ):
             compression = False
 
         if not predictor or (
             not isinstance(predictor, bool)  # because True == 1
-            and predictor in {'NONE', 'none', 1}
+            and predictor in {'NONE', 'None', 'none', 1}
         ):
             predictor = False
 
@@ -4629,21 +4597,21 @@ class TiffFile:
         level: int | None = None,
         **kwargs: Any,
     ) -> ZarrTiffStore:
-        """Return images from select pages as Zarr store.
+        """Return images from select pages as Zarr 2 store.
 
         By default, the images from the first series, including all levels,
-        are wrapped as a Zarr store.
+        are wrapped as a Zarr 2 store.
 
         Parameters:
             key:
                 Index of page in file (if `series` is None) or series to wrap
-                as Zarr store.
+                as Zarr 2 store.
                 By default, a series is wrapped.
             series:
-                Index of series to wrap as Zarr store.
+                Index of series to wrap as Zarr 2 store.
                 The default is 0 (if `key` is None).
             level:
-                Index of pyramid level in series to wrap as Zarr store.
+                Index of pyramid level in series to wrap as Zarr 2 store.
                 By default, all levels are included as a multi-scale group.
             **kwargs:
                 Additional arguments passed to :py:meth:`TiffPage.aszarr`
@@ -8941,7 +8909,7 @@ class TiffPage:
         return result
 
     def aszarr(self, **kwargs: Any) -> ZarrTiffStore:
-        """Return image from page as Zarr store.
+        """Return image from page as Zarr 2 store.
 
         Parameters:
             **kwarg: Passed to :py:class:`ZarrTiffStore`.
@@ -10308,7 +10276,7 @@ class TiffFrame:
         )
 
     def aszarr(self, **kwargs: Any) -> ZarrTiffStore:
-        """Return image from frame as Zarr store.
+        """Return image from frame as Zarr 2 store.
 
         Parameters:
             **kwarg: Arguments passed to :py:class:`ZarrTiffStore`.
@@ -12519,7 +12487,7 @@ class TiffPageSeries(collections.abc.Sequence[TiffPage | TiffFrame | None]):
     def aszarr(
         self, *, level: int | None = None, **kwargs: Any
     ) -> ZarrTiffStore:
-        """Return image array from series of pages as Zarr store.
+        """Return image array from series of pages as Zarr 2 store.
 
         Parameters:
             level:
@@ -12686,14 +12654,14 @@ class TiffPageSeries(collections.abc.Sequence[TiffPage | TiffFrame | None]):
 # TODO: derive from zarr.storage.Store
 # TODO: this interface does not expose index keys except in __getitem__
 class ZarrStore(collections.abc.MutableMapping[str, bytes]):
-    """Zarr store base class.
+    """Zarr 2 store base class.
 
     ZarrStore instances must be closed with :py:meth:`ZarrStore.close`,
     which is automatically called when using the 'with' context manager.
 
     Parameters:
         fillvalue:
-            Value to use for missing chunks of Zarr store.
+            Value to use for missing chunks of Zarr 2 store.
             The default is 0.
         chunkmode:
             Specifies how to chunk data.
@@ -12877,7 +12845,7 @@ class ZarrStore(collections.abc.MutableMapping[str, bytes]):
 
 @final
 class ZarrTiffStore(ZarrStore):
-    """Zarr store interface to image array in TiffPage or TiffPageSeries.
+    """Zarr 2 store interface to image array in TiffPage or TiffPageSeries.
 
     ZarrTiffStore is using a TiffFile instance for reading and decoding chunks.
     Therefore, ZarrTiffStore instances cannot be pickled.
@@ -12887,7 +12855,7 @@ class ZarrTiffStore(ZarrStore):
 
     Parameters:
         arg:
-            TIFF page or series to wrap as Zarr store.
+            TIFF page or series to wrap as Zarr 2 store.
         level:
             Pyramidal level to wrap. The default is 0.
         chunkmode:
@@ -13718,11 +13686,11 @@ class ZarrTiffStore(ZarrStore):
 
 @final
 class ZarrFileSequenceStore(ZarrStore):
-    """Zarr store interface to image array in FileSequence.
+    """Zarr 2 store interface to image array in FileSequence.
 
     Parameters:
         filesequence:
-            FileSequence instance to wrap as Zarr store.
+            FileSequence instance to wrap as Zarr 2 store.
             Files in containers are not supported.
         fillvalue:
             Value to use for missing chunks. The default is 0.
@@ -13785,7 +13753,7 @@ class ZarrFileSequenceStore(ZarrStore):
             raise TypeError('not a FileSequence')
 
         if filesequence._container:
-            raise NotImplementedError('cannot open container as Zarr store')
+            raise NotImplementedError('cannot open container as Zarr 2 store')
 
         # TODO: deprecate kwargs?
         if imreadargs is not None:
@@ -14340,7 +14308,7 @@ class FileSequence(collections.abc.Sequence[str]):
         return result
 
     def aszarr(self, **kwargs: Any) -> ZarrFileSequenceStore:
-        """Return images from files as Zarr store.
+        """Return images from files as Zarr 2 store.
 
         Parameters:
             **kwargs: Arguments passed to :py:class:`ZarrFileSequenceStore`.
@@ -17343,7 +17311,7 @@ class SAMPLEFORMAT(enum.IntEnum):
 class CHUNKMODE(enum.IntEnum):
     """ZarrStore chunk modes.
 
-    Specifies how to chunk data in Zarr stores.
+    Specifies how to chunk data in Zarr 2 stores.
 
     """
 
@@ -19562,7 +19530,7 @@ class _TIFF:
             ('SpecialOverlayMask', None),
             ('SpecialOverlayCompress', None),
             ('SpecialOverlay', None),
-            ('ImageProperty', read_uic_image_property),
+            ('ImageProperty', read_uic_property),
             ('StageLabel', '%ip'),  # N str
             ('AutoScaleLoInfo', Fraction),
             ('AutoScaleHiInfo', Fraction),
@@ -19844,7 +19812,7 @@ def read_tags(
         dict[int, Callable[[FileHandle, ByteOrder, int, int, int], Any]] | None
     ) = None,
 ) -> list[dict[str, Any]]:
-    """Read tags from chain of IFDs.
+    """Read tag values from chain of IFDs.
 
     Parameters:
         fh:
@@ -20214,7 +20182,13 @@ def read_uic1tag(
                 fh.read(4)
                 continue
             name, value = read_uic_tag(fh, tagid, planecount, True)
-            result[name] = value
+            if name == 'PlaneProperty':
+                pos = fh.tell()
+                fh.seek(value + 4)
+                result.setdefault(name, []).append(read_uic_property(fh))
+                fh.seek(pos)
+            else:
+                result[name] = value
     return result
 
 
@@ -20339,9 +20313,9 @@ def read_uic_tag(
             logger().warning(
                 f'<tifffile.read_uic_tag> reading {name} raised {exc!r:.128}'
             )
-    elif dtype is read_uic_image_property:
+    elif dtype is read_uic_property:
         # ImagePropertyEx
-        value = read_uic_image_property(fh)
+        value = read_uic_property(fh)
     elif dtype is str:
         # pascal string
         size = read_int()
@@ -20395,18 +20369,19 @@ def read_uic_tag(
     return name, value
 
 
-def read_uic_image_property(fh: FileHandle, /) -> dict[str, Any]:
-    """Read UIC ImagePropertyEx tag value from file."""
-    # TODO: test this
+def read_uic_property(fh: FileHandle, /) -> dict[str, Any]:
+    """Read UIC ImagePropertyEx or PlaneProperty tag from file."""
     size = struct.unpack('B', fh.read(1))[0]
-    name = struct.unpack(f'{size}s', fh.read(size))[0][:-1]
+    name = bytes2str(struct.unpack(f'{size}s', fh.read(size))[0])
     flags, prop = struct.unpack('<IB', fh.read(5))
     if prop == 1:
         value = struct.unpack('II', fh.read(8))
         value = value[0] / value[1]
     else:
         size = struct.unpack('B', fh.read(1))[0]
-        value = struct.unpack(f'{size}s', fh.read(size))[0]
+        value = bytes2str(
+            struct.unpack(f'{size}s', fh.read(size))[0]
+        )  # type: ignore[assignment]
     return {'name': name, 'flags': flags, 'value': value}
 
 
@@ -21891,7 +21866,7 @@ def pilatus_description_metadata(description: str, /) -> dict[str, Any]:
         if dtype is float and values[0] == 'not':
             values = ['NaN']
         values = tuple(dtype(v) for v in values)
-        if dtype == str:
+        if dtype is str:
             values = ' '.join(values)
         elif len(values) == 1:
             values = values[0]
@@ -22700,7 +22675,7 @@ def zarr_selection(
     close: bool = True,
     out: OutputType = None,
 ) -> NDArray[Any]:
-    """Return selection from Zarr store.
+    """Return selection from Zarr 2 store.
 
     Parameters:
         store:
