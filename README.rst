@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.9.20
+:Version: 2024.12.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,25 +71,31 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.6, 3.13.0rc2 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.1
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.6.1
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.8, 3.13.1 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.3
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.9.22
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.2
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.3
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.3.0
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.3
-  (required only for opening Zarr stores)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.9.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
+  (required only for opening Zarr stores; Zarr 3 is not compatible)
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.10.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2024.12.12
+
+- Pass 5110 tests.
+- Read PlaneProperty from STK UIC1Tag (#280).
+- Allow 'None' as alias for COMPRESSION.NONE and PREDICTOR.NONE (#274).
+- Zarr 3 is not supported (#272).
+
 2024.9.20
 
-- Pass 5107 tests.
 - Fix writing colormap to ImageJ files (breaking).
 - Improve typing.
 - Remove support for Python 3.9.
@@ -176,44 +182,6 @@ Revisions
 - Parse sequence of numbers in xml2dict.
 
 2023.12.9
-
-- Read 32-bit Indica Labs TIFF as float32.
-- Fix UnboundLocalError reading big LSM files without time axis.
-- Use os.sched_getaffinity, if available, to get the number of CPUs (#231).
-- Limit the number of default worker threads to 32.
-
-2023.9.26
-
-- Lazily convert dask array to ndarray when writing.
-- Allow to specify buffersize for reading and writing.
-- Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
-
-2023.9.18
-
-- Raise exception when writing non-volume data with volumetric tiles (#225).
-- Improve multi-threaded writing of compressed multi-page files.
-- Fix fsspec reference for big-endian files with predictors.
-
-2023.8.30
-
-- Support exclusive file creation mode (#221, #223).
-
-2023.8.25
-
-- Verify shaped metadata is compatible with page shape.
-- Support out parameter when returning selection from imread (#222).
-
-2023.8.12
-
-- Support decompressing EER frames.
-- Facilitate filtering logged warnings (#216).
-- Read more tags from UIC1Tag (#217).
-- Fix premature closing of files in main (#218).
-- Don't force matplotlib backend to tkagg in main (#219).
-- Add py.typed marker.
-- Drop support for imagecodecs < 2023.3.16.
-
-2023.7.18
 
 - …
 
@@ -746,7 +714,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
     ...             )
     ...
 
-Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
+Use Zarr 2 to read parts of the tiled, pyramidal images in the TIFF file:
 
 .. code-block:: python
 
@@ -761,7 +729,7 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
     (256, 256, 3)
     >>> store.close()
 
-Load the base layer from the Zarr store as a dask array:
+Load the base layer from the Zarr 2 store as a dask array:
 
 .. code-block:: python
 
@@ -771,7 +739,7 @@ Load the base layer from the Zarr store as a dask array:
     dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
     >>> store.close()
 
-Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
+Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
 
 .. code-block:: python
 
@@ -846,7 +814,7 @@ as NumPy or Zarr arrays:
     <zarr.core.Array (1, 2, 64, 64) float64 read-only>
     >>> image_sequence.close()
 
-Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
+Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
 
 .. code-block:: python
 
