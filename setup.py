@@ -107,12 +107,12 @@ setup(
         # 'imagecodecs>=2023.8.12',
     ],
     extras_require={
-        'codecs': ['imagecodecs>=2023.8.12'],
+        'codecs': ['imagecodecs>=2024.12.30'],
         'xml': ['defusedxml', 'lxml'],
         'zarr': ['zarr<3', 'fsspec'],
         'plot': ['matplotlib'],
         'all': [
-            'imagecodecs>=2023.8.12',
+            'imagecodecs>=2024.12.30',
             'matplotlib',
             'defusedxml',
             'lxml',
