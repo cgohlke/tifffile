@@ -1,6 +1,6 @@
 # test_tifffile.py
 
-# Copyright (c) 2008-2024, Christoph Gohlke
+# Copyright (c) 2008-2025, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2024.12.12
+:Version: 2025.1.10
 
 """
 
@@ -222,8 +222,8 @@ IS_WIN = sys.platform == 'win32'
 IS_CG = os.environ.get('COMPUTERNAME', '').startswith('CG-K')
 
 
-# skip certain tests
 def skip(key: str, default: bool) -> bool:
+    """Return if environment variable is set and true."""
     return os.getenv(key, default) in {True, 1, '1'}
 
 
@@ -543,7 +543,7 @@ def test_issue_imread_kwargs():
 
 
 def test_issue_imread_kwargs_legacy():
-    """Test legacy arguments no longer work as of 2022.4.22
+    """Test legacy arguments no longer work as of 2022.4.22.
 
     Specifying 'fastij', 'movie', 'multifile', 'multifile_close', or
     'pages' raises TypeError.
@@ -1573,7 +1573,6 @@ def test_issue_packbits_dtype():
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
 def test_issue_predictor_byteorder():
     """Test read big-endian uint32 RGB with horizontal predictor."""
-
     fname = private_file('issues/flower-rgb-contig-32_msb_zip_predictor.tiff')
 
     with TiffFile(fname) as tif:
@@ -2061,6 +2060,7 @@ def test_issue_xarray_multiscale():
 
 @pytest.mark.parametrize('resolution', [(1, 0), (0, 0)])
 def test_issue_invalid_resolution(resolution):
+    """Test invalid resolution tags."""
     # https://github.com/imageio/imageio/blob/master/tests/test_tifffile.py
 
     data = numpy.zeros((20, 10), dtype=numpy.uint8)
@@ -4637,6 +4637,7 @@ def test_func_reshape_nd():
 
 
 def test_func_order_axes():
+    """Test axis_order function."""
     axes = [(0, 2, 0), (1, 2, 0), (0, 2, 1), (1, 2, 1)]
     # first axis varies fastest, second axis is constant
     assert order_axes(axes, True) == (2, 0)
@@ -14886,9 +14887,7 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
         dtype = DATATYPE.SHORT
 
     with TempFileName(
-        'write_bytecounts_{}{}{}{}{}'.format(
-            bigtiff, tiled, compression, count, bytecount
-        )
+        f'write_bytecounts_{bigtiff}{tiled}{compression}{count}{bytecount}'
     ) as fname:
         imwrite(
             fname,
@@ -15832,7 +15831,7 @@ def test_write_bitspersample_fail():
 
 @pytest.mark.parametrize('kind', ['enum', 'int', 'lower', 'upper'])
 def test_write_enum_parameters(kind):
-    """Test imwrite using different kind of enum"""
+    """Test imwrite using different kind of enum."""
     data = random_data(numpy.uint8, (2, 6, 219, 301))
     with TempFileName(f'write_enum_parameters_{kind}') as fname:
         if kind == 'enum':
