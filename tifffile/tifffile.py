@@ -1,6 +1,6 @@
 # tifffile.py
 
-# Copyright (c) 2008-2024, Christoph Gohlke
+# Copyright (c) 2008-2025, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -43,7 +43,7 @@ Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
 Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
 Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
 
-Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
+Image data can be read as NumPy arrays or Zarr 2 arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
 
 Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.12.12
+:Version: 2025.1.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,24 +99,29 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.8, 3.13.1 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.3
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.9.22
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.1
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.12.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.3
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.0
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.3.0
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
   (required only for opening Zarr stores; Zarr 3 is not compatible)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.10.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.12.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
-2024.12.12
+2025.1.10
 
 - Pass 5110 tests.
+- Improve type hints.
+- Deprecate Python 3.10.
+
+2024.12.12
+
 - Read PlaneProperty from STK UIC1Tag (#280).
 - Allow 'None' as alias for COMPRESSION.NONE and PREDICTOR.NONE (#274).
 - Zarr 3 is not supported (#272).
@@ -125,7 +130,7 @@ Revisions
 
 - Fix writing colormap to ImageJ files (breaking).
 - Improve typing.
-- Remove support for Python 3.9.
+- Drop support for Python 3.9.
 
 2024.8.30
 
@@ -297,7 +302,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   Tifffile can read GeoTIFF sparse files.
 - **Tifffile shaped** files store the array shape and user-provided metadata
   of multi-dimensional image series in JSON format in the ImageDescription tag
-  of the first page of the series. The format allows for multiple series,
+  of the first page of the series. The format allows multiple series,
   SubIFDs, sparse segments with zero offset and byte count, and truncated
   series, where only the first page of a series is present, and the image data
   are stored contiguously. No other software besides Tifffile supports the
@@ -335,6 +340,7 @@ References
 
 - TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
   https://www.adobe.io/open/standards/TIFF.html
+  https://download.osgeo.org/libtiff/doc/
 - TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
 - The BigTIFF File Format.
   https://www.awaresystems.be/imaging/tiff/bigtiff.html
@@ -729,7 +735,7 @@ Open the fsspec ReferenceFileSystem as a Zarr group:
 <zarr.hierarchy.Group '/' read-only>
 
 Create an OME-TIFF file containing an empty, tiled image series and write
-to it via the Zarr interface (note: this does not work with compression):
+to it via the Zarr 2 interface (note: this does not work with compression):
 
 >>> imwrite(
 ...     'temp2.ome.tif',
@@ -760,7 +766,7 @@ threads:
 dtype('float64')
 
 Read an image stack from a series of TIFF files with a file name pattern
-as NumPy or Zarr arrays:
+as NumPy or Zarr 2 arrays:
 
 >>> image_sequence = TiffSequence('temp_C0*.tif', pattern=r'_(C)(\d+)(T)(\d+)')
 >>> image_sequence.shape
@@ -780,7 +786,7 @@ Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
 >>> store = image_sequence.aszarr()
 >>> store.write_fsspec('temp.json', url='file://')
 
-Open the fsspec ReferenceFileSystem as a Zarr array:
+Open the fsspec ReferenceFileSystem as a Zarr 2 array:
 
 >>> import fsspec
 >>> import tifffile.numcodecs
@@ -799,7 +805,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2024.12.12'
+__version__ = '2025.1.10'
 
 __all__ = [
     '__version__',
@@ -901,6 +907,13 @@ import sys
 import threading
 import time
 import warnings
+from collections.abc import (
+    Callable,
+    Iterable,
+    Mapping,
+    MutableMapping,
+    Sequence,
+)
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime as DateTime
 from datetime import timedelta as TimeDelta
@@ -921,15 +934,11 @@ from typing import IO, TYPE_CHECKING, cast, final, overload
 
 if TYPE_CHECKING:
     from collections.abc import (
-        Callable,
         Collection,
         Container,
         ItemsView,
-        Iterable,
         Iterator,
         KeysView,
-        Mapping,
-        Sequence,
         ValuesView,
     )
     from typing import Any, Literal, Optional, TextIO, Union
@@ -1140,10 +1149,10 @@ def imread(
             file names. May be *None* if `container` is specified.
         selection:
             Subset of image to be extracted.
-            If not None, a Zarr array is created, indexed with the `selection`
-            value, and returned as a NumPy array. Only segments that are part
-            of the selection will be read from file.
-            Refer to the Zarr documentation for valid selections.
+            If not None, a Zarr 2 array is created, indexed with the
+            `selection` value, and returned as a NumPy array. Only segments
+            that are part of the selection will be read from file.
+            Refer to the Zarr 2 documentation for valid selections.
             Depending on selection size, image size, and storage properties,
             it may be more efficient to read the whole image from file and
             then index it.
@@ -1209,15 +1218,13 @@ def imread(
             raise ValueError('no files found')
 
         if (
-            isinstance(files, collections.abc.Sequence)
+            isinstance(files, Sequence)
             and not isinstance(files, str)
             and len(files) == 1
         ):
             files = files[0]
 
-        if isinstance(files, str) or not isinstance(
-            files, collections.abc.Sequence
-        ):
+        if isinstance(files, str) or not isinstance(files, Sequence):
             with TiffFile(
                 files,
                 mode=mode,
@@ -1712,7 +1719,7 @@ class TiffWriter:
         elif mode is None:
             mode = 'w'
 
-        if byteorder in {None, '=', '|'}:
+        if byteorder is None or byteorder in {'=', '|'}:
             byteorder = '<' if sys.byteorder == 'little' else '>'
         elif byteorder not in {'<', '>'}:
             raise ValueError(f'invalid byteorder {byteorder}')
@@ -1744,7 +1751,8 @@ class TiffWriter:
         if append:
             self._fh.seek(0, os.SEEK_END)
         else:
-            self._fh.write({'<': b'II', '>': b'MM'}[byteorder])
+            assert byteorder is not None
+            self._fh.write(b'II' if byteorder == '<' else b'MM')
             if bigtiff:
                 self._fh.write(struct.pack(byteorder + 'HHH', 43, 8, 0))
             else:
@@ -4502,9 +4510,7 @@ class TiffFile:
             pages = [pages[int(key)]]
         elif isinstance(key, slice):
             pages = pages[key]
-        elif isinstance(key, collections.abc.Iterable) and not isinstance(
-            key, str
-        ):
+        elif isinstance(key, Iterable) and not isinstance(key, str):
             pages = [pages[k] for k in key]
         else:
             raise TypeError(
@@ -6309,7 +6315,8 @@ class TiffFile:
         def add_file(tif: TiffFile, indexmap: NDArray[Any]) -> int:
             # add virtual TiffFrames to pages list
             page_count = 0
-            offsets = indexmap[:, 4].tolist()
+            offsets: list[int]
+            offsets = indexmap[:, 4].tolist()  # type: ignore[assignment]
             indices = numpy.ravel_multi_index(
                 # type: ignore[call-overload]
                 indexmap[:, indexmap_order].T,
@@ -6720,6 +6727,7 @@ class TiffFile:
         if self.filehandle.size < 2**32:
             return
 
+        indices: NDArray[Any]
         pages = self.pages
         npages = len(pages)
         series = self.series[0]
@@ -6922,10 +6930,8 @@ class TiffFile:
                     m = getattr(self, name + '_metadata')
                     if m:
                         info_list.append(
-                            '{}_METADATA\n{}'.format(
-                                name.upper(),
-                                pformat(m, width=width, height=detail * 24),
-                            )
+                            f'{name.upper()}_METADATA\n'
+                            f'{pformat(m, width=width, height=detail * 24)}'
                         )
         return '\n\n'.join(info_list).replace('\n\n\n', '\n\n')
 
@@ -8012,7 +8018,9 @@ class TiffPage:
                 databytecounts = numpy.diff(
                     mcustarts, append=self.databytecounts[0]
                 )
-                self.databytecounts = tuple(databytecounts.tolist())
+                self.databytecounts = tuple(
+                    databytecounts.tolist()  # type: ignore[arg-type]
+                )
                 mcustarts += self.dataoffsets[0]
                 self.dataoffsets = tuple(mcustarts.tolist())
 
@@ -9462,17 +9470,15 @@ class TiffPage:
                 attr = getattr(self, name, '')
                 if attr:
                     info_list.append(
-                        '{}\n{}'.format(
-                            name.upper(),
-                            pformat(attr, width=width, height=detail * 8),
-                        )
+                        f'{name.upper()}\n'
+                        f'{pformat(attr, width=width, height=detail * 8)}'
                     )
         if detail > 3:
             try:
+                data = self.asarray()
                 info_list.append(
-                    'DATA\n{}'.format(
-                        pformat(self.asarray(), width=width, height=detail * 8)
-                    )
+                    f'DATA\n'
+                    f'{pformat(data, width=width, height=detail * 8)}'
                 )
             except Exception:
                 pass
@@ -10518,7 +10524,7 @@ class TiffFrame:
 
 
 @final
-class TiffPages(collections.abc.Sequence[TiffPage | TiffFrame]):
+class TiffPages(Sequence[TiffPage | TiffFrame]):
     """Sequence of TIFF image file directories (IFD chain).
 
     TiffPages instances have a state, such as a cache and keyframe, and are not
@@ -10990,7 +10996,7 @@ class TiffPages(collections.abc.Sequence[TiffPage | TiffFrame]):
             if not self._indexed and max(stop, start) > len(self._pages):
                 self._seek(-1)
             key = iter(range(*key.indices(len(self._pages))))
-        elif isinstance(key, collections.abc.Iterable):
+        elif isinstance(key, Iterable):
             key = iter(key)
         else:
             raise TypeError(
@@ -11089,7 +11095,7 @@ class TiffPages(collections.abc.Sequence[TiffPage | TiffFrame]):
                 self._seek(-1)
             return [getitem(i) for i in range(*key.indices(len(pages)))]
 
-        if isinstance(key, collections.abc.Iterable):
+        if isinstance(key, Iterable):
             return [getitem(k) for k in key]
 
         raise TypeError('key must be an integer, slice, or iterable')
@@ -11289,8 +11295,10 @@ class TiffTag:
             # NDPI IFD or LONG, for example, in StripOffsets or StripByteCounts
             value = struct.unpack('<Q', value)
         else:
-            fmt = '{}{}{}'.format(
-                tiff.byteorder, count * int(valueformat[0]), valueformat[1]
+            fmt = (
+                f'{tiff.byteorder}'
+                f'{count * int(valueformat[0])}'
+                f'{valueformat[1]}'
             )
             value = struct.unpack(fmt, value[:valuesize])
 
@@ -11318,7 +11326,8 @@ class TiffTag:
             ) from exc
 
         fh = parent.filehandle
-        tiff = parent.tiff
+        byteorder = parent.tiff.byteorder
+        offsetsize = parent.tiff.offsetsize
 
         valuesize = count * struct.calcsize(valueformat)
         if valueoffset < 8 or valueoffset + valuesize > fh.size:
@@ -11336,9 +11345,7 @@ class TiffTag:
         if code in TIFF.TAG_READERS:
             readfunc = TIFF.TAG_READERS[code]
             try:
-                value = readfunc(
-                    fh, tiff.byteorder, dtype, count, tiff.offsetsize
-                )
+                value = readfunc(fh, byteorder, dtype, count, offsetsize)
             except Exception as exc:
                 logger().warning(
                     f'<tifffile.TiffTag {code} @{offset}> raised {exc!r:.128}'
@@ -11355,14 +11362,12 @@ class TiffTag:
                     'could not read all values'
                 )
         elif code not in TIFF.TAG_TUPLE and count > 1024:
-            value = read_numpy(
-                fh, tiff.byteorder, dtype, count, tiff.offsetsize
-            )
+            value = read_numpy(fh, byteorder, dtype, count, offsetsize)
         else:
-            fmt = '{}{}{}'.format(
-                tiff.byteorder, count * int(valueformat[0]), valueformat[1]
+            value = struct.unpack(
+                f'{byteorder}{count * int(valueformat[0])}{valueformat[1]}',
+                fh.read(valuesize),
             )
-            value = struct.unpack(fmt, fh.read(valuesize))
         return value
 
     @staticmethod
@@ -12230,7 +12235,7 @@ class TiffTagRegistry:
 
 
 @final
-class TiffPageSeries(collections.abc.Sequence[TiffPage | TiffFrame | None]):
+class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
     """Sequence of TIFF pages making up multi-dimensional image.
 
     Many TIFF based formats, such as OME-TIFF, use series of TIFF pages to
@@ -12609,9 +12614,7 @@ class TiffPageSeries(collections.abc.Sequence[TiffPage | TiffFrame | None]):
             return self._getitem(int(key))
         if isinstance(key, slice):
             return [self._getitem(i) for i in range(*key.indices(self._len))]
-        if isinstance(key, collections.abc.Iterable) and not isinstance(
-            key, str
-        ):
+        if isinstance(key, Iterable) and not isinstance(key, str):
             return [self._getitem(k) for k in key]
         raise TypeError('key must be an integer, slice, or iterable')
 
@@ -12651,9 +12654,8 @@ class TiffPageSeries(collections.abc.Sequence[TiffPage | TiffFrame | None]):
         return f'TiffPageSeries {self._index}  {s}'
 
 
-# TODO: derive from zarr.storage.Store
 # TODO: this interface does not expose index keys except in __getitem__
-class ZarrStore(collections.abc.MutableMapping[str, bytes]):
+class ZarrStore(MutableMapping[str, bytes]):
     """Zarr 2 store base class.
 
     ZarrStore instances must be closed with :py:meth:`ZarrStore.close`,
@@ -12822,7 +12824,7 @@ class ZarrStore(collections.abc.MutableMapping[str, bytes]):
             if numpy.isneginf(value):
                 return '-Infinity'
             return float(value)
-        if dtype.kind in 'c':
+        if dtype.kind == 'c':
             value = numpy.array(value, dtype)
             return (
                 ZarrStore._value(value.real, dtype.type().real.dtype),
@@ -12866,8 +12868,8 @@ class ZarrTiffStore(ZarrStore):
         zattrs:
             Additional attributes to store in `.zattrs`.
         multiscales:
-            Create a multiscales compatible Zarr group store.
-            By default, create a Zarr array store for pages and non-pyramidal
+            Create a multiscales compatible Zarr 2 group store.
+            By default, create a Zarr 2 array store for pages and non-pyramidal
             series.
         lock:
             Reentrant lock to synchronize seeks and reads from file.
@@ -13067,7 +13069,7 @@ class ZarrTiffStore(ZarrStore):
             url:
                 Remote location of TIFF file(s) without file name(s).
             groupname:
-                Zarr group name.
+                Zarr 2 group name.
             templatename:
                 Version 1 URL template name. The default is 'u'.
             compressors:
@@ -13089,7 +13091,7 @@ class ZarrTiffStore(ZarrStore):
         Raises:
             ValueError:
                 ZarrTiffStore cannot be represented as ReferenceFileSystem
-                due to features that are not supported by Zarr, Numcodecs,
+                due to features that are not supported by Zarr 2, Numcodecs,
                 or Imagecodecs:
 
                 - compressors, such as CCITT
@@ -13238,13 +13240,13 @@ class ZarrTiffStore(ZarrStore):
                     if fname in templates:
                         continue
                     key = f'{templatename}{i}'
-                    templates[fname] = '{{%s}}' % key
+                    templates[fname] = f'{{{{{key}}}}}'
                     refs['templates'][key] = url + fname
                     i += 1
             else:
                 fname = self._data[0].keyframe.parent.filehandle.name
                 key = f'{templatename}'
-                templates[fname] = '{{%s}}' % key
+                templates[fname] = f'{{{{{key}}}}}'
                 refs['templates'][key] = url + fname
 
             refs['refs'] = refzarr = {}
@@ -13853,7 +13855,7 @@ class ZarrFileSequenceStore(ZarrStore):
                 Quote file names, that is, replace ' ' with '%20'.
                 The default is True.
             groupname:
-                Zarr group name.
+                Zarr 2 group name.
             templatename:
                 Version 1 URL template name. The default is 'u'.
             codec_id:
@@ -13932,7 +13934,7 @@ class ZarrFileSequenceStore(ZarrStore):
             refs['templates'] = {templatename: url}
             refs['gen'] = []
             refs['refs'] = refzarr = {}
-            url = '{{%s}}' % templatename
+            url = f'{{{{{templatename}}}}}'
         else:
             refzarr = refs
 
@@ -14013,7 +14015,7 @@ class ZarrFileSequenceStore(ZarrStore):
         )
 
 
-class FileSequence(collections.abc.Sequence[str]):
+class FileSequence(Sequence[str]):
     r"""Sequence of files containing compatible array data.
 
     Parameters:
@@ -15521,7 +15523,7 @@ class FileCache:
 
 
 @final
-class StoredShape(collections.abc.Sequence[int]):
+class StoredShape(Sequence[int]):
     """Normalized shape of image array in TIFF pages.
 
     Parameters:
@@ -16698,9 +16700,7 @@ class OmeXml:
 
 
 @final
-class CompressionCodec(
-    collections.abc.Mapping[int, collections.abc.Callable[..., object]]
-):
+class CompressionCodec(Mapping[int, Callable[..., object]]):
     """Map :py:class:`COMPRESSION` value to encode or decode function.
 
     Parameters:
@@ -16866,9 +16866,7 @@ class CompressionCodec(
 
 
 @final
-class PredictorCodec(
-    collections.abc.Mapping[int, collections.abc.Callable[..., object]]
-):
+class PredictorCodec(Mapping[int, Callable[..., object]]):
     """Map :py:class:`PREDICTOR` value to encode or decode function.
 
     Parameters:
@@ -19923,8 +19921,10 @@ def read_tags(
                             f'could not read all values for tag #{code}'
                         )
                 elif code in tagnames:
-                    fmt = '{}{}{}'.format(
-                        byteorder, count * int(valueformat[0]), valueformat[1]
+                    fmt = (
+                        f'{byteorder}'
+                        f'{count * int(valueformat[0])}'
+                        f'{valueformat[1]}'
                     )
                     value = unpack(fmt, fh.read(valuesize))
                 else:
@@ -19933,8 +19933,10 @@ def read_tags(
                 # BYTES, ASCII, UNDEFINED
                 value = valuebytes[:valuesize]
             else:
-                fmt = '{}{}{}'.format(
-                    byteorder, count * int(valueformat[0]), valueformat[1]
+                fmt = (
+                    f'{byteorder}'
+                    f'{count * int(valueformat[0])}'
+                    f'{valueformat[1]}'
                 )
                 value = unpack(fmt, valuebytes[:valuesize])
 
@@ -22494,7 +22496,9 @@ def parse_filenames(
             f'parsed shape {parsedshape} does not fit provided shape {shape}'
         )
 
-    indices = [tuple(index) for index in indices_array.tolist()]
+    indices_list: list[list[int]]
+    indices_list = indices_array.tolist()  # type: ignore[assignment]
+    indices = [tuple(index) for index in indices_list]
 
     return dims, shape, indices, files
 
@@ -22682,9 +22686,9 @@ def zarr_selection(
             ZarrStore instance to read selection from.
         selection:
             Subset of image to be extracted and returned.
-            Refer to the Zarr documentation for valid selections.
+            Refer to the Zarr 2 documentation for valid selections.
         groupindex:
-            Index of array if store is zarr group.
+            Index of array if store is Zarr 2 group.
         close:
             Close store before returning.
         out:
@@ -23799,7 +23803,7 @@ def rational(arg: float | tuple[int, int], /) -> tuple[int, int]:
     """Return rational numerator and denominator from float or two integers."""
     from fractions import Fraction
 
-    if isinstance(arg, collections.abc.Sequence):
+    if isinstance(arg, Sequence):
         f = Fraction(arg[0], arg[1])
     else:
         f = Fraction.from_float(arg)
@@ -24790,8 +24794,12 @@ def lsm2bin(
         prints(timer)
         # verbose(lsm, flush=True)
         prints(
-            'Image\n  axes:  {}\n  shape: {}\n  dtype: {}\n  size:  {}'.format(
-                axes, shape, dtype, format_size(size)
+            indent(
+                'Image',
+                f'axes:  {axes}',
+                f'shape: {shape}',
+                f'dtype: {dtype}',
+                f'size:  {size}',
             ),
             flush=True,
         )
