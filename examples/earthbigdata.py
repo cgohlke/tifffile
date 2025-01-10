@@ -1,6 +1,6 @@
 # tifffile/examples/earthbigdata.py
 
-# Copyright (c) 2021-2024, Christoph Gohlke
+# Copyright (c) 2021-2025, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Updated on May 22, 2024
+Updated on Jan 10, 2025
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -62,7 +62,9 @@ import matplotlib.pyplot
 import numcodecs
 import tifffile
 import xarray
-import zarr
+import zarr  # < 3
+
+assert zarr.__version__[0] == '2'
 
 # %% [markdown]
 """
@@ -192,7 +194,7 @@ ReferenceFileSystem JSON string, and write it to the open file.
 """
 
 # %%
-coordinates = {}  # type: ignore
+coordinates = {}  # type: ignore[var-annotated]
 zarrgroup = zarr.open_group(coordinates)
 zarrgroup.array(
     longitude_label,
@@ -521,7 +523,8 @@ Print information about the software used to run this script.
 
 
 # %%
-def system_info():
+def system_info() -> str:
+    """Print information about Python environment."""
     import datetime
     import sys
 
