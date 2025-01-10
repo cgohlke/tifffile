@@ -16,7 +16,7 @@ Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
 Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
 Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
 
-Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
+Image data can be read as NumPy arrays or Zarr 2 arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
 
 Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2024.12.12
+:Version: 2025.1.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -72,24 +72,29 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.8, 3.13.1 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.1.3
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.9.22
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.1
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.12.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.9.3
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.0
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.3.0
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
   (required only for opening Zarr stores; Zarr 3 is not compatible)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.10.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.12.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
-2024.12.12
+2025.1.10
 
 - Pass 5110 tests.
+- Improve type hints.
+- Deprecate Python 3.10.
+
+2024.12.12
+
 - Read PlaneProperty from STK UIC1Tag (#280).
 - Allow 'None' as alias for COMPRESSION.NONE and PREDICTOR.NONE (#274).
 - Zarr 3 is not supported (#272).
@@ -98,7 +103,7 @@ Revisions
 
 - Fix writing colormap to ImageJ files (breaking).
 - Improve typing.
-- Remove support for Python 3.9.
+- Drop support for Python 3.9.
 
 2024.8.30
 
@@ -270,7 +275,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   Tifffile can read GeoTIFF sparse files.
 - **Tifffile shaped** files store the array shape and user-provided metadata
   of multi-dimensional image series in JSON format in the ImageDescription tag
-  of the first page of the series. The format allows for multiple series,
+  of the first page of the series. The format allows multiple series,
   SubIFDs, sparse segments with zero offset and byte count, and truncated
   series, where only the first page of a series is present, and the image data
   are stored contiguously. No other software besides Tifffile supports the
@@ -308,6 +313,7 @@ References
 
 - TIFF 6.0 Specification and Supplements. Adobe Systems Incorporated.
   https://www.adobe.io/open/standards/TIFF.html
+  https://download.osgeo.org/libtiff/doc/
 - TIFF File Format FAQ. https://www.awaresystems.be/imaging/tiff/faq.html
 - The BigTIFF File Format.
   https://www.awaresystems.be/imaging/tiff/bigtiff.html
@@ -762,7 +768,7 @@ Open the fsspec ReferenceFileSystem as a Zarr group:
     <zarr.hierarchy.Group '/' read-only>
 
 Create an OME-TIFF file containing an empty, tiled image series and write
-to it via the Zarr interface (note: this does not work with compression):
+to it via the Zarr 2 interface (note: this does not work with compression):
 
 .. code-block:: python
 
@@ -797,7 +803,7 @@ threads:
     dtype('float64')
 
 Read an image stack from a series of TIFF files with a file name pattern
-as NumPy or Zarr arrays:
+as NumPy or Zarr 2 arrays:
 
 .. code-block:: python
 
@@ -821,7 +827,7 @@ Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
     >>> store = image_sequence.aszarr()
     >>> store.write_fsspec('temp.json', url='file://')
 
-Open the fsspec ReferenceFileSystem as a Zarr array:
+Open the fsspec ReferenceFileSystem as a Zarr 2 array:
 
 .. code-block:: python
 
