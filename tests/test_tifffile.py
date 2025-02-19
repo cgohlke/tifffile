@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.1.10
+:Version: 2025.2.18
 
 """
 
@@ -95,7 +95,6 @@ try:
         FileHandle,  # noqa
         FileSequence,  # noqa
         Timer,  # noqa
-        lazyattr,  # noqa
         logger,  # noqa
         strptime,  # noqa
         natural_sorted,  # noqa
@@ -149,7 +148,6 @@ from tifffile import (  # noqa: F401
     ZarrStore,
     ZarrTiffStore,
 )
-from tifffile.tifffile import _squeeze_axes as squeeze_axes
 from tifffile.tifffile import (  # noqa: F401
     apply_colormap,
     asbool,
@@ -173,7 +171,6 @@ from tifffile.tifffile import (  # noqa: F401
     imshow,
     imwrite,
     julian_datetime,
-    lazyattr,
     logger,
     lsm2bin,
     matlabstr2py,
@@ -197,6 +194,7 @@ from tifffile.tifffile import (  # noqa: F401
     shaped_description,
     shaped_description_metadata,
     snipstr,
+    squeeze_axes,
     stk_description_metadata,
     stripascii,
     stripnull,
@@ -513,19 +511,8 @@ def test_issue_version_mismatch():
 
 def test_issue_deprecated_import():
     """Test deprecated functions can still be imported."""
-    from tifffile import imsave
-
-    with TempFileName('issue_deprecated_import') as fname:
-        with pytest.warns(DeprecationWarning):
-            imsave(fname, [[0]])
-        imread(fname)
-        with TiffWriter(fname) as tif:
-            with pytest.warns(DeprecationWarning):
-                tif.save([[0]])
-        imread(fname)
-
-    # from tifffile import decodelzw
-    # from tifffile import decode_lzw
+    with pytest.raises(ImportError):
+        from tifffile import imsave
 
 
 def test_issue_imread_kwargs():
@@ -1266,7 +1253,7 @@ def test_issue_pickle():
     # https://github.com/cgohlke/tifffile/issues/64
     from pickle import dumps, loads
 
-    with pytest.warns(DeprecationWarning):
+    with pytest.raises(AttributeError):
         assert loads(dumps(TIFF)).CHUNKMODE.PLANE == TIFF.CHUNKMODE.PLANE
         assert loads(dumps(TIFF.CHUNKMODE)).PLANE == TIFF.CHUNKMODE.PLANE
         assert loads(dumps(TIFF.CHUNKMODE.PLANE)) == TIFF.CHUNKMODE.PLANE
@@ -2181,8 +2168,6 @@ def test_issue_uic_dates(caplog):
         assert meta['DatetimeModified'] is None
         assert meta['Name'] == 'Gattaca'
         assert meta['NumberPlanes'] == 1
-        # assert meta['TimeCreated'] ...
-        # assert meta['TimeModified'] ...
         assert meta['Wavelengths'][0] == 1.7906976744186047
 
 
@@ -3211,9 +3196,8 @@ class TestExceptions:
 
     def test_compression(self, fname):
         # invalid compression
-        with pytest.raises(ValueError):
-            with pytest.warns(DeprecationWarning):
-                imwrite(fname, self.data, compression=(8, None, None, None))
+        with pytest.raises(TypeError):
+            imwrite(fname, self.data, compression=(8, None, None, None))
 
     def test_predictor_dtype(self, fname):
         # cannot apply predictor to dtype complex
@@ -3378,7 +3362,7 @@ class TestExceptions:
     def test_description_unicode(self, fname):
         # strings must be 7-bit ASCII
         with pytest.raises(ValueError):
-            imwrite(fname, self.data, description='mu: \u03BC')
+            imwrite(fname, self.data, description='mu: \u03bc')
 
     def test_compression_contiguous(self, fname):
         # contiguous cannot be used with compression, tiles
@@ -3447,21 +3431,21 @@ class TestExceptions:
 
     def test_tiff_enums(self):
         # TIFF.COMPRESSION and others are deprecated
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.COMPRESSION
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.EXTRASAMPLE
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.FILLORDER
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.PHOTOMETRIC
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.PLANARCONFIG
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.PREDICTOR
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.RESUNIT
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(AttributeError):
             TIFF.RESUNIT
 
     # def test_extratags(self, fname):
@@ -3585,19 +3569,18 @@ class TestExceptions:
     def test_sequence_imread_dtype(self):
         # dtype argument is deprecated
         files = public_files('tifffile/temp_C001T00*.tif')
-        with pytest.warns(DeprecationWarning):
-            stack = imread(files, dtype=numpy.float64)
-        assert_array_equal(stack[0], imread(files[0]))
+        with pytest.raises(TypeError):
+            imread(files, dtype=numpy.float64)
 
     @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
     def test_filesequence_dtype(self):
         # dtype argument is deprecated
         files = public_files('tifffile/temp_C001T00*.tif')
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(TypeError):
             TiffSequence(files).asarray(dtype=numpy.float64)
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(TypeError):
             TiffSequence(files).asarray(dtype=numpy.float64)
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(TypeError):
             TiffSequence(files).aszarr(dtype=numpy.float64)
 
 
@@ -4755,7 +4738,7 @@ def test_func_reshape_axes():
 def test_func_julian_datetime():
     """Test julian_datetime function."""
     assert julian_datetime(2451576, 54362783) == (
-        datetime.datetime(2000, 2, 2, 15, 6, 2, 783)
+        datetime.datetime(2000, 2, 2, 15, 6, 2, 783 * 1000)
     )
 
 
@@ -9547,7 +9530,7 @@ def test_read_stk_zseries():
         assert tuple(tags['CameraChipOffset'][10]) == (0.0, 0.0)
         assert tags['PlaneDescriptions'][0].startswith('Acquired from MV-1500')
         assert str(tags['DatetimeCreated'][0]) == (
-            '2000-02-02T15:06:02.000783000'
+            '2000-02-02T15:06:02.783000000'
         )
         # assert series properties
         series = tif.series[0]
@@ -9600,7 +9583,7 @@ def test_read_stk_zser24():
         assert tuple(tags['StagePosition'][10]) == (0.0, 0.0)
         assert tuple(tags['CameraChipOffset'][10]) == (320.0, 256.0)
         assert str(tags['DatetimeCreated'][0]) == (
-            '2000-02-02T15:10:34.000264000'
+            '2000-02-02T15:10:34.264000000'
         )
         # assert series properties
         series = tif.series[0]
@@ -9655,7 +9638,7 @@ def test_read_stk_diatoms3d():
             'Acquired from Flashbus.'
         )
         assert str(tags['DatetimeCreated'][0]) == (
-            '2000-02-04T14:38:37.000738000'
+            '2000-02-04T14:38:37.738000000'
         )
         # assert series properties
         series = tif.series[0]
@@ -9703,7 +9686,7 @@ def test_read_stk_greenbeads():
         assert len(tags['Wavelengths']) == 79
         assert tuple(tags['CameraChipOffset'][0]) == (0.0, 0.0)
         assert str(tags['DatetimeModified'][0]) == (
-            '2008-05-09T17:35:33.000274000'
+            '2008-05-09T17:35:33.274000000'
         )
         # assert tags['AbsoluteZ'][78] == 1.1672684733218932
         assert 'AbsoluteZ' not in tags
@@ -15378,7 +15361,7 @@ def test_write_is_shaped():
 
 def test_write_bytes_str():
     """Test write bytes in place of 7-bit ascii string."""
-    micron = b'micron \xB5'  # can't be encoded as 7-bit ascii
+    micron = b'micron \xb5'  # can't be encoded as 7-bit ascii
     data = numpy.arange(4, dtype=numpy.uint32).reshape((2, 2))
     with TempFileName('write_bytes_str') as fname:
         imwrite(
@@ -15390,9 +15373,9 @@ def test_write_bytes_str():
         )
         with TiffFile(fname) as tif:
             page = tif.pages.first
-            assert page.description == 'micron \xB5'
-            assert page.software == 'micron \xB5'
-            assert page.tags[50001].value == 'micron \xB5'
+            assert page.description == 'micron \xb5'
+            assert page.software == 'micron \xb5'
+            assert page.tags[50001].value == 'micron \xb5'
 
 
 def test_write_extratags():
@@ -15745,8 +15728,14 @@ def test_write_resolution_unit():
     data = random_data(numpy.uint8, (219, 301))
     resolution = (92.0, (9200, 100), 3)
     with TempFileName('write_resolution_unit') as fname:
-        with pytest.warns(DeprecationWarning):
+        with pytest.raises(ValueError):
             imwrite(fname, data, resolution=resolution)
+        imwrite(
+            fname,
+            data,
+            resolution=resolution[:2],
+            resolutionunit=resolution[2],
+        )
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -15907,12 +15896,12 @@ def test_write_enum_parameters(kind):
         (2, COMPRESSION.NONE),
         (3, COMPRESSION.ADOBE_DEFLATE),
         (4, 'zlib'),
-        (5, 'zlib', 5),
+        (5, 'zlib', 5, {}),
         (6, 'zlib', 5, {'out': None}),
         (7, 'zlib', None, {'level': 5}),
     ],
 )
-def test_write_compression_args(args, recwarn):
+def test_write_compression_args(args):
     """Test compression parameter."""
     i = args[0]
     compressionargs = args[1:]
@@ -15921,20 +15910,27 @@ def test_write_compression_args(args, recwarn):
         compressionargs = compressionargs[0]
     rowsperstrip = 100 if compressed else None
 
+    kwargs = {
+        'photometric': PHOTOMETRIC.RGB,
+        'rowsperstrip': rowsperstrip,
+        'compression': compressionargs,
+    }
+
     data = WRITE_DATA
     with TempFileName(f'write_compression_args_{i}') as fname:
         # with pytest.warns(DeprecationWarning if i > 4 else None):
-        imwrite(
-            fname,
-            data,
-            compression=compressionargs,
-            photometric=PHOTOMETRIC.RGB,
-            rowsperstrip=rowsperstrip,
-        )
         if i > 4:
-            assert len(recwarn) == 1
-            user_warning = recwarn.pop(DeprecationWarning)
-            assert issubclass(user_warning.category, DeprecationWarning)
+            with pytest.raises(TypeError):
+                imwrite(fname, data, **kwargs)
+            kwargs['compression'] = compressionargs[0]
+            if len(compressionargs) > 1:
+                kwargs['compressionargs'] = {
+                    'level': compressionargs[1],
+                    **compressionargs[2],
+                }
+            imwrite(fname, data, **kwargs)
+        else:
+            imwrite(fname, data, **kwargs)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
