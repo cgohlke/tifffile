@@ -44,7 +44,7 @@ Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
 Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
 
 Image data can be read as NumPy arrays or Zarr 2 arrays/groups from strips,
-tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
+tiles, pages (IFDs), SubIFDs, higher-order series, and pyramidal levels.
 
 Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
 compatible files in multi-page, volumetric, pyramidal, memory-mappable,
@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2025.1.10
+:Version: 2025.2.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,8 +98,8 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.8, 3.13.1 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.1
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.9, 3.13.2 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.3
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.12.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.0
@@ -108,15 +108,25 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
   (required only for opening Zarr stores; Zarr 3 is not compatible)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.12.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.2.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
-2025.1.10
+2025.2.18
 
 - Pass 5110 tests.
+- Fix julian_datetime milliseconds (#283).
+- Remove deprecated dtype arguments from imread and FileSequence (breaking).
+- Remove deprecated imsave and TiffWriter.save function/method (breaking).
+- Remove deprecated option to pass multiple values to compression (breaking).
+- Remove deprecated option to pass unit to resolution (breaking).
+- Remove deprecated enums from TIFF namespace (breaking).
+- Remove deprecated lazyattr and squeeze_axes functions (breaking).
+
+2025.1.10
+
 - Improve type hints.
 - Deprecate Python 3.10.
 
@@ -200,7 +210,7 @@ Revisions
 
 - Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
 - Add option not to quote file names in write_fsspec.
-- Allow compress bilevel images with deflate, LZMA, and Zstd.
+- Allow compressing bilevel images with deflate, LZMA, and Zstd.
 
 2024.2.12
 
@@ -226,7 +236,7 @@ TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated.
 
 Tifffile supports a subset of the TIFF6 specification, mainly 8, 16, 32, and
-64-bit integer, 16, 32 and 64-bit float, grayscale and multi-sample images.
+64-bit integer, 16, 32, and 64-bit float, grayscale and multi-sample images.
 Specifically, CCITT and OJPEG compression, chroma subsampling without JPEG
 compression, color space transformations, samples with differing types, or
 IPTC, ICC, and XMP metadata are not implemented.
@@ -246,7 +256,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **OME-TIFF** files store up to 8-dimensional image data in one or multiple
   TIFF or BigTIFF files. The UTF-8 encoded OME-XML metadata found in the
   ImageDescription tag of the first IFD defines the position of TIFF IFDs in
-  the high dimensional image data. Tifffile can read OME-TIFF files (except
+  the high-dimensional image data. Tifffile can read OME-TIFF files (except
   multi-file pyramidal) and write NumPy arrays to single-file OME-TIFF.
 - **Micro-Manager NDTiff** stores multi-dimensional image data in one
   or more classic TIFF files. Metadata contained in a separate NDTiff.index
@@ -805,7 +815,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.1.10'
+__version__ = '2025.2.18'
 
 __all__ = [
     '__version__',
@@ -886,10 +896,6 @@ __all__ = [
     'validate_jhove',
     'xml2dict',
     '_TIFF',  # private
-    # deprecated
-    'lazyattr',
-    'imsave',
-    'squeeze_axes',
 ]
 
 import binascii
@@ -1030,7 +1036,6 @@ def imread(
     container: str | os.PathLike[Any] | None = None,
     chunkshape: tuple[int, ...] | None = None,
     chunkdtype: DTypeLike | None = None,
-    dtype: DTypeLike | None = None,  # deprecated
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
     ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
@@ -1078,7 +1083,6 @@ def imread(
     container: str | os.PathLike[Any] | None = None,
     chunkshape: tuple[int, ...] | None = None,
     chunkdtype: DTypeLike | None = None,
-    dtype: DTypeLike | None = None,  # deprecated
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
     ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
@@ -1125,7 +1129,6 @@ def imread(
     container: str | os.PathLike[Any] | None = None,
     chunkshape: tuple[int, ...] | None = None,
     chunkdtype: DTypeLike | None = None,
-    dtype: DTypeLike | None = None,  # deprecated
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
     ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
@@ -1194,16 +1197,6 @@ def imread(
     store: ZarrStore
     aszarr = aszarr or (selection is not None)
     is_flags = parse_kwargs(kwargs, *(k for k in kwargs if k[:3] == 'is_'))
-
-    if dtype is not None:
-        warnings.warn(
-            '<tifffile.imread> the dtype argument is '
-            'deprecated since 2024.2.12. Use chunkdtype',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        chunkdtype = dtype
-    del dtype
 
     if imread is None and kwargs:
         raise TypeError(
@@ -1463,20 +1456,6 @@ def imwrite(
             returnoffset=returnoffset,
         )
     return result
-
-
-def imsave(*args: Any, **kwargs: Any) -> None:
-    """Deprecated. Use :py:func:`imwrite`.
-
-    :meta private:
-
-    """
-    warnings.warn(
-        '<tifffile.imsave> is deprecated. Use tifffile.imwrite',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    imwrite(*args, **kwargs)
 
 
 def memmap(
@@ -2379,23 +2358,12 @@ class TiffWriter:
         if compression:
             if isinstance(compression, (tuple, list)):
                 # TODO: unreachable
-                warnings.warn(
-                    f"{self!r} passing multiple values to the 'compression' "
-                    "parameter is deprecated since 2022.7.28. "
+                raise TypeError(
+                    "passing multiple values to the 'compression' "
+                    "parameter was deprecated in 2022.7.28. "
                     "Use 'compressionargs' to pass extra arguments to the "
                     "compression codec.",
-                    DeprecationWarning,
-                    stacklevel=2,
                 )
-                if len(compression) == 2:
-                    compressionargs['level'] = compression[1]
-                elif len(compression) == 3:
-                    compressionargs = dict(compression[2])
-                    if compression[1] is not None:
-                        compressionargs['level'] = compression[1]
-                else:
-                    raise ValueError('invalid compression')
-                compression = compression[0]
             if isinstance(compression, str):
                 compression = compression.upper()
                 if compression == 'ZLIB':
@@ -3127,16 +3095,11 @@ class TiffWriter:
             addtag(tags, 283, 5, 1, rational(resolution[1]))  # YResolution
             if len(resolution) > 2:
                 # TODO: unreachable
-                warnings.warn(
-                    "<tifffile.TiffWriter.write> passing a unit along "
-                    "with the 'resolution' parameter is deprecated "
-                    "since 2022.7.28. Use the 'resolutionunit' parameter.",
-                    DeprecationWarning,
-                    stacklevel=2,
+                raise ValueError(
+                    "passing a unit along with the 'resolution' parameter "
+                    "was deprecated in 2022.7.28. "
+                    "Use the 'resolutionunit' parameter.",
                 )
-                unit = resolution[2]
-                if unit is not None:
-                    resolutionunit = enumarg(RESUNIT, unit)
             addtag(tags, 296, 3, 1, resolutionunit)  # ResolutionUnit
         else:
             addtag(tags, 282, 5, 1, (1, 1))  # XResolution
@@ -3729,14 +3692,6 @@ class TiffWriter:
             if returnoffset:
                 return dataoffset, sum(databytecounts)
         return None
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        warnings.warn(
-            '<tifffile.TiffWriter.save> is deprecated. Use TiffWriter.write',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.write(*args, **kwargs)
 
     def overwrite_description(self, description: str, /) -> None:
         """Overwrite value of last ImageDescription tag.
@@ -6120,7 +6075,7 @@ class TiffFile:
                 # (20000, 500) in 'Image 7.ome_h00.tiff'.
                 # For now, verify that shapes of keyframe and series match.
                 # If not, skip series.
-                squeezed = _squeeze_axes(shape, axes)[0]
+                squeezed = squeeze_axes(shape, axes)[0]
                 if keyframe.shape != tuple(squeezed[-len(keyframe.shape) :]):
                     logger().warning(
                         f'{self!r} OME series cannot handle discontiguous '
@@ -7113,8 +7068,6 @@ class TiffFile:
         result: dict[str, Any] = {}
         if page.description:
             result['PlaneDescriptions'] = page.description.split('\x00')
-            # result['plane_descriptions'] = stk_description_metadata(
-            #    page.image_description)
         tag = tags.get(33629)  # UIC2tag
         result['NumberPlanes'] = 1 if tag is None else tag.count
         value = tags.valueof(33628)  # UIC1tag
@@ -12411,7 +12364,7 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         self._squeeze = bool(squeeze)
         self._shape = tuple(shape)
         self._axes = axes
-        self._shape_squeezed, self._axes_squeezed, _ = _squeeze_axes(
+        self._shape_squeezed, self._axes_squeezed, _ = squeeze_axes(
             shape, axes
         )
 
@@ -13740,7 +13693,6 @@ class ZarrFileSequenceStore(ZarrStore):
         chunkmode: CHUNKMODE | int | str | None = None,
         chunkshape: Sequence[int] | None = None,
         chunkdtype: DTypeLike | None = None,
-        dtype: DTypeLike | None = None,  # deprecated
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
         zattrs: dict[str, Any] | None = None,
         imreadargs: dict[str, Any] | None = None,
@@ -13764,17 +13716,6 @@ class ZarrFileSequenceStore(ZarrStore):
         self._kwargs = kwargs
         self._imread = filesequence.imread
         self._commonpath = filesequence.commonpath()
-
-        if dtype is not None:
-            warnings.warn(
-                '<tifffile.ZarrFileSequenceStore> '
-                'the dtype argument is deprecated since 2024.2.12. '
-                'Use chunkdtype',
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            chunkdtype = dtype
-        del dtype
 
         if chunkshape is None or chunkdtype is None:
             chunk = filesequence.imread(filesequence[0], **kwargs)
@@ -14166,7 +14107,6 @@ class FileSequence(Sequence[str]):
         imreadargs: dict[str, Any] | None = None,
         chunkshape: tuple[int, ...] | None = None,
         chunkdtype: DTypeLike | None = None,
-        dtype: DTypeLike | None = None,  # deprecated
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
         out_inplace: bool | None = None,
         ioworkers: int | None = 1,
@@ -14231,17 +14171,6 @@ class FileSequence(Sequence[str]):
             out_inplace = True
         else:
             out_inplace = bool(out_inplace)
-
-        if dtype is not None:
-            warnings.warn(
-                '<tifffile.FileSequence.asarray> '
-                'the dtype argument is deprecated since 2024.2.12. '
-                'Use chunkdtype',
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            chunkdtype = dtype
-        del dtype
 
         if chunkshape is None or chunkdtype is None:
             im = self.imread(files[0], **kwargs)
@@ -18809,7 +18738,7 @@ class _TIFF:
         return [
             (f'{ext.upper()} files', f'*.{ext}')
             for ext in TIFF.FILE_EXTENSIONS
-        ] + [('allfiles', '*')]
+        ] + [('All files', '*')]
 
     @property
     def CZ_LSMINFO(self) -> list[tuple[str, str]]:
@@ -19658,141 +19587,6 @@ class _TIFF:
 
     BUFFERSIZE: int = 268435456
     """Default number of bytes to read or encode in one pass (256 MB)."""
-
-    # make enums available in the TIFF namespace for backwards compatibility.
-    # These type aliases cannot be used as typing hints.
-
-    @property
-    def CHUNKMODE(self) -> type[CHUNKMODE]:
-        """Deprecated alias of :py:class:`CHUNKMODE`."""
-        warnings.warn(
-            '<tifffile.TIFF.CHUNKMODE> is deprecated since 2022.7.28. '
-            'Use tifffile.CHUNKMODE',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return CHUNKMODE
-
-    @property
-    def COMPRESSION(self) -> type[COMPRESSION]:
-        """Deprecated alias of :py:class:`COMPRESSION`."""
-        warnings.warn(
-            '<tifffile.TIFF.COMPRESSION> is deprecated since 2022.7.28. '
-            'Use tifffile.COMPRESSION',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return COMPRESSION
-
-    @property
-    def PREDICTOR(self) -> type[PREDICTOR]:
-        """Deprecated alias of :py:class:`PREDICTOR`."""
-        warnings.warn(
-            '<tifffile.TIFF.PREDICTOR> is deprecated since 2022.7.28. '
-            'Use tifffile.PREDICTOR',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return PREDICTOR
-
-    @property
-    def EXTRASAMPLE(self) -> type[EXTRASAMPLE]:
-        """Deprecated alias of :py:class:`EXTRASAMPLE`."""
-        warnings.warn(
-            '<tifffile.TIFF.EXTRASAMPLE> is deprecated since 2022.7.28. '
-            'Use tifffile.EXTRASAMPLE',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return EXTRASAMPLE
-
-    @property
-    def FILETYPE(self) -> type[FILETYPE]:
-        """Deprecated alias of :py:class:`FILETYPE`."""
-        warnings.warn(
-            '<tifffile.TIFF.FILETYPE> is deprecated since 2022.7.28. '
-            'Use tifffile.FILETYPE',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return FILETYPE
-
-    @property
-    def FILLORDER(self) -> type[FILLORDER]:
-        """Deprecated alias of :py:class:`FILLORDER`."""
-        warnings.warn(
-            '<tifffile.TIFF.FILLORDER> is deprecated since 2022.7.28. '
-            'Use tifffile.FILLORDER',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return FILLORDER
-
-    @property
-    def PHOTOMETRIC(self) -> type[PHOTOMETRIC]:
-        """Deprecated alias of :py:class:`PHOTOMETRIC`."""
-        warnings.warn(
-            '<tifffile.TIFF.PHOTOMETRIC> is deprecated since 2022.7.28. '
-            'Use tifffile.PHOTOMETRIC',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return PHOTOMETRIC
-
-    @property
-    def PLANARCONFIG(self) -> type[PLANARCONFIG]:
-        """Deprecated alias of :py:class:`PLANARCONFIG`."""
-        warnings.warn(
-            '<tifffile.TIFF.PLANARCONFIG> is deprecated since 2022.7.28. '
-            'Use tifffile.PLANARCONFIG',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return PLANARCONFIG
-
-    @property
-    def RESUNIT(self) -> type[RESUNIT]:
-        """Deprecated alias of :py:class:`RESUNIT`."""
-        warnings.warn(
-            '<tifffile.TIFF.RESUNIT> is deprecated since 2022.7.28. '
-            'Use tifffile.RESUNIT',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return RESUNIT
-
-    @property
-    def ORIENTATION(self) -> type[ORIENTATION]:
-        """Deprecated alias of :py:class:`ORIENTATION`."""
-        warnings.warn(
-            '<tifffile.TIFF.ORIENTATION> is deprecated since 2022.7.28. '
-            'Use tifffile.ORIENTATION',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return ORIENTATION
-
-    @property
-    def SAMPLEFORMAT(self) -> type[SAMPLEFORMAT]:
-        """Deprecated alias of :py:class:`SAMPLEFORMAT`."""
-        warnings.warn(
-            '<tifffile.TIFF.SAMPLEFORMAT> is deprecated since 2022.7.28. '
-            'Use tifffile.SAMPLEFORMAT',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return SAMPLEFORMAT
-
-    @property
-    def DATATYPES(self) -> type[DATATYPE]:
-        """Deprecated alias of :py:class:`DATATYPE`."""
-        warnings.warn(
-            '<tifffile.TIFF.DATATYPES> is deprecated since 2022.7.28. '
-            'Use tifffile.DATATYPE',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return DATATYPE
 
 
 TIFF = _TIFF()
@@ -22826,30 +22620,8 @@ def reshape_nd(
     return data_or_shape.reshape(shape)
 
 
-def squeeze_axes(
-    shape: Sequence[int],
-    axes: str,
-    /,
-    skip: str | None = None,
-) -> tuple[tuple[int, ...], str]:
-    """Return shape and axes with length-1 dimensions removed.
-
-    This implementation is deprecated and kept for compatibility with
-    czifile 2019.7.2.
-
-    :meta private:
-
-    """
-    warnings.warn(
-        '<tifffile.squeeze_axes> is deprecated and will change signature',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _squeeze_axes(shape, axes, skip)[:2]
-
-
 @overload
-def _squeeze_axes(
+def squeeze_axes(
     shape: Sequence[int],
     axes: str,
     /,
@@ -22858,7 +22630,7 @@ def _squeeze_axes(
 
 
 @overload
-def _squeeze_axes(
+def squeeze_axes(
     shape: Sequence[int],
     axes: Sequence[str],
     /,
@@ -22866,7 +22638,7 @@ def _squeeze_axes(
 ) -> tuple[tuple[int, ...], Sequence[str], tuple[bool, ...]]: ...
 
 
-def _squeeze_axes(
+def squeeze_axes(
     shape: Sequence[int],
     axes: str | Sequence[str],
     /,
@@ -22894,9 +22666,9 @@ def _squeeze_axes(
             Dimensions were kept (True) or removed (False).
 
     Examples:
-        >>> _squeeze_axes((5, 1, 2, 1, 1), 'TZYXC')
+        >>> squeeze_axes((5, 1, 2, 1, 1), 'TZYXC')
         ((5, 2, 1), 'TYX', (True, False, True, True, False))
-        >>> _squeeze_axes((1,), 'Q')
+        >>> squeeze_axes((1,), 'Q')
         ((1,), 'Q', (True,))
 
     """
@@ -23968,7 +23740,7 @@ def julian_datetime(julianday: int, millisecond: int = 0, /) -> DateTime:
     Convert Julian dates according to MetaMorph.
 
     >>> julian_datetime(2451576, 54362783)
-    datetime.datetime(2000, 2, 2, 15, 6, 2, 783)
+    datetime.datetime(2000, 2, 2, 15, 6, 2, 783000)
 
     """
     if julianday <= 1721423:
@@ -23992,7 +23764,7 @@ def julian_datetime(julianday: int, millisecond: int = 0, /) -> DateTime:
     minute, millisecond = divmod(millisecond, 1000 * 60)
     second, millisecond = divmod(millisecond, 1000)
 
-    return DateTime(year, month, day, hour, minute, second, millisecond)
+    return DateTime(year, month, day, hour, minute, second, millisecond * 1000)
 
 
 def byteorder_isnative(byteorder: str, /) -> bool:
@@ -25550,39 +25322,6 @@ def bytestr(s: str | bytes, /, encoding: str = 'cp1252') -> bytes:
 
 # aliases and deprecated
 TiffReader = TiffFile
-
-
-@final
-class lazyattr:
-    """Attribute whose value is computed on first access.
-
-    Not thread-safe.
-    Deprecated: use `functools.cached_property`.
-
-    """
-
-    __slots__ = ('func', '__dict__')
-
-    def __init__(self, func):
-        self.func = func
-        self.__doc__ = func.__doc__
-        self.__module__ = func.__module__
-        self.__name__ = func.__name__
-        self.__qualname__ = func.__qualname__
-        # self.lock = threading.RLock()
-
-    def __get__(self, instance, owner):
-        # with self.lock:
-        if instance is None:
-            return self
-        try:
-            value = self.func(instance)
-        except AttributeError as exc:
-            raise RuntimeError(exc) from exc
-        if value is NotImplemented:
-            return getattr(super(owner, instance), self.func.__name__)
-        setattr(instance, self.func.__name__, value)
-        return value
 
 
 if __name__ == '__main__':
