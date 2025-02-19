@@ -17,7 +17,7 @@ Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
 Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
 
 Image data can be read as NumPy arrays or Zarr 2 arrays/groups from strips,
-tiles, pages (IFDs), SubIFDs, higher order series, and pyramidal levels.
+tiles, pages (IFDs), SubIFDs, higher-order series, and pyramidal levels.
 
 Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
 compatible files in multi-page, volumetric, pyramidal, memory-mappable,
@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2025.1.10
+:Version: 2025.2.18
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,8 +71,8 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.8, 3.13.1 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.1
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.9, 3.13.2 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.3
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.12.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.0
@@ -81,15 +81,25 @@ This revision was tested with the following requirements and dependencies
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
   (required only for opening Zarr stores; Zarr 3 is not compatible)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2024.12.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.2.0
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
-2025.1.10
+2025.2.18
 
 - Pass 5110 tests.
+- Fix julian_datetime milliseconds (#283).
+- Remove deprecated dtype arguments from imread and FileSequence (breaking).
+- Remove deprecated imsave and TiffWriter.save function/method (breaking).
+- Remove deprecated option to pass multiple values to compression (breaking).
+- Remove deprecated option to pass unit to resolution (breaking).
+- Remove deprecated enums from TIFF namespace (breaking).
+- Remove deprecated lazyattr and squeeze_axes functions (breaking).
+
+2025.1.10
+
 - Improve type hints.
 - Deprecate Python 3.10.
 
@@ -173,7 +183,7 @@ Revisions
 
 - Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
 - Add option not to quote file names in write_fsspec.
-- Allow compress bilevel images with deflate, LZMA, and Zstd.
+- Allow compressing bilevel images with deflate, LZMA, and Zstd.
 
 2024.2.12
 
@@ -199,7 +209,7 @@ TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated.
 
 Tifffile supports a subset of the TIFF6 specification, mainly 8, 16, 32, and
-64-bit integer, 16, 32 and 64-bit float, grayscale and multi-sample images.
+64-bit integer, 16, 32, and 64-bit float, grayscale and multi-sample images.
 Specifically, CCITT and OJPEG compression, chroma subsampling without JPEG
 compression, color space transformations, samples with differing types, or
 IPTC, ICC, and XMP metadata are not implemented.
@@ -219,7 +229,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **OME-TIFF** files store up to 8-dimensional image data in one or multiple
   TIFF or BigTIFF files. The UTF-8 encoded OME-XML metadata found in the
   ImageDescription tag of the first IFD defines the position of TIFF IFDs in
-  the high dimensional image data. Tifffile can read OME-TIFF files (except
+  the high-dimensional image data. Tifffile can read OME-TIFF files (except
   multi-file pyramidal) and write NumPy arrays to single-file OME-TIFF.
 - **Micro-Manager NDTiff** stores multi-dimensional image data in one
   or more classic TIFF files. Metadata contained in a separate NDTiff.index
