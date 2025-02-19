@@ -1,9 +1,19 @@
 Revisions
 ---------
 
-2025.1.10
+2025.2.18
 
 - Pass 5110 tests.
+- Fix julian_datetime milliseconds (#283).
+- Remove deprecated dtype arguments from imread and FileSequence (breaking).
+- Remove deprecated imsave and TiffWriter.save function/method (breaking).
+- Remove deprecated option to pass multiple values to compression (breaking).
+- Remove deprecated option to pass unit to resolution (breaking).
+- Remove deprecated enums from TIFF namespace (breaking).
+- Remove deprecated lazyattr and squeeze_axes functions (breaking).
+
+2025.1.10
+
 - Improve type hints.
 - Deprecate Python 3.10.
 
@@ -87,7 +97,7 @@ Revisions
 
 - Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
 - Add option not to quote file names in write_fsspec.
-- Allow compress bilevel images with deflate, LZMA, and Zstd.
+- Allow compressing bilevel images with deflate, LZMA, and Zstd.
 
 2024.2.12
 
