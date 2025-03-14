@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2025.2.18
+:Version: 2025.3.13
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -75,9 +75,9 @@ This revision was tested with the following requirements and dependencies
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.2.3
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.12.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.0
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.1
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.3.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.3.1
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
   (required only for opening Zarr stores; Zarr 3 is not compatible)
@@ -87,9 +87,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.2.18
+2025.3.13
 
 - Pass 5110 tests.
+- Change bytes2str to decode only up to first NULL character (breaking).
+- Remove stripnull function calls to reduce overhead (#285).
+- Deprecate stripnull function.
+
+2025.2.18
+
 - Fix julian_datetime milliseconds (#283).
 - Remove deprecated dtype arguments from imread and FileSequence (breaking).
 - Remove deprecated imsave and TiffWriter.save function/method (breaking).
