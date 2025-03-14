@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2025.2.18
+:Version: 2025.3.13
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -102,9 +102,9 @@ This revision was tested with the following requirements and dependencies
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.2.3
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.12.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.0
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.1
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.3.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.3.1
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
   (required only for opening Zarr stores; Zarr 3 is not compatible)
@@ -114,9 +114,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.2.18
+2025.3.13
 
 - Pass 5110 tests.
+- Change bytes2str to decode only up to first NULL character (breaking).
+- Remove stripnull function calls to reduce overhead (#285).
+- Deprecate stripnull function.
+
+2025.2.18
+
 - Fix julian_datetime milliseconds (#283).
 - Remove deprecated dtype arguments from imread and FileSequence (breaking).
 - Remove deprecated imsave and TiffWriter.save function/method (breaking).
@@ -815,7 +821,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.2.18'
+__version__ = '2025.3.13'
 
 __all__ = [
     '__version__',
@@ -889,13 +895,14 @@ __all__ = [
     'repeat_nd',
     'reshape_axes',
     'reshape_nd',
-    'stripnull',
     'strptime',
     'transpose_axes',
     'update_kwargs',
     'validate_jhove',
     'xml2dict',
     '_TIFF',  # private
+    # deprecated
+    'stripnull',
 ]
 
 import binascii
@@ -11340,15 +11347,17 @@ class TiffTag:
         if dtype == 2:
             # TIFF ASCII fields can contain multiple strings,
             #   each terminated with a NUL
+            value = value.rstrip(b'\x00')
             try:
-                value = bytes2str(
-                    stripnull(cast(bytes, value), first=False).strip()
-                )
-            except UnicodeDecodeError as exc:
-                logger().warning(
-                    f'<tifffile.TiffTag {code} @{offset}> '
-                    f'coercing invalid ASCII to bytes, due to {exc!r:.128}'
-                )
+                value = value.decode('utf-8').strip()
+            except UnicodeDecodeError:
+                try:
+                    value = value.decode('cp1252').strip()
+                except UnicodeDecodeError as exc:
+                    logger().warning(
+                        f'<tifffile.TiffTag {code} @{offset}> '
+                        f'coercing invalid ASCII to bytes, due to {exc!r:.128}'
+                    )
             return value
 
         if code in TIFF.TAG_ENUM:
@@ -16972,7 +16981,8 @@ class COMPRESSION(enum.IntEnum):
     """Deflate, aka ZLIB."""
     JBIG_BW = 9  # VC5
     JBIG_COLOR = 10
-    JPEG_99 = 99
+    JPEG_99 = 99  # Leaf MOS lossless JPEG
+    IMPACJ = 103  # Pegasus Imaging Corporation DCT
     KODAK_262 = 262
     JPEGXR_NDPI = 22610
     """JPEG XR (Hammatsu NDPI)."""
@@ -16985,10 +16995,10 @@ class COMPRESSION(enum.IntEnum):
     PACKBITS = 32773
     """PackBits, aka Macintosh RLE."""
     THUNDERSCAN = 32809
-    IT8CTPAD = 32895
-    IT8LW = 32896
-    IT8MP = 32897
-    IT8BL = 32898
+    IT8CTPAD = 32895  # TIFF/IT
+    IT8LW = 32896  # TIFF/IT
+    IT8MP = 32897  # TIFF/IT
+    IT8BL = 32898  # TIFF/IT
     PIXARFILM = 32908
     PIXARLOG = 32909
     DEFLATE = 32946
@@ -17008,6 +17018,7 @@ class COMPRESSION(enum.IntEnum):
     JBIG = 34661
     SGILOG = 34676  # LogLuv32
     SGILOG24 = 34677
+    LURADOC = 34692  # LuraWave
     JPEG2000 = 34712
     """JPEG 2000."""
     NIKON_NEF = 34713
@@ -19742,13 +19753,17 @@ def read_tags(
             if process and dtype == 2:
                 # TIFF ASCII fields can contain multiple strings,
                 #   each terminated with a NUL
+                value = value.rstrip(b'\x00')
                 try:
-                    value = bytes2str(stripnull(value, first=False).strip())
-                except UnicodeDecodeError as exc:
-                    logger().warning(
-                        '<tifffile.read_tags> coercing invalid ASCII to bytes '
-                        f'for tag #{code}, due to {exc!r:.128}'
-                    )
+                    value = value.decode('utf-8').strip()
+                except UnicodeDecodeError:
+                    try:
+                        value = value.decode('cp1252').strip()
+                    except UnicodeDecodeError as exc:
+                        logger().warning(
+                            '<tifffile.read_tags> coercing invalid ASCII to '
+                            f'bytes for tag #{code}, due to {exc!r:.128}'
+                        )
             else:
                 if code in TIFF.TAG_ENUM:
                     t = TIFF.TAG_ENUM[code]
@@ -19904,7 +19919,7 @@ def read_json(
     """Read JSON tag value from file."""
     data = fh.read(count)
     try:
-        return json.loads(stripnull(data).decode())
+        return json.loads(bytes2str(data, 'utf-8'))
     except ValueError as exc:
         logger().warning(f'<tifffile.read_json> raised {exc!r:.128}')
     return None
@@ -20117,7 +20132,7 @@ def read_uic_tag(
         size = read_int()
         if 0 <= size < 2**10:
             value = struct.unpack(f'{size}s', fh.read(size))[0][:-1]
-            value = bytes2str(stripnull(value))
+            value = bytes2str(value)
         elif offset:
             value = ''
             logger().warning(
@@ -20134,8 +20149,7 @@ def read_uic_tag(
             size = read_int()
             if 0 <= size < 2**10:
                 string = struct.unpack(f'{size}s', fh.read(size))[0][:-1]
-                string = bytes2str(stripnull(string))
-                value.append(string)
+                value.append(bytes2str(string))
             elif offset:
                 logger().warning(
                     f'<tifffile.read_uic_tag> invalid string in tag {name!r}'
@@ -20265,7 +20279,7 @@ def read_lsm_eventlist(fh: FileHandle, /) -> list[tuple[float, int, str]]:
     events = []
     while count > 0:
         esize, etime, etype = struct.unpack('<IdI', fh.read(16))
-        etext = bytes2str(stripnull(fh.read(esize - 16)))
+        etext = bytes2str(fh.read(esize - 16))
         events.append((etime, etype, etext))
         count -= 1
     return events
@@ -20377,7 +20391,7 @@ def read_lsm_scaninfo(fh: FileHandle, /) -> dict[str, Any]:
         entry, dtype, size = unpack('<III', fh.read(12))
         if dtype == 2:
             # ascii
-            value = bytes2str(stripnull(fh.read(size)))
+            value = bytes2str(fh.read(size))
         elif dtype == 4:
             # long
             value = unpack('<i', fh.read(4))[0]
@@ -20434,7 +20448,7 @@ def read_sis(
     if magic != b'SIS0':
         raise ValueError('invalid OlympusSIS structure')
 
-    result['name'] = bytes2str(stripnull(name))
+    result['name'] = bytes2str(name)
     try:
         result['datetime'] = DateTime(
             1900 + year, month + 1, day, hour, minute
@@ -20455,8 +20469,8 @@ def read_sis(
             result['pixelsizex'] = xcal * m
             result['pixelsizey'] = ycal * m
             result['magnification'] = mag
-            result['cameraname'] = bytes2str(stripnull(camname))
-            result['picturetype'] = bytes2str(stripnull(pictype))
+            result['cameraname'] = bytes2str(camname)
+            result['picturetype'] = bytes2str(pictype)
         elif tagtype == 10:
             # channel data
             continue
@@ -20465,8 +20479,8 @@ def read_sis(
             #  ) = struct.unpack('<h22sId4s32s48s32s', fh.read(152))  # 720
             # result['exposuretime'] = exptime
             # result['emvoltage'] = emv
-            # result['cameraname2'] = bytes2str(stripnull(camname))
-            # result['microscopename'] = bytes2str(stripnull(mictype))
+            # result['cameraname2'] = bytes2str(camname)
+            # result['microscopename'] = bytes2str(mictype)
 
     return result
 
@@ -20480,9 +20494,8 @@ def read_sis_ini(
     /,
 ) -> dict[str, Any]:
     """Read OlympusSIS INI string from file."""
-    inistr = bytes2str(stripnull(fh.read(count)))
     try:
-        return olympusini_metadata(inistr)
+        return olympusini_metadata(bytes2str(fh.read(count)))
     except Exception as exc:
         logger().warning(f'<tifffile.olympusini_metadata> raised {exc!r:.128}')
         return {}
@@ -20513,8 +20526,9 @@ def read_tvips_header(
         # decode utf16 strings
         for name, typestr in header_v2:
             if typestr.startswith('V'):
-                s = header[name].tobytes().decode('utf-16', errors='ignore')
-                result[name] = stripnull(s, null='\x00')
+                result[name] = bytes2str(
+                    header[name].tobytes(), 'utf-16', 'ignore'
+                )
             else:
                 result[name] = header[name].tolist()
         # convert nm to m
@@ -20540,7 +20554,7 @@ def read_fei_metadata(
     """Read FEI SFEG/HELIOS headers from file."""
     result: dict[str, Any] = {}
     section: dict[str, Any] = {}
-    data = bytes2str(stripnull(fh.read(count)))
+    data = bytes2str(fh.read(count))
     for line in data.splitlines():
         line = line.strip()
         if line.startswith('['):
@@ -20572,7 +20586,7 @@ def read_cz_sem(
     result: dict[str, Any] = {'': ()}
     value: Any
     key = None
-    data = bytes2str(stripnull(fh.read(count)))
+    data = bytes2str(fh.read(count))
     for line in data.splitlines():
         if line.isupper():
             key = line.lower()
@@ -20744,7 +20758,7 @@ def read_micromanager_metadata(
                 data = fh.read(summary_length)
                 if len(data) != summary_length:
                     raise ValueError('not enough data')
-                result['Summary'] = json.loads(stripnull(data).decode())
+                result['Summary'] = json.loads(bytes2str(data, 'utf-8'))
         except Exception as exc:
             logger().warning(
                 '<tifffile.read_micromanager_metadata> '
@@ -20776,7 +20790,7 @@ def read_micromanager_metadata(
             data = fh.read(summary_length)
             if len(data) != summary_length:
                 raise ValueError('not enough data')
-            result['Summary'] = json.loads(stripnull(data).decode())
+            result['Summary'] = json.loads(bytes2str(data, 'utf-8'))
         except Exception as exc:
             logger().warning(
                 '<tifffile.read_micromanager_metadata> '
@@ -20816,7 +20830,7 @@ def read_micromanager_metadata(
             data = fh.read(count)
             if len(data) != count:
                 raise ValueError('not enough data')
-            result['DisplaySettings'] = json.loads(stripnull(data).decode())
+            result['DisplaySettings'] = json.loads(bytes2str(data, 'utf-8'))
         except json.decoder.JSONDecodeError:
             pass  # ignore frequent truncated JSON data
         except Exception as exc:
@@ -20841,7 +20855,7 @@ def read_micromanager_metadata(
                 data = fh.read(count)
                 if len(data) != count:
                     raise ValueError('not enough data')
-                result['Comments'] = json.loads(stripnull(data).decode())
+                result['Comments'] = json.loads(bytes2str(data, 'utf-8'))
         elif comments_header == 483729:
             # NDTiff v1
             result['MajorVersion'] = comments_offset
@@ -23453,6 +23467,12 @@ def stripnull(
     'string'
 
     """
+    # TODO: enable deprecation warning
+    # warnings.warn(
+    #     '<tifffile.stripnull is deprecated since 2025.3.18',
+    #     DeprecationWarning,
+    #     stacklevel=2,
+    # )
     if null is None:
         if isinstance(string, bytes):
             null = b'\x00'
@@ -23461,15 +23481,7 @@ def stripnull(
     if first:
         i = string.find(null)  # type: ignore[arg-type]
         return string if i < 0 else string[:i]
-    null = null[0]  # type: ignore[assignment]
-    i = len(string)
-    while i:
-        i -= 1
-        if string[i] != null:
-            break
-    else:
-        i = -1
-    return string[: i + 1]
+    return string.rstrip(null)  # type: ignore[arg-type]
 
 
 def stripascii(string: bytes, /) -> bytes:
@@ -23820,11 +23832,11 @@ def recarray2dict(recarray: numpy.recarray[Any, Any], /) -> dict[str, Any]:
         if value.ndim == 0:
             value = value.tolist()
             if dtype[1] == 'S':
-                value = bytes2str(stripnull(value))
+                value = bytes2str(value)
         elif value.ndim == 1:
             value = value.tolist()
             if dtype[1] == 'S':
-                value = [bytes2str(stripnull(v)) for v in value]
+                value = [bytes2str(v) for v in value]
         result[name] = value
     return result
 
@@ -25306,12 +25318,22 @@ def main() -> int:
 def bytes2str(
     b: bytes, /, encoding: str | None = None, errors: str = 'strict'
 ) -> str:
-    """Return Unicode string from encoded bytes."""
-    if encoding is not None:
-        return b.decode(encoding, errors)
+    """Return Unicode string from encoded bytes up to first NULL character."""
+    if encoding is None or '16' not in encoding:
+        i = b.find(b'\x00')
+        if i >= 0:
+            b = b[:i]
+    else:
+        # utf-16
+        i = b.find(b'\x00\x00')
+        if i >= 0:
+            b = b[: i + i % 2]
+
     try:
-        return b.decode('utf-8', errors)
+        return b.decode('utf-8' if encoding is None else encoding, errors)
     except UnicodeDecodeError:
+        if encoding is not None:
+            raise
         return b.decode('cp1252', errors)
 
 
