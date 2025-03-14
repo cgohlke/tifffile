@@ -1,9 +1,15 @@
 Revisions
 ---------
 
-2025.2.18
+2025.3.13
 
 - Pass 5110 tests.
+- Change bytes2str to decode only up to first NULL character (breaking).
+- Remove stripnull function calls to reduce overhead (#285).
+- Deprecate stripnull function.
+
+2025.2.18
+
 - Fix julian_datetime milliseconds (#283).
 - Remove deprecated dtype arguments from imread and FileSequence (breaking).
 - Remove deprecated imsave and TiffWriter.save function/method (breaking).
