@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.2.18
+:Version: 2025.3.13
 
 """
 
@@ -4756,7 +4756,9 @@ def test_func_natural_sorted():
 
 def test_func_stripnull():
     """Test stripnull function."""
+    # with pytest.warns(DeprecationWarning):
     assert stripnull(b'string\x00') == b'string'
+    assert stripnull(b'string\x00x') == b'string'
     assert stripnull('string\x00', null='\0') == 'string'
     assert (
         stripnull(b'string\x00string\x00\x00', first=False)
@@ -14515,7 +14517,7 @@ def test_read_xarray_page_properties():
 # Test TiffWriter
 
 WRITE_DATA = numpy.arange(3 * 219 * 301).astype(numpy.uint16)
-WRITE_DATA.shape = (3, 219, 301)
+WRITE_DATA.shape = (3, 219, 301)  # type: ignore[assignment]
 
 
 @pytest.mark.skipif(SKIP_EXTENDED, reason=REASON)
@@ -20666,6 +20668,7 @@ def test_dependent_czifile():
     from czifile import CziFile
 
     fname = private_file('czi/pollen.czi')
+    # with pytest.warns(DeprecationWarning):
     with CziFile(fname) as czi:
         assert czi.shape == (1, 1, 104, 365, 364, 1)
         assert czi.axes == 'TCZYX0'
@@ -20683,6 +20686,7 @@ def test_dependent_czi2tif():
     from czifile.czifile import CziFile, czi2tif
 
     fname = private_file('CZI/pollen.czi')
+    # with pytest.warns(DeprecationWarning):
     with CziFile(fname) as czi:
         metadata = czi.metadata()
         data = czi.asarray().squeeze()
@@ -20705,6 +20709,7 @@ def test_dependent_czi2tif_airy():
 
     fname = private_file('CZI/AiryscanSRChannel.czi')
     with TempFileName('depend_czi2tif_airy') as tif:
+        # with pytest.warns(DeprecationWarning):
         czi2tif(fname, tif, verbose=True, truncate=True, bigtiff=False)
         im = memmap(tif)
         assert im.shape == (32, 6, 1680, 1680)
