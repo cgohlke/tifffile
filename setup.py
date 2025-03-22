@@ -87,7 +87,7 @@ if 'sdist' in sys.argv:
 setup(
     name='tifffile',
     version=version,
-    license='BSD',
+    license='BSD-3-Clause',
     description=description,
     long_description=readme,
     long_description_content_type='text/x-rst',
@@ -149,7 +149,6 @@ setup(
     platforms=['any'],
     classifiers=[
         'Development Status :: 4 - Beta',
-        'License :: OSI Approved :: BSD License',
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',
         'Operating System :: OS Independent',
