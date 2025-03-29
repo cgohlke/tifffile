@@ -1,9 +1,13 @@
 Revisions
 ---------
 
-2025.3.13
+2025.3.30
 
 - Pass 5110 tests.
+- Fix for imagecodecs 2025.3.30.
+
+2025.3.13
+
 - Change bytes2str to decode only up to first NULL character (breaking).
 - Remove stripnull function calls to reduce overhead (#285).
 - Deprecate stripnull function.
