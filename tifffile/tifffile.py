@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD 3-Clause
-:Version: 2025.3.13
+:Version: 2025.3.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,14 +99,14 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.9, 3.13.2 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.3
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2024.12.30
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.4
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.1
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.3.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.4
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.5
   (required only for opening Zarr stores; Zarr 3 is not compatible)
 - `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.2.0
   (required only for opening ReferenceFileSystem files)
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.3.13
+2025.3.30
 
 - Pass 5110 tests.
+- Fix for imagecodecs 2025.3.30.
+
+2025.3.13
+
 - Change bytes2str to decode only up to first NULL character (breaking).
 - Remove stripnull function calls to reduce overhead (#285).
 - Deprecate stripnull function.
@@ -821,7 +825,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.3.13'
+__version__ = '2025.3.30'
 
 __all__ = [
     '__version__',
@@ -11189,19 +11193,21 @@ class TiffTag:
 
         """
         tiff = parent.tiff
+        fh = parent.filehandle
 
         if header is None:
             if offset is None:
-                offset = parent.filehandle.tell()
+                offset = fh.tell()
             else:
-                parent.filehandle.seek(offset)
-            header = parent.filehandle.read(tiff.tagsize)
+                fh.seek(offset)
+            header = fh.read(tiff.tagsize)
         elif offset is None:
-            offset = parent.filehandle.tell()
+            offset = fh.tell()
 
         valueoffset = offset + tiff.tagsize - tiff.tagoffsetthreshold
-        code, dtype = struct.unpack(tiff.tagformat1, header[:4])
-        count, value = struct.unpack(tiff.tagformat2, header[4:])
+        code, dtype, count, value = struct.unpack(
+            tiff.tagformat1 + tiff.tagformat2[1:], header
+        )
 
         try:
             valueformat = TIFF.DATA_FORMATS[dtype]
@@ -11225,10 +11231,7 @@ class TiffTag:
                 value = TiffTag._read_value(
                     parent, offset, code, dtype, count, valueoffset
                 )
-            elif (
-                valueoffset < 8
-                or valueoffset + valuesize > parent.filehandle.size
-            ):
+            elif valueoffset < 8 or valueoffset + valuesize > fh.size:
                 msg = (
                     f'<tifffile.TiffTag {code} @{offset}> '
                     f'invalid value offset {valueoffset}'
@@ -13826,9 +13829,9 @@ class ZarrFileSequenceStore(ZarrStore):
 
         if codec_id is not None:
             pass
-        elif self._imread == imread:
+        elif self._imread is imread:
             codec_id = 'tifffile'
-        elif 'imagecodecs.' in self._imread.__module__:
+        elif 'imagecodecs' in self._imread.__module__:
             if (
                 self._imread.__name__ != 'imread'
                 or 'codec' not in self._kwargs
