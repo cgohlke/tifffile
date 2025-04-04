@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools >= 60"]
+
+[project]
+name = "tifffile"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{name = "Christoph Gohlke", email = "cgohlke@cgohlke.com"}]
+requires-python = ">=3.10"
+dynamic = ["version", "description", "readme"]
+
+classifiers=[
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "numpy",
+    # "imagecodecs>=2023.8.12",
+]
+
+[project.optional-dependencies]
+codecs = ["imagecodecs>=2024.12.30"]
+xml = ["defusedxml", "lxml"]
+zarr = ["zarr<3", "fsspec"]
+plot = ["matplotlib"]
+all = [
+    "imagecodecs>=2024.12.30",
+    "matplotlib",
+    "defusedxml",
+    "lxml",
+    "zarr<3",
+    "fsspec",
+]
+test = [
+    "pytest",
+    "imagecodecs",
+    "czifile",
+    "cmapfile",
+    "oiffile",
+    "lfdfiles",
+    "psdtags",
+    "roifile",
+    "lxml",
+    "zarr<3",
+    "dask",
+    "xarray",
+    "fsspec",
+    "defusedxml",
+    "ndtiff",
+]
+
+[project.urls]
+Homepage = "https://www.cgohlke.com"
+"Bug Tracker" = "https://github.com/cgohlke/tifffile/issues"
+"Source Code" = "https://github.com/cgohlke/tifffile"
+
+[project.scripts]
+tifffile = "tifffile:main"
+tiffcomment = "tifffile.tiffcomment:main"
+tiff2fsspec = "tifffile.tiff2fsspec:main"
+lsm2bin = "tifffile.lsm2bin:main"
+
+# [project.entry-points."napari.plugin"]
+# tifffile = "tifffile.napari_tifffile"
+
+[tool.setuptools]
+packages = ["tifffile"]
+package-data = {tifffile = ["py.typed"]}
+platforms = ["any"]
