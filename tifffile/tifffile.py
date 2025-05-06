@@ -22514,6 +22514,11 @@ def zarr_selection(
 
     """
     import zarr
+    if int(zarr.__version__.split('.', maxsplit=1)[0]) > 2:
+        raise ImportError(
+            f"The current version of zarr ({zarr.__version__}) is not supported. "
+            "You must install 'zarr<3'"
+        )
 
     z = zarr.open(store, mode='r')
     try:
