@@ -53,6 +53,8 @@ __all__ = [
     'packints_encode',
     'zlib_decode',
     'zlib_encode',
+    'zstd_decode',
+    'zstd_encode',
 ]
 
 from typing import TYPE_CHECKING, overload
@@ -141,6 +143,46 @@ except ImportError:
     def zlib_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Raise ImportError."""
         import zlib  # noqa
+
+        return b''
+
+
+try:
+    from compression import zstd
+
+    def zstd_encode(
+        data: bytes | NDArray[Any],
+        /,
+        level: int | None = None,
+        *,
+        out: Any = None,
+    ) -> bytes:
+        """Compress ZSTD."""
+        if isinstance(data, numpy.ndarray):
+            data = data.tobytes()
+        return zstd.compress(data, level=level)
+
+    def zstd_decode(data: bytes, /, *, out: Any = None) -> bytes:
+        """Decompress ZSTD."""
+        return zstd.decompress(data)
+
+except ImportError:
+    # Python was built without zstd
+    def zstd_encode(
+        data: bytes | NDArray[Any],
+        /,
+        level: int | None = None,
+        *,
+        out: Any = None,
+    ) -> bytes:
+        """Raise ImportError."""
+        from compression import zstd  # noqa
+
+        return b''
+
+    def zstd_decode(data: bytes, /, *, out: Any = None) -> bytes:
+        """Raise ImportError."""
+        from compression import zstd  # noqa
 
         return b''
 
@@ -307,7 +349,7 @@ def bitorder_decode(
         >>> bitorder_decode(b'\x01\x64')
         b'\x80&'
         >>> data = numpy.array([1, 666], dtype='uint16')
-        >>> bitorder_decode(data)
+        >>> _ = bitorder_decode(data)
         >>> data
         array([  128, 16473], dtype=uint16)
 
