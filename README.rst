@@ -34,8 +34,8 @@ TIFF files and image file sequences, patch TIFF tag values, and parse
 many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
-:License: BSD 3-Clause
-:Version: 2025.3.30
+:License: BSD-3-Clause
+:Version: 2025.5.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,25 +71,32 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.9, 3.13.2 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.4
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.10, 3.13.3 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.1
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.3
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.3.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.5
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.7
   (required only for opening Zarr stores; Zarr 3 is not compatible)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.2.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.3.2
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2025.5.10
+
+- Pass 5111 tests.
+- Raise ValueError when using zarr 3 (#296).
+- Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
+- Remove doctest command line option.
+- Support Python 3.14.
+
 2025.3.30
 
-- Pass 5110 tests.
 - Fix for imagecodecs 2025.3.30.
 
 2025.3.13
@@ -174,39 +181,6 @@ Revisions
 - Do not detect VSI as SIS format.
 - Limit length of logged exception messages.
 - Fix docstring examples not correctly rendered on GitHub (#254, #255).
-
-2024.5.10
-
-- Support reading JPEGXL compression in DNG 1.7.
-- Read invalid TIFF created by IDEAS software.
-
-2024.5.3
-
-- Fix reading incompletely written LSM.
-- Fix reading Philips DP with extra rows of tiles (#253, breaking).
-
-2024.4.24
-
-- Fix compatibility issue with numpy 2 (#252).
-
-2024.4.18
-
-- Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
-- Add option not to quote file names in write_fsspec.
-- Allow compressing bilevel images with deflate, LZMA, and Zstd.
-
-2024.2.12
-
-- Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
-- Add imreadargs parameters passed to FileSequence.imread.
-
-2024.1.30
-
-- Fix compatibility issue with numpy 2 (#238).
-- Enable DeprecationWarning for tuple compression argument.
-- Parse sequence of numbers in xml2dict.
-
-2023.12.9
 
 - …
 
@@ -380,6 +354,7 @@ Write a NumPy array to a single-page RGB TIFF file:
 
 .. code-block:: python
 
+    >>> import numpy
     >>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
     >>> imwrite('temp.tif', data, photometric='rgb')
 
