@@ -61,8 +61,8 @@ TIFF files and image file sequences, patch TIFF tag values, and parse
 many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
-:License: BSD 3-Clause
-:Version: 2025.3.30
+:License: BSD-3-Clause
+:Version: 2025.5.10
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,25 +98,32 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.9, 3.13.2 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.4
+- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.10, 3.13.3 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.1
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.3
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 5.3.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.5
+- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.7
   (required only for opening Zarr stores; Zarr 3 is not compatible)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.2.0
+- `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.3.2
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2025.5.10
+
+- Pass 5111 tests.
+- Raise ValueError when using zarr 3 (#296).
+- Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
+- Remove doctest command line option.
+- Support Python 3.14.
+
 2025.3.30
 
-- Pass 5110 tests.
 - Fix for imagecodecs 2025.3.30.
 
 2025.3.13
@@ -201,39 +208,6 @@ Revisions
 - Do not detect VSI as SIS format.
 - Limit length of logged exception messages.
 - Fix docstring examples not correctly rendered on GitHub (#254, #255).
-
-2024.5.10
-
-- Support reading JPEGXL compression in DNG 1.7.
-- Read invalid TIFF created by IDEAS software.
-
-2024.5.3
-
-- Fix reading incompletely written LSM.
-- Fix reading Philips DP with extra rows of tiles (#253, breaking).
-
-2024.4.24
-
-- Fix compatibility issue with numpy 2 (#252).
-
-2024.4.18
-
-- Fix write_fsspec when last row of tiles is missing in Philips slide (#249).
-- Add option not to quote file names in write_fsspec.
-- Allow compressing bilevel images with deflate, LZMA, and Zstd.
-
-2024.2.12
-
-- Deprecate dtype, add chunkdtype parameter in FileSequence.asarray.
-- Add imreadargs parameters passed to FileSequence.imread.
-
-2024.1.30
-
-- Fix compatibility issue with numpy 2 (#238).
-- Enable DeprecationWarning for tuple compression argument.
-- Parse sequence of numbers in xml2dict.
-
-2023.12.9
 
 - …
 
@@ -405,6 +379,7 @@ Examples
 
 Write a NumPy array to a single-page RGB TIFF file:
 
+>>> import numpy
 >>> data = numpy.random.randint(0, 255, (256, 256, 3), 'uint8')
 >>> imwrite('temp.tif', data, photometric='rgb')
 
@@ -825,7 +800,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.3.30'
+__version__ = '2025.5.10'
 
 __all__ = [
     '__version__',
@@ -6282,7 +6257,7 @@ class TiffFile:
             # add virtual TiffFrames to pages list
             page_count = 0
             offsets: list[int]
-            offsets = indexmap[:, 4].tolist()  # type: ignore[assignment]
+            offsets = indexmap[:, 4].tolist()
             indices = numpy.ravel_multi_index(
                 # type: ignore[call-overload]
                 indexmap[:, indexmap_order].T,
@@ -7982,9 +7957,7 @@ class TiffPage:
                 databytecounts = numpy.diff(
                     mcustarts, append=self.databytecounts[0]
                 )
-                self.databytecounts = tuple(
-                    databytecounts.tolist()  # type: ignore[arg-type]
-                )
+                self.databytecounts = tuple(databytecounts.tolist())
                 mcustarts += self.dataoffsets[0]
                 self.dataoffsets = tuple(mcustarts.tolist())
 
@@ -15723,6 +15696,7 @@ class Timer:
             The default is the current performance counter.
 
     Examples:
+        >>> import time
         >>> with Timer('sleep:'):
         ...     time.sleep(1.05)
         sleep: 1.0... s
@@ -16761,10 +16735,22 @@ class CompressionCodec(Mapping[int, Callable[..., object]]):
                 else:
                     codec = imagecodecs.jetraw_decode
             elif key in {50000, 34926}:  # 34926 deprecated
-                if self._encode:
-                    codec = imagecodecs.zstd_encode
+                if hasattr(imagecodecs, 'ZSTD') and imagecodecs.ZSTD.available:
+                    if self._encode:
+                        codec = imagecodecs.zstd_encode
+                    else:
+                        codec = imagecodecs.zstd_decode
                 else:
-                    codec = imagecodecs.zstd_decode
+                    # imagecodecs built without zstd
+                    try:
+                        from . import _imagecodecs
+                    except ImportError:
+                        import _imagecodecs  # type: ignore[no-redef]
+
+                    if self._encode:
+                        codec = _imagecodecs.zstd_encode
+                    else:
+                        codec = _imagecodecs.zstd_decode
             elif key in {50001, 34927}:  # 34927 deprecated
                 if self._encode:
                     codec = imagecodecs.webp_encode
@@ -22139,6 +22125,7 @@ def apply_colormap(
             Return contiguous array.
 
     Examples:
+        >>> import numpy
         >>> im = numpy.arange(256, dtype='uint8')
         >>> colormap = numpy.vstack([im, im, im]).astype('uint16') * 256
         >>> apply_colormap(im, colormap)[-1]
@@ -22308,7 +22295,7 @@ def parse_filenames(
         )
 
     indices_list: list[list[int]]
-    indices_list = indices_array.tolist()  # type: ignore[assignment]
+    indices_list = indices_array.tolist()
     indices = [tuple(index) for index in indices_list]
 
     return dims, shape, indices, files
@@ -22515,6 +22502,14 @@ def zarr_selection(
     """
     import zarr
 
+    try:
+        import zarr.hierarchy
+        import zarr.indexing
+    except ImportError as exc:
+        raise ValueError(
+            f'zarr {zarr.__version__} >= 3 is not supported'
+        ) from exc
+
     z = zarr.open(store, mode='r')
     try:
         if isinstance(z, zarr.hierarchy.Group):
@@ -22613,6 +22608,7 @@ def reshape_nd(
 
     Prepend 1s to image shape as necessary.
 
+    >>> import numpy
     >>> reshape_nd(numpy.empty(0), 1).shape
     (0,)
     >>> reshape_nd(numpy.empty(1), 2).shape
@@ -22739,6 +22735,7 @@ def transpose_axes(
         A view of the input array is returned if possible.
 
     Examples:
+        >>> import numpy
         >>> transpose_axes(
         ...     numpy.zeros((2, 3, 4, 5)), 'TYXC', asaxes='CTZYX'
         ... ).shape
@@ -23957,6 +23954,7 @@ def hexdump(
             The default is '...'.
 
     Examples:
+        >>> import binascii
         >>> hexdump(binascii.unhexlify('49492a00080000000e00fe0004000100'))
         '49 49 2a 00 08 00 00 00 0e 00 fe 00 04 00 01 00 II*.............'
 
@@ -24378,8 +24376,8 @@ def kwargs_notnone(**kwargs: Any) -> dict[str, Any]:
 
 
 def logger() -> logging.Logger:
-    """Return logging.getLogger('tifffile')."""
-    return logging.getLogger(__name__.replace('tifffile.tifffile', 'tifffile'))
+    """Return logger for tifffile module."""
+    return logging.getLogger('tifffile')
 
 
 def validate_jhove(
@@ -25111,28 +25109,12 @@ def main() -> int:
         default=False,
         help='raise exception on failures',
     )
-    opt(
-        '--doctest',
-        dest='doctest',
-        action='store_true',
-        default=False,
-        help='run docstring examples',
-    )
     opt('-v', '--detail', dest='detail', type='int', default=2)
     opt('-q', '--quiet', dest='quiet', action='store_true')
 
     settings, path_list = parser.parse_args()
     path = ' '.join(path_list)
 
-    if settings.doctest:
-        import doctest
-
-        try:
-            import tifffile.tifffile as m
-        except ImportError:
-            m = None  # type: ignore[assignment]
-        doctest.testmod(m, optionflags=doctest.ELLIPSIS)
-        return 0
     if not path:
         path = askopenfilename(
             title='Select a TIFF file', filetypes=TIFF.FILEOPEN_FILTER
