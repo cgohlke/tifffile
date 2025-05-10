@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.3.30
+:Version: 2025.5.10
 
 """
 
@@ -277,6 +277,8 @@ else:
     try:
         import fsspec  # type: ignore[no-redef]
         import zarr  # type: ignore[no-redef]
+        import zarr.hierarchy  # type: ignore[no-redef]
+        import zarr.indexing  # type: ignore[no-redef]
     except ImportError:
         zarr = None
         fsspec = None
@@ -1624,7 +1626,7 @@ def test_issue_zarr_store_closed(chunkmode):
     assert_array_equal(chunk, data)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR or SKIP_CODECS, reason=REASON)
 @pytest.mark.parametrize('chunkmode', [0, 2])
 def test_issue_zarr_store_multifile_closed(chunkmode):
     """Test Zarr store can read from closed files."""
@@ -2960,7 +2962,7 @@ def test_issue_nodata_invalid(caplog):
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_CODECS or SKIP_PRIVATE, reason=REASON)
 def test_issue_tag_readfunc(caplog):
     """Test allow tag reader functions to fail."""
     # file has an OlympusSIS tag, which is pointing to invalid structure
@@ -5726,6 +5728,24 @@ def test_func_zlib_lzma_codecs(codec, length):
     else:
         data = b''
         assert decode(encode(data)) == data
+
+
+@pytest.mark.parametrize('length', [0, 2, 31 * 33 * 3])
+def test_func_zstd_codecs(length):
+    """Test zstd codec functions."""
+    try:
+        from compression import zstd  # Python >= 3.14
+    except ImportError:
+        pytest.skip('zstd codec not available')
+
+    from tifffile._imagecodecs import zstd_decode, zstd_encode
+
+    if length:
+        data = numpy.random.randint(255, size=length, dtype=numpy.uint8)
+        assert zstd_decode(zstd_encode(data)) == data.tobytes()
+    else:
+        data = b''
+        assert zstd_decode(zstd_encode(data)) == data
 
 
 PACKBITS_DATA = [
@@ -13004,7 +13024,7 @@ def test_read_indica():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_CODECS or SKIP_PRIVATE, reason=REASON)
 def test_read_avs():
     """Test read Argos AVS pyramid."""
     # https://github.com/openslide/openslide/issues/614
@@ -14335,7 +14355,7 @@ def test_read_selection_out(out):
     assert_array_equal(image, expected)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS or SKIP_ZARR, reason=REASON)
 def test_read_selection_filesequence():
     """Test read selection from file sequence via imread."""
     fname = private_files('TiffSequence/*.tif')
@@ -19607,7 +19627,7 @@ def test_write_ome_enable():
 def test_write_ome_methods(method):
     """Test re-write OME-TIFF."""
     # 4D (7 time points, 5 focal planes)
-    if method == 'dask' and SKIP_DASK:
+    if method == 'dask' and (SKIP_DASK or SKIP_ZARR):
         pytest.skip('skip dask')
 
     fname = public_file('OME/bioformats-artificial/4D-series.ome.tiff')
