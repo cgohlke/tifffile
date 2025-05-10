@@ -1,9 +1,16 @@
 Revisions
 ---------
 
+2025.5.10
+
+- Pass 5111 tests.
+- Raise ValueError when using zarr 3 (#296).
+- Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
+- Remove doctest command line option.
+- Support Python 3.14.
+
 2025.3.30
 
-- Pass 5110 tests.
 - Fix for imagecodecs 2025.3.30.
 
 2025.3.13
