@@ -32,9 +32,9 @@ members = [
     'TiffPageSeries',
     'TiffSequence',
     'FileSequence',
-    'ZarrStore',
-    'ZarrTiffStore',
-    'ZarrFileSequenceStore',
+    'zarr.ZarrStore',
+    'zarr.ZarrTiffStore',
+    'zarr.ZarrFileSequenceStore',
     # Constants
     'DATATYPE',
     'SAMPLEFORMAT',
@@ -80,7 +80,14 @@ members = [
 
 title = f'tifffile {tifffile.__version__}'
 underline = '=' * len(title)
-memberlist = '\n   '.join(m.replace('.', '').lower() for m in members if m)
+members_ = []
+for name in members:
+    if not name:
+        continue
+    if '.' in name[1:]:
+        name = name.rsplit('.', 1)[-1]
+    members_.append(name.replace('.', '').lower())
+memberlist = '\n   '.join(members_)
 
 with open(here + '/index.rst', 'w') as fh:
     fh.write(
@@ -166,27 +173,27 @@ TIFF
     )
 
 
-automodule = """.. currentmodule:: tifffile
+automodule = """.. currentmodule:: {module}
 
 {name}
 {size}
 
-.. automodule:: tifffile.{name}
+.. automodule:: {module}.{name}
     :members:
 
 """
 
-autoclass = """.. currentmodule:: tifffile
+autoclass = """.. currentmodule:: {module}
 
 {name}
 {size}
 
-.. autoclass:: tifffile.{name}
+.. autoclass:: {module}.{name}
     :members:
 
 """
 
-automethod = """.. currentmodule:: tifffile
+automethod = """.. currentmodule:: {module}
 
 {name}
 {size}
@@ -199,6 +206,12 @@ for name in members:
     if not name or name == 'TIFF':
         continue
 
+    if '.' in name[1:]:
+        module, name = name.rsplit('.', 1)
+        module = f'tifffile.{module}'
+    else:
+        module = 'tifffile'
+
     if name[0] == '.':
         template = automodule
         name = name[1:]
@@ -209,7 +222,7 @@ for name in members:
     size = '=' * len(name)
 
     with open(f'{here}/{name.lower()}.rst', 'w') as fh:
-        fh.write(template.format(name=name, size=size))
+        fh.write(template.format(module=module, name=name, size=size))
 
 main(['-b', 'html', here, here + '/html'])
 
