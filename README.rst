@@ -16,7 +16,7 @@ Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
 Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
 Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
 
-Image data can be read as NumPy arrays or Zarr 2 arrays/groups from strips,
+Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher-order series, and pyramidal levels.
 
 Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.5.10
+:Version: 2025.5.21
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,25 +71,31 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.10.11, 3.11.9, 3.12.10, 3.13.3 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.5
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.3 3.14.0b1 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.6
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.3
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.3.1
+- `Lxml <https://pypi.org/project/lxml/>`_ 5.4.0
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 2.18.7
-  (required only for opening Zarr stores; Zarr 3 is not compatible)
-- `Fsspec <https://pypi.org/project/fsspec/>`_ 2025.3.2
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.0.8
+  (required only for using Zarr stores; Zarr 2 is not compatible)
+- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.8
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2025.5.21
+
+- Pass 5109 tests.
+- Move Zarr stores to tifffile.zarr namespace (breaking).
+- Require Zarr 3 for Zarr stores and remove support for Zarr 2 (breaking).
+- Drop support for Python 3.10.
+
 2025.5.10
 
-- Pass 5111 tests.
 - Raise ValueError when using zarr 3 (#296).
 - Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
 - Remove doctest command line option.
@@ -715,7 +721,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
     ...             )
     ...
 
-Use Zarr 2 to read parts of the tiled, pyramidal images in the TIFF file:
+Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 
 .. code-block:: python
 
@@ -723,24 +729,24 @@ Use Zarr 2 to read parts of the tiled, pyramidal images in the TIFF file:
     >>> store = imread('temp.ome.tif', aszarr=True)
     >>> z = zarr.open(store, mode='r')
     >>> z
-    <zarr.hierarchy.Group '/' read-only>
-    >>> z[0]  # base layer
-    <zarr.core.Array '/0' (8, 2, 512, 512, 3) uint8 read-only>
-    >>> z[0][2, 0, 128:384, 256:].shape  # read a tile from the base layer
+    <Group ZarrTiffStore>
+    >>> z['0']  # base layer
+     <Array ZarrTiffStore/0 shape=(8, 2, 512, 512, 3) dtype=uint8>
+    >>> z['0'][2, 0, 128:384, 256:].shape  # read a tile from the base layer
     (256, 256, 3)
     >>> store.close()
 
-Load the base layer from the Zarr 2 store as a dask array:
+Load the base layer from the Zarr store as a dask array:
 
 .. code-block:: python
 
     >>> import dask.array
     >>> store = imread('temp.ome.tif', aszarr=True)
-    >>> dask.array.from_zarr(store, 0)
+    >>> dask.array.from_zarr(store, '0', zarr_format=2)
     dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
     >>> store.close()
 
-Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
+Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
 .. code-block:: python
 
@@ -752,18 +758,15 @@ Open the fsspec ReferenceFileSystem as a Zarr group:
 
 .. code-block:: python
 
-    >>> import fsspec
+    >>> from kerchunk.utils import refs_as_store
     >>> import imagecodecs.numcodecs
-    >>> imagecodecs.numcodecs.register_codecs()
-    >>> mapper = fsspec.get_mapper(
-    ...     'reference://', fo='temp.ome.tif.json', target_protocol='file'
-    ... )
-    >>> z = zarr.open(mapper, mode='r')
+    >>> imagecodecs.numcodecs.register_codecs(verbose=False)
+    >>> z = zarr.open(refs_as_store('temp.ome.tif.json'), mode='r')
     >>> z
-    <zarr.hierarchy.Group '/' read-only>
+    <Group <FsspecStore(ReferenceFileSystem, /)>>
 
 Create an OME-TIFF file containing an empty, tiled image series and write
-to it via the Zarr 2 interface (note: this does not work with compression):
+to it via the Zarr interface (note: this does not work with compression):
 
 .. code-block:: python
 
@@ -778,7 +781,7 @@ to it via the Zarr 2 interface (note: this does not work with compression):
     >>> store = imread('temp2.ome.tif', mode='r+', aszarr=True)
     >>> z = zarr.open(store, mode='r+')
     >>> z
-    <zarr.core.Array (8, 800, 600) uint16>
+    <Array ZarrTiffStore shape=(8, 800, 600) dtype=uint16>
     >>> z[3, 100:200, 200:300:2] = 1024
     >>> store.close()
 
@@ -798,7 +801,7 @@ threads:
     dtype('float64')
 
 Read an image stack from a series of TIFF files with a file name pattern
-as NumPy or Zarr 2 arrays:
+as NumPy or Zarr arrays:
 
 .. code-block:: python
 
@@ -812,28 +815,25 @@ as NumPy or Zarr 2 arrays:
     (1, 2, 64, 64)
     >>> store = image_sequence.aszarr()
     >>> zarr.open(store, mode='r')
-    <zarr.core.Array (1, 2, 64, 64) float64 read-only>
+    <Array ZarrFileSequenceStore shape=(1, 2, 64, 64) dtype=float64>
     >>> image_sequence.close()
 
-Write the Zarr 2 store to a fsspec ReferenceFileSystem in JSON format:
+Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
 .. code-block:: python
 
     >>> store = image_sequence.aszarr()
     >>> store.write_fsspec('temp.json', url='file://')
 
-Open the fsspec ReferenceFileSystem as a Zarr 2 array:
+Open the fsspec ReferenceFileSystem as a Zarr array:
 
 .. code-block:: python
 
-    >>> import fsspec
+    >>> from kerchunk.utils import refs_as_store
     >>> import tifffile.numcodecs
     >>> tifffile.numcodecs.register_codec()
-    >>> mapper = fsspec.get_mapper(
-    ...     'reference://', fo='temp.json', target_protocol='file'
-    ... )
-    >>> zarr.open(mapper, mode='r')
-    <zarr.core.Array (1, 2, 64, 64) float64 read-only>
+    >>> zarr.open(refs_as_store('temp.json'), mode='r')
+    <Array <FsspecStore(ReferenceFileSystem, /)> shape=(1, 2, 64, 64) ...>
 
 Inspect the TIFF file from the command line::
 
