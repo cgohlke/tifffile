@@ -37,12 +37,13 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.5.10
+:Version: 2025.5.21
 
 """
 
 from __future__ import annotations
 
+import asyncio
 import binascii
 import datetime
 import glob
@@ -144,9 +145,6 @@ from tifffile import (  # noqa: F401
     TiffTags,
     TiffWriter,
     Timer,
-    ZarrFileSequenceStore,
-    ZarrStore,
-    ZarrTiffStore,
 )
 from tifffile.tifffile import (  # noqa: F401
     apply_colormap,
@@ -207,6 +205,11 @@ from tifffile.tifffile import (  # noqa: F401
     unpack_rgb,
     validate_jhove,
     xml2dict,
+)
+from tifffile.zarr import (
+    ZarrFileSequenceStore,
+    ZarrStore,
+    ZarrTiffStore,
 )
 
 HERE = os.path.dirname(__file__)
@@ -277,8 +280,7 @@ else:
     try:
         import fsspec  # type: ignore[no-redef]
         import zarr  # type: ignore[no-redef]
-        import zarr.hierarchy  # type: ignore[no-redef]
-        import zarr.indexing  # type: ignore[no-redef]
+        from kerchunk.utils import refs_as_store
     except ImportError:
         zarr = None
         fsspec = None
@@ -361,6 +363,19 @@ def random_data(dtype: DTypeLike, shape: tuple[int, ...]) -> NDArray[Any]:
     data = numpy.random.rand(*shape) * 255
     data = data.astype(dtype)
     return data
+
+
+def assert_fsspec(url: str, data: NDArray[Any]) -> None:
+    """Assert fsspec ReferenceFileSystem from local http server."""
+    assert zarr is not None
+    zobj = zarr.open(refs_as_store(url), zarr_format=2)
+
+    if isinstance(zobj, zarr.Group):
+        assert_array_equal(zobj['0'][:], data)
+        assert_array_equal(zobj['1'][:], data[:, ::2, ::2])
+        assert_array_equal(zobj['2'][:], data[:, ::4, ::4])
+    else:
+        assert_array_equal(zobj[:], data)
 
 
 def assert_file_flags(tiff_file: TiffFile) -> None:
@@ -456,7 +471,7 @@ def assert_aszarr_method(
     with obj.aszarr(chunkmode=chunkmode, **kwargs) as store:
         data = zarr.open(store, mode='r')
         if isinstance(data, zarr.Group):
-            data = data[0]
+            data = data['0']
         assert_array_equal(data, image)
         del data
 
@@ -1880,13 +1895,7 @@ def test_issue_webp_fsspec():
             level=0,
             version=0,
         )
-        mapper = fsspec.get_mapper(
-            'reference://',
-            fo=jsonfile,
-            target_protocol='file',
-            remote_protocol='file',
-        )
-        zobj = zarr.open(mapper, mode='r')
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
         assert_array_equal(zobj[:], data)
 
 
@@ -1938,17 +1947,10 @@ def test_issue_xarray():
                     )
                     store.close()
 
-                mapper = fsspec.get_mapper(
-                    'reference://',
-                    fo=jsonfile,
-                    target_protocol='file',
-                    remote_protocol='file',
-                )
-                dataset = xarray.open_dataset(
-                    mapper,
-                    engine='zarr',
+                dataset = xarray.open_zarr(
+                    refs_as_store(jsonfile),
+                    consolidated=False,
                     mask_and_scale=False,
-                    backend_kwargs={'consolidated': False},
                 )
 
                 if squeeze:
@@ -1960,7 +1962,6 @@ def test_issue_xarray():
 
                 assert_array_equal(data, numpy.squeeze(dataset['x'][:]))
                 del dataset
-                del mapper
 
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
@@ -2009,18 +2010,12 @@ def test_issue_xarray_multiscale():
                     )
                     store.close()
 
-                mapper = fsspec.get_mapper(
-                    'reference://',
-                    fo=jsonfile,
-                    target_protocol='file',
-                    remote_protocol='file',
-                )
-                dataset = xarray.open_dataset(
-                    mapper,
-                    engine='zarr',
-                    mask_and_scale=False,
-                    backend_kwargs={'consolidated': False},
-                )
+                    dataset = xarray.open_zarr(
+                        refs_as_store(jsonfile),
+                        consolidated=False,
+                        mask_and_scale=False,
+                    )
+
                 if squeeze:
                     assert dataset['0'].shape == (8, 3, 128, 128)
                     assert dataset['0'].dims == ('T', 'S', 'Y', 'X')
@@ -2044,7 +2039,6 @@ def test_issue_xarray_multiscale():
                     data[:, :, ::4, ::4], numpy.squeeze(dataset['2'][:])
                 )
                 del dataset
-                del mapper
 
 
 @pytest.mark.parametrize('resolution', [(1, 0), (0, 0)])
@@ -13201,13 +13195,7 @@ def test_read_philips_issue249():
         url = os.path.dirname(fname).replace('\\', '/')
         with TempFileName('issue_philips_fsspec', ext='.json') as jsonfile:
             page.aszarr().write_fsspec(jsonfile, url, version=0)
-            mapper = fsspec.get_mapper(
-                'reference://',
-                fo=jsonfile,
-                target_protocol='file',
-                remote_protocol='file',
-            )
-            zobj = zarr.open(mapper, mode='r')
+            zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
             assert_array_equal(zobj[:], image)
 
 
@@ -13681,8 +13669,9 @@ def test_read_mmstack_missing(caplog):
         # assert zarr
         if not SKIP_ZARR and zarr is not None:
             with series.aszarr(fillvalue=100) as store:
-                assert '1.1.0.0' in store
-                assert '62.1.0.0' not in store  # missing page
+                assert asyncio.run(store.exists('1.1.0.0'))
+                # missing page
+                assert not asyncio.run(store.exists('62.1.0.0'))
                 z = zarr.open(store, mode='r')
                 assert z[62, 1, 0, 0] == 100
                 assert_array_equal(data[:62], z[:62])
@@ -14074,6 +14063,7 @@ def test_read_zarr():
 
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
+@pytest.mark.xfail(reason='LRUStoreCache not available in Zarr 3')
 def test_read_zarr_lrucache():
     """Test read TIFF with zarr LRUStoreCache."""
     # fails with zarr 2.15/16
@@ -14120,7 +14110,7 @@ def test_read_zarr_multiscales(multiscales):
             z = zarr.open(store, mode='r')
             if multiscales:
                 assert isinstance(z, zarr.Group)
-                assert_array_equal(z[0][:], image)
+                assert_array_equal(z['0'][:], image)
             else:
                 assert isinstance(z, zarr.Array)
                 assert_array_equal(z[:], image)
@@ -14129,7 +14119,7 @@ def test_read_zarr_multiscales(multiscales):
             z = zarr.open(store, mode='r')
             if multiscales or multiscales is None:
                 assert isinstance(z, zarr.Group)
-                assert_array_equal(z[0][0, 0, 1], image)
+                assert_array_equal(z['0'][0, 0, 1], image)
             else:
                 assert isinstance(z, zarr.Array)
                 assert_array_equal(z[0, 0, 1], image)
@@ -18801,9 +18791,9 @@ def test_write_zarr():
         with TiffFile(fname, mode='r+') as tif:
             with tif.series[0].aszarr() as store:
                 z = zarr.open(store, mode='r+')
-                z[0][2, 2:3, 100:111, 100:200] = 100
-                z[1][3, 3:4, 100:111, 100:] = 101
-                z[2][4, 4:5, 33:40, 41:] = 102
+                z['0'][2, 2:3, 100:111, 100:200] = 100
+                z['1'][3, 3:4, 100:111, 100:] = 101
+                z['2'][4, 4:5, 33:40, 41:] = 102
             assert tif.asarray(series=0)[2, 2, 100, 199] == 100
             assert tif.asarray(series=0, level=1)[3, 3, 100, 121] == 101
             assert tif.asarray(series=0, level=2)[4, 4, 33, 41] == 102
@@ -18821,25 +18811,10 @@ def test_write_zarr():
             assert tif.series[2].asarray()[251, 243, 1] == 105
 
         with TiffFile(fname, mode='r+') as tif:
+            # compressed series cannot be written to
             with tif.series[3].aszarr() as store:
-                z = zarr.open(store, mode='r+')
-                with pytest.raises(PermissionError):
-                    z[100, 20] = 106
-
-
-@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
-def assert_fsspec(url, data, target_protocol='http'):
-    """Assert fsspec ReferenceFileSystem from local http server."""
-    mapper = fsspec.get_mapper(
-        'reference://', fo=url, target_protocol=target_protocol
-    )
-    zobj = zarr.open(mapper, mode='r')
-    if isinstance(zobj, zarr.Group):
-        assert_array_equal(zobj[0][:], data)
-        assert_array_equal(zobj[1][:], data[:, ::2, ::2])
-        assert_array_equal(zobj[2][:], data[:, ::4, ::4])
-    else:
-        assert_array_equal(zobj[:], data)
+                with pytest.raises(ValueError):
+                    z = zarr.open(store, mode='r+')
 
 
 @pytest.mark.skipif(
@@ -18988,13 +18963,7 @@ def test_write_fsspec_multifile(version, chunkmode):
                     store.write_fsspec(
                         fh, url=url, version=version, templatename='f'
                     )
-        mapper = fsspec.get_mapper(
-            'reference://',
-            fo=jsonfile,
-            target_protocol='file',
-            remote_protocol='file',
-        )
-        zobj = zarr.open(mapper, mode='r')
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
         assert_array_equal(zobj[:], data)
 
 
@@ -19023,23 +18992,22 @@ def test_write_fsspec_sequence(version):
     data = tifs.asarray()
     with TempFileName(
         'write_fsspec_sequence', ext=f'.v{version}.json'
-    ) as fname:
-        with tifs.aszarr(codec=imagecodecs.tiff_decode) as store:
+    ) as jsonfile:
+        with tifs.aszarr(
+            imreadargs={'codec': imagecodecs.tiff_decode}
+        ) as store:
             store.write_fsspec(
-                fname,
+                jsonfile,
                 'file:///' + store._commonpath.replace('\\', '/'),
                 version=version,
             )
-        mapper = fsspec.get_mapper(
-            'reference://', fo=fname, target_protocol='file'
-        )
 
         from imagecodecs.numcodecs import register_codecs
 
-        register_codecs()
+        register_codecs(verbose=False)
 
-        za = zarr.open(mapper, mode='r')
-        assert_array_equal(za[:], data)
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
+        assert_array_equal(zobj[:], data)
 
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
@@ -19057,13 +19025,7 @@ def test_write_tiff2fsspec():
             level=1,
             version=0,
         )
-        mapper = fsspec.get_mapper(
-            'reference://',
-            fo=jsonfile,
-            target_protocol='file',
-            remote_protocol='file',
-        )
-        zobj = zarr.open(mapper, mode='r')
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
         assert_array_equal(zobj[:], data)
 
         with pytest.raises(ValueError):
@@ -19101,6 +19063,7 @@ def test_write_numcodecs():
             chunks=(100, 100, 3),
             dtype=numpy.uint16,
             compressor=compressor,
+            zarr_format=2,
         )
         z[:] = data
         assert_array_equal(z[:], data)
@@ -20762,6 +20725,7 @@ def test_dependent_oiffile():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+@pytest.mark.xfail(reason='not compatible with Zarr 3')
 def test_dependent_tiffslide():
     """Test tiffslide package."""
     # https://github.com/bayer-science-for-a-better-life/tiffslide
@@ -21007,7 +20971,7 @@ def test_dependent_pims():
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_ZARR, reason=REASON)
 def test_dependent_kerchunk():
     """Test kerchunk package."""
-    # https://github.com/fsspec/kerchunk/blob/main/kerchunk/tests/test_tiff.py
+    # https://github.com/fsspec/kerchunk/blob/main/tests/test_tiff.py
     try:
         import kerchunk.tiff
     except ImportError:
@@ -21016,9 +20980,8 @@ def test_dependent_kerchunk():
     fname = private_file('kerchunk/lcmap_tiny_cog_2019.tif')
     fname = pathlib.Path(fname).as_uri()
 
-    out = kerchunk.tiff.tiff_to_zarr(fname)
-    m = fsspec.get_mapper('reference://', fo=out)
-    z = zarr.open(m)
+    store = refs_as_store(kerchunk.tiff.tiff_to_zarr(fname))
+    z = zarr.open(store, zarr_format=2)
     assert list(z) == ['0', '1', '2']
     assert z.attrs['multiscales'] == [
         {
@@ -21035,8 +20998,8 @@ def test_dependent_kerchunk():
     fname = pathlib.Path(fname).as_uri()
 
     out = kerchunk.tiff.tiff_to_zarr(fname)
-    m = fsspec.get_mapper('reference://', fo=out)
-    z = zarr.open(m)
+    store = refs_as_store(out)
+    z = zarr.open(store, zarr_format=2)
 
 
 ###############################################################################
