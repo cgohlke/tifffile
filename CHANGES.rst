@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2025.5.21
+
+- Pass 5109 tests.
+- Move Zarr stores to tifffile.zarr namespace (breaking).
+- Require Zarr 3 for Zarr stores and remove support for Zarr 2 (breaking).
+- Drop support for Python 3.10.
+
 2025.5.10
 
-- Pass 5111 tests.
 - Raise ValueError when using zarr 3 (#296).
 - Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
 - Remove doctest command line option.
