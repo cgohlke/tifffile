@@ -1,12 +1,12 @@
 # tifffile/examples/issues125.py
 
-"""Create a Fsspec ReferenceFileSystem for a sequence of TIFF files on S3
+"""Create a Fsspec ReferenceFileSystem for a sequence of TIFF files on S3.
 
 This Python script uses the Tifffile and Fsspec libraries to create a
 multiscale ReferenceFileSystem JSON file for a sequence of cloud optimized
 GeoTIFF (COG) files stored on S3. The tiles of the COG files are used as
 chunks. No additional Numcodecs codec needs to be registered since the COG
-files use Zlib compression. A Xarray dataset is created from the
+files use Zlib compression. An Xarray dataset is created from the
 ReferenceFileSystem file and a subset of the dataset is plotted.
 
 See https://github.com/cgohlke/tifffile/issues/125
@@ -14,6 +14,7 @@ See https://github.com/cgohlke/tifffile/issues/125
 """
 
 import fsspec
+import kerchunk.utils
 import tifffile
 import xarray
 from matplotlib import pyplot
@@ -46,17 +47,11 @@ with open('issue125.json', 'w', encoding='utf-8', newline='\n') as jsonfile:
                         # groupname='0',  # required for non-pyramidal series
                     )
 
-# create a fsspec mapper instance from the ReferenceFileSystem file
-mapper = fsspec.get_mapper(
-    'reference://',
-    fo='issue125.json',
-    target_protocol='file',
-    remote_protocol='s3',
-    remote_options=remote_options,
-)
 
-# create a xarray dataset from the mapper
-dataset = xarray.open_zarr(mapper, consolidated=False)
+# create a xarray dataset from the ReferenceFileSystem file
+
+store = kerchunk.utils.refs_as_store('issue125.json')
+dataset = xarray.open_zarr(store, consolidated=False, mask_and_scale=False)
 print(dataset)
 
 # plot a slice of the 5th pyramidal level of the dataset
