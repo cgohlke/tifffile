@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.5.21
+:Version: 2025.5.24
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -87,9 +87,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.5.21
+2025.5.24
 
 - Pass 5109 tests.
+- Fix incorrect tags created by Philips DP v1.1 (#299).
+- Make Zarr stores partially listable.
+
+2025.5.21
+
 - Move Zarr stores to tifffile.zarr namespace (breaking).
 - Require Zarr 3 for Zarr stores and remove support for Zarr 2 (breaking).
 - Drop support for Python 3.10.
