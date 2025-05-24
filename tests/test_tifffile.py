@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.5.21
+:Version: 2025.5.24
 
 """
 
@@ -206,11 +206,6 @@ from tifffile.tifffile import (  # noqa: F401
     validate_jhove,
     xml2dict,
 )
-from tifffile.zarr import (
-    ZarrFileSequenceStore,
-    ZarrStore,
-    ZarrTiffStore,
-)
 
 HERE = os.path.dirname(__file__)
 TEMP_DIR = os.path.join(HERE, '_tmp')
@@ -281,6 +276,11 @@ else:
         import fsspec  # type: ignore[no-redef]
         import zarr  # type: ignore[no-redef]
         from kerchunk.utils import refs_as_store
+        from tifffile.zarr import (
+            ZarrFileSequenceStore,
+            ZarrStore,
+            ZarrTiffStore,
+        )
     except ImportError:
         zarr = None
         fsspec = None
@@ -472,6 +472,7 @@ def assert_aszarr_method(
         data = zarr.open(store, mode='r')
         if isinstance(data, zarr.Group):
             data = data['0']
+        data = data[:]
         assert_array_equal(data, image)
         del data
 
@@ -3576,8 +3577,9 @@ class TestExceptions:
             TiffSequence(files).asarray(dtype=numpy.float64)
         with pytest.raises(TypeError):
             TiffSequence(files).asarray(dtype=numpy.float64)
-        with pytest.raises(TypeError):
-            TiffSequence(files).aszarr(dtype=numpy.float64)
+        if not SKIP_ZARR:
+            with pytest.raises(TypeError):
+                TiffSequence(files).aszarr(dtype=numpy.float64)
 
 
 ###############################################################################
@@ -8423,7 +8425,8 @@ def test_read_100000_pages_movie():
         assert frame.is_memmappable
         assert frame.hash
         assert frame.decode
-        assert frame.aszarr()
+        if not SKIP_ZARR:
+            assert frame.aszarr()
         # assert ImageJ tags
         ijmeta = tif.imagej_metadata
         assert ijmeta is not None
@@ -10472,11 +10475,11 @@ def test_read_scanimage_2gb():
         metadata = scanimage_description_metadata(page.description)
         assert metadata['scanimage.SI5.VERSION_MAJOR'] == 5
         # assert data
-        data = tif.asarray()
-        assert data[5979, 256, 256] == 71
         data = frame.asarray()
         assert data[256, 256] == 71
-        assert_aszarr_method(tif)
+        data = tif.asarray()
+        assert data[5979, 256, 256] == 71
+        assert_aszarr_method(tif, data)
         assert__str__(tif)
 
 
@@ -14120,6 +14123,9 @@ def test_read_zarr_multiscales(multiscales):
             if multiscales or multiscales is None:
                 assert isinstance(z, zarr.Group)
                 assert_array_equal(z['0'][0, 0, 1], image)
+                assert len(list(z.groups())) == 0
+                assert len(list(z.arrays())) == len(series.levels)
+                assert z.tree()
             else:
                 assert isinstance(z, zarr.Array)
                 assert_array_equal(z[0, 0, 1], image)
@@ -20993,6 +20999,9 @@ def test_dependent_kerchunk():
     ]
     assert z['0'].shape == (2048, 2048)
     assert z['0'][:].max() == 8
+    assert len(list(z.groups())) == 0
+    assert len(list(z.arrays())) == 3
+    assert z.tree()
 
     fname = private_file('kerchunk/example.tif')
     fname = pathlib.Path(fname).as_uri()
