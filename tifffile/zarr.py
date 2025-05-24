@@ -70,7 +70,9 @@ from .tifffile import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
-    from typing import Any, Callable, TextIO
+    from typing import Any, TextIO
+
+    from collections.abc import Callable
 
     from numpy.typing import DTypeLike, NDArray
     from zarr.core.buffer import Buffer, BufferPrototype
@@ -178,28 +180,41 @@ class ZarrStore(Store):
     @property
     def supports_listing(self) -> bool:
         """Store supports listing."""
-        return False
+        return True
 
-    def list(self) -> AsyncIterator[str]:
+    async def list(self) -> AsyncIterator[str]:
         """Return all keys in store."""
-        raise NotImplementedError
+        for key in self._store:
+            yield key
 
-    def list_prefix(self, prefix: str) -> AsyncIterator[str]:
+    async def list_prefix(self, prefix: str) -> AsyncIterator[str]:
         """Return all keys in store that begin with prefix.
 
         Keys are returned relative to the root of the store.
 
         """
-        raise NotImplementedError
+        for key in list(self._store):
+            if key.startswith(prefix):
+                yield key
 
-    def list_dir(self, prefix: str) -> AsyncIterator[str]:
+    async def list_dir(self, prefix: str) -> AsyncIterator[str]:
         """Return all keys and prefixes with prefix.
 
         Keys and prefixes do not contain the character "/" after the given
         prefix.
 
         """
-        raise NotImplementedError
+        prefix = prefix.rstrip('/')
+        if prefix == '':
+            keys_unique = {k.split('/')[0] for k in self._store}
+        else:
+            keys_unique = {
+                key.removeprefix(prefix + '/').split('/')[0]
+                for key in self._store
+                if key.startswith(prefix + '/') and key != prefix
+            }
+        for key in keys_unique:
+            yield key
 
     @property
     def is_multiscales(self) -> bool:
