@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.5.21
+:Version: 2025.5.24
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.5.21
+2025.5.24
 
 - Pass 5109 tests.
+- Fix incorrect tags created by Philips DP v1.1 (#299).
+- Make Zarr stores partially listable.
+
+2025.5.21
+
 - Move Zarr stores to tifffile.zarr namespace (breaking).
 - Require Zarr 3 for Zarr stores and remove support for Zarr 2 (breaking).
 - Drop support for Python 3.10.
@@ -800,7 +805,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.5.21'
+__version__ = '2025.5.24'
 
 __all__ = [
     '__version__',
@@ -7721,6 +7726,11 @@ class TiffPage:
         elif self.is_vista or (self.index != 0 and self.parent.is_vista):
             # ISS Vista writes wrong ImageDepth tag
             self.imagedepth = 1
+
+        elif self.is_philips or (self.index != 0 and self.parent.is_philips):
+            # Philips (DP v1.1) writes wrong ImageDepth and TileDepth tags
+            self.imagedepth = 1
+            self.tiledepth = 1
 
         elif self.is_stk:
             # read UIC1tag again now that plane count is known
