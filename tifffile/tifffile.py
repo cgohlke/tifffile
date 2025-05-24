@@ -7721,6 +7721,11 @@ class TiffPage:
         elif self.is_vista or (self.index != 0 and self.parent.is_vista):
             # ISS Vista writes wrong ImageDepth tag
             self.imagedepth = 1
+        
+        elif self.is_philips or (self.index != 0 and self.parent.is_philips):
+            # Philips (DP v1.1) writes wrong ImageDepth and TileDepth tags
+            self.imagedepth = 1
+            self.tiledepth = 1
 
         elif self.is_stk:
             # read UIC1tag again now that plane count is known
