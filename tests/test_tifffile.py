@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.5.24
+:Version: 2025.5.26
 
 """
 
@@ -9995,13 +9995,13 @@ def test_read_ndpi_4gb():
         assert series.levels[3].shape == (12960, 23520, 3)
         assert series.levels[4].shape == (6480, 11760, 3)
         assert series.levels[5].shape == (3240, 5880, 3)
-        data = series.levels[5].asarray()
+        data = series.levels[5].asarray(maxworkers=1)
         assert tuple(data[1000, 1000]) == (222, 165, 200)
         with pytest.raises(ValueError):
             page.tags['StripOffsets'].astuple()
         # cannot decode base levels since JPEG compressed size > 2 GB
         # series.levels[0].asarray()
-        assert_aszarr_method(series.levels[5], data)
+        assert_aszarr_method(series.levels[5], data, maxworkers=1)
         assert__str__(tif)
 
 
@@ -10062,9 +10062,9 @@ def test_read_ndpi_jpegxr():
         assert series.levels[1].shape == (17472, 34944)
         assert series.levels[2].shape == (8736, 17472)
         assert series.levels[3].shape == (4368, 8736)
-        data = series.levels[3].asarray()
+        data = series.levels[3].asarray(maxworkers=16)
         assert data[1000, 1000] == 1095
-        assert_aszarr_method(series.levels[3], data)
+        assert_aszarr_method(series.levels[3], data, maxworkers=16)
         assert__str__(tif)
 
 
@@ -10166,7 +10166,7 @@ def test_read_ndpi_layers():
         assert series.levels[2].shape == (7, 3008, 2880, 3)
         assert series.levels[3].shape == (7, 1504, 1440, 3)
         assert series.levels[4].shape == (7, 752, 720, 3)
-        data = series.levels[3].asarray()
+        data = series.levels[3].asarray(maxworkers=1)
         assert_array_equal(
             data[:, 1000, 1000],
             [
@@ -10179,7 +10179,7 @@ def test_read_ndpi_layers():
                 [232, 214, 226],
             ],
         )
-        assert_aszarr_method(series.levels[3], data)
+        assert_aszarr_method(series.levels[3], data, maxworkers=1)
         assert__str__(tif)
 
 
@@ -10305,7 +10305,7 @@ def test_read_bif(caplog):
         assert page.shape == (2600, 4000, 3)
         assert page.description == 'level=5 mag=1.25 quality=90'
 
-        assert_aszarr_method(page)
+        assert_aszarr_method(page, maxworkers=4)
         assert__str__(tif)
 
 
@@ -14125,6 +14125,7 @@ def test_read_zarr_multiscales(multiscales):
                 assert_array_equal(z['0'][0, 0, 1], image)
                 assert len(list(z.groups())) == 0
                 assert len(list(z.arrays())) == len(series.levels)
+                assert len(list(z.keys())) == len(series.levels)
                 assert z.tree()
             else:
                 assert isinstance(z, zarr.Array)
@@ -20489,14 +20490,14 @@ def test_sequence_wells_axesorder():
     assert len(tifs) == 3072
     assert tifs.shape == (16, 24, 2, 2, 2)
     assert tifs.axes == 'PAZSW'
-    data = tifs.asarray()
+    data = tifs.asarray(ioworkers=16, maxworkers=1)
     assert isinstance(data, numpy.ndarray)
     assert data.flags['C_CONTIGUOUS']
     assert data.shape == (16, 24, 2, 2, 2, 520, 696)
     assert data.dtype == numpy.uint16
     assert data[8, 12, 1, 0, 1, 256, 519] == 1579
     if not SKIP_ZARR:
-        with tifs.aszarr() as store:
+        with tifs.aszarr(ioworkers=16, maxworkers=1) as store:
             assert_array_equal(data, zarr.open(store, mode='r'))
 
 
@@ -20514,7 +20515,9 @@ def test_sequence_tiled(tiled):
     assert tifs.shape == (2, 3, 2, 5)
     assert tifs.axes == 'UVCZ'
     tiled = {0: 0, 1: 1} if tiled else None
-    data = tifs.asarray(axestiled=tiled, is_ome=False)
+    data = tifs.asarray(
+        axestiled=tiled, is_ome=False, ioworkers=16, maxworkers=1
+    )
     assert isinstance(data, numpy.ndarray)
     assert data.flags['C_CONTIGUOUS']
     assert data.dtype == numpy.uint16
@@ -20525,7 +20528,9 @@ def test_sequence_tiled(tiled):
         assert data.shape == (2, 3, 2, 5, 2560, 2160)
         assert data[1, 2, 1, 3, 1024, 1024] == 596
     if not SKIP_ZARR:
-        with tifs.aszarr(axestiled=tiled, is_ome=False) as store:
+        with tifs.aszarr(
+            axestiled=tiled, is_ome=False, ioworkers=16, maxworkers=1
+        ) as store:
             if tiled:
                 assert_array_equal(
                     data[1, 3, 2048:3072],
