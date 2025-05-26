@@ -35,6 +35,7 @@ from __future__ import annotations
 
 __all__ = ['ZarrStore', 'ZarrTiffStore', 'ZarrFileSequenceStore']
 
+import asyncio
 import json
 import os
 import sys
@@ -69,10 +70,14 @@ from .tifffile import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
+    from collections.abc import (
+        AsyncIterator,
+        Callable,
+        Iterable,
+        Iterator,
+        Sequence,
+    )
     from typing import Any, TextIO
-
-    from collections.abc import Callable
 
     from numpy.typing import DTypeLike, NDArray
     from zarr.core.buffer import Buffer, BufferPrototype
@@ -267,9 +272,12 @@ class ZarrTiffStore(ZarrStore):
         squeeze:
             Remove length-1 dimensions from shape of TiffPageSeries.
         maxworkers:
-            Maximum number of threads to concurrently decode strips or tiles
-            if `chunkmode=2`.
-            If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS` threads.
+            If `chunkmode=0`, asynchronously run chunk decode function
+            in separate thread if greater than 1.
+            If `chunkmode=2`, maximum number of threads to concurrently decode
+            strips or tiles.
+            If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS` or
+            asyncio assigned threads.
         buffersize:
             Approximate number of bytes to read from file in one pass
             if `chunkmode=2`. The default is :py:attr:`_TIFF.BUFFERSIZE`.
@@ -283,7 +291,7 @@ class ZarrTiffStore(ZarrStore):
     _data: list[TiffPageSeries]
     _filecache: FileCache
     _transform: Callable[[NDArray[Any]], NDArray[Any]] | None
-    _maxworkers: int | None
+    _maxworkers: int
     _buffersize: int | None
     _squeeze: bool | None
     _multiscales: bool
@@ -315,7 +323,6 @@ class ZarrTiffStore(ZarrStore):
             raise NotImplementedError(f'{self._chunkmode!r} not implemented')
 
         self._squeeze = None if squeeze is None else bool(squeeze)
-        self._maxworkers = maxworkers
         self._buffersize = buffersize
 
         if isinstance(arg, TiffPageSeries):
@@ -330,6 +337,12 @@ class ZarrTiffStore(ZarrStore):
             self._data = [TiffPageSeries([arg])]
             self._transform = None
             name = 'Unnamed'
+
+        if not maxworkers:
+            maxworkers = self._data[0].keyframe.maxworkers
+            if maxworkers < 3 and self._chunkmode == 0:
+                maxworkers = 1
+        self._maxworkers = maxworkers
 
         fh = self._data[0].keyframe.parent._parent.filehandle
 
@@ -865,6 +878,7 @@ class ZarrTiffStore(ZarrStore):
                     dataoffsets=(offset,),
                     databytecounts=(bytecount,),
                 )
+            # TODO: use asyncio.to_thread ?
             self._filecache.open(fh)
             chunk = page.asarray(
                 lock=self._filecache.lock,
@@ -888,9 +902,15 @@ class ZarrTiffStore(ZarrStore):
             decodeargs['jpegheader'] = keyframe.jpegheader
 
         assert chunkindex is not None
-        chunk = keyframe.decode(
-            chunk_bytes, chunkindex, **decodeargs  # type: ignore[assignment]
-        )[0]
+        keyframe.decode  # cache decode function
+        if self._maxworkers > 1:
+            decoded = await asyncio.to_thread(
+                keyframe.decode, chunk_bytes, chunkindex, **decodeargs
+            )
+        else:
+            decoded = keyframe.decode(chunk_bytes, chunkindex, **decodeargs)
+        chunk = decoded[0]  # type: ignore[assignment]
+        del decoded
         assert chunk is not None
         if self._transform is not None:
             chunk = self._transform(chunk)
@@ -1091,6 +1111,12 @@ class ZarrFileSequenceStore(ZarrStore):
             Axes to be tiled. Map stacked sequence axis to chunk axis.
         zattrs:
             Additional attributes to store in `.zattrs`.
+        ioworkers:
+            If not 1, asynchronously run `imread` function in separate thread.
+            If enabled, internal threading for the `imread` function
+            should be disabled.
+        read_only:
+            Passed to zarr `Store` constructor.
         imreadargs:
             Arguments passed to :py:attr:`FileSequence.imread`.
         **kwargs:
@@ -1112,6 +1138,7 @@ class ZarrFileSequenceStore(ZarrStore):
     _dtype: numpy.dtype[Any]
     _tiled: TiledSequence
     _commonpath: str
+    _ioworkers: int
     _kwargs: dict[str, Any]
 
     def __init__(
@@ -1125,6 +1152,7 @@ class ZarrFileSequenceStore(ZarrStore):
         chunkdtype: DTypeLike | None = None,
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
         zattrs: dict[str, Any] | None = None,
+        ioworkers: int | None = 1,
         imreadargs: dict[str, Any] | None = None,
         read_only: bool = True,
         **kwargs: Any,
@@ -1145,6 +1173,8 @@ class ZarrFileSequenceStore(ZarrStore):
         # TODO: deprecate kwargs?
         if imreadargs is not None:
             kwargs |= imreadargs
+
+        self._ioworkers = 1 if ioworkers is None else ioworkers
 
         self._kwargs = kwargs
         self._imread = filesequence.imread
@@ -1223,10 +1253,14 @@ class ZarrFileSequenceStore(ZarrStore):
         filename = self._lookup.get(indices, None)
         if filename is None:
             return None
+        if self._ioworkers != 1:
+            chunk = await asyncio.to_thread(
+                self._imread, filename, **self._kwargs
+            )
+        else:
+            chunk = self._imread(filename, **self._kwargs)
         return prototype.buffer(
-            self._imread(filename, **self._kwargs)
-            .reshape(-1)
-            .view('B')  # type: ignore[arg-type]
+            chunk.reshape(-1).view('B')  # type: ignore[arg-type]
         )
 
     def write_fsspec(
