@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.5.24
+:Version: 2025.5.26
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,7 +98,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.3 3.14.0b1 64-bit
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.3 3.14.0b2 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.2.6
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.5.24
+2025.5.26
 
 - Pass 5109 tests.
+- Use threads in Zarr stores.
+
+2025.5.24
+
 - Fix incorrect tags created by Philips DP v1.1 (#299).
 - Make Zarr stores partially listable.
 
@@ -780,7 +784,7 @@ as NumPy or Zarr arrays:
 >>> data.shape
 (1, 2, 64, 64)
 >>> store = image_sequence.aszarr()
->>> zarr.open(store, mode='r')
+>>> zarr.open(store, mode='r', ioworkers=2, maxworkers=1)
 <Array ZarrFileSequenceStore shape=(1, 2, 64, 64) dtype=float64>
 >>> image_sequence.close()
 
@@ -805,7 +809,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.5.24'
+__version__ = '2025.5.26'
 
 __all__ = [
     '__version__',
@@ -1142,13 +1146,12 @@ def imread(
         key, series, level, squeeze, maxworkers, buffersize:
             Passed to :py:meth:`TiffFile.asarray`
             or :py:meth:`TiffFile.aszarr`.
-        imread, container, sort, pattern, axesorder, axestiled, categories,\
-        ioworkers:
+        imread, container, sort, pattern, axesorder, axestiled, categories:
             Passed to :py:class:`FileSequence`.
         chunkmode, fillvalue, zattrs, multiscales:
             Passed to :py:class:`ZarrTiffStore`
             or :py:class:`ZarrFileSequenceStore`.
-        chunkshape, chunkdtype:
+        chunkshape, chunkdtype, ioworkers:
             Passed to :py:meth:`FileSequence.asarray` or
             :py:class:`ZarrFileSequenceStore`.
         out_inplace:
@@ -1267,6 +1270,7 @@ def imread(
                 chunkshape=chunkshape,
                 chunkdtype=chunkdtype,
                 fillvalue=fillvalue,
+                ioworkers=ioworkers,
                 zattrs=zattrs,
                 **imread_kwargs,
             )
@@ -5532,7 +5536,7 @@ class TiffFile:
 
         # thumbnail
         page = self.pages[1]
-        thumnail = TiffPageSeries(
+        thumbnail = TiffPageSeries(
             [page],
             page.shape,
             page.dtype,
@@ -5581,7 +5585,7 @@ class TiffFile:
                 )
             )
         series.append(baseline)
-        series.append(thumnail)
+        series.append(thumbnail)
 
         # Label, Macro; subfiletype 1, 9
         for _ in range(2):
@@ -12778,6 +12782,8 @@ class FileSequence(Sequence[str]):
                 If *0*, use up to :py:attr:`_TIFF.MAXIOWORKERS` threads.
                 Using threads can significantly improve runtime when reading
                 many small files from a network share.
+                If enabled, internal threading for the `imread` function
+                should be disabled.
             out_inplace:
                 :py:attr:`FileSequence.imread` decodes directly to the output
                 instead of returning an array, which is copied to the output.
