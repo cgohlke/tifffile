@@ -1,9 +1,13 @@
 Revisions
 ---------
 
-2025.5.24
+2025.5.26
 
 - Pass 5109 tests.
+- Use threads in Zarr stores.
+
+2025.5.24
+
 - Fix incorrect tags created by Philips DP v1.1 (#299).
 - Make Zarr stores partially listable.
 
