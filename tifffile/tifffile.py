@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.5.26
+:Version: 2025.6.1
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.6.1
+
+- Pass 5110 tests.
+- Add experimental option to write iterator of bytes and bytecounts (#301).
+
 2025.5.26
 
-- Pass 5109 tests.
 - Use threads in Zarr stores.
 
 2025.5.24
@@ -809,7 +813,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.5.26'
+__version__ = '2025.6.1'
 
 __all__ = [
     '__version__',
@@ -1295,7 +1299,11 @@ def imwrite(
     file: str | os.PathLike[Any] | FileHandle | IO[bytes],
     /,
     data: (
-        ArrayLike | Iterator[NDArray[Any] | None] | Iterator[bytes] | None
+        ArrayLike
+        | Iterator[NDArray[Any] | None]
+        | Iterator[bytes]
+        | Iterator[tuple[bytes, int]]
+        | None
     ) = None,
     *,
     mode: Literal['w', 'x', 'r+'] | None = None,
@@ -1742,7 +1750,11 @@ class TiffWriter:
     def write(
         self,
         data: (
-            ArrayLike | Iterator[NDArray[Any] | None] | Iterator[bytes] | None
+            ArrayLike
+            | Iterator[NDArray[Any] | None]
+            | Iterator[bytes]
+            | Iterator[tuple[bytes, int]]
+            | None
         ) = None,
         *,
         shape: Sequence[int] | None = None,
@@ -2077,7 +2089,9 @@ class TiffWriter:
         datashape: tuple[int, ...]
         dataarray: NDArray[Any] | None = None
         dataiter: Iterator[NDArray[Any] | bytes | None] | None = None
+        dataoffsets: list[int] | None = None
         dataoffsetsoffset: tuple[int, int | None] | None = None
+        databytecounts: list[int]
         databytecountsoffset: tuple[int, int | None] | None = None
         subifdsoffsets: tuple[int, int | None] | None = None
         datadtype: numpy.dtype[Any]
@@ -3248,10 +3262,16 @@ class TiffWriter:
         # define compress function
         compressionaxis: int = -2
         bytesiter: bool = False
+        tupleiter: bool = False
 
-        iteritem: NDArray[Any] | bytes | None
+        iteritem: NDArray[Any] | tuple[bytes, int] | bytes | None
         if dataiter is not None:
             iteritem, dataiter = peek_iterator(dataiter)
+            if isinstance(iteritem, tuple):
+                tupleiter = True
+                iteritem, bytecount = iteritem
+                if not isinstance(iteritem, bytes):
+                    raise ValueError(f'{type(iteritem)=} != bytes')
             bytesiter = isinstance(iteritem, bytes)
             if not bytesiter:
                 iteritem = numpy.asarray(iteritem)
@@ -3357,7 +3377,9 @@ class TiffWriter:
                 bps: Any = bitspersample,
                 axis: int = compressionaxis,
             ) -> bytes:
-                return imagecodecs.packints_encode(data, bps, axis=axis)
+                return imagecodecs.packints_encode(
+                    data, bps, axis=axis
+                )  # type: ignore[return-value]
 
         else:
             compressionfunc = None
@@ -3556,6 +3578,22 @@ class TiffWriter:
                 else:
                     fh.write_array(dataarray, datadtype)
 
+            elif tupleiter:
+                # write tiles or strips from iterator of tuples
+                assert dataiter is not None
+                dataoffsets = [0] * (numtiles if tile else numstrips)
+                offset = dataoffset
+                for chunkindex in range(numtiles if tile else numstrips):
+                    iteritem, bytecount = cast(
+                        tuple[bytes, int], next(dataiter)
+                    )
+                    # assert bytecount >= len(iteritem)
+                    databytecounts[chunkindex] = bytecount
+                    dataoffsets[chunkindex] = offset
+                    offset += len(iteritem)
+                    fh.write(iteritem)
+                    del iteritem
+
             elif bytesiter:
                 # write tiles or strips
                 assert dataiter is not None
@@ -3604,10 +3642,16 @@ class TiffWriter:
             if pos is not None:
                 ifd.write(pack(offsetformat, ifdpos + pos))
                 ifd.seek(pos)
-                offset = dataoffset
-                for size in databytecounts:
-                    ifd.write(pack(offsetformat, offset if size > 0 else 0))
-                    offset += size
+                if dataoffsets is None:
+                    offset = dataoffset
+                    for size in databytecounts:
+                        ifd.write(
+                            pack(offsetformat, offset if size > 0 else 0)
+                        )
+                        offset += size
+                else:
+                    for offset in dataoffsets:
+                        ifd.write(pack(offsetformat, offset))
             else:
                 ifd.write(pack(offsetformat, dataoffset))
 
@@ -8378,7 +8422,7 @@ class TiffPage:
                     horzbits=horzbits,
                     vertbits=vertbits,
                     superres=False,
-                )  # type: ignore[call-arg, misc]
+                )  # type: ignore[misc]
                 return data_array.reshape(shape), segmentindex, shape
 
             return cache(decode_eer)
@@ -8540,12 +8584,14 @@ class TiffPage:
                     shape = pad_none(shape)
                 return data, segmentindex, shape
             if self.fillorder == 2:
-                data = imagecodecs.bitorder_decode(data)
+                data = imagecodecs.bitorder_decode(
+                    data
+                )  # type: ignore[assignment]
             if decompress is not None:
                 # TODO: calculate correct size for packed integers
                 size = shape[0] * shape[1] * shape[2] * shape[3]
                 data = decompress(data, out=size * dtype.itemsize)
-            data_array = unpack(data)  # type: ignore[arg-type]
+            data_array = unpack(data)
             # del data
             data_array = reshape(data_array, segmentindex, shape)
             data_array = data_array.astype('=' + dtype.char, copy=False)
@@ -13470,7 +13516,7 @@ class FileHandle:
         assert self._fh is not None
         return self._fh.readinto(buffer)  # type: ignore[attr-defined]
 
-    def write(self, buffer: bytes, /) -> int:
+    def write(self, buffer: bytes | memoryview[Any], /) -> int:
         """Write bytes to file and return number of bytes written.
 
         Parameters:
@@ -22838,7 +22884,7 @@ def snipstr(
     if snipat is None:
         snipat = 0.5
     if ellipsis is None:
-        if isinstance(string, bytes):  # type: ignore[unreachable]
+        if isinstance(string, bytes):
             ellipsis = b'...'
         else:
             ellipsis = '\u2026'
@@ -22883,7 +22929,7 @@ def snipstr(
             end2 = end1 + splitlen
             result.append(string[:end1] + ellipsis + string[end2:])
 
-    if isinstance(string, bytes):  # type: ignore[unreachable]
+    if isinstance(string, bytes):
         return b'\n'.join(result)
     return '\n'.join(result)
 
@@ -23370,7 +23416,7 @@ def imshow(
     if interpolation is None:
         threshold = 512
     elif isinstance(interpolation, int):
-        threshold = interpolation  # type: ignore[unreachable]
+        threshold = interpolation
     else:
         threshold = 0
 
