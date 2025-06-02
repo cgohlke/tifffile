@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.5.26
+:Version: 2025.6.1
 
 """
 
@@ -17931,6 +17931,56 @@ def test_write_iter_strips_bytes(compression, rowsperstrip):
             photometric='rgb',
         )
         assert_array_equal(imread(fname), data)
+
+
+@pytest.mark.parametrize('compression', [1, 8])
+def test_write_iter_tiles_tuple(compression):
+    """Test write tiles from iterator of tuple of bytes and bytecount."""
+    # https://github.com/cgohlke/tifffile/issues/301
+    data = random_data(numpy.uint16, (5, 3, 15, 17))
+    align = 4096
+
+    with TempFileName(f'write_iter_tiles_tuple_{compression}') as fname:
+        imwrite(
+            fname + 'f',
+            data,
+            tile=(16, 16),
+            compression=compression,
+            planarconfig='separate',
+            photometric='rgb',
+        )
+
+        def tiles():
+            with TiffFile(fname + 'f') as tif:
+                fh = tif.filehandle
+                for page in tif.pages:
+                    for offset, bytecount in zip(
+                        page.dataoffsets, page.databytecounts
+                    ):
+                        fh.seek(offset)
+                        strip = fh.read(bytecount)
+                        strip += b'\x00' * (align - (len(strip) % align))
+                        assert len(strip) % align == 0
+                        yield strip, bytecount
+
+        imwrite(
+            fname,
+            tiles(),
+            shape=data.shape,
+            dtype=data.dtype,
+            tile=(16, 16),
+            compression=compression,
+            planarconfig='separate',
+            photometric='rgb',
+            align=align,
+        )
+        assert_array_equal(imread(fname), data)
+        with TiffFile(fname) as tif:
+            for page in tif.pages:
+                assert page.is_tiled
+                assert not page.is_contiguous
+                for offset in page.dataoffsets:
+                    assert align % 4096 == 0
 
 
 @pytest.mark.parametrize('compression', [1, 8])
