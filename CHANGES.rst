@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2025.6.1
+
+- Pass 5110 tests.
+- Add experimental option to write iterator of bytes and bytecounts (#301).
+
 2025.5.26
 
-- Pass 5109 tests.
 - Use threads in Zarr stores.
 
 2025.5.24
