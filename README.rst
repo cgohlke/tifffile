@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.5.26
+:Version: 2025.6.1
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.6.1
+
+- Pass 5110 tests.
+- Add experimental option to write iterator of bytes and bytecounts (#301).
+
 2025.5.26
 
-- Pass 5109 tests.
 - Use threads in Zarr stores.
 
 2025.5.24
