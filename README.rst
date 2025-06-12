@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.6.1
+:Version: 2025.6.11
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,7 +71,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.3 3.14.0b2 64-bit
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.5 3.14.0b2 64-bit
 - `NumPy <https://pypi.org/project/numpy/>`_ 2.2.6
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.6.11
+
+- Pass 5113 tests.
+- Fix reading images with dimension length 1 through Zarr (#303).
+
 2025.6.1
 
-- Pass 5110 tests.
 - Add experimental option to write iterator of bytes and bytecounts (#301).
 
 2025.5.26
