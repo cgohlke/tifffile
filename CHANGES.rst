@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2025.6.11
+
+- Pass 5113 tests.
+- Fix reading images with dimension length 1 through Zarr (#303).
+
 2025.6.1
 
-- Pass 5110 tests.
 - Add experimental option to write iterator of bytes and bytecounts (#301).
 
 2025.5.26
