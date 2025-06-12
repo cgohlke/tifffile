@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.6.1
+:Version: 2025.6.11
 
 """
 
@@ -3103,6 +3103,22 @@ def test_issue_none_str(arg):
             predictor=arg,
         )
         assert imread(fname).shape == (27, 23)
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+@pytest.mark.parametrize('shape', [(1, 1), (2, 1), (1, 2)])
+def test_issue_zarr_shape_one(shape):
+    """Test read images with dimension size one with zarr."""
+    # https://github.com/cgohlke/tifffile/issues/303
+    with TempFileName(f'issue_zarr_shape_one_{shape}') as fname:
+        data = numpy.ones(shape, dtype=numpy.uint8)
+        imwrite(fname, data, tile=(16, 16), metadata=None)
+        assert_array_equal(imread(fname), data)
+        with TiffFile(fname) as tif:
+            store = tif.aszarr()
+            zarray = zarr.open(store=store, mode='r')
+            zdata = zarray[:]
+            assert_array_equal(zdata, data)
 
 
 class TestExceptions:
