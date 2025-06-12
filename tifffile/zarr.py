@@ -415,7 +415,7 @@ class ZarrTiffStore(ZarrStore):
                     {
                         'zarr_format': 2,
                         'shape': shape,
-                        'chunks': _chunks(chunks, shape),
+                        'chunks': _chunks(chunks, shape, keyframe.shaped),
                         'dtype': _dtype_str(dtype),
                         'compressor': None,
                         'fill_value': _json_value(fillvalue, dtype),
@@ -445,7 +445,7 @@ class ZarrTiffStore(ZarrStore):
                 {
                     'zarr_format': 2,
                     'shape': shape,
-                    'chunks': _chunks(chunks, shape),
+                    'chunks': _chunks(chunks, shape, keyframe.shaped),
                     'dtype': _dtype_str(dtype),
                     'compressor': None,
                     'fill_value': _json_value(fillvalue, dtype),
@@ -1577,7 +1577,10 @@ def _is_writable(keyframe: TiffPage) -> bool:
 
 
 def _chunks(
-    chunks: tuple[int, ...], shape: tuple[int, ...], /
+    chunks: tuple[int, ...],
+    shape: tuple[int, ...],
+    shaped: tuple[int, int, int, int, int],
+    /,
 ) -> tuple[int, ...]:
     """Return chunks with same length as shape."""
     ndim = len(shape)
@@ -1585,30 +1588,24 @@ def _chunks(
         return ()  # empty array
     if 0 in shape:
         return (1,) * ndim
-    newchunks = []
-    i = ndim - 1
-    j = len(chunks) - 1
-    while True:
-        if j < 0:
-            newchunks.append(1)
-            i -= 1
-        elif shape[i] > 1 and chunks[j] > 1:
-            newchunks.append(chunks[j])
-            i -= 1
-            j -= 1
-        elif shape[i] == chunks[j]:  # both 1
-            newchunks.append(1)
-            i -= 1
-            j -= 1
-        elif shape[i] == 1:
-            newchunks.append(1)
-            i -= 1
-        elif chunks[j] == 1:
-            newchunks.append(1)
-            j -= 1
-        else:
-            raise RuntimeError
-        if i < 0 or ndim == len(newchunks):
-            break
-    # assert ndim == len(newchunks)
-    return tuple(newchunks[::-1])
+    d = 0 if shaped[1] == 1 else 1
+    i = min(ndim, 3 + d)
+    n = len(chunks)
+    if (
+        n == 2 + d
+        and i != 2 + d
+        and shape[-1] == 1
+        and shape[-i:] == shaped[-i:]
+    ):
+        # planarconfig=contig with one sample
+        chunks = chunks + (1,)
+    if ndim < len(chunks):
+        # remove leading dimensions of size 1 from chunks
+        for i, size in enumerate(chunks):
+            if size > 1:
+                break
+        chunks = chunks[i:]
+        if ndim < len(chunks):
+            raise ValueError(f'{shape=!r} is shorter than {chunks=!r}')
+    # prepend size 1 dimensions to chunks to match length of shape
+    return tuple([1] * (ndim - len(chunks)) + list(chunks))
