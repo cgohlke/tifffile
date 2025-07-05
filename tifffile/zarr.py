@@ -888,9 +888,7 @@ class ZarrTiffStore(ZarrStore):
             self._filecache.close(fh)
             if self._transform is not None:
                 chunk = self._transform(chunk)
-            return prototype.buffer(
-                chunk.reshape(-1).view('B')  # type: ignore[arg-type]
-            )
+            return prototype.buffer(chunk.reshape(-1).view('B'))
 
         assert offset is not None and bytecount is not None
         chunk_bytes = self._filecache.read(fh, offset, bytecount)
@@ -921,9 +919,7 @@ class ZarrTiffStore(ZarrStore):
             chunks = keyframe.chunks
         if chunk.size != product(chunks):
             raise RuntimeError(f'{chunk.size} != {product(chunks)}')
-        return prototype.buffer(
-            chunk.reshape(-1).view('B')  # type: ignore[arg-type]
-        )
+        return prototype.buffer(chunk.reshape(-1).view('B'))
 
     async def exists(self, key: str) -> bool:
         """Return if key exists in store."""
@@ -1259,9 +1255,7 @@ class ZarrFileSequenceStore(ZarrStore):
             )
         else:
             chunk = self._imread(filename, **self._kwargs)
-        return prototype.buffer(
-            chunk.reshape(-1).view('B')  # type: ignore[arg-type]
-        )
+        return prototype.buffer(chunk.reshape(-1).view('B'))
 
     def write_fsspec(
         self,
