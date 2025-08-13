@@ -20,6 +20,7 @@ def pytest_report_header(config: Any, start_path: Any) -> Any:
     try:
         from numpy import __version__ as numpy
         from test_tifffile import config
+
         from tifffile import __version__ as tifffile
 
         try:
