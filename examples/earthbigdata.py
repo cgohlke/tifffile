@@ -62,10 +62,11 @@ import os
 import imagecodecs.numcodecs
 import kerchunk.utils
 import matplotlib.pyplot
-import tifffile
-import tifffile.zarr
 import xarray
 import zarr  # >= 3
+
+import tifffile
+import tifffile.zarr
 
 # %% [markdown]
 """
@@ -528,9 +529,10 @@ def system_info() -> str:
     import matplotlib
     import numcodecs
     import numpy
-    import tifffile
     import xarray
     import zarr
+
+    import tifffile
 
     return '\n'.join(
         (
