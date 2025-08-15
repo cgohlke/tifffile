@@ -15,9 +15,10 @@ See https://github.com/cgohlke/tifffile/issues/125
 
 import fsspec
 import kerchunk.utils
-import tifffile
 import xarray
 from matplotlib import pyplot
+
+import tifffile
 
 # get a list of cloud optimized GeoTIFF files stored on S3
 remote_options = {
