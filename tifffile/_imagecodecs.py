@@ -64,7 +64,7 @@ import numpy
 if TYPE_CHECKING:
     from typing import Any, Literal
 
-    from numpy.typing import DTypeLike, NDArray
+    from numpy.typing import ArrayLike, DTypeLike, NDArray
 
 try:
     import lzma
@@ -318,8 +318,14 @@ def delta_decode(
 
 @overload
 def bitorder_decode(
-    data: bytes | bytearray, /, *, out: Any = None, _bitorder: list[Any] = []
+    data: bytes, /, *, out: Any = None, _bitorder: list[Any] = []
 ) -> bytes: ...
+
+
+@overload
+def bitorder_decode(
+    data: bytearray, /, *, out: Any = None, _bitorder: list[Any] = []
+) -> bytearray: ...
 
 
 @overload
@@ -334,7 +340,7 @@ def bitorder_decode(
     *,
     out: Any = None,
     _bitorder: list[Any] = [],
-) -> bytes | NDArray[Any]:
+) -> bytes | bytearray | NDArray[Any]:
     r"""Reverse bits in each byte of bytes or numpy array.
 
     Decode data where pixels with lower column values are stored in the
@@ -430,13 +436,13 @@ def packints_decode(
 
 
 def packints_encode(
-    data: NDArray[Any],
-    /,
+    data: ArrayLike,
     bitspersample: int,
-    axis: int = -1,
+    /,
     *,
+    axis: int = -1,
     out: Any = None,
-) -> bytes:
+) -> bytes | bytearray:
     """Tightly pack integers."""
     raise NotImplementedError(
         "packints_encode requires the 'imagecodecs' package"
