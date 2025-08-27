@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.6.11
+:Version: 2025.8.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,25 +98,29 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.5 3.14.0b2 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.6
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.7, 3.14.0rc 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.2
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.8.2
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.3
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.4.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.0.8
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.2
   (required only for using Zarr stores; Zarr 2 is not compatible)
-- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.8
+- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.9
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2025.8.28
+
+- Pass 5114 tests.
+- Support DNG DCP files (#306).
+
 2025.6.11
 
-- Pass 5113 tests.
 - Fix reading images with dimension length 1 through Zarr (#303).
 
 2025.6.1
@@ -817,7 +821,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.6.11'
+__version__ = '2025.8.28'
 
 __all__ = [
     '__version__',
@@ -2008,6 +2012,8 @@ class TiffWriter:
                 Additional metadata describing image, written along
                 with shape information in JSON, OME-XML, or ImageJ formats
                 in ImageDescription or IJMetadata tags.
+                Metadata do not determine, but must match, how image data
+                is written to the file.
                 If *None*, or the `shaped` argument to :py:class:`TiffWriter`
                 is *False*, no information in JSON format is written to
                 the ImageDescription tag.
@@ -2138,7 +2144,7 @@ class TiffWriter:
 
         elif hasattr(data, 'dtype'):
             # numpy, zarr, or dask array
-            data = cast(numpy.ndarray, data)  # type: ignore[type-arg]
+            data = cast(numpy.ndarray, data)
             dataarray = data
             datadtype = numpy.dtype(data.dtype).newbyteorder(byteorder)
             if not hasattr(data, 'reshape'):
@@ -2363,9 +2369,9 @@ class TiffWriter:
                 # TODO: unreachable
                 raise TypeError(
                     "passing multiple values to the 'compression' "
-                    "parameter was deprecated in 2022.7.28. "
+                    'parameter was deprecated in 2022.7.28. '
                     "Use 'compressionargs' to pass extra arguments to the "
-                    "compression codec.",
+                    'compression codec.',
                 )
             if isinstance(compression, str):
                 compression = compression.upper()
@@ -2611,7 +2617,7 @@ class TiffWriter:
                 warnings.warn(
                     f"<tifffile.TiffWriter.write> data with shape {datashape} "
                     f"and dtype '{datadtype}' are stored as RGB with {msg[0]}."
-                    " Future versions will store such data as MINISBLACK in "
+                    ' Future versions will store such data as MINISBLACK in '
                     "separate pages by default, unless the 'photometric' "
                     f"{msg[1]} specified.",
                     DeprecationWarning,
@@ -3100,7 +3106,7 @@ class TiffWriter:
                 # TODO: unreachable
                 raise ValueError(
                     "passing a unit along with the 'resolution' parameter "
-                    "was deprecated in 2022.7.28. "
+                    'was deprecated in 2022.7.28. '
                     "Use the 'resolutionunit' parameter.",
                 )
             addtag(tags, 296, 3, 1, resolutionunit)  # ResolutionUnit
@@ -4196,7 +4202,8 @@ class TiffFile:
     Parameters:
         file:
             Specifies TIFF file to read.
-            Open file objects must be positioned at the TIFF header.
+            File objects must be open in binary mode and positioned at the
+            TIFF header.
         mode:
             File open mode if `file` is file name. The default is 'rb'.
         name:
@@ -4316,6 +4323,12 @@ class TiffFile:
                         self.tiff = TIFF.NDPI_LE
                     else:
                         self.tiff = TIFF.CLASSIC_LE
+                else:
+                    self.tiff = TIFF.CLASSIC_LE
+            elif version == 0x4352:
+                # DNG DCP
+                if byteorder == '>':
+                    self.tiff = TIFF.CLASSIC_BE
                 else:
                     self.tiff = TIFF.CLASSIC_LE
             elif version == 0x4E31:
@@ -6306,9 +6319,7 @@ class TiffFile:
             offsets: list[int]
             offsets = indexmap[:, 4].tolist()
             indices = numpy.ravel_multi_index(
-                # type: ignore[call-overload]
-                indexmap[:, indexmap_order].T,
-                shape,
+                indexmap[:, indexmap_order].T, shape
             ).tolist()
             keyframe = tif.pages.first
             filesize = tif.filehandle.size - keyframe.databytecounts[0] - 162
@@ -8078,6 +8089,7 @@ class TiffPage:
 
             return cache(decode_raise_empty)
 
+        decompress: Callable[..., Any] | None
         try:
             if self.compression == 1:
                 decompress = None
@@ -8141,7 +8153,7 @@ class TiffPage:
 
         if self.compression == 50001 and self.samplesperpixel == 4:
             # WebP segments may be missing all-opaque alpha channel
-            def decompress_webp_rgba(data, out=None):
+            def decompress_webp_rgba(data, out=None, **kwargs):
                 return imagecodecs.webp_decode(data, hasalpha=True, out=out)
 
             decompress = decompress_webp_rgba
@@ -8341,6 +8353,11 @@ class TiffPage:
                     f'{self!r} SonyRawFileType might need additional '
                     'unpacking (see issue #95)'
                 )
+                # 0 = Sony Uncompressed 14-bit RAW
+                # 1 = Sony Uncompressed 12-bit RAW
+                # 2 = Sony Compressed RAW
+                # 3 = Sony Lossless Compressed RAW
+                # 4 = Sony Lossless Compressed RAW 2
 
             colorspace, outcolorspace = jpeg_decode_colorspace(
                 self.photometric,
@@ -8419,6 +8436,7 @@ class TiffPage:
                     if _fullsize:
                         shape = pad_none(shape)
                     return data, segmentindex, shape
+                assert decompress is not None
                 data_array = decompress(
                     data,
                     shape=shape[1:3],
@@ -8426,13 +8444,14 @@ class TiffPage:
                     horzbits=horzbits,
                     vertbits=vertbits,
                     superres=False,
-                )  # type: ignore[misc]
+                )
                 return data_array.reshape(shape), segmentindex, shape
 
             return cache(decode_eer)
 
         if self.compression == 48124:
             # Jetraw requires pre-allocated output buffer
+            assert decompress is not None
 
             def decode_jetraw(
                 data: bytes | None,
@@ -8454,7 +8473,7 @@ class TiffPage:
                         shape = pad_none(shape)
                     return data, segmentindex, shape
                 data_array = numpy.zeros(shape, numpy.uint16)
-                decompress(data, out=data_array)  # type: ignore[misc]
+                decompress(data, out=data_array)
                 return data_array.reshape(shape), segmentindex, shape
 
             return cache(decode_jetraw)
@@ -8471,6 +8490,7 @@ class TiffPage:
                     f'{self!r} '
                     f'disabling predictor for compression {self.compression}'
                 )
+            assert decompress is not None
 
             def decode_image(
                 data: bytes | None,
@@ -8595,7 +8615,7 @@ class TiffPage:
                 # TODO: calculate correct size for packed integers
                 size = shape[0] * shape[1] * shape[2] * shape[3]
                 data = decompress(data, out=size * dtype.itemsize)
-            data_array = unpack(data)
+            data_array = unpack(data)  # type: ignore[arg-type]
             # del data
             data_array = reshape(data_array, segmentindex, shape)
             data_array = data_array.astype('=' + dtype.char, copy=False)
@@ -13363,6 +13383,8 @@ class FileHandle:
         elif hasattr(self._file, 'seek'):
             # binary stream: open file, BytesIO, fsspec LocalFileOpener
             # cast to IO[bytes] even it might not be
+            if isinstance(self._file, io.TextIOBase):
+                raise ValueError(f'{self._file!r} is not open in binary mode')
             self._fh = cast(IO[bytes], self._file)
             try:
                 self._fh.tell()
@@ -16772,6 +16794,17 @@ class _TIFF:
                 # (65110, 'Sharpness'),
                 # (65111, 'Smoothness'),
                 # (65112, 'MoireFilter'),
+                # JEOL TEM metadata
+                # (65006, 'JEOL_DOUBLE1'),
+                # (65007, 'JEOL_DOUBLE2'),
+                # (65009, 'JEOL_DOUBLE3'),
+                # (65010, 'JEOL_DOUBLE4'),
+                # (65015, 'JEOL_SLONG1'),
+                # (65016, 'JEOL_SLONG2'),
+                # (65024, 'JEOL_DOUBLE5'),
+                # (65025, 'JEOL_DOUBLE6'),
+                # (65026, 'JEOL_SLONG3'),
+                (65027, 'JEOL_Header'),
                 (65200, 'FlexXML'),
             )
         )
@@ -19766,7 +19799,10 @@ def imagej_metadata_tag(
         if isinstance(values, dict):
             values = [str(i) for item in values.items() for i in item]
             count = len(values)
-        elif isinstance(values, list):
+        elif func is _doubles:
+            values = [values]
+            count = 1
+        elif isinstance(values, (list, tuple)):
             count = len(values)
         else:
             values = [values]
@@ -20523,9 +20559,9 @@ def olympusini_metadata(inistr: str, /) -> dict[str, Any]:
             key = key[:i]
         return key, index
 
+    value: Any
     result: dict[str, Any] = {}
     bands: list[dict[str, Any]] = []
-    value: Any
     zpos: list[Any] | None = None
     tpos: list[Any] | None = None
     for line in inistr.splitlines():
@@ -21010,8 +21046,7 @@ def parse_filenames(
             f'parsed shape {parsedshape} does not fit provided shape {shape}'
         )
 
-    indices_list: list[list[int]]
-    indices_list = indices_array.tolist()
+    indices_list: list[list[int]] = indices_array.tolist()
     indices = [tuple(index) for index in indices_list]
 
     return dims, shape, indices, files
@@ -21477,7 +21512,7 @@ def reshape_axes(
     if size != newsize:
         raise ValueError(f'cannot reshape {shape} to {newshape}')
     if not axes or not newshape:
-        return '' if isinstance(axes, str) else tuple()
+        return '' if isinstance(axes, str) else ()
 
     lendiff = max(0, len(shape) - len(newshape))
     if lendiff:
