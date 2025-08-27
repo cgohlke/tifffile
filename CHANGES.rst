@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2025.8.28
+
+- Pass 5114 tests.
+- Support DNG DCP files (#306).
+
 2025.6.11
 
-- Pass 5113 tests.
 - Fix reading images with dimension length 1 through Zarr (#303).
 
 2025.6.1
@@ -925,7 +929,7 @@ Revisions
 
 - Towards reading JPEG and other compressions via imagecodecs package (WIP).
 - Read SampleFormat VOID as UINT.
-- Add function to validate TIFF using `jhove -m TIFF-hul`.
+- Add function to validate TIFF using ``jhove -m TIFF-hul``.
 - Save bool arrays as bilevel TIFF.
 - Accept pathlib.Path as filenames.
 - Move software argument from TiffWriter __init__ to save.
