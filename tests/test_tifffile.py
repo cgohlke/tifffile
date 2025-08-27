@@ -37,7 +37,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.6.11
+:Version: 2025.8.28
 
 """
 
@@ -57,6 +57,7 @@ import random
 import re
 import struct
 import sys
+import sysconfig
 import tempfile
 import urllib.error
 import urllib.request
@@ -70,7 +71,6 @@ if TYPE_CHECKING:
 
 import numpy
 import pytest
-import tifffile
 from numpy.testing import (
     assert_allclose,
     assert_array_almost_equal,
@@ -78,10 +78,12 @@ from numpy.testing import (
     assert_raises,
 )
 
+import tifffile
+
 try:
     from tifffile import *  # noqa: F403
 
-    STAR_IMPORTED = (
+    STAR_IMPORTED: tuple[object, ...] = (
         TIFF,  # noqa: F405
         imwrite,  # noqa
         imread,  # noqa
@@ -110,7 +112,7 @@ try:
         read_micromanager_metadata,  # noqa
         OmeXmlError,  # noqa
         OmeXml,  # noqa
-    )  # type: tuple[object, ...]
+    )
 except NameError:
     STAR_IMPORTED = ()
 
@@ -276,6 +278,7 @@ else:
         import fsspec  # type: ignore[no-redef]
         import zarr  # type: ignore[no-redef]
         from kerchunk.utils import refs_as_store
+
         from tifffile.zarr import (
             ZarrFileSequenceStore,
             ZarrStore,
@@ -461,6 +464,7 @@ def assert_aszarr_method(
     obj: TiffFile | TiffPage,
     image: ArrayLike | None = None,
     chunkmode: int | None = None,
+    mode: str = 'r',
     **kwargs: Any,
 ) -> None:
     """Assert aszarr returns same data as asarray."""
@@ -468,8 +472,10 @@ def assert_aszarr_method(
         return
     if image is None:
         image = obj.asarray(**kwargs)
-    with obj.aszarr(chunkmode=chunkmode, **kwargs) as store:
-        data = zarr.open(store, mode='r')
+    with obj.aszarr(
+        chunkmode=chunkmode, read_only=mode == 'r', **kwargs
+    ) as store:
+        data = zarr.open(store, mode=mode)
         if isinstance(data, zarr.Group):
             data = data['0']
         data = data[:]
@@ -3121,6 +3127,29 @@ def test_issue_zarr_shape_one(shape):
             assert_array_equal(zdata, data)
 
 
+def test_issue_not_binary():
+    """Test read from non-binary open file."""
+    # https://github.com/cgohlke/tifffile/issues/304
+    with TempFileName('issue_not_binary') as fname:
+        imwrite(fname, None, shape=(2, 2), dtype=numpy.uint8)
+        with open(fname) as fh:
+            with pytest.raises(ValueError, match='binary mode'):
+                imread(fh)
+
+
+def test_issue_dcp():
+    """Test read DNG DCP file."""
+    # https://github.com/cgohlke/tifffile/issues/306
+    fname = private_file('DCP/example.dcp')
+    with TiffFile(fname) as tif:
+        assert len(tif.pages) == 1
+        page = tif.pages.first
+        assert page.tags['UniqueCameraModel'].value == 'Basler acA5472-17uc'
+        assert page.dtype == bool
+        assert page.shape == (0, 0)
+        assert tif.asarray().shape == (0, 0)
+
+
 class TestExceptions:
     """Test various Exceptions and Warnings."""
 
@@ -3987,7 +4016,7 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
-    numtags = 666
+    numtags = 667
     tags = TIFF.TAGS
     assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
@@ -4169,7 +4198,7 @@ def test_class_omexml(axes, autoaxes, shape, storedshape, dimorder, metadata):
     dtype = numpy.uint8
     if not metadata and dimorder != 'XYCZT':
         pytest.xfail('')
-    metadata = dict(axes=axes) if metadata else dict()
+    metadata = dict(axes=axes) if metadata else {}
     omexml = OmeXml()
     omexml.addimage(dtype, shape, storedshape, **metadata)
     if IS_WIN:
@@ -5091,7 +5120,7 @@ def test_func_matlabstr2py():
 
     assert matlabstr2py(
         "SI.hChannels.channelType = {'stripe' 'stripe'}\n"
-        "SI.hChannels.channelsActive = 2"
+        'SI.hChannels.channelsActive = 2'
     )['SI.hChannels.channelType'] == ['stripe', 'stripe']
 
     p = matlabstr2py(
@@ -11224,7 +11253,7 @@ def test_read_ome_multifile_missing(caplog):
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
-def test_read_ome_multifile_binaryio(caplog):
+def test_read_ome_multifile_bytesio(caplog):
     """Test read OME multifile series with BinaryIO."""
     # (2, 43, 10, 512, 512) CTZYX uint8, 85 files missing
     fname = private_file('OME/tubhiswt_C0_TP34.ome.tif')
@@ -11262,7 +11291,7 @@ def test_read_ome_multifile_binaryio(caplog):
         assert data.dtype == numpy.uint8
         assert data[0, 34, 4, 303, 206] == 82
         assert data[1, 25, 2, 425, 272] == 0
-        assert_aszarr_method(tif, data)
+        assert_aszarr_method(tif, data, mode='r')
         del data
         assert__str__(tif)
 
@@ -13740,7 +13769,7 @@ def test_read_mmstack_bytesio(caplog):
         assert data.shape == (63, 2, 264, 320)
         assert data.dtype == numpy.uint16
         assert data[59, 1, 151, 186] == 599
-        assert_aszarr_method(series, data)
+        assert_aszarr_method(series, data, mode='r')
         assert__str__(tif)
 
 
@@ -14027,7 +14056,7 @@ def test_read_ndtiff_bytesio(caplog):
         assert series.get_axes(False) == 'IYXS'
         data = series.asarray(squeeze=True)
         assert data.shape == (112, 512, 512)
-        assert_aszarr_method(tif, data)
+        assert_aszarr_method(tif, data, mode='r')
         assert__str__(tif)
 
 
@@ -19352,6 +19381,7 @@ def test_write_imagej_roundtrip():
     assert ijmeta['mode'] == 'composite'
     assert not ijmeta['loop']
     assert ijmeta['ImageJ'] == '1.52b'
+    assert type(ijmeta['LUTs']) is list
     assert_valid_tiff(fname)
 
     with TempFileName('write_imagej_ijmetadata_roundtrip') as fname:
@@ -21000,7 +21030,7 @@ def test_dependent_imageio():
         md = iio.get_reader(filename2).get_meta_data()
         assert not md['is_imagej']
         assert md['description'] == 'shape=(2,3,10,10)'
-        assert md['description1'] == ""
+        assert md['description1'] == ''
         assert md['datetime'] == datetime.datetime(2015, 5, 9, 9, 8, 29)
         assert md['software'] == 'tifffile.py'
 
@@ -21080,6 +21110,11 @@ def test_dependent_kerchunk():
     out = kerchunk.tiff.tiff_to_zarr(fname)
     store = refs_as_store(out)
     z = zarr.open(store, zarr_format=2)
+
+
+def test_gil_enabled():
+    """Test that GIL is disabled on thread-free Python."""
+    assert sys._is_gil_enabled() != sysconfig.get_config_var('Py_GIL_DISABLED')
 
 
 ###############################################################################
