@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.6.11
+:Version: 2025.8.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,25 +71,29 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.5 3.14.0b2 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.2.6
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.3.30
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.7, 3.14.0rc 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.2
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.8.2
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.3
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 5.4.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.0.8
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.2
   (required only for using Zarr stores; Zarr 2 is not compatible)
-- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.8
+- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.9
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2025.8.28
+
+- Pass 5114 tests.
+- Support DNG DCP files (#306).
+
 2025.6.11
 
-- Pass 5113 tests.
 - Fix reading images with dimension length 1 through Zarr (#303).
 
 2025.6.1
