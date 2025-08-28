@@ -3137,6 +3137,7 @@ def test_issue_not_binary():
                 imread(fh)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_dcp():
     """Test read DNG DCP file."""
     # https://github.com/cgohlke/tifffile/issues/306
