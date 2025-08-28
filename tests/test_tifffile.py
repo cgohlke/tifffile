@@ -21112,6 +21112,10 @@ def test_dependent_kerchunk():
     z = zarr.open(store, zarr_format=2)
 
 
+@pytest.mark.skipif(
+    sysconfig.get_config_var('Py_GIL_DISABLED') is None,
+    reason='No GIL on this Python interpreter'
+)
 def test_gil_enabled():
     """Test that GIL is disabled on thread-free Python."""
     assert sys._is_gil_enabled() != sysconfig.get_config_var('Py_GIL_DISABLED')
