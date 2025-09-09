@@ -7,6 +7,7 @@ include pyproject.toml
 include tifffile/py.typed
 
 exclude *.cmd
+exclude *.yaml
 recursive-exclude doc *
 recursive-exclude test *
 recursive-exclude tests *
