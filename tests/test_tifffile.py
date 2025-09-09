@@ -29,15 +29,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# mypy: allow-untyped-defs
-# mypy: check-untyped-defs=False
-
 """Unittests for the tifffile package.
 
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.8.28
+:Version: 2025.9.9
 
 """
 
@@ -3137,6 +3134,7 @@ def test_issue_not_binary():
                 imread(fh)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_issue_dcp():
     """Test read DNG DCP file."""
     # https://github.com/cgohlke/tifffile/issues/306
@@ -14329,6 +14327,36 @@ def test_read_agilent():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_nuvu():
+    """Test read Nuvu camera file."""
+    fname = private_file('Nuvu/hluc-lumi-5s_0.tif')
+    with TiffFile(fname) as tif:
+        assert tif.is_nuvu
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_contiguous
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.imagewidth == 512
+        assert page.imagelength == 513
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        assert page.dataoffsets == (8,)
+        assert page.databytecounts == (525312,)
+        # assert data and metadata
+        assert page.asarray()[277, 341] == 1699
+        meta = tif.nuvu_metadata
+        assert len(meta) == 56
+        assert meta['AMP_TYPE'] == 1
+        assert meta['RETD_TOD'] == '2025-08-29 17:03:05.713'
+        assert meta['DATE'] == '2025-08-29 17:03:05.723'
+        assert meta['TEMP_CCD'] == -99.98
+        assert__str__(tif)
+
+
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
 @pytest.mark.parametrize('chunkmode', [0, 2])
 def test_read_selection(chunkmode):
@@ -21112,6 +21140,7 @@ def test_dependent_kerchunk():
     z = zarr.open(store, zarr_format=2)
 
 
+@pytest.mark.skipif(not hasattr(sys, '_is_gil_enabled'), reason=REASON)
 def test_gil_enabled():
     """Test that GIL is disabled on thread-free Python."""
     assert sys._is_gil_enabled() != sysconfig.get_config_var('Py_GIL_DISABLED')
@@ -21129,3 +21158,6 @@ if __name__ == '__main__':
     argv.append('--cov=tifffile')
     argv.append('--verbose')
     sys.exit(pytest.main(argv))
+
+# mypy: allow-untyped-defs
+# mypy: check-untyped-defs=False
