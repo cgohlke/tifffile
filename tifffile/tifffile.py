@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.8.28
+:Version: 2025.9.9
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,10 +99,10 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.7, 3.14.0rc 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.2
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.3
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.8.2
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.3
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.6
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.0.1
   (required only for validating and printing XML)
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.9.9
+
+- Pass 5115 tests.
+- Consolidate Nuvu camera metadata.
+
 2025.8.28
 
-- Pass 5114 tests.
 - Support DNG DCP files (#306).
 
 2025.6.11
@@ -202,39 +206,6 @@ Revisions
 - Make imshow NaN aware.
 
 2024.8.10
-
-- Relax bitspersample check for JPEG, JPEG2K, and JPEGXL compression (#265).
-
-2024.7.24
-
-- Fix reading contiguous multi-page series via Zarr store (#67).
-
-2024.7.21
-
-- Fix integer overflow in product function caused by numpy types.
-- Allow tag reader functions to fail.
-
-2024.7.2
-
-- Enable memmap to create empty files with non-native byte order.
-- Deprecate Python 3.9, support Python 3.13.
-
-2024.6.18
-
-- Ensure TiffPage.nodata is castable to dtype (breaking, #260).
-- Support Argos AVS slides.
-
-2024.5.22
-
-- Derive TiffPages, TiffPageSeries, FileSequence, StoredShape from Sequence.
-- Truncate circular IFD chain, do not raise TiffFileError (breaking).
-- Deprecate access to TiffPages.pages and FileSequence.files.
-- Enable DeprecationWarning for enums in TIFF namespace.
-- Remove some deprecated code (breaking).
-- Add iccprofile property to TiffPage and parameter to TiffWriter.write.
-- Do not detect VSI as SIS format.
-- Limit length of logged exception messages.
-- Fix docstring examples not correctly rendered on GitHub (#254, #255).
 
 - …
 
@@ -821,7 +792,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.8.28'
+__version__ = '2025.9.9'
 
 __all__ = [
     '__version__',
@@ -7259,6 +7230,13 @@ class TiffFile:
         return result
 
     @property
+    def nuvu_metadata(self) -> dict[str, Any] | None:
+        """Nuvu metadata from tags >= 65000."""
+        if not self.is_nuvu:
+            return None
+        return self.pages.first.nuvu_tags
+
+    @property
     def andor_metadata(self) -> dict[str, Any] | None:
         """Andor metadata from Andor tags."""
         return self.pages.first.andor_tags
@@ -9539,6 +9517,34 @@ class TiffPage:
         }
 
     @cached_property
+    def nuvu_tags(self) -> dict[str, Any] | None:
+        """Consolidated metadata from Nuvu tags."""
+        if not self.is_nuvu:
+            return None
+        result: dict[str, Any] = {}
+        used: set[int] = set()
+        for tag in self.tags:
+            if (
+                tag.code < 65000
+                or tag.code in used
+                or tag.dtype != 2
+                or tag.value[:7] != "Field '"
+            ):
+                continue
+            try:
+                value = tag.value.split("'")
+                name = value[3]
+                code = int(value[1])
+            except Exception as exc:
+                logger().warning(
+                    f'{self!r} corrupted Nuvu tag {tag.code} ' f'({exc})'
+                )
+                continue
+            result[name] = self.tags.valueof(code)
+            used.add(code)
+        return result
+
+    @cached_property
     def andor_tags(self) -> dict[str, Any] | None:
         """Consolidated metadata from Andor tags."""
         if not self.is_andor:
@@ -9918,6 +9924,16 @@ class TiffPage:
     def is_andor(self) -> bool:
         """Page contains Andor Technology tags 4864-5030."""
         return 4864 in self.tags
+
+    @property
+    def is_nuvu(self) -> bool:
+        """Page contains Nuvu cameras tags >= 65000."""
+        return (
+            65000 in self.tags
+            and 65001 in self.tags
+            and self.tags[65000].dtype == 2
+            and self.tags[65000].value.startswith("Field '65001' is ")
+        )
 
     @property
     def is_pilatus(self) -> bool:
@@ -22870,6 +22886,23 @@ def pformat(
         arg = arg.rstrip()
     elif isinstance(arg, numpy.record):
         arg = arg.pprint()
+    # elif isinstance(arg, dict):
+    #     from reprlib import Repr
+    #
+    #     arg = Repr(
+    #         maxlevel=6,
+    #         maxtuple=height,
+    #         maxlist=height,
+    #         maxarray=height,
+    #         maxdict=height,
+    #         maxset=height,
+    #         maxfrozenset=6,
+    #         maxdeque=6,
+    #         maxstring=width,
+    #         maxlong=40,
+    #         maxother=height,
+    #         indent='  ',
+    #     ).repr(arg)
     else:
         import pprint
 
