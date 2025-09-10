@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2025.9.9
+
+- Pass 5115 tests.
+- Consolidate Nuvu camera metadata.
+
 2025.8.28
 
-- Pass 5114 tests.
 - Support DNG DCP files (#306).
 
 2025.6.11
