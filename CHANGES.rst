@@ -1,9 +1,15 @@
 Revisions
 ---------
 
+2025.9.20
+
+- Pass 5118 tests.
+- Derive TiffFileError from ValueError.
+- Natural-sort files in glob pattern passed to imread by default (breaking).
+- Fix optional sorting of list of files passed to FileSequence and imread.
+
 2025.9.9
 
-- Pass 5115 tests.
 - Consolidate Nuvu camera metadata.
 
 2025.8.28
@@ -35,7 +41,7 @@ Revisions
 
 2025.5.10
 
-- Raise ValueError when using zarr 3 (#296).
+- Raise ValueError when using Zarr 3 (#296).
 - Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
 - Remove doctest command line option.
 - Support Python 3.14.
