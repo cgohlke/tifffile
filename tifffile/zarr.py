@@ -81,7 +81,6 @@ if TYPE_CHECKING:
 
     from numpy.typing import DTypeLike, NDArray
     from zarr.core.buffer import Buffer, BufferPrototype
-    from zarr.core.common import BytesLike
     from zarr.core.indexing import BasicSelection
 
     from .tifffile import ByteOrder, OutputType
@@ -97,11 +96,11 @@ class ZarrStore(Store):
         chunkmode:
             Specifies how to chunk data.
         read_only:
-            Passed to zarr `Store` constructor.
+            Passed to :py:class:`zarr.abc.store.Store`.
 
     References:
         1. https://zarr.readthedocs.io/en/stable/api/zarr/abc/store/
-        3. https://zarr.readthedocs.io/en/stable/spec/v2.html
+        2. https://zarr.readthedocs.io/en/stable/spec/v2.html
         3. https://forum.image.sc/t/multiscale-arrays-v0-1/37930
 
     """
@@ -170,17 +169,6 @@ class ZarrStore(Store):
     async def delete(self, key: str) -> None:
         """Remove key from store."""
         raise PermissionError('ZarrStore does not support deletes')
-
-    @property
-    def supports_partial_writes(self) -> bool:
-        """Store support partial writes."""
-        return False
-
-    async def set_partial_values(
-        self, key_start_values: Iterable[tuple[str, int, BytesLike]]
-    ) -> None:
-        """Store values at key, starting at byte range_start."""
-        raise PermissionError('ZarrStore does not support partial writes')
 
     @property
     def supports_listing(self) -> bool:
@@ -282,7 +270,7 @@ class ZarrTiffStore(ZarrStore):
             Approximate number of bytes to read from file in one pass
             if `chunkmode=2`. The default is :py:attr:`_TIFF.BUFFERSIZE`.
         read_only:
-            Passed to zarr `Store` constructor.
+            Passed to :py:class:`zarr.abc.store.Store`.
         _openfiles:
             Internal API.
 
@@ -1112,7 +1100,7 @@ class ZarrFileSequenceStore(ZarrStore):
             If enabled, internal threading for the `imread` function
             should be disabled.
         read_only:
-            Passed to zarr `Store` constructor.
+            Passed to :py:class:`zarr.abc.store.Store`.
         imreadargs:
             Arguments passed to :py:attr:`FileSequence.imread`.
         **kwargs:
@@ -1478,6 +1466,7 @@ def zarr_selection(
         else:
             ndbuffer = None
         result = zarray.get_basic_selection(selection, out=ndbuffer)
+        del zarray
     finally:
         if close:
             store.close()
