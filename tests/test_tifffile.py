@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.9.9
+:Version: 2025.9.20
 
 """
 
@@ -273,7 +273,7 @@ if SKIP_ZARR:
 else:
     try:
         import fsspec  # type: ignore[no-redef]
-        import zarr  # type: ignore[no-redef]
+        import zarr
         from kerchunk.utils import refs_as_store
 
         from tifffile.zarr import (
@@ -20683,6 +20683,26 @@ def test_sequence_imread():
         with pngs.aszarr(codec=imagecodecs.png_decode) as store:
             assert_array_equal(data, zarr.open(store, mode='r'))
     del data
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_sequence_imread_list():
+    """Test imread with list of files."""
+    files = private_files('Nuvu/Sequence/*.tif')
+    pattern = os.path.join(PRIVATE_DIR, 'Nuvu/Sequence/*.tif')
+
+    # list not sorted by default
+    assert imread(files)[-1, 256, 256] == 1682
+    assert imread(files, sort=False)[-1, 256, 256] == 1682
+    # list sorted
+    assert imread(files, sort=True)[-1, 256, 256] == 1684
+    assert imread(files, sort=natural_sorted)[-1, 256, 256] == 1684
+    # glob sorted by default
+    assert imread(pattern)[-1, 256, 256] == 1684
+    assert imread(pattern, sort=True)[-1, 256, 256] == 1684
+    assert imread(pattern, sort=natural_sorted)[-1, 256, 256] == 1684
+    # glob not sorted
+    assert imread(pattern, sort=False)[-1, 256, 256] == 1682
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
