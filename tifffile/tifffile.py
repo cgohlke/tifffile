@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.9.9
+:Version: 2025.9.20
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -106,7 +106,7 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.0.1
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.2
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.3
   (required only for using Zarr stores; Zarr 2 is not compatible)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.9
   (required only for opening ReferenceFileSystem files)
@@ -114,9 +114,15 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.9.20
+
+- Pass 5118 tests.
+- Derive TiffFileError from ValueError.
+- Natural-sort files in glob pattern passed to imread by default (breaking).
+- Fix optional sorting of list of files passed to FileSequence and imread.
+
 2025.9.9
 
-- Pass 5115 tests.
 - Consolidate Nuvu camera metadata.
 
 2025.8.28
@@ -148,7 +154,7 @@ Revisions
 
 2025.5.10
 
-- Raise ValueError when using zarr 3 (#296).
+- Raise ValueError when using Zarr 3 (#296).
 - Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
 - Remove doctest command line option.
 - Support Python 3.14.
@@ -174,38 +180,6 @@ Revisions
 - Remove deprecated lazyattr and squeeze_axes functions (breaking).
 
 2025.1.10
-
-- Improve type hints.
-- Deprecate Python 3.10.
-
-2024.12.12
-
-- Read PlaneProperty from STK UIC1Tag (#280).
-- Allow 'None' as alias for COMPRESSION.NONE and PREDICTOR.NONE (#274).
-- Zarr 3 is not supported (#272).
-
-2024.9.20
-
-- Fix writing colormap to ImageJ files (breaking).
-- Improve typing.
-- Drop support for Python 3.9.
-
-2024.8.30
-
-- Support writing OME Dataset and some StructuredAnnotations elements.
-
-2024.8.28
-
-- Fix LSM scan types and dimension orders (#269, breaking).
-- Use IO[bytes] instead of BinaryIO for typing (#268).
-
-2024.8.24
-
-- Do not remove trailing length-1 dimension writing non-shaped file (breaking).
-- Fix writing OME-TIFF with certain modulo axes orders.
-- Make imshow NaN aware.
-
-2024.8.10
 
 - …
 
@@ -792,7 +766,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.9.9'
+__version__ = '2025.9.20'
 
 __all__ = [
     '__version__',
@@ -1165,8 +1139,10 @@ def imread(
             + ', '.join(f"'{key}'" for key in kwargs)
         )
 
+    glob_pattern: str | None = None
     if container is None:
         if isinstance(files, str) and ('*' in files or '?' in files):
+            glob_pattern = files
             files = glob.glob(files)
         if not files:
             raise ValueError('no files found')
@@ -1236,6 +1212,10 @@ def imread(
         **is_flags,
         **kwargs,
     )
+
+    if glob_pattern is not None:
+        # TODO: this forces glob to be executed again
+        files = glob_pattern
 
     with TiffSequence(
         files,
@@ -1522,7 +1502,7 @@ def memmap(
     return numpy.memmap(filename, dtype, mode, offset, shape, 'C')
 
 
-class TiffFileError(Exception):
+class TiffFileError(ValueError):
     """Exception to indicate invalid TIFF structure."""
 
 
@@ -12785,12 +12765,13 @@ class FileSequence(Sequence[str]):
                     files = sort_func(files)
         elif isinstance(files, os.PathLike):
             files = [os.fspath(files)]
-            if sort is not None and sort_func is not None:
-                files = sort_func(files)
         elif isinstance(files, str):
             files = glob.glob(files)
             if sort_func is not None:
                 files = sort_func(files)
+        elif sort is not None and sort_func is not None:
+            # sort sequence if explicitly requested
+            files = sort_func(f for f in files)
 
         files = [os.fspath(f) for f in files]  # type: ignore[union-attr]
         if not files:
@@ -23422,7 +23403,7 @@ def imshow(
         show:
             Display figure.
         **kwargs:
-            Additional arguments passed to `matplotlib.pyplot.imshow`.
+            Additional arguments passed to :py:func:`matplotlib.pyplot.imshow`.
 
     Returns:
         Matplotlib figure, subplot, and plot axis.
