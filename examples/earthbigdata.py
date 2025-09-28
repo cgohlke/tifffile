@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Published Oct 9, 2021. Last updated May 21, 2025.
+Published October 9, 2021. Last updated May 21, 2025.
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
