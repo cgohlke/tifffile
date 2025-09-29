@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.9.20
+:Version: 2025.9.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -104,7 +104,7 @@ This revision was tested with the following requirements and dependencies
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.6
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.1
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 3.1.3
   (required only for using Zarr stores; Zarr 2 is not compatible)
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.9.30
+
+- Pass 5119 tests.
+- Fix reading NDTiff series with unordered axes in index (#311).
+
 2025.9.20
 
-- Pass 5118 tests.
 - Derive TiffFileError from ValueError.
 - Natural-sort files in glob pattern passed to imread by default (breaking).
 - Fix optional sorting of list of files passed to FileSequence and imread.
@@ -766,7 +770,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.9.20'
+__version__ = '2025.9.30'
 
 __all__ = [
     '__version__',
@@ -6492,6 +6496,8 @@ class TiffFile:
                         categories[axis] = {index: 0}
                         axes_dict[axis] = 0
                 first = False
+                dims = tuple(axes_dict.keys())
+
             elif categories:
                 for axis, values in categories.items():
                     index = axes_dict[axis]
@@ -6500,8 +6506,12 @@ class TiffFile:
                         values[index] = max(values.values()) + 1
                     axes_dict[axis] = values[index]
 
-            indices[tuple(axes_dict.values())] = page  # type: ignore[arg-type]
-            dims = tuple(axes_dict.keys())
+            if tuple(axes_dict.keys()) != dims:
+                dims_ = tuple(axes_dict.keys())
+                logger().warning(
+                    f'{self!r} NDTiff.index axes_dict.keys={dims_} != {dims}'
+                )
+            indices[tuple(int(axes_dict[dim]) for dim in dims)] = page
 
         # indices may be negative or missing
         indices_array = numpy.array(list(indices.keys()), dtype=numpy.int32)
