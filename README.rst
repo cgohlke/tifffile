@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.9.20
+:Version: 2025.9.30
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -77,7 +77,7 @@ This revision was tested with the following requirements and dependencies
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.6
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.1
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 3.1.3
   (required only for using Zarr stores; Zarr 2 is not compatible)
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.9.30
+
+- Pass 5119 tests.
+- Fix reading NDTiff series with unordered axes in index (#311).
+
 2025.9.20
 
-- Pass 5118 tests.
 - Derive TiffFileError from ValueError.
 - Natural-sort files in glob pattern passed to imread by default (breaking).
 - Fix optional sorting of list of files passed to FileSequence and imread.
