@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.9.20
+:Version: 2025.9.30
 
 """
 
@@ -14093,6 +14093,43 @@ def test_read_ndtiff_multichannel():
         assert__str__(tif)
 
 
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+def test_read_ndtiff_unordered_axes(caplog):
+    """Test read NDTiffStorage with unordered axes_dict keys."""
+    # https://github.com/cgohlke/tifffile/issues/311
+    fname = private_file(
+        'NDTiffStorage/v3/issue311/NDTiff3.2_multichannel_NDTiffStack.tif'
+    )
+    with TiffFile(fname) as tif:
+        assert tif.is_micromanager
+        assert tif.is_ndtiff
+        meta = tif.pages[-1].tags['MicroManagerMetadata'].value
+        assert meta['Axes'] == {'channel': 'FITC', 'z': 15, 'time': 7}
+        meta = tif.micromanager_metadata
+        assert meta is not None
+        assert meta['MajorVersion'] == 3
+        assert meta['MinorVersion'] == 2
+        assert meta['Summary']['PixelType'] == 'GRAY16'
+        series = tif.series[0]
+        with caplog.at_level(logging.WARNING):
+            assert 'NDTiff.index axes_dict.keys' in caplog.text
+        assert series.kind == 'ndtiff'
+        assert series.dtype == numpy.uint16
+        assert series.shape == (8, 2, 16, 64, 64)
+        assert series.axes == 'TCZYX'
+        data = series.asarray()
+        if not SKIP_NDTIFF:
+            ndt = ndtiff.Dataset(os.path.dirname(fname))
+            try:
+                assert_array_equal(
+                    data, ndt.as_array(axes=['time', 'channel', 'z'])
+                )
+            finally:
+                ndt.close()
+        assert_aszarr_method(tif, data)
+        assert__str__(tif)
+
+
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_ZARR, reason=REASON)
 def test_read_zarr():
     """Test read TIFF with zarr."""
@@ -20685,7 +20722,7 @@ def test_sequence_imread():
     del data
 
 
-@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
 def test_sequence_imread_list():
     """Test imread with list of files."""
     files = private_files('Nuvu/Sequence/*.tif')
