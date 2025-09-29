@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2025.9.30
+
+- Pass 5119 tests.
+- Fix reading NDTiff series with unordered axes in index (#311).
+
 2025.9.20
 
-- Pass 5118 tests.
 - Derive TiffFileError from ValueError.
 - Natural-sort files in glob pattern passed to imread by default (breaking).
 - Fix optional sorting of list of files passed to FileSequence and imread.
