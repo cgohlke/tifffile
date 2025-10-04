@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.9.30
+:Version: 2025.10.4
 
 """
 
@@ -1492,6 +1492,7 @@ def test_issue_omexml_micron():
 def test_issue_svs_doubleheader():
     """Test svs_description_metadata for SVS with double header."""
     # https://github.com/cgohlke/tifffile/pull/88
+    # https://github.com/bertrandchauveau/DICOMtoSVS/issues/3
 
     assert svs_description_metadata(
         'Aperio Image Library v11.2.1\r\n'
@@ -1505,6 +1506,8 @@ def test_issue_svs_doubleheader():
         '|LineAreaYOffset = -0.000313|Focus Offset = 0.000000'
         '|ImageID = 1004486|OriginalWidth = 46920|Originalheight = 33014'
         '|Filtered = 5|OriginalWidth = 46000|OriginalHeight = 32914'
+        '|Key'
+        '|',
     ) == {
         'Header': (
             'Aperio Image Library v11.2.1\r\n'
@@ -14644,7 +14647,7 @@ def test_read_xarray_page_properties():
 # Test TiffWriter
 
 WRITE_DATA = numpy.arange(3 * 219 * 301).astype(numpy.uint16)
-WRITE_DATA.shape = (3, 219, 301)  # type: ignore[assignment]
+WRITE_DATA.shape = (3, 219, 301)
 
 
 @pytest.mark.skipif(SKIP_EXTENDED, reason=REASON)
