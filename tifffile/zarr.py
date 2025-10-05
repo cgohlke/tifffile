@@ -128,7 +128,7 @@ class ZarrStore(Store):
             self._chunkmode = enumarg(CHUNKMODE, chunkmode)
 
     def __eq__(self, other: object) -> bool:
-        """Return if objects are equal."""
+        """Return whether objects are equal."""
         return (
             isinstance(other, type(self))
             and self._store == other._store
@@ -211,7 +211,7 @@ class ZarrStore(Store):
 
     @property
     def is_multiscales(self) -> bool:
-        """Return if ZarrStore is multi-scales."""
+        """Return whether ZarrStore contains multiscales."""
         return b'multiscales' in self._store['.zattrs']
 
     def __repr__(self) -> str:
@@ -251,7 +251,7 @@ class ZarrTiffStore(ZarrStore):
         zattrs:
             Additional attributes to store in `.zattrs`.
         multiscales:
-            Create a multiscales compatible Zarr group store.
+            Create a multiscales-compatible Zarr group store.
             By default, create a Zarr array store for pages and non-pyramidal
             series.
         lock:
@@ -910,7 +910,7 @@ class ZarrTiffStore(ZarrStore):
         return prototype.buffer(chunk.reshape(-1).view('B'))
 
     async def exists(self, key: str) -> bool:
-        """Return if key exists in store."""
+        """Return whether key exists in store."""
         # print(f'exists({key=})')
         if key in self._store:
             return True
@@ -1200,7 +1200,7 @@ class ZarrFileSequenceStore(ZarrStore):
         )
 
     async def exists(self, key: str) -> bool:
-        """Return if key exists in store."""
+        """Return whether key exists in store."""
         # print(f'exists({key=})')
         if key in self._store:
             return True
