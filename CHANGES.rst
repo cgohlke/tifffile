@@ -1,9 +1,13 @@
 Revisions
 ---------
 
-2025.9.30
+2025.10.4
 
 - Pass 5119 tests.
+- Fix parsing SVS description ending with "|".
+
+2025.9.30
+
 - Fix reading NDTiff series with unordered axes in index (#311).
 
 2025.9.20
@@ -178,7 +182,7 @@ Revisions
 2023.9.26
 
 - Lazily convert dask array to ndarray when writing.
-- Allow to specify buffersize for reading and writing.
+- Allow specifying buffersize for reading and writing.
 - Fix IndexError reading some corrupted files with ZarrTiffStore (#227).
 
 2023.9.18
@@ -272,7 +276,7 @@ Revisions
 - Support reading PIXTIFF compression.
 - Support LERC with Zstd or Deflate compression.
 - Do not write duplicate and select extratags.
-- Allow to write uncompressed image data beyond 4 GB in classic TIFF.
+- Allow writing uncompressed image data beyond 4 GB in classic TIFF.
 - Add option to specify chunkshape and dtype in FileSequence.asarray.
 - Add option for imread to write to output in FileSequence.asarray (#172).
 - Add function to read GDAL structural metadata.
@@ -347,7 +351,7 @@ Revisions
 
 2022.5.4
 
-- Allow to write NewSubfileType=0 (#132).
+- Allow writing NewSubfileType=0 (#132).
 - Support writing iterators of strip or tile bytes.
 - Convert iterables (not iterators) to NumPy arrays when writing (breaking).
 - Explicitly specify optional keyword parameters for imread and imwrite.
@@ -417,7 +421,7 @@ Revisions
 - Fix ValueError using multiscale ZarrStore with zarr >= 2.11.0.
 - Raise KeyError if ZarrStore does not contain key.
 - Limit number of warnings for missing files in multifile series.
-- Allow to save colormap to 32-bit ImageJ files (#115).
+- Allow saving colormap to 32-bit ImageJ files (#115).
 
 2022.2.2
 
@@ -450,7 +454,7 @@ Revisions
 2021.10.10
 
 - Disallow letters as indices in FileSequence; use categories (breaking).
-- Do not warn of missing files in FileSequence; use files_missing property.
+- Do not warn about missing files in FileSequence; use files_missing property.
 - Support predictors in ZarrTiffStore.write_fsspec.
 - Add option to specify Zarr group name in write_fsspec.
 - Add option to specify categories for FileSequence patterns (#76).
@@ -610,7 +614,7 @@ Revisions
 
 2020.9.30
 
-- Allow to pass additional arguments to compression codecs.
+- Allow passing additional arguments to compression codecs.
 - Deprecate TiffWriter.save method (use TiffWriter.write).
 - Deprecate TiffWriter.save compress parameter (use compression).
 - Remove multifile parameter from TiffFile (breaking).
@@ -650,7 +654,7 @@ Revisions
 2020.9.3
 
 - Do not write contiguous series by default (breaking).
-- Allow to write to SubIFDs (WIP).
+- Allow writing to SubIFDs (WIP).
 - Fix writing F-contiguous NumPy arrays (#24).
 
 2020.8.25
@@ -675,8 +679,8 @@ Revisions
 
 - Do not auto-enable OME-TIFF if description is passed to TiffWriter.save.
 - Raise error writing empty bilevel or tiled images.
-- Allow to write tiled bilevel images.
-- Allow to write multi-page TIFF from iterable of single page images (WIP).
+- Allow writing tiled bilevel images.
+- Allow writing multi-page TIFF from iterable of single page images (WIP).
 - Add function to validate OME-XML.
 - Correct Philips slide width and length.
 
@@ -687,7 +691,7 @@ Revisions
 - Fix modulo dimensions for multiple OME series.
 - Fix some test errors on big endian systems (#18).
 - Fix BytesWarning.
-- Allow to pass TIFF.PREDICTOR values to TiffWriter.save.
+- Allow passing TIFF.PREDICTOR values to TiffWriter.save.
 
 2020.7.4
 
@@ -731,7 +735,7 @@ Revisions
 
 2020.5.5
 
-- Allow to write tiled TIFF from iterable of tiles (WIP).
+- Allow writing tiled TIFF from iterable of tiles (WIP).
 - Add method to iterate over decoded segments of TiffPage (WIP).
 - Pass chunks of segments to ThreadPoolExecutor.map to reduce memory usage.
 - Fix reading invalid files with too many strips.
@@ -753,9 +757,9 @@ Revisions
 - Improve handling of TiffSequence parameters in imread.
 - Match last uncommon parts of file paths to FileSequence pattern (breaking).
 - Allow letters in FileSequence pattern for indexing well plate rows.
-- Allow to reorder axes in FileSequence.
-- Allow to write > 4 GB arrays to plain TIFF when using compression.
-- Allow to write zero size NumPy arrays to nonconformant TIFF (tentative).
+- Allow reordering of axes in FileSequence.
+- Allow writing > 4 GB arrays to plain TIFF when using compression.
+- Allow writing zero size NumPy arrays to nonconformant TIFF (tentative).
 - Fix xml2dict.
 - Require imagecodecs >= 2020.1.31.
 - Remove support for imagecodecs-lite (breaking).
@@ -777,8 +781,8 @@ Revisions
 
 - Do not write SampleFormat tag for unsigned data types.
 - Write ByteCount tag values as SHORT or LONG if possible.
-- Allow to specify axes in FileSequence pattern via group names.
-- Add option to concurrently read FileSequence using threads.
+- Allow specifying axes in FileSequence pattern via group names.
+- Add option to read FileSequence concurrently using threads.
 - Derive TiffSequence from FileSequence.
 - Use str(datetime.timedelta) to format Timer duration.
 - Use perf_counter for Timer if possible.
@@ -810,7 +814,7 @@ Revisions
 
 - Fix regression decoding JPEG with RGB photometrics.
 - Fix reading OME-TIFF files with corrupted but unused pages.
-- Allow to load TiffFrame without specifying keyframe.
+- Allow loading TiffFrame without specifying keyframe.
 - Calculate virtual TiffFrames for non-BigTIFF ScanImage files > 2GB.
 - Rename property is_chroma_subsampled to is_subsampled (breaking).
 - Make more attributes and methods private (WIP).
@@ -898,14 +902,14 @@ Revisions
 - Read ZIF, the Zoomable Image Format (WIP).
 - Decode YCbCr JPEG as RGB (tentative).
 - Improve restoration of incomplete tiles.
-- Allow to write grayscale with extrasamples without specifying planarconfig.
+- Allow writing grayscale with extrasamples without specifying planarconfig.
 - Enable decoding of PNG and JXR via imagecodecs.
 - Deprecate 32-bit platforms (too many memory errors during tests).
 
 2018.9.27
 
 - Read Olympus SIS (WIP).
-- Allow to write non-BigTIFF files up to ~4 GB (fix).
+- Fix writing non-BigTIFF files up to ~4 GB.
 - Fix parsing date and time fields in SEM metadata.
 - Detect some circular IFD references.
 - Enable WebP codecs via imagecodecs.
