@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.9.30
+:Version: 2025.10.4
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.9.30
+2025.10.4
 
 - Pass 5119 tests.
+- Fix parsing SVS description ending with "|".
+
+2025.9.30
+
 - Fix reading NDTiff series with unordered axes in index (#311).
 
 2025.9.20
@@ -235,7 +239,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   series and position require separate unwrapping. The StripByteCounts tag
   contains the number of bytes for the uncompressed data. Tifffile can read
   LSM files of any size.
-- **MetaMorph Stack, STK** files contain additional image planes stored
+- **MetaMorph STK** files contain additional image planes stored
   contiguously after the image data of the first page. The total number of
   planes is equal to the count of the UIC2tag. Tifffile can read STK files.
 - **ZIF**, the Zoomable Image File format, is a subspecification of BigTIFF
@@ -280,7 +284,8 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 
 Other libraries for reading, writing, inspecting, or manipulating scientific
 TIFF files from Python are
-`aicsimageio <https://pypi.org/project/aicsimageio>`_,
+`bioio <https://github.com/bioio-devs/bioio>`_,
+`aicsimageio <https://github.com/AllenCellModeling/aicsimageio>`_,
 `apeer-ometiff-library
 <https://github.com/apeer-micro/apeer-ometiff-library>`_,
 `bigtiff <https://pypi.org/project/bigtiff>`_,
@@ -770,7 +775,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.9.30'
+__version__ = '2025.10.4'
 
 __all__ = [
     '__version__',
@@ -1514,7 +1519,7 @@ class TiffFileError(ValueError):
 class TiffWriter:
     """Write NumPy arrays to TIFF file.
 
-    TiffWriter's main purpose is saving multi-dimensional NumPy arrays in
+    TiffWriter's main purpose is to save multi-dimensional NumPy arrays in
     TIFF containers, not to create any possible TIFF format.
     Specifically, ExifIFD and GPSIFD tags are not supported.
 
@@ -1536,7 +1541,7 @@ class TiffWriter:
             Write 64-bit BigTIFF formatted file, which can exceed 4 GB.
             By default, a classic 32-bit TIFF file is written, which is
             limited to 4 GB.
-            If `append` is *True*, the existing file's format is used.
+            If `append` is *True*, the format of the existing file is used.
         byteorder:
             Endianness of TIFF format. One of '<', '>', '=', or '|'.
             The default is the system's native byte order.
@@ -1563,7 +1568,7 @@ class TiffWriter:
             contains '.ome.', `imagej` is not enabled, and the `description`
             argument in the first call of :py:meth:`TiffWriter.write` is not
             specified.
-            The format supports multiple, up to 9 dimensional image series.
+            The format supports multiple image series up to 9 dimensions.
             The default axes order is TZC(S)YX(S).
             Refer to the OME model for restrictions of this format.
         shaped:
@@ -4392,8 +4397,8 @@ class TiffFile:
                 whole file (if `series` is *None*) or a specified series are
                 returned as a stacked array.
                 Requesting an array from multiple pages that are not
-                compatible wrt. shape, dtype, compression etc. is undefined,
-                that is, it may crash or return incorrect values.
+                compatible with respect to shape, dtype, compression etc.
+                is undefined, that is, it may crash or return incorrect values.
             series:
                 Specifies which series of pages to return as array.
                 The default is 0.
@@ -20447,7 +20452,11 @@ def svs_description_metadata(description: str, /) -> dict[str, Any]:
     items = description.split('|')
     result['Header'] = items[0]
     for item in items[1:]:
-        key, value = item.split('=', maxsplit=1)
+        try:
+            key, value = item.split('=', maxsplit=1)
+        except Exception:
+            # empty item or missing '='
+            continue
         result[key.strip()] = astype(value.strip())
     return result
 
