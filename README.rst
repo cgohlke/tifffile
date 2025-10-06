@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.9.30
+:Version: 2025.10.4
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.9.30
+2025.10.4
 
 - Pass 5119 tests.
+- Fix parsing SVS description ending with "|".
+
+2025.9.30
+
 - Fix reading NDTiff series with unordered axes in index (#311).
 
 2025.9.20
@@ -208,7 +212,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   series and position require separate unwrapping. The StripByteCounts tag
   contains the number of bytes for the uncompressed data. Tifffile can read
   LSM files of any size.
-- **MetaMorph Stack, STK** files contain additional image planes stored
+- **MetaMorph STK** files contain additional image planes stored
   contiguously after the image data of the first page. The total number of
   planes is equal to the count of the UIC2tag. Tifffile can read STK files.
 - **ZIF**, the Zoomable Image File format, is a subspecification of BigTIFF
@@ -253,7 +257,8 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 
 Other libraries for reading, writing, inspecting, or manipulating scientific
 TIFF files from Python are
-`aicsimageio <https://pypi.org/project/aicsimageio>`_,
+`bioio <https://github.com/bioio-devs/bioio>`_,
+`aicsimageio <https://github.com/AllenCellModeling/aicsimageio>`_,
 `apeer-ometiff-library
 <https://github.com/apeer-micro/apeer-ometiff-library>`_,
 `bigtiff <https://pypi.org/project/bigtiff>`_,
