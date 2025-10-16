@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2025.10.16
+
+- Pass 5124 tests.
+- Add option to decode EER super-resolution sub-pixels (breaking, #313).
+- Parse EER metadata to dict (breaking).
+
 2025.10.4
 
-- Pass 5119 tests.
 - Fix parsing SVS description ending with "|".
 
 2025.9.30
