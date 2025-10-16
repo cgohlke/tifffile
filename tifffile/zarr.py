@@ -720,24 +720,22 @@ class ZarrTiffStore(ZarrStore):
                             'hasalpha': True,
                         }
                     elif codec_id == 'imagecodecs_eer':
+                        horzbits = vertbits = 2
                         if keyframe.compression == 65002:
-                            rlebits = int(keyframe.tags.valueof(65007, 7))
+                            skipbits = int(keyframe.tags.valueof(65007, 7))
                             horzbits = int(keyframe.tags.valueof(65008, 2))
                             vertbits = int(keyframe.tags.valueof(65009, 2))
                         elif keyframe.compression == 65001:
-                            rlebits = 7
-                            horzbits = 2
-                            vertbits = 2
+                            skipbits = 7
                         else:
-                            rlebits = 8
-                            horzbits = 2
-                            vertbits = 2
+                            skipbits = 8
                         value['compressor'] = {
                             'id': codec_id,
                             'shape': keyframe.chunks,
-                            'rlebits': rlebits,
+                            'skipbits': skipbits,
                             'horzbits': horzbits,
                             'vertbits': vertbits,
+                            'superres': keyframe.parent._superres,
                         }
                     elif codec_id is not None:
                         value['compressor'] = {'id': codec_id}
