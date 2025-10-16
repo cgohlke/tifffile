@@ -14,7 +14,7 @@ Adobe DNG, ZIF (Zoomable Image File Format), MetaMorph STK, Zeiss LSM,
 ImageJ hyperstack, Micro-Manager MMStack and NDTiff, SGI, NIHImage,
 Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
 Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
-Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
+Hamamatsu NDPI, Argos AVS, Philips DP, and ThermoFisher EER formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher-order series, and pyramidal levels.
@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.10.4
+:Version: 2025.10.16
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,11 +71,11 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.7, 3.14.0rc 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.3
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.9, 3.14.0 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.4
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.8.2
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.6
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.7
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
   (required only for validating and printing XML)
@@ -87,9 +87,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.10.16
+
+- Pass 5124 tests.
+- Add option to decode EER super-resolution sub-pixels (breaking, #313).
+- Parse EER metadata to dict (breaking).
+
 2025.10.4
 
-- Pass 5119 tests.
 - Fix parsing SVS description ending with "|".
 
 2025.9.30
