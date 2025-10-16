@@ -34,7 +34,7 @@
 Public data files can be requested from the author.
 Private data files are not available due to size and copyright restrictions.
 
-:Version: 2025.10.4
+:Version: 2025.10.16
 
 """
 
@@ -155,6 +155,7 @@ from tifffile.tifffile import (  # noqa: F401
     bytes2str,
     check_shape,
     create_output,
+    eer_xml_metadata,
     enumarg,
     epics_datetime,
     excel_datetime,
@@ -247,7 +248,7 @@ URL = 'http://localhost:8386/'  # TEMP_DIR
 if not SKIP_HTTP:
     try:
         urllib.request.urlopen(URL + '/test/test.txt', timeout=0.5)
-    except (urllib.error.URLError, TimeoutError):
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
         SKIP_HTTP = True
 
 if not os.path.exists(TEMP_DIR):
@@ -5105,6 +5106,98 @@ END
     assert 'DUPLICAT: duplicate key' in caplog.text
     assert 'INVALID1: invalid value' in caplog.text
     assert 'INVALID2: invalid string' in caplog.text
+
+
+def test_eer_xml_metadata():
+    """Test eer_xml_metadata function."""
+    meta = eer_xml_metadata(
+        """
+    <metadata>
+    <item name="acquisitionID">TEMApps_20220718_164035</item>
+    <item name="cameraName">EF-Falcon</item>
+    <item name="commercialName">Falcon 4</item>
+    <item name="eerGainReference">20220711_104630_EER_GainReference.gain</item>
+    <item name="exposureTime" unit="s">3.2000000000000002</item>
+    <item name="meanDoseRate" unit="e/pixel/s">7.5698134278181328</item>
+    <item name="numberOfFrames">770</item>
+    <item name="sensorImageHeight" unit="pixel">4096</item>
+    <item name="sensorImageWidth" unit="pixel">4096</item>
+    <item name="sensorPixelSize.height" unit="m">6.42429665e-10</item>
+    <item name="sensorPixelSize.width" unit="m">6.42429665e-10</item>
+    <item name="serialNumber">20-44-A11-G4H</item>
+    <item name="timestamp">2022-07-18T15:40:36.141-08:00</item>
+    <item name="totalDose" unit="e/pixel">24.198384735639088</item>
+    </metadata>
+        """
+    )
+    assert meta['acquisitionID'] == 'TEMApps_20220718_164035'
+    assert meta['cameraName'] == 'EF-Falcon'
+    assert meta['exposureTime'] == 3.2
+    assert meta['exposureTime.unit'] == 's'
+    assert meta['numberOfFrames'] == 770
+    assert meta['timestamp'] == datetime.datetime(
+        2022,
+        7,
+        18,
+        15,
+        40,
+        36,
+        141000,
+        tzinfo=datetime.timezone(datetime.timedelta(days=-1, seconds=57600)),
+    )
+    assert meta['totalDose'] == 24.198384735639088
+    assert meta['totalDose.unit'] == 'e/pixel'
+
+    meta = eer_xml_metadata(
+        """
+    <metadata>
+    <item name="decompressionAlgorithmVersion">V1</item>
+    <item name="dose" unit="e/pixel">0.023866</item>
+    <item name="frameID">10</item>
+    <item name="nrOfSubPixelPerDirection">2</item>
+    <item name="orientation">2</item>
+    <item name="pixelFormat">EerEncoding</item>
+    <item name="rleCodeLength">7</item>
+    <item name="timestamp">2022-07-18T15:40:36.182-08:00</item>
+    </metadata>
+        """
+    )
+    assert meta['decompressionAlgorithmVersion'] == 'V1'
+    assert meta['dose'] == 0.023866
+    assert meta['dose.unit'] == 'e/pixel'
+    assert meta['frameID'] == 10
+
+    meta = eer_xml_metadata(
+        """
+    <metadata>
+    <item name="binning">1</item>
+    <item name="checksum">Valid</item>
+    <item name="countsToElectrons">0.013037</item>
+    <item name="darkCorrection">Yes</item>
+    <item name="driftCorrectionInformation.clipping">No</item>
+    <item name="driftCorrectionInformation.confidence">0.000000</item>
+    <item name="driftCorrectionInformation.driftCorrected">No</item>
+    <item name="driftCorrectionInformation.vectorXCoordinate">0.000000</item>
+    <item name="driftCorrectionInformation.vectorYCoordinate">0.000000</item>
+    <item name="exposureTime" unit="s">0.997208</item>
+    <item name="gainCorrection">Yes</item>
+    <item name="meanPixelValue">144.216678</item>
+    <item name="numberOfFrames">238</item>
+    <item name="pixelValueToCameraCounts">1</item>
+    <item name="roi.bottom">2048</item>
+    <item name="roi.left">0</item>
+    <item name="roi.right">2048</item>
+    <item name="roi.top">0</item>
+    <item name="timestamp">2023-05-23T16:18:38.589514+01:00</item>
+    </metadata>
+        """
+    )
+    assert meta['binning'] == 1
+    assert meta['checksum'] == 'Valid'
+    assert meta['countsToElectrons'] == 0.013037
+    assert meta['darkCorrection'] is True
+    assert meta['driftCorrectionInformation.clipping'] is False
+    assert meta['driftCorrectionInformation.vectorXCoordinate'] == 0.0
 
 
 def test_func_matlabstr2py():
@@ -14229,37 +14322,79 @@ def test_read_zarr_level():
 
 
 @pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
-def test_read_eer(caplog):
-    """Test read EER metadata."""
+@pytest.mark.parametrize('superres', [0, 1, 3])
+def test_read_eer(caplog, superres):
+    """Test read EER superresolution."""
     # https://github.com/fei-company/EerReaderLib/issues/1
-    fname = private_file('EER/Example_1.eer')
-    with TiffFile(fname) as tif:
+    # https://github.com/cgohlke/tifffile/issues/313
+    # requires imagecodecs > 2025.8.2
+
+    fname = private_file(
+        'EER/FoilHole_29355520_Data_29330528_29330530_20200329_234551'
+        '_Fractions.mrc.eer'
+    )
+    size = 4096 * 2 ** min(superres, 2)
+
+    with TiffFile(fname, superres=superres) as tif:
         assert not caplog.text  # no warning
         assert tif.is_bigtiff
         assert tif.is_eer
         assert tif.byteorder == '<'
-        assert len(tif.pages) == 238
+        assert len(tif.pages) == 567
         assert len(tif.series) == 1
+
         # assert page properties
         page = tif.pages.first
+        assert page.tags['ImageWidth'].value == 4096
+        assert page.tags['ImageLength'].value == 4096
         assert not page.is_contiguous
         assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.compression == 65001
-        assert page.imagewidth == 4096
-        assert page.imagelength == 4096
+        assert page.imagewidth == size
+        assert page.imagelength == size
         assert page.bitspersample == 1
         assert page.samplesperpixel == 1
+        assert page.shape == (size, size)
+        assert page.dtype == '?'
+
         meta = tif.eer_metadata
-        assert meta.startswith('<metadata>')
+        assert meta['meanDoseRate'] == 4.138042
+        assert meta['meanDoseRate.unit'] == 'e/pixel/s'
+
         # assert data
         data = page.asarray()
+        assert data.shape == (size, size)
         assert data.dtype == '?'
-        assert data[428, 443]
-        assert not data[428, 444]
+        assert data.sum(dtype=numpy.uint32) == 278343
+
+        # assert series
+        series = tif.series[0]
+        assert series.shape == (567, size, size)
+        assert series.dtype == numpy.dtype('bool')
+        assert series.axes == 'IYX'
+        assert series.kind == 'eer'
+        assert series.name == 'frames'
+
+        if superres == 0:
+            assert data[791, 1112]
+            assert not data[792, 1112]
+            stack = series.asarray()
+            assert stack.shape == (567, size, size)
+            assert stack.dtype == numpy.dtype('bool')
+            assert stack.sum(dtype=numpy.uint32) == 158281907
+            del stack
+
+        for frame in series.pages:
+            assert isinstance(
+                frame, TiffPage if frame.index == 0 else TiffFrame
+            )
+            assert frame.compression == 65001
+            assert frame.shape == (size, size)
+
         assert_aszarr_method(page, data)
         assert__str__(tif)
 
-        if not SKIP_ZARR:
+        if not (SKIP_ZARR or SKIP_HTTP):
             try:
                 from imagecodecs.numcodecs import register_codecs
             except ImportError:
@@ -14267,11 +14402,75 @@ def test_read_eer(caplog):
             register_codecs('imagecodecs_eer', verbose=False)
             filename = os.path.split(fname)[-1]
             url = URL + 'test/private/EER/'
-            with TempFileName(filename, ext='.json') as jsonfile:
+            with TempFileName(
+                filename + f'_{superres}', ext='.json'
+            ) as jsonfile:
                 with page.aszarr() as store:
                     store.write_fsspec(jsonfile, url)
                 # if this fails add ".eer" as "image/tiff" to mime types
                 assert_fsspec(URL + os.path.split(jsonfile)[-1], data)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_CODECS, reason=REASON)
+def test_read_eer_integrate(caplog):
+    """Test read EER with integrated image."""
+    fname = private_file('EER/with_thumbnail.eer')
+
+    with TiffFile(fname, superres=0) as tif:
+        assert not caplog.text  # no warning
+        assert tif.is_bigtiff
+        assert tif.is_eer
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 484
+        assert len(tif.series) == 2
+
+        # assert page properties
+        page = tif.pages.first
+        assert page.is_contiguous
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == 1
+        assert page.imagewidth == 4096
+        assert page.imagelength == 4096
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+        assert page.shape == (4096, 4096)
+        assert page.dtype == numpy.uint16
+
+        page = tif.pages[1]
+        assert isinstance(page, TiffPage)
+        assert not page.is_contiguous
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == 65001
+        assert page.imagewidth == 4096
+        assert page.imagelength == 4096
+        assert page.bitspersample == 1
+        assert page.samplesperpixel == 1
+        assert page.shape == (4096, 4096)
+        assert page.dtype == '?'
+
+        meta = tif.eer_metadata
+        assert meta['numberOfFrames'] == 483
+        assert meta['exposureTime'] == 2.0105
+
+        # assert series
+        series = tif.series[1]
+        assert len(series) == 1
+        assert series.axes == 'YX'
+        assert series.kind == 'eer'
+        assert series.name == 'integrated'
+        final = series.asarray()
+        assert final.shape == (4096, 4096)
+        assert final.dtype == numpy.uint16
+        assert final.sum(dtype=numpy.uint32) == 3841768991
+
+        series = tif.series[0]
+        assert len(series) == 483
+        assert series.shape == (483, 4096, 4096)
+        assert series.dtype == numpy.dtype('bool')
+        assert series.axes == 'IYX'
+        assert series.kind == 'eer'
+        assert series.name == 'frames'
+        assert series.pages[0].asarray().sum(dtype=numpy.uint32) == 226656
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -15685,10 +15884,10 @@ def test_write_description_tag():
 
 
 def test_write_description_tag_nometadata():
-    """Test no JSON description is written with metatata=None."""
+    """Test no JSON description is written with metadata=None."""
     data = random_data(numpy.uint8, (2, 219, 301))
     description = 'Created by TestTiffWriter\nLorem ipsum dolor...'
-    with TempFileName('write_description_tag_nometadatan') as fname:
+    with TempFileName('write_description_tag_nometadata') as fname:
         imwrite(fname, data, description=description, metadata=None)
         assert_valid_tiff(fname)
         with TiffFile(fname) as tif:
