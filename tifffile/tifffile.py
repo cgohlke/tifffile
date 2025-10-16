@@ -41,7 +41,7 @@ Adobe DNG, ZIF (Zoomable Image File Format), MetaMorph STK, Zeiss LSM,
 ImageJ hyperstack, Micro-Manager MMStack and NDTiff, SGI, NIHImage,
 Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
 Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
-Hamamatsu NDPI, Argos AVS, and Philips DP formatted files.
+Hamamatsu NDPI, Argos AVS, Philips DP, and ThermoFisher EER formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher-order series, and pyramidal levels.
@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.10.4
+:Version: 2025.10.16
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,11 +98,11 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.7, 3.14.0rc 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.3
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.9, 3.14.0 64-bit
+- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.4
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.8.2
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.6
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.7
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
   (required only for validating and printing XML)
@@ -114,9 +114,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.10.16
+
+- Pass 5124 tests.
+- Add option to decode EER super-resolution sub-pixels (breaking, #313).
+- Parse EER metadata to dict (breaking).
+
 2025.10.4
 
-- Pass 5119 tests.
 - Fix parsing SVS description ending with "|".
 
 2025.9.30
@@ -775,7 +780,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.10.4'
+__version__ = '2025.10.16'
 
 __all__ = [
     '__version__',
@@ -941,6 +946,7 @@ def imread(
     zattrs: dict[str, Any] | None = None,
     multiscales: bool | None = None,
     omexml: str | None = None,
+    superres: int | None = None,
     out: OutputType = None,
     out_inplace: bool | None = None,
     _multifile: bool | None = None,
@@ -988,6 +994,7 @@ def imread(
     zattrs: dict[str, Any] | None = None,
     multiscales: bool | None = None,
     omexml: str | None = None,
+    superres: int | None = None,
     out: OutputType = None,
     out_inplace: bool | None = None,
     _multifile: bool | None = None,
@@ -1035,6 +1042,7 @@ def imread(
     zattrs: dict[str, Any] | None = None,
     multiscales: bool | None = None,
     omexml: str | None = None,
+    superres: int | None = None,
     out: OutputType = None,
     out_inplace: bool | None = None,
     _multifile: bool | None = None,
@@ -1081,6 +1089,7 @@ def imread(
     zattrs: dict[str, Any] | None = None,
     multiscales: bool | None = None,
     omexml: str | None = None,
+    superres: int | None = None,
     out: OutputType = None,
     out_inplace: bool | None = None,
     _multifile: bool | None = None,
@@ -1107,7 +1116,7 @@ def imread(
         aszarr:
             Return file sequences, series, or single pages as Zarr store
             instead of NumPy array if `selection` is None.
-        mode, name, offset, size, omexml, _multifile, _useframes:
+        mode, name, offset, size, superres, omexml, _multifile, _useframes:
             Passed to :py:class:`TiffFile`.
         key, series, level, squeeze, maxworkers, buffersize:
             Passed to :py:meth:`TiffFile.asarray`
@@ -1171,6 +1180,7 @@ def imread(
                 offset=offset,
                 size=size,
                 omexml=omexml,
+                superres=superres,
                 _multifile=_multifile,
                 _useframes=_useframes,
                 **is_flags,
@@ -4177,6 +4187,9 @@ class TiffFile:
         omexml:
             OME metadata in XML format, for example, from external companion
             file or sanitized XML overriding XML in file.
+        superres:
+            EER super-resolution level to decode.
+            The default is 0 (no super-resolution).
         _multifile, _useframes, _parent:
             Internal use.
         **is_flags:
@@ -4202,6 +4215,7 @@ class TiffFile:
     _parent: TiffFile  # OME master file
     _files: dict[str | None, TiffFile]  # cache of TiffFile instances
     _omexml: str | None  # external OME-XML
+    _superres: int  # EER super-resolution level
     _decoders: dict[  # cache of TiffPage.decode functions
         int,
         Callable[
@@ -4224,6 +4238,7 @@ class TiffFile:
         offset: int | None = None,
         size: int | None = None,
         omexml: str | None = None,
+        superres: int | None = None,
         _multifile: bool | None = None,
         _useframes: bool | None = None,
         _parent: TiffFile | None = None,
@@ -4252,6 +4267,7 @@ class TiffFile:
         self._files = {fh.name: self}
         self._decoders = {}
         self._parent = self if _parent is None else _parent
+        self._superres = 0 if superres is None else max(0, int(superres))
 
         try:
             fh.seek(0)
@@ -4638,6 +4654,7 @@ class TiffFile:
             'ndpi',
             'bif',
             'avs',
+            'eer',
             'philips',
             'scanimage',
             # 'indica',  # TODO: rewrite _series_indica()
@@ -5218,6 +5235,45 @@ class TiffFile:
                 kind='mdgel',
             )
         ]
+
+    def _series_eer(self) -> list[TiffPageSeries] | None:
+        """Return image series in EER file."""
+        series = []
+        page = self.pages.first
+        if page.compression == 1:
+            # integrated/final image
+            if len(self.pages) < 2:
+                return None
+            series.append(
+                TiffPageSeries(
+                    [page],
+                    page.shape,
+                    page.dtype,
+                    page.axes,
+                    name='integrated',
+                    kind='eer',
+                )
+            )
+            self.is_uniform = False
+            page = self.pages[1].aspage()  # first EER frame
+
+        assert page.compression in {65000, 65001, 65002}
+        self.pages.useframes = True
+        self.pages.set_keyframe(page.index)
+        pages = self.pages._getlist(slice(page.index, None), validate=False)
+        if len(pages) == 1:
+            shape = page.shape
+            axes = page.axes
+        else:
+            shape = (len(pages),) + page.shape
+            axes = 'I' + page.axes
+        series.insert(
+            0,
+            TiffPageSeries(
+                pages, shape, page.dtype, axes, name='frames', kind='eer'
+            ),
+        )
+        return series
 
     def _series_ndpi(self) -> list[TiffPageSeries] | None:
         """Return pyramidal image series in NDPI file."""
@@ -7225,6 +7281,13 @@ class TiffFile:
         return result
 
     @property
+    def eer_metadata(self) -> dict[str, Any] | None:
+        """EER metadata from tags 65001-65009."""
+        if not self.is_eer:
+            return None
+        return self.pages.first.eer_tags
+
+    @property
     def nuvu_metadata(self) -> dict[str, Any] | None:
         """Nuvu metadata from tags >= 65000."""
         if not self.is_nuvu:
@@ -7326,14 +7389,6 @@ class TiffFile:
         return streak_description_metadata(
             self.pages.first.description, self.filehandle
         )
-
-    @property
-    def eer_metadata(self) -> str | None:
-        """EER AcquisitionMetadata XML from tag 65001."""
-        if not self.is_eer:
-            return None
-        value = self.pages.first.tags.valueof(65001)
-        return None if value is None else value.decode()
 
 
 @final
@@ -7787,6 +7842,15 @@ class TiffPage:
                 logger().warning(
                     f'{self!r} <tifffile.read_uic1tag> raised {exc!r:.128}'
                 )
+
+        elif parent._superres and self.compression in {65000, 65001, 65002}:
+            horzbits = vertbits = 2
+            if self.compression == 65002:
+                horzbits = int(self.tags.valueof(65008, 2))
+                vertbits = int(self.tags.valueof(65009, 2))
+            self.imagewidth *= 2 ** (min(horzbits, parent._superres))
+            self.imagelength *= 2 ** (min(vertbits, parent._superres))
+            self.rowsperstrip *= 2 ** (min(vertbits, parent._superres))
 
         tag = tags.get(50839)
         if tag is not None:
@@ -8376,19 +8440,16 @@ class TiffPage:
 
         if self.compression in {65000, 65001, 65002}:
             # EER decoder requires shape and extra args
-
+            horzbits = vertbits = 2
             if self.compression == 65002:
-                rlebits = int(self.tags.valueof(65007, 7))
+                skipbits = int(self.tags.valueof(65007, 7))
                 horzbits = int(self.tags.valueof(65008, 2))
                 vertbits = int(self.tags.valueof(65009, 2))
             elif self.compression == 65001:
-                rlebits = 7
-                horzbits = 2
-                vertbits = 2
+                skipbits = 7
             else:
-                rlebits = 8
-                horzbits = 2
-                vertbits = 2
+                skipbits = 8
+            superres = self.parent._superres
 
             def decode_eer(
                 data: bytes | None,
@@ -8412,11 +8473,11 @@ class TiffPage:
                 assert decompress is not None
                 data_array = decompress(
                     data,
-                    shape=shape[1:3],
-                    rlebits=rlebits,
-                    horzbits=horzbits,
-                    vertbits=vertbits,
-                    superres=False,
+                    shape[1:3],
+                    skipbits,
+                    horzbits,
+                    vertbits,
+                    superres=superres,
                 )
                 return data_array.reshape(shape), segmentindex, shape
 
@@ -9512,6 +9573,29 @@ class TiffPage:
         }
 
     @cached_property
+    def eer_tags(self) -> dict[str, Any] | None:
+        """Consolidated metadata from EER tags 65001-65009."""
+        if not self.is_eer:
+            return None
+        result = {}
+        for code in range(65001, 65007):
+            value = self.tags.valueof(code)
+            if (
+                value is None
+                or not isinstance(value, bytes)
+                or not value.startswith(b'<metadata>')
+            ):
+                continue
+            try:
+                result.update(eer_xml_metadata(value.decode()))
+            except Exception as exc:
+                logger().warning(
+                    f'{self!r} eer_xml_metadata failed for tag {code}'
+                    f'{exc!r:.128}'
+                )
+        return result
+
+    @cached_property
     def nuvu_tags(self) -> dict[str, Any] | None:
         """Consolidated metadata from Nuvu tags."""
         if not self.is_nuvu:
@@ -10070,9 +10154,10 @@ class TiffPage:
         """Page contains EER acquisition metadata."""
         return (
             self.parent.is_bigtiff
-            and self.compression in {1, 65000, 65001, 65002}
+            # and self.compression in {1, 65000, 65001, 65002}
             and 65001 in self.tags
             and self.tags[65001].dtype == 7
+            and self.tags[65001].value[:10] == b'<metadata>'
         )
 
 
@@ -10201,7 +10286,7 @@ class TiffFrame:
             elif code == 347:
                 self.jpegtables = tag.value
             elif keyframe is None or (
-                code == 256 and keyframe.imagewidth != tag.value
+                code == 256 and keyframe.tags[256].value != tag.value
             ):
                 raise RuntimeError('incompatible keyframe')
 
@@ -16786,6 +16871,7 @@ class _TIFF:
                 # EER metadata:
                 # (65001, 'AcquisitionMetadata'),
                 # (65002, 'FrameMetadata'),
+                # (65005, 'ImageMetadata'),  # ?
                 # (65006, 'ImageMetadata'),
                 # (65007, 'PosSkipBits'),
                 # (65008, 'HorzSubBits'),
@@ -17335,6 +17421,9 @@ class _TIFF:
             50001,  # webp
             50002,  # jpegxl
             52546,  # jpegxl DNG
+            65000,  # EER
+            65001,  # EER
+            65002,  # EER
         }
 
     @cached_property
@@ -19245,9 +19334,11 @@ def read_sis_ini(
 ) -> dict[str, Any]:
     """Read OlympusSIS INI string from file."""
     try:
-        return olympusini_metadata(bytes2str(fh.read(count)))
+        return olympus_ini_metadata(bytes2str(fh.read(count)))
     except Exception as exc:
-        logger().warning(f'<tifffile.olympusini_metadata> raised {exc!r:.128}')
+        logger().warning(
+            f'<tifffile.olympus_ini_metadata> raised {exc!r:.128}'
+        )
         return {}
 
 
@@ -19942,7 +20033,7 @@ def imagej_metadata(
 
 
 def imagej_description_metadata(description: str, /) -> dict[str, Any]:
-    r"""Return metatata from ImageJ image description.
+    r"""Return metadata from ImageJ image description.
 
     Raise ValueError if not a valid ImageJ description.
 
@@ -20297,7 +20388,7 @@ def shaped_description(shape: Sequence[int], /, **metadata: Any) -> str:
 
 
 def shaped_description_metadata(description: str, /) -> dict[str, Any]:
-    """Return metatata from JSON formatted image description.
+    """Return metadata from JSON formatted image description.
 
     Raise ValueError if `description` is of unknown format.
 
@@ -20323,7 +20414,7 @@ def fluoview_description_metadata(
     /,
     ignoresections: Container[str] | None = None,
 ) -> dict[str, Any]:
-    r"""Return metatata from FluoView image description.
+    r"""Return metadata from FluoView image description.
 
     The FluoView image description format is unspecified. Expect failures.
 
@@ -20392,7 +20483,7 @@ def fluoview_description_metadata(
 
 
 def pilatus_description_metadata(description: str, /) -> dict[str, Any]:
-    """Return metatata from Pilatus image description.
+    """Return metadata from Pilatus image description.
 
     Return metadata from Pilatus pixel array detectors by Dectris, created
     by camserver or TVX software.
@@ -20438,7 +20529,7 @@ def pilatus_description_metadata(description: str, /) -> dict[str, Any]:
 
 
 def svs_description_metadata(description: str, /) -> dict[str, Any]:
-    """Return metatata from Aperio image description.
+    """Return metadata from Aperio image description.
 
     The Aperio image description format is unspecified. Expect failures.
 
@@ -20497,7 +20588,7 @@ def stk_description_metadata(description: str, /) -> list[dict[str, Any]]:
 
 
 def metaseries_description_metadata(description: str, /) -> dict[str, Any]:
-    """Return metatata from MetaSeries image description."""
+    """Return metadata from MetaSeries image description."""
     if not description.startswith('<MetaData>'):
         raise ValueError('invalid MetaSeries image description')
 
@@ -20544,12 +20635,12 @@ def metaseries_description_metadata(description: str, /) -> dict[str, Any]:
 
 
 def scanimage_description_metadata(description: str, /) -> Any:
-    """Return metatata from ScanImage image description."""
+    """Return metadata from ScanImage image description."""
     return matlabstr2py(description)
 
 
 def scanimage_artist_metadata(artist: str, /) -> dict[str, Any] | None:
-    """Return metatata from ScanImage artist tag."""
+    """Return metadata from ScanImage artist tag."""
     try:
         return json.loads(artist)
     except ValueError as exc:
@@ -20559,7 +20650,7 @@ def scanimage_artist_metadata(artist: str, /) -> dict[str, Any] | None:
     return None
 
 
-def olympusini_metadata(inistr: str, /) -> dict[str, Any]:
+def olympus_ini_metadata(inistr: str, /) -> dict[str, Any]:
     """Return OlympusSIS metadata from INI string.
 
     No specification is available.
@@ -20670,7 +20761,7 @@ def olympusini_metadata(inistr: str, /) -> dict[str, Any]:
 def astrotiff_description_metadata(
     description: str, /, sep: str = ':'
 ) -> dict[str, Any]:
-    """Return metatata from AstroTIFF image description."""
+    """Return metadata from AstroTIFF image description."""
     logmsg = '<tifffile.astrotiff_description_metadata> '
     counts: dict[str, int] = {}
     result: dict[str, Any] = {}
@@ -20754,7 +20845,7 @@ def astrotiff_description_metadata(
 def streak_description_metadata(
     description: str, fh: FileHandle, /
 ) -> dict[str, Any]:
-    """Return metatata from Hamamatsu streak image description."""
+    """Return metadata from Hamamatsu streak image description."""
     section_pattern = re.compile(
         r'\[([a-zA-Z0-9 _\-\.]+)\],([^\[]*)', re.DOTALL
     )
@@ -20808,6 +20899,36 @@ def streak_description_metadata(
                 pass
         fh.seek(pos)
 
+    return result
+
+
+def eer_xml_metadata(xmlstr: str, /) -> dict[str, Any]:
+    """Return metadata from EER XML tag values."""
+    import xml.etree.ElementTree as etree
+
+    value: Any
+    root = etree.fromstring(xmlstr)
+    result = {}
+    for item in root.findall('./item'):
+        key = item.attrib['name']
+        value = item.text
+        if value is None:
+            continue
+        if value == 'Yes':
+            value = True
+        elif value == 'No':
+            value = False
+        elif key == 'timestamp':
+            try:
+                # ISO 8601
+                value = DateTime.fromisoformat(value)
+            except Exception:
+                pass
+        else:
+            value = astype(value)
+        result[key] = value
+        if 'unit' in item.attrib:
+            result[key + '.unit'] = item.attrib['unit']
     return result
 
 
