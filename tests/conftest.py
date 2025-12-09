@@ -1,5 +1,7 @@
 # tifffile/tests/conftest.py
 
+"""Pytest configuration."""
+
 from __future__ import annotations
 
 import os
@@ -12,11 +14,12 @@ if os.environ.get('VSCODE_CWD'):
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     )
 
-if os.environ.get('SKIP_CODECS', None):
+if os.environ.get('SKIP_CODECS', ''):
     sys.modules['imagecodecs'] = None  # type: ignore[assignment]
 
 
-def pytest_report_header(config: Any, start_path: Any) -> Any:
+def pytest_report_header(config: Any, start_path: Any) -> str:
+    """Return pytest report header."""
     try:
         from numpy import __version__ as numpy
         from test_tifffile import config
@@ -53,8 +56,8 @@ def pytest_report_header(config: Any, start_path: Any) -> Any:
             f'fsspec-{fsspec}\n'
             f'test config: {config()}'
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        return f'pytest_report_header failed: {exc!s}'
 
 
 collect_ignore = ['_tmp', 'data', 'data-']
