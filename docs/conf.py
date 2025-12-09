@@ -27,8 +27,6 @@ extensions = [
 
 templates_path = ['_templates']
 
-exclude_patterns = []
-
 html_theme = 'alabaster'
 
 html_static_path = ['_static']
@@ -45,3 +43,20 @@ autosummary_generate = True
 
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
+
+html_theme_options = {
+    'nosidebar': False,
+}
+
+
+def add_api(app, what, name, obj, options, lines):
+    if what == 'module':
+        lines.extend(('API', '---'))
+
+
+def setup(app):
+    pass
+    # app.connect('autodoc-process-docstring', add_api)
+
+
+# mypy: allow-untyped-defs, allow-untyped-calls
