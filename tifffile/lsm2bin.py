@@ -17,7 +17,7 @@ except ImportError:
     try:
         from tifffile.tifffile import lsm2bin
     except ImportError:
-        from tifffile import lsm2bin
+        from tifffile import lsm2bin  # noqa: PLW0406
 
 
 def main(argv: list[str] | None = None) -> int:
