@@ -33,7 +33,7 @@
 
 from __future__ import annotations
 
-__all__ = ['register_codec', 'Tiff']
+__all__ = ['Tiff', 'register_codec']
 
 from io import BytesIO
 from typing import TYPE_CHECKING
@@ -85,7 +85,7 @@ class Tiff(Codec):  # type: ignore[misc]
         compressionargs: dict[str, Any] | None = None,
         predictor: PREDICTOR | int | str | bool | None = None,
         subsampling: tuple[int, int] | None = None,
-        metadata: dict[str, Any] | None = {},
+        metadata: dict[str, Any] | None = {},  # noqa: B006
         extratags: Sequence[TagTuple] | None = None,
         truncate: bool = False,
         maxworkers: int | None = None,
@@ -139,21 +139,18 @@ class Tiff(Codec):  # type: ignore[misc]
                     truncate=self.truncate,
                     maxworkers=self.maxworkers,
                 )
-            result = fh.getvalue()
-        return result
+            return fh.getvalue()
 
     def decode(self, buf: Any, out: Any = None) -> Any:
         """Return decoded image as NumPy array."""
-        with BytesIO(buf) as fh:
-            with TiffFile(fh) as tif:
-                result = tif.asarray(
-                    key=self.key,
-                    series=self.series,
-                    level=self.level,
-                    maxworkers=self.maxworkers,
-                    out=out,
-                )
-        return result
+        with BytesIO(buf) as fh, TiffFile(fh) as tif:
+            return tif.asarray(
+                key=self.key,
+                series=self.series,
+                level=self.level,
+                maxworkers=self.maxworkers,
+                out=out,
+            )
 
 
 def register_codec(cls: Codec = Tiff, codec_id: str | None = None) -> None:
