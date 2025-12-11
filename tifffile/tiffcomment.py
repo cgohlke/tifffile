@@ -18,7 +18,7 @@ except ImportError:
     try:
         from tifffile.tifffile import tiffcomment
     except ImportError:
-        from tifffile import tiffcomment
+        from tifffile import tiffcomment  # noqa: PLW0406
 
 
 def main(argv: list[str] | None = None) -> int:
