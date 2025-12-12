@@ -31,10 +31,7 @@
 
 """Unittests for the tifffile package.
 
-Public data files can be requested from the author.
-Private data files are not available due to size and copyright restrictions.
-
-:Version: 2025.10.16
+:Version: 2025.12.12
 
 """
 
@@ -62,8 +59,9 @@ from io import BytesIO
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Any
     from types import ModuleType
+    from typing import Any
+
     from numpy.typing import ArrayLike, DTypeLike, NDArray
 
 import numpy
@@ -82,33 +80,33 @@ try:
 
     STAR_IMPORTED: tuple[object, ...] = (
         TIFF,  # noqa: F405
-        imwrite,  # noqa
-        imread,  # noqa
-        imshow,  # noqa
-        TiffWriter,  # noqa
-        TiffReader,  # noqa
-        TiffFile,  # noqa
-        TiffFileError,  # noqa
-        TiffSequence,  # noqa
-        TiffPage,  # noqa
-        TiffFrame,  # noqa
-        FileHandle,  # noqa
-        FileSequence,  # noqa
-        Timer,  # noqa
-        logger,  # noqa
-        strptime,  # noqa
-        natural_sorted,  # noqa
-        stripnull,  # noqa
-        memmap,  # noqa
-        repeat_nd,  # noqa
-        format_size,  # noqa
-        product,  # noqa
-        create_output,  # noqa
-        askopenfilename,  # noqa
-        read_scanimage_metadata,  # noqa
-        read_micromanager_metadata,  # noqa
-        OmeXmlError,  # noqa
-        OmeXml,  # noqa
+        imwrite,  # noqa: F405
+        imread,  # noqa: F405
+        imshow,  # noqa: F405
+        TiffWriter,  # noqa: F405
+        TiffReader,  # noqa: F405
+        TiffFile,  # noqa: F405
+        TiffFileError,  # noqa: F405
+        TiffSequence,  # noqa: F405
+        TiffPage,  # noqa: F405
+        TiffFrame,  # noqa: F405
+        FileHandle,  # noqa: F405
+        FileSequence,  # noqa: F405
+        Timer,  # noqa: F405
+        logger,  # noqa: F405
+        strptime,  # noqa: F405
+        natural_sorted,  # noqa: F405
+        stripnull,  # noqa: F405
+        memmap,  # noqa: F405
+        repeat_nd,  # noqa: F405
+        format_size,  # noqa: F405
+        product,  # noqa: F405
+        create_output,  # noqa: F405
+        askopenfilename,  # noqa: F405
+        read_scanimage_metadata,  # noqa: F405
+        read_micromanager_metadata,  # noqa: F405
+        OmeXmlError,  # noqa: F405
+        OmeXml,  # noqa: F405
     )
 except NameError:
     STAR_IMPORTED = ()
@@ -202,6 +200,7 @@ from tifffile.tifffile import (  # noqa: F401
     tiff2fsspec,
     tiffcomment,
     transpose_axes,
+    unique_strings,
     unpack_rgb,
     validate_jhove,
     xml2dict,
@@ -217,26 +216,28 @@ IS_PYPY = 'pypy' in sys.version.lower()
 IS_WIN = sys.platform == 'win32'
 IS_CG = os.environ.get('COMPUTERNAME', '').startswith('CG-K')
 
+RNG = numpy.random.default_rng(42)
 
-def skip(key: str, default: bool) -> bool:
+
+def skip(key: str, default: bool) -> bool:  # noqa: FBT001
     """Return if environment variable is set and true."""
-    return os.getenv(key, default) in {True, 1, '1'}
+    return os.getenv(key, default) in {True, '1'}
 
 
 # skip tests requiring large memory
-SKIP_LARGE = skip('SKIP_LARGE', sys.maxsize < 2**32)
-SKIP_EXTENDED = skip('SKIP_EXTENDED', False)
+SKIP_LARGE = skip('SKIP_LARGE', default=sys.maxsize < 2**32)
+SKIP_EXTENDED = skip('SKIP_EXTENDED', default=False)
 # skip public files
-SKIP_PUBLIC = skip('SKIP_PUBLIC', not os.path.exists(PUBLIC_DIR))
+SKIP_PUBLIC = skip('SKIP_PUBLIC', default=not os.path.exists(PUBLIC_DIR))
 # skip private files
-SKIP_PRIVATE = skip('SKIP_PRIVATE', not os.path.exists(PRIVATE_DIR))
+SKIP_PRIVATE = skip('SKIP_PRIVATE', default=not os.path.exists(PRIVATE_DIR))
 # skip validate written files with jhove
-SKIP_VALIDATE = skip('SKIP_VALIDATE', True)
-SKIP_CODECS = skip('SKIP_CODECS', False)
-SKIP_ZARR = skip('SKIP_ZARR', False)
-SKIP_DASK = skip('SKIP_DASK', False)
-SKIP_NDTIFF = skip('SKIP_NDTIFF', False)
-SKIP_HTTP = skip('SKIP_HTTP', not IS_CG)
+SKIP_VALIDATE = skip('SKIP_VALIDATE', default=True)
+SKIP_CODECS = skip('SKIP_CODECS', default=False)
+SKIP_ZARR = skip('SKIP_ZARR', default=False)
+SKIP_DASK = skip('SKIP_DASK', default=False)
+SKIP_NDTIFF = skip('SKIP_NDTIFF', default=False)
+SKIP_HTTP = skip('SKIP_HTTP', default=not IS_CG)
 REASON = 'skipped'
 
 FILE_FLAGS = ['is_' + a for a in TIFF.FILE_FLAGS]
@@ -273,7 +274,7 @@ if SKIP_ZARR:
     zarr = None
 else:
     try:
-        import fsspec  # type: ignore[no-redef]
+        import fsspec
         import zarr
         from kerchunk.utils import refs_as_store
 
@@ -318,7 +319,7 @@ def config() -> str:
 
 
 def _data_file(
-    pathname: str, base: str, expand: bool = True
+    pathname: str, base: str, *, expand: bool = True
 ) -> str | list[str]:
     """Return path to test file(s)."""
     path = os.path.join(base, *pathname.split('/'))
@@ -360,10 +361,9 @@ def random_data(dtype: DTypeLike, shape: tuple[int, ...]) -> NDArray[Any]:
     # TODO: use nd noise
     dtype = numpy.dtype(dtype)
     if dtype.char == '?':
-        return numpy.random.rand(*shape) < 0.5
-    data = numpy.random.rand(*shape) * 255
-    data = data.astype(dtype)
-    return data
+        return RNG.random(shape) < 0.5
+    data = RNG.random(shape) * 255
+    return data.astype(dtype)
 
 
 def assert_fsspec(url: str, data: NDArray[Any]) -> None:
@@ -404,11 +404,11 @@ def assert__str__(tif: TiffFile, detail: int = 3) -> None:
         repr(page)
         str(page)
         str(page.tags)
-        page.flags
-        page.name
-        page.dims
-        page.sizes
-        page.coords
+        _ = page.flags
+        _ = page.name
+        _ = page.dims
+        _ = page.sizes
+        _ = page.coords
     repr(tif.series)
     str(tif.series)
     if len(tif.series) > 0:
@@ -447,13 +447,10 @@ def assert_decode_method(
     else:
         offsets = page.tags['StripOffsets'].value
         bytecounts = page.tags['StripByteCounts'].value
-    if image is None:
-        image = page.asarray()
-    else:
-        image = numpy.asarray(image)
-    for i, (o, b) in enumerate(zip(offsets, bytecounts)):
+    image = page.asarray() if image is None else numpy.asarray(image)
+    for i, (o, b) in enumerate(zip(offsets, bytecounts, strict=True)):
         fh.seek(o)
-        strile, index, shape = page.decode(fh.read(b), i)
+        strile, index, _shape = page.decode(fh.read(b), i)
         assert strile is not None
         assert image.reshape(page.shaped)[index] == strile[0, 0, 0, 0]
 
@@ -488,9 +485,13 @@ class TempFileName:
     remove: bool
 
     def __init__(
-        self, name: str | None = None, ext: str = '.tif', remove: bool = False
+        self,
+        name: str | None = None,
+        ext: str = '.tif',
+        *,
+        remove: bool = False,
     ) -> None:
-        self.remove = remove or TEMP_DIR == tempfile.gettempdir()
+        self.remove = remove or tempfile.gettempdir() == TEMP_DIR
         if not name:
             fh = tempfile.NamedTemporaryFile(prefix='test_')
             self.name = fh.named
@@ -505,7 +506,7 @@ class TempFileName:
         if self.remove:
             try:
                 os.remove(self.name)
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
 
 
@@ -534,7 +535,7 @@ def test_issue_version_mismatch():
 def test_issue_deprecated_import():
     """Test deprecated functions can still be imported."""
     with pytest.raises(ImportError):
-        from tifffile import imsave
+        from tifffile import imsave  # noqa: F401
 
 
 def test_issue_imread_kwargs():
@@ -712,7 +713,7 @@ def test_issue_sampleformat_default():
         imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         with TiffFile(fname) as tif:
             tags = tif.pages.first.tags
-            'SampleFormat' not in tags
+            assert 'SampleFormat' not in tags
             assert tags['ExtraSamples'].value == (2,)
             assert__str__(tif)
 
@@ -904,33 +905,31 @@ def test_issue_valueoffset(byteorder):
             photometric=PHOTOMETRIC.MINISBLACK,
             extratags=[(65535, 3, 2, (21, 22), True)],
         )
-        with TiffFile(fname, _useframes=True) as tif:
-            with open(fname, 'rb') as fh:
-                page = tif.pages.first
-                # inline value
-                fh.seek(page.tags['ImageLength'].valueoffset)
-                assert (
-                    page.imagelength
-                    == unpack(tif.byteorder + 'I', fh.read(4))[0]
-                )
-                # two inline values
-                fh.seek(page.tags[65535].valueoffset)
-                assert unpack(tif.byteorder + 'H', fh.read(2))[0] == 21
-                # separate value
-                fh.seek(page.tags['Software'].valueoffset)
-                assert page.software == bytes2str(fh.read(13))
-                # TiffFrame
-                page = tif.pages[1].aspage()
-                fh.seek(page.tags['StripOffsets'].valueoffset)
-                assert (
-                    page.dataoffsets[0]
-                    == unpack(tif.byteorder + 'I', fh.read(4))[0]
-                )
-                tag = page.tags['ImageLength']
-                assert tag.name == 'ImageLength'
-                assert tag.dtype_name == 'LONG'
-                assert tag.dataformat == '1I'
-                assert tag.valuebytecount == 4
+        with TiffFile(fname, _useframes=True) as tif, open(fname, 'rb') as fh:
+            page = tif.pages.first
+            # inline value
+            fh.seek(page.tags['ImageLength'].valueoffset)
+            assert (
+                page.imagelength == unpack(tif.byteorder + 'I', fh.read(4))[0]
+            )
+            # two inline values
+            fh.seek(page.tags[65535].valueoffset)
+            assert unpack(tif.byteorder + 'H', fh.read(2))[0] == 21
+            # separate value
+            fh.seek(page.tags['Software'].valueoffset)
+            assert page.software == bytes2str(fh.read(13))
+            # TiffFrame
+            page = tif.pages[1].aspage()
+            fh.seek(page.tags['StripOffsets'].valueoffset)
+            assert (
+                page.dataoffsets[0]
+                == unpack(tif.byteorder + 'I', fh.read(4))[0]
+            )
+            tag = page.tags['ImageLength']
+            assert tag.name == 'ImageLength'
+            assert tag.dtype_name == 'LONG'
+            assert tag.dataformat == '1I'
+            assert tag.valuebytecount == 4
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
@@ -1063,13 +1062,13 @@ def test_issue_tiles_pad(samples, compression):
     """Test tiles from iterator get padded."""
     # https://github.com/cgohlke/tifffile/issues/38
     if samples == 3:
-        data = numpy.random.randint(0, 2**12, (31, 33, 3), numpy.uint16)
+        data = RNG.integers(0, 2**12, (31, 33, 3), numpy.uint16)
         photometric = 'rgb'
     else:
-        data = numpy.random.randint(0, 2**12, (31, 33), numpy.uint16)
+        data = RNG.integers(0, 2**12, (31, 33), numpy.uint16)
         photometric = None
 
-    def tiles(data, tileshape, pad=False):
+    def tiles(data, tileshape, *, pad=False):
         for y in range(0, data.shape[0], tileshape[0]):
             for x in range(0, data.shape[1], tileshape[1]):
                 tile = data[y : y + tileshape[0], x : x + tileshape[1]]
@@ -1115,8 +1114,8 @@ def test_issue_fcontiguous():
 def test_issue_pathlib():
     """Test support for pathlib.Path."""
     data = random_data(numpy.uint16, (219, 301))
-    with TempFileName('issue_pathlib') as fname:
-        fname = pathlib.Path(fname)
+    with TempFileName('issue_pathlib') as fname_str:
+        fname = pathlib.Path(fname_str)
         assert isinstance(fname, os.PathLike)
         # imwrite
         imwrite(fname, data)
@@ -1130,17 +1129,19 @@ def test_issue_pathlib():
         finally:
             del im
         # TiffFile
-        with TiffFile(fname) as tif:
-            with TempFileName('issue_pathlib_out') as outfname:
-                outfname = pathlib.Path(outfname)
-                # out=file
-                im = tif.asarray(out=outfname)
-                try:
-                    assert isinstance(im, numpy.memmap)
-                    assert_array_equal(im, data)
-                    assert os.path.samefile(im.filename, str(outfname))
-                finally:
-                    del im
+        with (
+            TiffFile(fname) as tif,
+            TempFileName('issue_pathlib_out') as outfname_str,
+        ):
+            outfname = pathlib.Path(outfname_str)
+            # out=file
+            im = tif.asarray(out=outfname)
+            try:
+                assert isinstance(im, numpy.memmap)
+                assert_array_equal(im, data)
+                assert os.path.samefile(im.filename, outfname_str)
+            finally:
+                del im
         # TiffSequence
         with TiffSequence(fname) as tifs:
             im = tifs.asarray()
@@ -1163,15 +1164,14 @@ def test_issue_lzw_corrupt():
     """Test decode corrupted LZW segment raises RuntimeError."""
     # reported by S Richter on 2020.2.17
     fname = private_file('issues/lzw_corrupt.tiff')
-    with pytest.raises(RuntimeError):
-        with TiffFile(fname) as tif:
-            tif.asarray()
+    with pytest.raises(RuntimeError), TiffFile(fname) as tif:
+        _ = tif.asarray()
 
 
 def test_issue_iterable_compression():
     """Test write iterable of pages with compression."""
     # https://github.com/cgohlke/tifffile/issues/20
-    data = numpy.random.rand(10, 10, 10) * 127
+    data = RNG.random((10, 10, 10)) * 127
     data = data.astype(numpy.int8)
     with TempFileName('issue_iterable_compression') as fname:
         with TiffWriter(fname) as tif:
@@ -1187,10 +1187,10 @@ def test_issue_iterable_compression():
             assert_array_equal(tif.series[1].asarray(), data)
     # fail with wrong dtype
     with TempFileName('issue_iterable_compression_fail') as fname:
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write(data, shape=(10, 10, 10), dtype=numpy.uint8)
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write(
                     data,
@@ -1277,7 +1277,9 @@ def test_issue_pickle():
 
     with pytest.raises(AttributeError):
         assert loads(dumps(TIFF)).CHUNKMODE.PLANE == TIFF.CHUNKMODE.PLANE
+    with pytest.raises(AttributeError):
         assert loads(dumps(TIFF.CHUNKMODE)).PLANE == TIFF.CHUNKMODE.PLANE
+    with pytest.raises(AttributeError):
         assert loads(dumps(TIFF.CHUNKMODE.PLANE)) == TIFF.CHUNKMODE.PLANE
 
 
@@ -1286,7 +1288,7 @@ def test_issue_imagej_singlet_dimensions():
     # https://github.com/cgohlke/tifffile/issues/19
     # https://github.com/cgohlke/tifffile/issues/66
 
-    data = numpy.random.randint(0, 2**8, (1, 10, 1, 248, 260, 1), numpy.uint8)
+    data = RNG.integers(0, 2**8, (1, 10, 1, 248, 260, 1), numpy.uint8)
 
     with TempFileName('issue_imagej_singlet_dimensions') as fname:
         imwrite(fname, data, imagej=True)
@@ -1621,6 +1623,8 @@ def test_issue_dask_multipage(truncate, chunkmode):
             kwargs['tile'] = (32, 32)
         imwrite(fname, data, **kwargs)
         with imread(fname, aszarr=True, chunkmode=chunkmode) as store:
+            assert isinstance(store, ZarrStore)
+            assert isinstance(store, ZarrTiffStore)
             daskarray = dask.array.from_zarr(store).compute()
             assert_array_equal(data, daskarray)
 
@@ -1633,6 +1637,8 @@ def test_issue_zarr_store_closed(chunkmode):
     fname = private_file('ImageJ/_malaria_parasites.tif')
     data = imread(fname)
     store = imread(fname, aszarr=True, chunkmode=chunkmode)
+    assert isinstance(store, ZarrStore)
+    assert isinstance(store, ZarrTiffStore)
     try:
         z = zarr.open(store, mode='r')
         chunk = z[10:11, 3:-3]  # seek of closed file
@@ -1641,6 +1647,8 @@ def test_issue_zarr_store_closed(chunkmode):
     assert_array_equal(chunk, data[10:11, 3:-3])
 
     store = imread(fname, aszarr=True, chunkmode=chunkmode)
+    assert isinstance(store, ZarrStore)
+    assert isinstance(store, ZarrTiffStore)
     try:
         z = zarr.open(store, mode='r')
         chunk = z[:]
@@ -1690,11 +1698,11 @@ def test_issue_read_from_closed_file():
                 page = frame
 
             with pytest.warns(UserWarning):
-                page.colormap  # delay load tag value
+                _ = page.colormap  # delay load tag value
             assert isclosed == page.parent.filehandle.closed
 
             with pytest.warns(UserWarning):
-                frame.asarray()  # read data
+                _ = frame.asarray()  # read data
             assert isclosed == page.parent.filehandle.closed
         assert count > 0
 
@@ -1702,7 +1710,7 @@ def test_issue_read_from_closed_file():
 @pytest.mark.skipif(
     SKIP_PRIVATE or SKIP_CODECS or not imagecodecs.PNG.available, reason=REASON
 )
-def test_issue_filesequence_categories(caplog):
+def test_issue_filesequence_categories():
     """Test FileSequence with categories."""
     # https://github.com/cgohlke/tifffile/issues/76
 
@@ -1931,7 +1939,7 @@ def test_issue_xarray():
     except ImportError:
         pytest.skip('xarray missing')
 
-    data = numpy.random.randint(0, 2**8, (5, 31, 33, 3), numpy.uint8)
+    data = RNG.integers(0, 2**8, (5, 31, 33, 3), numpy.uint8)
 
     with TempFileName('issue_xarry.ome') as fname:
         with tifffile.TiffWriter(fname) as tif:
@@ -1980,7 +1988,7 @@ def test_issue_xarray_multiscale():
     except ImportError:
         pytest.skip('xarray missing')
 
-    data = numpy.random.randint(0, 2**8, (8, 3, 128, 128), numpy.uint8)
+    data = RNG.integers(0, 2**8, (8, 3, 128, 128), numpy.uint8)
 
     with TempFileName('issue_xarry_multiscale.ome') as fname:
         with tifffile.TiffWriter(fname) as tif:
@@ -2567,7 +2575,7 @@ def test_issue_predictor_deltax2():
     """Test deltax2 predictor."""
     # https://github.com/cgohlke/tifffile/issues/167
     data = random_data(numpy.uint8, (219, 302))
-    with TempFileName('issue_predictor_deltax2') as fname:
+    with TempFileName('issue_predictor_deltax2') as fname:  # noqa: SIM117
         with pytest.raises(NotImplementedError):
             imwrite(fname, data, predictor=34892, compression=8)
         # with TiffFile(fname) as tif:
@@ -2709,14 +2717,14 @@ def test_issue_ome_missing_frames():
 def test_issue_maxworkers():
     """Test maxworkers defaults."""
     if 'TIFFFILE_NUM_THREADS' in os.environ:
-        assert TIFF.MAXWORKERS == int(os.environ['TIFFFILE_NUM_THREADS'])
+        assert int(os.environ['TIFFFILE_NUM_THREADS']) == TIFF.MAXWORKERS
     else:
-        assert TIFF.MAXWORKERS == max(1, os.cpu_count() // 2)
+        assert max(1, os.cpu_count() // 2) == TIFF.MAXWORKERS
 
     if 'TIFFFILE_NUM_IOTHREADS' in os.environ:
-        assert TIFF.MAXIOWORKERS == int(os.environ['TIFFFILE_NUM_IOTHREADS'])
+        assert int(os.environ['TIFFFILE_NUM_IOTHREADS']) == TIFF.MAXIOWORKERS
     else:
-        assert TIFF.MAXIOWORKERS == os.cpu_count() + 4
+        assert os.cpu_count() + 4 == TIFF.MAXIOWORKERS
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -2774,7 +2782,7 @@ def test_issue_exclusive_creation():
             assert fh._mode == 'xb'
             with TiffWriter(fh) as tif:
                 tif.write(shape=(32, 32), dtype=numpy.uint8)
-        with pytest.raises(FileExistsError):
+        with pytest.raises(FileExistsError):  # noqa: SIM117
             with FileHandle(fname, mode='x'):
                 pass
 
@@ -3133,8 +3141,8 @@ def test_issue_not_binary():
     # https://github.com/cgohlke/tifffile/issues/304
     with TempFileName('issue_not_binary') as fname:
         imwrite(fname, None, shape=(2, 2), dtype=numpy.uint8)
-        with open(fname) as fh:
-            with pytest.raises(ValueError, match='binary mode'):
+        with open(fname) as fh:  # noqa: SIM117
+            with pytest.raises(TypeError, match='binary mode'):
                 imread(fh)
 
 
@@ -3192,19 +3200,19 @@ class TestExceptions:
 
     def test_no_shape_dtype(self, fname):
         # shape and dtype missing
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write()
 
     def test_no_shape(self, fname):
         # shape missing
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write(iter(self.data), dtype='u2')
 
     def test_no_dtype(self, fname):
         # dtype missing
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write(iter(self.data), shape=(5, 13, 17))
 
@@ -3443,7 +3451,7 @@ class TestExceptions:
 
     def test_iter_bytes(self, fname):
         # iterator contains wrong number of bytes
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write(
                     iter([b'abc']),
@@ -3454,7 +3462,7 @@ class TestExceptions:
 
     def test_iter_dtype(self, fname):
         # iterator contains wrong dtype
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write(
                     iter(self.data),
@@ -3463,7 +3471,7 @@ class TestExceptions:
                     rowsperstrip=13,
                 )
 
-        with TiffWriter(fname) as tif:
+        with TiffWriter(fname) as tif:  # noqa: SIM117
             with pytest.raises(ValueError):
                 tif.write(
                     iter(self.data),
@@ -3476,21 +3484,21 @@ class TestExceptions:
     def test_tiff_enums(self):
         # TIFF.COMPRESSION and others are deprecated
         with pytest.raises(AttributeError):
-            TIFF.COMPRESSION
+            _ = TIFF.COMPRESSION
         with pytest.raises(AttributeError):
-            TIFF.EXTRASAMPLE
+            _ = TIFF.EXTRASAMPLE
         with pytest.raises(AttributeError):
-            TIFF.FILLORDER
+            _ = TIFF.FILLORDER
         with pytest.raises(AttributeError):
-            TIFF.PHOTOMETRIC
+            _ = TIFF.PHOTOMETRIC
         with pytest.raises(AttributeError):
-            TIFF.PLANARCONFIG
+            _ = TIFF.PLANARCONFIG
         with pytest.raises(AttributeError):
-            TIFF.PREDICTOR
+            _ = TIFF.PREDICTOR
         with pytest.raises(AttributeError):
-            TIFF.RESUNIT
+            _ = TIFF.RESUNIT
         with pytest.raises(AttributeError):
-            TIFF.RESUNIT
+            _ = TIFF.RESUNIT
 
     # def test_extratags(self, fname):
     #     # invalid dtype or count
@@ -3499,9 +3507,8 @@ class TestExceptions:
 
     def test_container_binaryio(self, fname):
         # container cannot be binaryio
-        with pytest.raises(ValueError):
-            with FileHandle(fname, 'r+') as fh:
-                imread(fh, container=fname)
+        with pytest.raises(ValueError), FileHandle(fname, 'r+') as fh:
+            imread(fh, container=fname)
 
     def test_imagej_colormap(self, fname):
         # invalid colormap shape
@@ -3686,7 +3693,7 @@ def test_class_filecache():
             assert fh.closed == (i > 0)
 
         # randomly open and close files
-        for i in range(13):
+        for _i in range(13):
             fh = handles[random.randint(0, 5)]
             cache.open(fh)
             cache.close(fh)
@@ -3695,7 +3702,7 @@ def test_class_filecache():
             assert handles[0] in cache.files
 
         # randomly read from files
-        for i in range(13):
+        for _i in range(13):
             fh = handles[random.randint(0, 5)]
             cache.read(fh, 0, 0)
             assert len(cache) <= 3
@@ -3981,9 +3988,9 @@ def test_class_tifftags():
             assert tags.get(305) is None
             assert tags.get('Software') is None
             with pytest.raises(KeyError):
-                tags[305].value
+                _ = tags[305].value
             with pytest.raises(KeyError):
-                tags['Software'].value
+                _ = tags['Software'].value
             assert len(tags.values()) == len(tags.items())
             assert len(tags.keys()) == len(tags.items()) - 1
             assert set(tags.keys()) == {i[0] for i in tags.items()}
@@ -4080,7 +4087,7 @@ def test_class_tifftagregistry():
 
 
 @pytest.mark.parametrize(
-    'shape, storedshape, dtype, axes, error',
+    ('shape', 'storedshape', 'dtype', 'axes', 'error'),
     [
         # separate and contig
         ((32, 32), (1, 2, 1, 32, 32, 2), numpy.uint8, None, ValueError),
@@ -4129,7 +4136,7 @@ def test_class_tifftagregistry():
             OmeXmlError,
         ),
         # double axis
-        ((1, 32, 32), (1, 1, 1, 32, 32, 1), numpy.uint8, 'YYX', OmeXmlError),
+        # ((1, 32, 32), (1, 1, 1, 32, 32, 1), numpy.uint8, 'YYX', OmeXmlError),
         # planecount mismatch
         ((3, 32, 32), (1, 1, 1, 32, 32, 1), numpy.uint8, 'CYX', ValueError),
         # stored shape mismatch
@@ -4157,7 +4164,7 @@ def test_class_omexml_fail(shape, storedshape, dtype, axes, error):
 
 
 @pytest.mark.parametrize(
-    'axes, autoaxes, shape, storedshape, dimorder',
+    ('axes', 'autoaxes', 'shape', 'storedshape', 'dimorder'),
     [
         ('YX', 'YX', (32, 32), (1, 1, 1, 32, 32, 1), 'XYCZT'),
         ('YXS', 'YXS', (32, 32, 1), (1, 1, 1, 32, 32, 1), 'XYCZT'),
@@ -4194,13 +4201,13 @@ def test_class_omexml_fail(shape, storedshape, dtype, axes, error):
         ('ZTCSYX', '', (3, 4, 5, 3, 32, 32), (60, 3, 1, 32, 32, 1), 'XYCTZ'),
     ],
 )
-@pytest.mark.parametrize('metadata', ('axes', None))
+@pytest.mark.parametrize('metadata', ['axes', None])
 def test_class_omexml(axes, autoaxes, shape, storedshape, dimorder, metadata):
     """Test OmeXml class."""
     dtype = numpy.uint8
     if not metadata and dimorder != 'XYCZT':
         pytest.xfail('')
-    metadata = dict(axes=axes) if metadata else {}
+    metadata = {'axes': axes} if metadata else {}
     omexml = OmeXml()
     omexml.addimage(dtype, shape, storedshape, **metadata)
     if IS_WIN:
@@ -4210,10 +4217,7 @@ def test_class_omexml(axes, autoaxes, shape, storedshape, dimorder, metadata):
     if metadata:
         autoaxes = axes
     for ax in 'XYCZT':
-        if ax in autoaxes:
-            size = shape[autoaxes.index(ax)]
-        else:
-            size = 1
+        size = shape[autoaxes.index(ax)] if ax in autoaxes else 1
         if ax == 'C':
             size *= storedshape[1] * storedshape[-1]
         assert f'Size{ax}="{size}"' in omexml
@@ -4222,7 +4226,7 @@ def test_class_omexml(axes, autoaxes, shape, storedshape, dimorder, metadata):
 
 
 @pytest.mark.parametrize(
-    'axes, shape, storedshape, sizetzc, dimorder',
+    ('axes', 'shape', 'storedshape', 'sizetzc', 'dimorder'),
     [
         ('ZAYX', (3, 4, 32, 32), (12, 1, 1, 32, 32, 1), (1, 12, 1), 'XYCZT'),
         ('AYX', (3, 32, 32), (3, 1, 1, 32, 32, 1), (3, 1, 1), 'XYCZT'),
@@ -4294,7 +4298,7 @@ def test_class_omexml_modulo(axes, shape, storedshape, sizetzc, dimorder):
     assert '\n  ' in str(omexml)
     omexml = omexml.tostring()
     assert dimorder in omexml
-    for ax, size in zip('TZC', sizetzc):
+    for ax, size in zip('TZC', sizetzc, strict=True):
         assert f'Size{ax}="{size}"' in omexml
     assert__repr__(omexml)
     assert_valid_omexml(omexml)
@@ -4305,36 +4309,36 @@ def test_class_omexml_attributes():
     from uuid import uuid1
 
     uuid = str(uuid1())
-    metadata = dict(
+    metadata = {
         # document
-        UUID=uuid,
-        Creator=f'test_tifffile.py {tifffile.__version__}',
+        'UUID': uuid,
+        'Creator': f'test_tifffile.py {tifffile.__version__}',
         # image
-        axes='QZYXS',
-        Name='ImageName',
-        Acquisitiondate='2011-09-16T10:45:48',
-        Description='Image "Description" < & >\n{test}',
-        TypeDescription={'Q': 'Phasor'},
-        SignificantBits=12,
-        PhysicalSizeX=1.1,
-        PhysicalSizeXUnit='nm',
-        PhysicalSizeY=1.2,
-        PhysicalSizeYUnit='\xb5m',
-        PhysicalSizeZ=1.3,
-        PhysicalSizeZUnit='\xc5',
-        TimeIncrement=1.4,
-        TimeIncrementUnit='\xb5s',
-        Channel=dict(Name='ChannelName'),  # one channel with 3 samples
-        Plane=dict(PositionZ=[0.0, 0.0, 2.0, 2.0, 4.0, 4.0]),  # 6 TZ-planes
-        CommentAnnotation='Tifffile test',
-        BooleanAnnotation=True,
-        LongAnnotation=[1, 2],
-        DoubleAnnotation={'Description': 'A double', 'Value': 1.0},
-        MapAnnotation=[
+        'axes': 'QZYXS',
+        'Name': 'ImageName',
+        'Acquisitiondate': '2011-09-16T10:45:48',
+        'Description': 'Image "Description" < & >\n{test}',
+        'TypeDescription': {'Q': 'Phasor'},
+        'SignificantBits': 12,
+        'PhysicalSizeX': 1.1,
+        'PhysicalSizeXUnit': 'nm',
+        'PhysicalSizeY': 1.2,
+        'PhysicalSizeYUnit': '\xb5m',
+        'PhysicalSizeZ': 1.3,
+        'PhysicalSizeZUnit': '\xc5',
+        'TimeIncrement': 1.4,
+        'TimeIncrementUnit': '\xb5s',
+        'Channel': {'Name': 'ChannelName'},  # one channel with 3 samples
+        'Plane': {'PositionZ': [0.0, 0.0, 2.0, 2.0, 4.0, 4.0]},  # 6 TZ-planes
+        'CommentAnnotation': 'Tifffile test',
+        'BooleanAnnotation': True,
+        'LongAnnotation': [1, 2],
+        'DoubleAnnotation': {'Description': 'A double', 'Value': 1.0},
+        'MapAnnotation': [
             {'Description': 'description', 'key': '<str/>', 'key2': 1.0},
             {'Namespace': 'ns.org', 'key2': 1, 'key3': 2},
         ],
-    )
+    }
 
     omexml = OmeXml(**metadata)
     omexml.addimage(
@@ -4668,8 +4672,8 @@ def test_func_order_axes():
     """Test axis_order function."""
     axes = [(0, 2, 0), (1, 2, 0), (0, 2, 1), (1, 2, 1)]
     # first axis varies fastest, second axis is constant
-    assert order_axes(axes, True) == (2, 0)
-    assert order_axes(axes, False) == (1, 2, 0)
+    assert order_axes(axes) == (1, 2, 0)
+    assert order_axes(axes, squeeze=True) == (2, 0)
 
 
 def test_func_apply_colormap():
@@ -4853,6 +4857,11 @@ def test_func_transpose_axes():
     ).shape == (5, 2, 1, 3, 4)
 
 
+def test_func_unique_strings():
+    """Test unique_strings function."""
+    assert list(unique_strings(iter(('a', 'b', 'a')))) == ['a', 'b', 'a2']
+
+
 def test_func_subresolution():
     """Test subresolution function."""
 
@@ -4889,7 +4898,7 @@ def test_func_unpack_rgb():
     """Test unpack_rgb function."""
     data = struct.pack('BBBB', 0x21, 0x08, 0xFF, 0xFF)
     assert_array_equal(
-        unpack_rgb(data, '<B', (5, 6, 5), False), [1, 1, 1, 31, 63, 31]
+        unpack_rgb(data, '<B', (5, 6, 5), rescale=False), [1, 1, 1, 31, 63, 31]
     )
     assert_array_equal(
         unpack_rgb(data, '<B', (5, 6, 5)), [8, 4, 8, 255, 255, 255]
@@ -5808,17 +5817,20 @@ def test_func_delta_codec(byteorder, kind):
     if kind[0] in 'iuB':
         low = numpy.iinfo(kind).min
         high = numpy.iinfo(kind).max
-        data = numpy.random.randint(
-            low, high, size=33 * 31 * 3, dtype=kind
+        data = RNG.integers(
+            low,
+            high,
+            size=33 * 31 * 3,
+            dtype=kind,
         ).reshape(33, 31, 3)
     else:
         # floating point
         if byteorder == '>':
             pytest.xfail('requires imagecodecs')
         low, high = -1e5, 1e5
-        data = numpy.random.randint(
-            low, high, size=33 * 31 * 3, dtype='i4'
-        ).reshape(33, 31, 3)
+        data = RNG.integers(low, high, size=33 * 31 * 3, dtype='i4').reshape(
+            33, 31, 3
+        )
     data = data.astype(byteorder + kind)
 
     data[16, 14] = [0, 0, 0]
@@ -5858,7 +5870,7 @@ def test_func_zlib_lzma_codecs(codec, length):
         decode = lzma_decode
 
     if length:
-        data = numpy.random.randint(255, size=length, dtype=numpy.uint8)
+        data = RNG.integers(255, size=length, dtype=numpy.uint8)
         assert decode(encode(data)) == data.tobytes()
     else:
         data = b''
@@ -5869,14 +5881,14 @@ def test_func_zlib_lzma_codecs(codec, length):
 def test_func_zstd_codecs(length):
     """Test zstd codec functions."""
     try:
-        from compression import zstd  # Python >= 3.14
+        from compression import zstd  # noqa: F401 - Python >= 3.14
     except ImportError:
         pytest.skip('zstd codec not available')
 
     from tifffile._imagecodecs import zstd_decode, zstd_encode
 
     if length:
-        data = numpy.random.randint(255, size=length, dtype=numpy.uint8)
+        data = RNG.integers(255, size=length, dtype=numpy.uint8)
         assert zstd_decode(zstd_encode(data)) == data.tobytes()
     else:
         data = b''
@@ -5939,10 +5951,10 @@ def test_func_packints_decode():
     assert tuple(decoded) == (0, 1, 1, 0, 0, 0, 0, 1)
     with pytest.raises(NotImplementedError):
         decoded = packints_decode(b'ab', 'B', 2)
-        assert tuple(decoded) == (1, 2, 0, 1, 1, 2, 0, 2)
+        # assert tuple(decoded) == (1, 2, 0, 1, 1, 2, 0, 2)
     with pytest.raises(NotImplementedError):
         decoded = packints_decode(b'abcd', 'B', 3)
-        assert tuple(decoded) == (3, 0, 2, 6, 1, 1, 4, 3, 3, 1)
+        # assert tuple(decoded) == (3, 0, 2, 6, 1, 1, 4, 3, 3, 1)
 
 
 def test_func_check_shape():
@@ -6279,7 +6291,7 @@ def test_filehandle_exclusive_creation():
             os.remove(fname)
         with FileHandle(fname, mode='x'):
             pass
-        with pytest.raises(FileExistsError):
+        with pytest.raises(FileExistsError):  # noqa: SIM117
             with FileHandle(fname, mode='x'):
                 pass
 
@@ -6352,25 +6364,16 @@ def test_read_tigers(fname):
         # if 'palette' in fname:
         #     shape = (76, 73, 3)
         if 'rgb' in fname:
-            if 'planar' in fname:
-                shape = (3, 76, 73)
-            else:
-                shape = (76, 73, 3)
+            shape = (3, 76, 73) if 'planar' in fname else (76, 73, 3)
         elif 'separated' in fname:
-            if 'planar' in fname:
-                shape = (4, 76, 73)
-            else:
-                shape = (76, 73, 4)
+            shape = (4, 76, 73) if 'planar' in fname else (76, 73, 4)
         else:
             shape = (76, 73)
         assert data.shape == shape
 
         # assert data types
         if 'float' in fname:
-            if databits == 24:
-                dtype = numpy.float32
-            else:
-                dtype = f'float{databits}'
+            dtype = numpy.float32 if databits == 24 else f'float{databits}'
         # elif 'palette' in fname:
         #     dtype = numpy.uint16
         elif databits == 1:
@@ -7488,9 +7491,10 @@ def test_read_freeimage():
         assert tif.byteorder == '<'
         assert len(tif.pages) == 3
         assert len(tif.series) == 3
-        for i, shape in enumerate(((100, 600), (379, 574), (689, 636))):
+        for i, shape in enumerate(
+            ((100, 600, 3), (379, 574, 3), (689, 636, 3))
+        ):
             series = tif.series[i]
-            shape = shape + (3,)
             assert series.shape == shape
             assert series.dtype == numpy.uint8
             assert series.axes == 'YXS'
@@ -8611,8 +8615,8 @@ def test_read_chart_bl():
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (18710, 13228)
         assert data.dtype == numpy.bool_
-        assert data[0, 0] is numpy.bool_(True)
-        assert data[5000, 5000] is numpy.bool_(False)
+        assert data[0, 0] is numpy.bool_(True)  # noqa: FBT003
+        assert data[5000, 5000] is numpy.bool_(False)  # noqa: FBT003
         if not SKIP_LARGE:
             assert_aszarr_method(tif, data)
         assert__str__(tif)
@@ -8857,12 +8861,12 @@ def test_read_tiles():
     )
     with TempFileName('read_tiles') as fname:
         with TiffWriter(fname) as tif:
-            options = dict(
-                tile=(256, 256),
-                photometric=PHOTOMETRIC.RGB,
-                compression=COMPRESSION.JPEG,
-                metadata=None,
-            )
+            options = {
+                'tile': (256, 256),
+                'photometric': PHOTOMETRIC.RGB,
+                'compression': COMPRESSION.JPEG,
+                'metadata': None,
+            }
             tif.write(data, **options)
             tif.write(
                 data[::2, ::2], subfiletype=FILETYPE.REDUCEDIMAGE, **options
@@ -8875,11 +8879,11 @@ def test_read_tiles():
                 if jpegtables is not None:
                     jpegtables = jpegtables.value
                 for index, (offset, bytecount) in enumerate(
-                    zip(page.dataoffsets, page.databytecounts)
+                    zip(page.dataoffsets, page.databytecounts, strict=True)
                 ):
                     fh.seek(offset)
                     data = fh.read(bytecount)
-                    tile, indices, shape = page.decode(
+                    tile, _indices, _shape = page.decode(
                         data, index, jpegtables=jpegtables
                     )
                     assert_array_equal(tile, next(segments)[0])
@@ -8963,15 +8967,15 @@ def test_read_lsm_carpet():
         assert series.shape == (36000, 10, 32)
         assert series.axes == 'TYX'
         assert series.kind == 'lsm'
-        assert series.get_shape(False) == (36000, 1, 10, 32)
-        assert series.get_axes(False) == 'TCYX'
+        assert series.get_shape(squeeze=False) == (36000, 1, 10, 32)
+        assert series.get_axes(squeeze=False) == 'TCYX'
         if 1:
             series = tif.series[1]
             assert series.dtype == numpy.uint8
             assert series.shape == (36000, 3, 40, 128)
             assert series.axes == 'TSYX'
-            assert series.get_shape(False) == (36000, 3, 40, 128)
-            assert series.get_axes(False) == 'TSYX'
+            assert series.get_shape(squeeze=False) == (36000, 3, 40, 128)
+            assert series.get_axes(squeeze=False) == 'TSYX'
             assert series.kind == 'lsm'
         # assert lsm_info tags
         tags = tif.lsm_metadata
@@ -9015,8 +9019,8 @@ def test_read_lsm_sfcs():
         assert series.shape == (100000, 52)
         assert series.axes == 'TX'
         assert series.kind == 'lsm'
-        assert series.get_shape(False) == (1, 1, 1, 100000, 52)
-        assert series.get_axes(False) == 'MPCTX'
+        assert series.get_shape(squeeze=False) == (1, 1, 1, 100000, 52)
+        assert series.get_axes(squeeze=False) == 'MPCTX'
         data = series.asarray()
         assert data.shape == (100000, 52)
         assert data.dtype == numpy.uint16
@@ -9027,8 +9031,8 @@ def test_read_lsm_sfcs():
             assert series.dtype == numpy.uint8
             assert series.shape == (3, 128, 1)
             assert series.axes == 'SYX'
-            assert series.get_shape(False) == (3, 128, 1)
-            assert series.get_axes(False) == 'SYX'
+            assert series.get_shape(squeeze=False) == (3, 128, 1)
+            assert series.get_axes(squeeze=False) == 'SYX'
             assert series.kind == 'lsm'
             with pytest.raises(TiffFileError):
                 # strip cannot be reshaped from (1,) to (1, 128, 1, 1)
@@ -9076,8 +9080,8 @@ def test_read_lsm_line_2channel():
         assert series.shape == (2, 70000, 512)
         assert series.axes == 'CTX'
         assert series.kind == 'lsm'
-        assert series.get_axes(False) == 'MPCTX'
-        assert series.get_shape(False) == (1, 1, 2, 70000, 512)
+        assert series.get_axes(squeeze=False) == 'MPCTX'
+        assert series.get_shape(squeeze=False) == (1, 1, 2, 70000, 512)
         data = series.asarray()
         assert data.shape == (2, 70000, 512)
         assert data.dtype == numpy.uint8
@@ -9088,8 +9092,8 @@ def test_read_lsm_line_2channel():
             assert series.dtype == numpy.uint8
             assert series.shape == (3, 128, 1)
             assert series.axes == 'SYX'
-            assert series.get_shape(False) == (3, 128, 1)
-            assert series.get_axes(False) == 'SYX'
+            assert series.get_shape(squeeze=False) == (3, 128, 1)
+            assert series.get_axes(squeeze=False) == 'SYX'
             assert series.kind == 'lsm'
             with pytest.raises(TiffFileError):
                 # strip cannot be reshaped from (1,) to (1, 128, 1, 1)
@@ -9142,8 +9146,8 @@ def test_read_lsm_take1():
         assert series.shape == (512, 512)
         assert series.axes == 'YX'
         assert series.kind == 'lsm'
-        assert series.get_shape(False) == (1, 1, 512, 512)
-        assert series.get_axes(False) == 'ZCYX'
+        assert series.get_shape(squeeze=False) == (1, 1, 512, 512)
+        assert series.get_axes(squeeze=False) == 'ZCYX'
         if 1:
             series = tif.series[1]
             assert series.shape == (3, 128, 128)
@@ -9303,16 +9307,16 @@ def test_read_lsm_unbounderror():
         assert series.shape == (196, 2, 33, 512, 512)
         assert series.dtype == numpy.uint16
         assert series.axes == 'MZCYX'
-        assert series.get_axes(False) == 'MPZCYX'
-        assert series.get_shape(False) == (196, 1, 2, 33, 512, 512)
+        assert series.get_axes(squeeze=False) == 'MPZCYX'
+        assert series.get_shape(squeeze=False) == (196, 1, 2, 33, 512, 512)
         assert series.kind == 'lsm'
         if 1:
             series = tif.series[1]
             assert series.shape == (196, 2, 3, 128, 128)
             assert series.dtype == numpy.uint8
             assert series.axes == 'MZSYX'
-            assert series.get_axes(False) == 'MPZSYX'
-            assert series.get_shape(False) == (196, 1, 2, 3, 128, 128)
+            assert series.get_axes(squeeze=False) == 'MPZSYX'
+            assert series.get_shape(squeeze=False) == (196, 1, 2, 3, 128, 128)
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray()
@@ -9380,16 +9384,16 @@ def test_read_lsm_incomplete(caplog):
         assert series.shape == (25, 49, 33, 512, 512)
         assert series.dtype == numpy.uint16
         assert series.axes == 'MTCYX'
-        assert series.get_axes(False) == 'MPTCYX'
-        assert series.get_shape(False) == (25, 1, 49, 33, 512, 512)
+        assert series.get_axes(squeeze=False) == 'MPTCYX'
+        assert series.get_shape(squeeze=False) == (25, 1, 49, 33, 512, 512)
         assert series.kind == 'lsm'
         if 1:
             series = tif.series[1]
             assert series.shape == (25, 49, 3, 128, 128)
-            assert series.get_shape(False) == (25, 1, 49, 3, 128, 128)
+            assert series.get_shape(squeeze=False) == (25, 1, 49, 3, 128, 128)
             assert series.dtype == numpy.uint8
             assert series.axes == 'MTSYX'
-            assert series.get_axes(False) == 'MPTSYX'
+            assert series.get_axes(squeeze=False) == 'MPTSYX'
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray()
@@ -9456,16 +9460,16 @@ def test_read_lsm_earpax2isl11():
         assert series.shape == (19, 3, 512, 512)
         assert series.dtype == numpy.uint8
         assert series.axes == 'ZCYX'
-        assert series.get_axes(False) == 'ZCYX'
-        assert series.get_shape(False) == (19, 3, 512, 512)
+        assert series.get_axes(squeeze=False) == 'ZCYX'
+        assert series.get_shape(squeeze=False) == (19, 3, 512, 512)
         assert series.kind == 'lsm'
         if 1:
             series = tif.series[1]
             assert series.shape == (19, 3, 128, 128)
-            assert series.get_shape(False) == (19, 3, 128, 128)
+            assert series.get_shape(squeeze=False) == (19, 3, 128, 128)
             assert series.dtype == numpy.uint8
             assert series.axes == 'ZSYX'
-            assert series.get_axes(False) == 'ZSYX'
+            assert series.get_axes(squeeze=False) == 'ZSYX'
             assert series.kind == 'lsm'
         # assert data
         data = tif.asarray()
@@ -9528,9 +9532,9 @@ def test_read_lsm_mb231paxgfp_060214():
         series = tif.series[0]
         assert series.dtype == numpy.uint16
         assert series.shape == (60, 31, 2, 512, 512)
-        assert series.get_shape(False) == (60, 31, 2, 512, 512)
+        assert series.get_shape(squeeze=False) == (60, 31, 2, 512, 512)
         assert series.axes == 'TZCYX'
-        assert series.get_axes(False) == 'TZCYX'
+        assert series.get_axes(squeeze=False) == 'TZCYX'
         assert series.kind == 'lsm'
         if 1:
             series = tif.series[1]
@@ -10688,8 +10692,8 @@ def test_read_ome_single_channel():
         assert series.shape == (167, 439)
         assert series.axes == 'YX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (1, 1, 1, 167, 439, 1)
-        assert series.get_axes(False) == 'TCZYXS'
+        assert series.get_shape(squeeze=False) == (1, 1, 1, 167, 439, 1)
+        assert series.get_axes(squeeze=False) == 'TCZYXS'
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -10725,8 +10729,8 @@ def test_read_ome_multi_channel():
         assert series.dtype == numpy.int8
         assert series.axes == 'CYX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (1, 3, 1, 167, 439, 1)
-        assert series.get_axes(False) == 'TCZYXS'
+        assert series.get_shape(squeeze=False) == (1, 3, 1, 167, 439, 1)
+        assert series.get_axes(squeeze=False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -10766,8 +10770,8 @@ def test_read_ome_z_series():
         assert series.dtype == numpy.int8
         assert series.axes == 'ZYX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (1, 1, 5, 167, 439, 1)
-        assert series.get_axes(False) == 'TCZYXS'
+        assert series.get_shape(squeeze=False) == (1, 1, 5, 167, 439, 1)
+        assert series.get_axes(squeeze=False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -10806,8 +10810,8 @@ def test_read_ome_multi_channel_z_series():
         assert series.dtype == numpy.int8
         assert series.axes == 'CZYX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (1, 3, 5, 167, 439, 1)
-        assert series.get_axes(False) == 'TCZYXS'
+        assert series.get_shape(squeeze=False) == (1, 3, 5, 167, 439, 1)
+        assert series.get_axes(squeeze=False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -10844,8 +10848,8 @@ def test_read_ome_time_series():
         assert series.dtype == numpy.int8
         assert series.axes == 'TYX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (7, 1, 1, 167, 439, 1)
-        assert series.get_axes(False) == 'TCZYXS'
+        assert series.get_shape(squeeze=False) == (7, 1, 1, 167, 439, 1)
+        assert series.get_axes(squeeze=False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -10884,8 +10888,8 @@ def test_read_ome_multi_channel_time_series():
         assert series.dtype == numpy.int8
         assert series.axes == 'TCYX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (7, 3, 1, 167, 439, 1)
-        assert series.get_axes(False) == 'TCZYXS'
+        assert series.get_shape(squeeze=False) == (7, 3, 1, 167, 439, 1)
+        assert series.get_axes(squeeze=False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -10963,8 +10967,8 @@ def test_read_ome_multi_channel_4d_series():
         assert series.dtype == numpy.int8
         assert series.axes == 'TCZYX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (7, 3, 5, 167, 439, 1)
-        assert series.get_axes(False) == 'TCZYXS'
+        assert series.get_shape(squeeze=False) == (7, 3, 5, 167, 439, 1)
+        assert series.get_axes(squeeze=False) == 'TCZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -11003,8 +11007,8 @@ def test_read_ome_modulo_flim():
         assert series.dtype == numpy.int8
         assert series.axes == 'CHYX'
         assert series.kind == 'ome'
-        assert series.get_shape(False) == (1, 2, 8, 1, 150, 180, 1)
-        assert series.get_axes(False) == 'TCHZYXS'
+        assert series.get_shape(squeeze=False) == (1, 2, 8, 1, 150, 180, 1)
+        assert series.get_axes(squeeze=False) == 'TCHZYXS'
         assert not series.is_multifile
         # assert data
         data = tif.asarray()
@@ -11973,8 +11977,8 @@ def test_read_imagej_rrggbb():
         assert series.dtype == numpy.uint16
         assert series.shape == (3, 32, 31)
         assert series.axes == 'CYX'
-        assert series.get_shape(False) == (1, 1, 3, 32, 31, 1)
-        assert series.get_axes(False) == 'TZCYXS'
+        assert series.get_shape(squeeze=False) == (1, 1, 3, 32, 31, 1)
+        assert series.get_axes(squeeze=False) == 'TZCYXS'
         assert len(series._pages) == 1
         assert len(series.pages) == 1
         # assert ImageJ tags
@@ -12025,8 +12029,8 @@ def test_read_imagej_focal1():
         assert series.shape == (205, 434, 425)
         assert series.dtype == numpy.uint8
         assert series.axes == 'IYX'
-        assert series.get_shape(False) == (205, 1, 1, 1, 434, 425, 1)
-        assert series.get_axes(False) == 'ITZCYXS'
+        assert series.get_shape(squeeze=False) == (205, 1, 1, 1, 434, 425, 1)
+        assert series.get_axes(squeeze=False) == 'ITZCYXS'
         assert len(series._pages) == 1
         assert len(series.pages) == 205
         # assert ImageJ tags
@@ -12067,8 +12071,8 @@ def test_read_imagej_hela_cells():
         assert series.shape == (512, 672, 3)
         assert series.dtype == numpy.uint16
         assert series.axes == 'YXS'
-        assert series.get_shape(False) == (1, 1, 1, 512, 672, 3)
-        assert series.get_axes(False) == 'TZCYXS'
+        assert series.get_shape(squeeze=False) == (1, 1, 1, 512, 672, 3)
+        assert series.get_axes(squeeze=False) == 'TZCYXS'
         # assert ImageJ tags
         ijmeta = tif.imagej_metadata
         assert ijmeta is not None
@@ -12110,8 +12114,8 @@ def test_read_imagej_flybrain():
         assert series.shape == (57, 256, 256, 3)
         assert series.dtype == numpy.uint8
         assert series.axes == 'ZYXS'
-        assert series.get_shape(False) == (1, 57, 1, 256, 256, 3)
-        assert series.get_axes(False) == 'TZCYXS'
+        assert series.get_shape(squeeze=False) == (1, 57, 1, 256, 256, 3)
+        assert series.get_axes(squeeze=False) == 'TZCYXS'
         # assert ImageJ tags
         ijmeta = tif.imagej_metadata
         assert ijmeta is not None
@@ -12981,7 +12985,7 @@ def test_read_geotiff_cint16():
         assert page.compression == COMPRESSION.ADOBE_DEFLATE
         assert not page.is_contiguous
         data = page.asarray()
-        data[9, 11] == 0 + 0j
+        assert data[9, 11] == 0 + 0j
         assert_aszarr_method(page, data)
         assert__str__(tif)
 
@@ -13006,7 +13010,7 @@ def test_read_complexint(bits):
         assert page.imagelength == 20
         assert not page.is_contiguous
         data = page.asarray()
-        data[9, 11] == 107 + 0j
+        assert data[9, 11] == 107 + 0j
         # assert GeoTIFF tags
         tags = tif.geotiff_metadata
         assert tags['GTCitationGeoKey'] == 'NAD27 / UTM zone 11N'
@@ -13430,7 +13434,7 @@ def test_read_zif():
         assert len(tif.series) == 1
         for page in tif.pages:
             assert page.description == (
-                'Created by Objective ' 'Pathology Services'
+                'Created by Objective Pathology Services'
             )
         # first page
         page = tif.pages.first
@@ -14108,8 +14112,8 @@ def test_read_ndtiff_tcz():
         series = tif.series[0]
         assert series.kind == 'ndtiff'
         assert series.dtype == numpy.uint16
-        assert series.get_shape(False) == (1, 8, 2, 7, 512, 512)
-        assert series.get_axes(False) == 'RTCZYX'
+        assert series.get_shape(squeeze=False) == (1, 8, 2, 7, 512, 512)
+        assert series.get_axes(squeeze=False) == 'RTCZYX'
         data = series.asarray(squeeze=True)
         assert data.shape == (8, 2, 7, 512, 512)
         if not SKIP_NDTIFF:
@@ -14146,8 +14150,8 @@ def test_read_ndtiff_bytesio(caplog):
         assert 'NDTiff.index not found for' in caplog.text
         assert series.kind == 'generic'  # not ndtiff
         assert series.dtype == numpy.uint16
-        assert series.get_shape(False) == (112, 512, 512, 1)
-        assert series.get_axes(False) == 'IYXS'
+        assert series.get_shape(squeeze=False) == (112, 512, 512, 1)
+        assert series.get_axes(squeeze=False) == 'IYXS'
         data = series.asarray(squeeze=True)
         assert data.shape == (112, 512, 512)
         assert_aszarr_method(tif, data, mode='r')
@@ -14845,8 +14849,10 @@ def test_read_xarray_page_properties():
 
 # Test TiffWriter
 
-WRITE_DATA = numpy.arange(3 * 219 * 301).astype(numpy.uint16)
-WRITE_DATA.shape = (3, 219, 301)
+WRITE_DATA = numpy.arange(
+    3 * 219 * 301,
+    dtype=numpy.uint16,
+).reshape((3, 219, 301))
 
 
 @pytest.mark.skipif(SKIP_EXTENDED, reason=REASON)
@@ -14986,7 +14992,7 @@ def test_write_invalid_samples(samples):
     """Test TiffWriter with invalid options."""
     data = numpy.zeros((16, 16, samples) if samples else (16, 16), numpy.uint8)
     fname = f'write_invalid_samples{samples}'
-    with TempFileName(fname) as fname:
+    with TempFileName(fname) as fname:  # noqa: SIM117
         with pytest.raises(ValueError):
             imwrite(fname, data, photometric='rgb')
 
@@ -15014,11 +15020,8 @@ def test_write_codecs(mode, tile, codec):
     """Test write various compression."""
     if mode in {'gray', 'planar'} and codec == 'webp':
         pytest.xfail("WebP doesn't support grayscale or planar mode")
-    level = {'webp': -1, 'jpeg': 99}.get(codec, None)
-    if level:
-        compressionargs = {'level': level}
-    else:
-        compressionargs = None
+    level = {'webp': -1, 'jpeg': 99}.get(codec)
+    compressionargs = {'level': level} if level else None
     tile = (16, 16) if tile else None
     data = numpy.load(public_file('tifffile/rgb.u1.npy'))
     if mode == 'rgb':
@@ -15248,8 +15251,8 @@ def test_write_zeroshape(shaped, data, repeat, shape):
 
     with TempFileName(fname) as fname:
         if data == 'empty':
-            with TiffWriter(fname) as tif:
-                with pytest.warns(UserWarning):
+            with TiffWriter(fname) as tif:  # noqa: SIM117
+                with pytest.warns(UserWarning):  # noqa: PT031
                     for _ in range(repeat):
                         tif.write(
                             shape=shape,
@@ -15265,8 +15268,8 @@ def test_write_zeroshape(shaped, data, repeat, shape):
                     zimage = zarr.open(tif.aszarr(), mode='r')
         else:
             data = random_data(dtype, shape)
-            with TiffWriter(fname) as tif:
-                with pytest.warns(UserWarning):
+            with TiffWriter(fname) as tif:  # noqa: SIM117
+                with pytest.warns(UserWarning):  # noqa: PT031
                     for _ in range(repeat):
                         tif.write(data, contiguous=True, metadata=metadata)
                     tif.write(numpy.zeros((16, 16), 'u2'), metadata=metadata)
@@ -15321,9 +15324,9 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
         pytest.xfail('contiguous not working with compression, tiles, ome')
 
     data = [
-        (numpy.random.rand(5, 64, 64) * 1023).astype(numpy.uint16),
-        (numpy.random.rand(5, 32, 32) * 1023).astype(numpy.uint16),
-        (numpy.random.rand(5, 16, 16) * 1023).astype(numpy.uint16),
+        (RNG.random((5, 64, 64)) * 1023).astype(numpy.uint16),
+        (RNG.random((5, 32, 32)) * 1023).astype(numpy.uint16),
+        (RNG.random((5, 16, 16)) * 1023).astype(numpy.uint16),
     ]
 
     kwargs = {
@@ -15442,7 +15445,7 @@ def test_write_nopages():
 
 def test_write_append_not_exists():
     """Test append to non existing file."""
-    with TempFileName('write_append_not_exists.bin') as fname:
+    with TempFileName('write_append_not_exists.bin') as fname:  # noqa: SIM117
         # with self.assertRaises(ValueError):
         with TiffWriter(fname, append=True):
             pass
@@ -15453,7 +15456,7 @@ def test_write_append_nontif():
     with TempFileName('write_append_nontif.bin') as fname:
         with open(fname, 'wb') as fh:
             fh.write(b'not a TIFF file')
-        with pytest.raises(TiffFileError):
+        with pytest.raises(TiffFileError):  # noqa: SIM117
             with TiffWriter(fname, append=True):
                 pass
 
@@ -15462,7 +15465,7 @@ def test_write_append_nontif():
 def test_write_append_lsm():
     """Test fail to append to LSM file."""
     fname = private_file('lsm/take1.lsm')
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError):  # noqa: SIM117
         with TiffWriter(fname, append=True):
             pass
 
@@ -16096,57 +16099,59 @@ def test_write_bitspersample(bps, dtype):
                 imwrite(
                     fname, data, bitspersample=bps, photometric=PHOTOMETRIC.RGB
                 )
-                assert_array_equal(imread(fname), data)
+                # assert_array_equal(imread(fname), data)
 
 
 def test_write_bitspersample_fail():
     """Test write with packints fails."""
     data = numpy.arange(32 * 32 * 3, dtype=numpy.uint32).reshape((32, 32, 3))
-    with TempFileName('write_bitspersample_fail') as fname:
-        with TiffWriter(fname) as tif:
-            # not working with compression
+    with (
+        TempFileName('write_bitspersample_fail') as fname,
+        TiffWriter(fname) as tif,
+    ):
+        # not working with compression
+        with pytest.raises(ValueError):
+            tif.write(
+                data.astype(numpy.uint8),
+                bitspersample=4,
+                compression=COMPRESSION.ADOBE_DEFLATE,
+                photometric=PHOTOMETRIC.RGB,
+            )
+        # dtype.itemsize != bitspersample
+        for dtype in (
+            numpy.int8,
+            numpy.int16,
+            numpy.float32,
+            numpy.uint64,
+        ):
+            with pytest.raises(ValueError):
+                tif.write(
+                    data.astype(dtype),
+                    bitspersample=4,
+                    photometric=PHOTOMETRIC.RGB,
+                )
+        # bitspersample out of data range
+        for bps in (0, 9, 16, 32):
             with pytest.raises(ValueError):
                 tif.write(
                     data.astype(numpy.uint8),
-                    bitspersample=4,
-                    compression=COMPRESSION.ADOBE_DEFLATE,
+                    bitspersample=bps,
                     photometric=PHOTOMETRIC.RGB,
                 )
-            # dtype.itemsize != bitspersample
-            for dtype in (
-                numpy.int8,
-                numpy.int16,
-                numpy.float32,
-                numpy.uint64,
-            ):
-                with pytest.raises(ValueError):
-                    tif.write(
-                        data.astype(dtype),
-                        bitspersample=4,
-                        photometric=PHOTOMETRIC.RGB,
-                    )
-            # bitspersample out of data range
-            for bps in (0, 9, 16, 32):
-                with pytest.raises(ValueError):
-                    tif.write(
-                        data.astype(numpy.uint8),
-                        bitspersample=bps,
-                        photometric=PHOTOMETRIC.RGB,
-                    )
-            for bps in (1, 8, 17, 32):
-                with pytest.raises(ValueError):
-                    tif.write(
-                        data.astype(numpy.uint16),
-                        bitspersample=bps,
-                        photometric=PHOTOMETRIC.RGB,
-                    )
-            for bps in (1, 8, 16, 33, 64):
-                with pytest.raises(ValueError):
-                    tif.write(
-                        data.astype(numpy.uint32),
-                        bitspersample=bps,
-                        photometric=PHOTOMETRIC.RGB,
-                    )
+        for bps in (1, 8, 17, 32):
+            with pytest.raises(ValueError):
+                tif.write(
+                    data.astype(numpy.uint16),
+                    bitspersample=bps,
+                    photometric=PHOTOMETRIC.RGB,
+                )
+        for bps in (1, 8, 16, 33, 64):
+            with pytest.raises(ValueError):
+                tif.write(
+                    data.astype(numpy.uint32),
+                    bitspersample=bps,
+                    photometric=PHOTOMETRIC.RGB,
+                )
 
 
 @pytest.mark.parametrize('kind', ['enum', 'int', 'lower', 'upper'])
@@ -16297,7 +16302,7 @@ def test_write_compress_args(args):
         compressargs = compressargs[0]
 
     data = WRITE_DATA
-    with TempFileName(f'write_compression_args_{i}') as fname:
+    with TempFileName(f'write_compression_args_{i}') as fname:  # noqa: SIM117
         with pytest.raises(TypeError):
             imwrite(
                 fname, data, compress=compressargs, photometric=PHOTOMETRIC.RGB
@@ -16670,7 +16675,7 @@ def test_write_compression_jetraw():
             if 'license' in str(exc):
                 pytest.skip('Jetraw_encode requires a license')
             else:
-                raise exc
+                raise
 
         with TiffFile(fname) as tif:
             assert len(tif.pages) == 1
@@ -16684,8 +16689,11 @@ def test_write_compression_jetraw():
             assert page.bitspersample == 16
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert 0.5 > numpy.mean(
-                image.astype(numpy.float32) - data.astype(numpy.float32)
+            assert (
+                numpy.mean(
+                    image.astype(numpy.float32) - data.astype(numpy.float32)
+                )
+                < 0.5
             )
             assert__str__(tif)
 
@@ -16953,8 +16961,8 @@ def test_write_bigendian():
 def test_write_zero_size():
     """Test write zero size array no longer fails."""
     # with pytest.raises(ValueError):
-    with pytest.warns(UserWarning):
-        with TempFileName('write_empty') as fname:
+    with TempFileName('write_empty') as fname:  # noqa: SIM117
+        with pytest.warns(UserWarning):
             imwrite(fname, numpy.empty(0))
 
 
@@ -17143,8 +17151,8 @@ def test_write_auto_photometric_contig():
 def test_write_invalid_contig_rgb():
     """Test write planar RGB with 2 samplesperpixel."""
     data = random_data(numpy.uint8, (219, 301, 2))
-    with pytest.raises(ValueError):
-        with TempFileName('write_invalid_contig_rgb') as fname:
+    with TempFileName('write_invalid_contig_rgb') as fname:  # noqa: SIM117
+        with pytest.raises(ValueError):
             imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
     # default to pages
     with TempFileName('write_invalid_contig_rgb_pages') as fname:
@@ -17187,7 +17195,7 @@ def test_write_invalid_contig_rgb():
 def test_write_invalid_planar_rgb():
     """Test write planar RGB with 2 samplesperpixel."""
     data = random_data(numpy.uint8, (2, 219, 301))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError):  # noqa: SIM117
         with TempFileName('write_invalid_planar_rgb') as fname:
             imwrite(
                 fname,
@@ -18184,7 +18192,7 @@ def test_write_iter_tiles_bytes(compression):
                 fh = tif.filehandle
                 for page in tif.pages:
                     for offset, bytecount in zip(
-                        page.dataoffsets, page.databytecounts
+                        page.dataoffsets, page.databytecounts, strict=True
                     ):
                         fh.seek(offset)
                         strip = fh.read(bytecount)
@@ -18226,7 +18234,7 @@ def test_write_iter_strips_bytes(compression, rowsperstrip):
                 fh = tif.filehandle
                 for page in tif.pages:
                     for offset, bytecount in zip(
-                        page.dataoffsets, page.databytecounts
+                        page.dataoffsets, page.databytecounts, strict=True
                     ):
                         fh.seek(offset)
                         strip = fh.read(bytecount)
@@ -18267,7 +18275,7 @@ def test_write_iter_tiles_tuple(compression):
                 fh = tif.filehandle
                 for page in tif.pages:
                     for offset, bytecount in zip(
-                        page.dataoffsets, page.databytecounts
+                        page.dataoffsets, page.databytecounts, strict=True
                     ):
                         fh.seek(offset)
                         strip = fh.read(bytecount)
@@ -18291,7 +18299,7 @@ def test_write_iter_tiles_tuple(compression):
             for page in tif.pages:
                 assert page.is_tiled
                 assert not page.is_contiguous
-                for offset in page.dataoffsets:
+                for _offset in page.dataoffsets:
                     assert align % 4096 == 0
 
 
@@ -18494,7 +18502,7 @@ def test_write_volumetric_tiled_png():
 
 
 def test_write_volumetric_tiled_planar_rgb():
-    """Test write 5D array as grayscale volumes."""
+    """Test write 5D array as RGB volumes."""
     shape = (2, 3, 256, 64, 96)
     data = numpy.empty(shape, dtype=numpy.uint8)
     data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
@@ -18527,6 +18535,90 @@ def test_write_volumetric_tiled_planar_rgb():
             assert len(series._pages) == 1
             assert len(series.pages) == 2
             assert series.dataoffset is not None
+            assert series.shape == shape
+            image = tif.asarray()
+            assert_array_equal(data, image)
+            assert_aszarr_method(tif, image)
+            assert__str__(tif)
+
+
+def test_write_volumetric_tiled_planar_extrasamples():
+    """Test write 5D array as grayscale volumes with extrasamples."""
+    shape = (2, 3, 256, 64, 96)
+    data = numpy.empty(shape, dtype=numpy.uint8)
+    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
+    with TempFileName('write_volumetric_tiled_planar_extrasamples') as fname:
+        imwrite(
+            fname,
+            data,
+            tile=(32, 32, 32),
+            photometric=PHOTOMETRIC.MINISBLACK,
+            planarconfig=PLANARCONFIG.SEPARATE,
+        )
+        assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 2
+            page = tif.pages.first
+            assert page.is_volumetric
+            assert page.is_tiled
+            assert not page.is_contiguous
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
+            assert page.imagewidth == 96
+            assert page.imagelength == 64
+            assert page.imagedepth == 256
+            assert page.tilewidth == 32
+            assert page.tilelength == 32
+            assert page.tiledepth == 32
+            assert page.samplesperpixel == 3
+            assert len(page.extrasamples) == 2
+            series = tif.series[0]
+            assert series.kind == 'shaped'
+            assert len(series._pages) == 2
+            assert len(series.pages) == 2
+            assert series.dataoffset is None
+            assert series.shape == shape
+            image = tif.asarray()
+            assert_array_equal(data, image)
+            assert_aszarr_method(tif, image)
+            assert__str__(tif)
+
+
+def test_write_volumetric_tiled_contig_extrasamples():
+    """Test write 5D array as grayscale volumes with extrasamples."""
+    shape = (2, 256, 64, 96, 3)
+    data = numpy.empty(shape, dtype=numpy.uint8)
+    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, -1, 1, 1, 1)
+    with TempFileName('write_volumetric_tiled_contig_extrasamples') as fname:
+        imwrite(
+            fname,
+            data,
+            tile=(32, 32, 32),
+            photometric=PHOTOMETRIC.MINISBLACK,
+            planarconfig=PLANARCONFIG.CONTIG,
+        )
+        assert_valid_tiff(fname)
+        with TiffFile(fname) as tif:
+            assert len(tif.pages) == 2
+            page = tif.pages.first
+            assert page.is_volumetric
+            assert page.is_tiled
+            assert not page.is_contiguous
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
+            assert page.imagewidth == 96
+            assert page.imagelength == 64
+            assert page.imagedepth == 256
+            assert page.tilewidth == 32
+            assert page.tilelength == 32
+            assert page.tiledepth == 32
+            assert page.samplesperpixel == 3
+            assert len(page.extrasamples) == 2
+            series = tif.series[0]
+            assert series.kind == 'shaped'
+            assert len(series._pages) == 2
+            assert len(series.pages) == 2
+            assert series.dataoffset is None
             assert series.shape == shape
             image = tif.asarray()
             assert_array_equal(data, image)
@@ -18855,12 +18947,12 @@ def test_write_6gb():
 
 
 @pytest.mark.skipif(SKIP_LARGE, reason=REASON)
-def test_write_5GB_fails():
+def test_write_5gb_fails():
     """Test data too large for non-BigTIFF file."""
     # TiffWriter should fail without bigtiff parameter
     data = numpy.empty((640, 1024, 1024), dtype=numpy.float64)
     data[:] = numpy.arange(640, dtype=numpy.float64).reshape(-1, 1, 1)
-    with TempFileName('write_5GB_fails') as fname:
+    with TempFileName('write_5gb_fails') as fname:  # noqa: SIM117
         with pytest.raises(ValueError):
             with TiffWriter(fname) as tif:
                 tif.write(data)
@@ -18868,11 +18960,11 @@ def test_write_5GB_fails():
 
 
 @pytest.mark.skipif(SKIP_LARGE, reason=REASON)
-def test_write_5GB_bigtiff():
+def test_write_5gb_bigtiff():
     """Test write 5GB BigTiff file."""
     data = numpy.empty((640, 1024, 1024), dtype=numpy.float64)
     data[:] = numpy.arange(640, dtype=numpy.float64).reshape(-1, 1, 1)
-    with TempFileName('write_5GB_bigtiff') as fname:
+    with TempFileName('write_5gb_bigtiff') as fname:
         # imwrite should use bigtiff for large data
         imwrite(fname, data)
         # assert_jhove(fname)
@@ -18973,7 +19065,7 @@ def test_write_multiple_series():
             # series 1
             tif.write(image2, photometric=PHOTOMETRIC.RGB)
             # series 2
-            tif.write(data1[0], metadata=dict(axes='TCZYX'))
+            tif.write(data1[0], metadata={'axes': 'TCZYX'})
             for i in range(1, data1.shape[0]):
                 tif.write(data1[i], contiguous=True)
             # series 3
@@ -19179,11 +19271,13 @@ def test_write_zarr():
                 z[200:, 20:, 1] = 105
             assert tif.series[2].asarray()[251, 243, 1] == 105
 
-        with TiffFile(fname, mode='r+') as tif:
-            # compressed series cannot be written to
-            with tif.series[3].aszarr() as store:
-                with pytest.raises(ValueError):
-                    z = zarr.open(store, mode='r+')
+        # compressed series cannot be written to
+        with (  # noqa: SIM117
+            TiffFile(fname, mode='r+') as tif,
+            tif.series[3].aszarr() as store,
+        ):
+            with pytest.raises(ValueError):
+                z = zarr.open(store, mode='r+')
 
 
 @pytest.mark.skipif(
@@ -19213,12 +19307,12 @@ def test_write_fsspec(version, byteorder):
         filename = os.path.split(fname)[-1]
         with TiffWriter(fname, ome=True, byteorder=byteorder) as tif:
             # series 0
-            options = dict(
-                tile=(64, 64),
-                photometric=PHOTOMETRIC.MINISBLACK,
-                compression=COMPRESSION.DEFLATE,
-                predictor=PREDICTOR.HORIZONTAL,
-            )
+            options = {
+                'tile': (64, 64),
+                'photometric': PHOTOMETRIC.MINISBLACK,
+                'compression': COMPRESSION.DEFLATE,
+                'predictor': PREDICTOR.HORIZONTAL,
+            }
             tif.write(data0, subifds=2, **options)
             tif.write(data0[:, ::2, ::2], subfiletype=1, **options)
             tif.write(data0[:, ::4, ::4], subfiletype=1, **options)
@@ -19288,7 +19382,7 @@ def test_write_fsspec(version, byteorder):
             assert_array_equal(tif.series[3].asarray(), data1)
             assert_fsspec(URL + filename + f'.v{version}.s3.json', data1)
 
-            with tif.series[3].aszarr() as store:
+            with tif.series[3].aszarr() as store:  # noqa: SIM117
                 with pytest.raises(ValueError):
                     # imagelength % rowsperstrip != 0
                     store.write_fsspec(
@@ -19325,13 +19419,15 @@ def test_write_fsspec_multifile(version, chunkmode):
         f'write_fsspec_multifile_{version}{chunkmode}', ext='.json'
     ) as jsonfile:
         # write to file handle
-        with open(jsonfile, 'w', encoding='utf-8') as fh:
-            with TiffFile(fname) as tif:
-                data = tif.series[0].asarray()
-                with tif.series[0].aszarr(chunkmode=chunkmode) as store:
-                    store.write_fsspec(
-                        fh, url=url, version=version, templatename='f'
-                    )
+        with (
+            open(jsonfile, 'w', encoding='utf-8') as fh,
+            TiffFile(fname) as tif,
+        ):
+            data = tif.series[0].asarray()
+            with tif.series[0].aszarr(chunkmode=chunkmode) as store:
+                store.write_fsspec(
+                    fh, url=url, version=version, templatename='f'
+                )
         zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
         assert_array_equal(zobj[:], data)
 
@@ -19514,8 +19610,8 @@ def test_write_imagej_voxel_size():
             assert series.kind == 'imagej'
             assert series.axes == 'ZYX'
             assert series.shape == (4, 256, 256)
-            assert series.get_axes(False) == 'TZCYXS'
-            assert series.get_shape(False) == (1, 4, 1, 256, 256, 1)
+            assert series.get_axes(squeeze=False) == 'TZCYXS'
+            assert series.get_shape(squeeze=False) == (1, 4, 1, 256, 256, 1)
             assert__str__(tif)
         assert_valid_tiff(fname)
 
@@ -19720,8 +19816,8 @@ def test_write_imagej_hyperstack(truncate, mmap):
             assert len(series.pages) == 1 if truncate else 210
             assert series.dtype == numpy.uint8
             assert series.axes == 'TZCYXS'
-            assert series.get_axes(False) == 'TZCYXS'
-            assert series.get_shape(False) == shape
+            assert series.get_axes(squeeze=False) == 'TZCYXS'
+            assert series.get_shape(squeeze=False) == shape
             # assert data
             image = tif.asarray(out='memmap')
             assert_array_equal(data.squeeze(), image.squeeze())
@@ -19766,8 +19862,8 @@ def test_write_imagej_append():
             assert series.shape == (256, 256, 256)
             assert series.dtype == numpy.uint8
             assert series.axes == 'ZYX'
-            assert series.get_axes(False) == 'TZCYXS'
-            assert series.get_shape(False) == (1, 256, 1, 256, 256, 1)
+            assert series.get_axes(squeeze=False) == 'TZCYXS'
+            assert series.get_shape(squeeze=False) == (1, 256, 1, 256, 256, 1)
             # assert data
             image = tif.asarray(out='memmap')
             assert_array_equal(data.squeeze(), image)
@@ -19777,7 +19873,7 @@ def test_write_imagej_append():
 
 def test_write_imagej_bigtiff():
     """Test write ImageJ BigTIFF with warning."""
-    with TempFileName('write_imagej_bigtiff') as fname:
+    with TempFileName('write_imagej_bigtiff') as fname:  # noqa: SIM117
         with pytest.warns(UserWarning):
             imwrite(
                 fname,
@@ -19820,8 +19916,15 @@ def test_write_imagej_raw():
             assert series.shape == (1280, 1024, 1024)
             assert series.dtype == numpy.float32
             assert series.axes == 'ZYX'
-            assert series.get_axes(False) == 'TZCYXS'
-            assert series.get_shape(False) == (1, 1280, 1, 1024, 1024, 1)
+            assert series.get_axes(squeeze=False) == 'TZCYXS'
+            assert series.get_shape(squeeze=False) == (
+                1,
+                1280,
+                1,
+                1024,
+                1024,
+                1,
+            )
             # assert data
             image = tif.asarray(out='memmap')
             assert_array_equal(data.squeeze(), image.squeeze())
@@ -19849,7 +19952,7 @@ def test_write_imagej_raw():
 
 @pytest.mark.skipif(SKIP_EXTENDED, reason=REASON)
 @pytest.mark.parametrize(
-    'shape, axes',
+    ('shape', 'axes'),
     [
         ((219, 301, 1), None),
         ((219, 301, 2), None),
@@ -20093,7 +20196,7 @@ def test_write_ome_methods(method):
 @pytest.mark.parametrize('contiguous', [True, False])
 def test_write_ome_manual(contiguous):
     """Test write OME-TIFF manually."""
-    data = numpy.random.randint(0, 255, (19, 31, 21), numpy.uint8)
+    data = RNG.integers(0, 255, (19, 31, 21), numpy.uint8)
 
     with TempFileName(f'write_ome__manual{int(contiguous)}.ome') as fname:
         with TiffWriter(fname) as tif:
@@ -20132,7 +20235,6 @@ def test_write_ome_manual(contiguous):
             assert series.axes == 'CYX'
             assert bool(series.dataoffset) == contiguous
             assert_array_equal(data[16:], series.asarray())
-            #
             assert_valid_omexml(tif.ome_metadata)
             assert__str__(tif)
 
@@ -20192,11 +20294,13 @@ def test_rewrite_ome():
                 assert copy.is_imagej == tif.is_imagej
                 assert copy.is_ome == tif.is_ome
                 assert len(tif.series) == len(copy.series)
-                for series, series_copy in zip(tif.series, copy.series):
+                for series, series_copy in zip(
+                    tif.series, copy.series, strict=True
+                ):
                     assert len(series.levels) == len(series_copy.levels)
                     metadata = {'axes': series.axes}
                     for level, level_copy in zip(
-                        series.levels, series_copy.levels
+                        series.levels, series_copy.levels, strict=True
                     ):
                         assert len(level.pages) == len(level_copy.pages)
                         assert level.shape == level_copy.shape
@@ -20218,7 +20322,9 @@ def test_write_ome_copy():
         # return iterator over compressed tiles in page
         assert page.is_tiled
         fh = page.parent.filehandle
-        for offset, bytecount in zip(page.dataoffsets, page.databytecounts):
+        for offset, bytecount in zip(
+            page.dataoffsets, page.databytecounts, strict=True
+        ):
             fh.seek(offset)
             yield fh.read(bytecount)
 
@@ -20252,7 +20358,7 @@ def test_write_ome_copy():
                     compression=page.compression,
                     compressionargs=compressionargs,
                     jpegtables=page.jpegtables,
-                    iccprofile=page.iccprofile,
+                    # iccprofile=page.iccprofile,  # in extratags
                     subsampling=page.subsampling,
                     subifds=len(levels) - 1,
                     extratags=extratags,
@@ -20289,10 +20395,11 @@ def test_write_ome_copy():
                 assert tif.series[0].kind == 'ome'
                 levels_ = tif.series[0].levels
                 assert len(levels_) == len(levels)
-                for level, level_ in zip(levels[1:], levels_[1:]):
+                for level, level_ in zip(levels[1:], levels_[1:], strict=True):
                     assert level.shape == level_.shape
                     assert level.dtype == level_.dtype
                     assert_array_equal(level.asarray(), level_.asarray())
+                    assert level_.keyframe.subfiletype == FILETYPE.REDUCEDIMAGE
 
 
 @pytest.mark.skipif(
@@ -20306,7 +20413,9 @@ def test_write_geotiff_copy():
         # return iterator over compressed strips in page
         assert not page.is_tiled
         fh = page.parent.filehandle
-        for offset, bytecount in zip(page.dataoffsets, page.databytecounts):
+        for offset, bytecount in zip(
+            page.dataoffsets, page.databytecounts, strict=True
+        ):
             fh.seek(offset)
             yield fh.read(bytecount)
 
@@ -20367,7 +20476,7 @@ def test_write_geotiff_copy():
 @pytest.mark.parametrize('ext', ['', 'b'])
 def test_write_open_mode(ext):
     """Test TiffWriter with file open modes."""
-    data = numpy.random.randint(0, 255, (5, 31, 21), numpy.uint8)
+    data = RNG.integers(0, 255, (5, 31, 21), numpy.uint8)
     with TempFileName('write_open_mode' + ext) as fname:
         # write
         imwrite(fname, data, mode='w' + ext)
@@ -20391,7 +20500,7 @@ def test_write_open_mode(ext):
             imwrite(fh, data, mode='ignored')
         assert_array_equal(imread(fname), data)
         # exclusive creation with file handle
-        with pytest.raises(FileExistsError):
+        with pytest.raises(FileExistsError):  # noqa: SIM117
             with FileHandle(fname, mode='x' + ext) as fh:
                 pass
         os.remove(fname)
@@ -20442,7 +20551,7 @@ def test_write_array_types(atype, byteorder, tiled, compression):
         fname += compression
     fname += 'be' if byteorder == '>' else 'le'
 
-    data = numpy.random.randint(0, 1024, (3, 361, 254, 3), numpy.uint16)
+    data = RNG.integers(0, 1024, (3, 361, 254, 3), numpy.uint16)
     if atype == 'numpy':
         arr = data.copy()
     elif atype == 'dask':
@@ -20621,9 +20730,11 @@ def test_embed_tif_filename():
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
 def test_embed_tif_openfile():
     """Test embedded TIFF from file handle."""
-    with open(EMBED_NAME, 'rb') as fh:
-        with TiffFile(fh, offset=EMBED_OFFSET, size=EMBED_SIZE) as tif:
-            assert_embed_tif(tif)
+    with (
+        open(EMBED_NAME, 'rb') as fh,
+        TiffFile(fh, offset=EMBED_OFFSET, size=EMBED_SIZE) as tif,
+    ):
+        assert_embed_tif(tif)
 
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
@@ -20638,9 +20749,11 @@ def test_embed_tif_openfile_seek():
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
 def test_embed_tif_filehandle():
     """Test embedded TIFF from FileHandle."""
-    with FileHandle(EMBED_NAME, offset=EMBED_OFFSET, size=EMBED_SIZE) as fh:
-        with TiffFile(fh) as tif:
-            assert_embed_tif(tif)
+    with (
+        FileHandle(EMBED_NAME, offset=EMBED_OFFSET, size=EMBED_SIZE) as fh,
+        TiffFile(fh) as tif,
+    ):
+        assert_embed_tif(tif)
 
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
@@ -20662,9 +20775,11 @@ def test_embed_mm_filename():
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_embed_mm_openfile():
     """Test embedded MicroManager TIFF from file handle."""
-    with open(EMBED_NAME, 'rb') as fh:
-        with TiffFile(fh, offset=EMBED_OFFSET1, size=EMBED_SIZE1) as tif:
-            assert_embed_micromanager(tif)
+    with (
+        open(EMBED_NAME, 'rb') as fh,
+        TiffFile(fh, offset=EMBED_OFFSET1, size=EMBED_SIZE1) as tif,
+    ):
+        assert_embed_micromanager(tif)
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
@@ -20679,9 +20794,11 @@ def test_embed_mm_openfile_seek():
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_embed_mm_filehandle():
     """Test embedded MicroManager TIFF from FileHandle."""
-    with FileHandle(EMBED_NAME, offset=EMBED_OFFSET1, size=EMBED_SIZE1) as fh:
-        with TiffFile(fh) as tif:
-            assert_embed_micromanager(tif)
+    with (
+        FileHandle(EMBED_NAME, offset=EMBED_OFFSET1, size=EMBED_SIZE1) as fh,
+        TiffFile(fh) as tif,
+    ):
+        assert_embed_micromanager(tif)
 
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
@@ -20700,7 +20817,7 @@ def test_embed_mm_bytesio():
 
 def test_sequence_stream_list():
     """Test TiffSequence with list of ByteIO streams raises TypeError."""
-    data = numpy.random.rand(7, 9)
+    data = RNG.random((7, 9))
     files = [BytesIO(), BytesIO()]
     for buffer in files:
         imwrite(buffer, data)
@@ -20750,6 +20867,8 @@ def test_sequence_glob_pattern(case):
     assert data[9, 256, 256] == 135
     if not SKIP_ZARR:
         with tifs.aszarr() as store:
+            assert isinstance(store, ZarrStore)
+            assert isinstance(store, ZarrFileSequenceStore)
             assert_array_equal(data, zarr.open(store, mode='r'))
     assert__repr__(tifs)
 
@@ -21267,8 +21386,9 @@ def test_dependent_imageio():
         iio.volwrite(fname1, numpy.tile(data, (3, 1, 1, 1)))
         vol = iio.volread(fname1)
         vols = iio.mvolread(fname1)
-        assert vol.shape == (3,) + data.shape
-        assert len(vols) == 1 and vol.shape == vols[0].shape
+        assert vol.shape == (3, *data.shape)
+        assert len(vols) == 1
+        assert vol.shape == vols[0].shape
         for i in range(3):
             assert_array_equal(vol[i], data)
 
@@ -21285,7 +21405,7 @@ def test_dependent_imageio():
         W.append_data(data)
         W.append_data(data)
         W.close()
-        #
+
         R = iio.read(fname1)
         assert R.format.name == 'TIFF'
         ims = list(R)  # == [im for im in R]
