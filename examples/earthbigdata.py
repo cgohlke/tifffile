@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Published October 9, 2021. Last updated May 21, 2025.
+Published October 9, 2021. Last updated Dec 12, 2025.
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -80,14 +80,12 @@ remove the common path.
 # %%
 if not os.path.exists('earthbigdata.txt'):
     os.system(
-        'aws s3 ls sentinel-1-global-coherence-earthbigdata/data/tiles'
-        ' --recursive > earthbigdata.txt'
+        'aws s3 ls sentinel-1-global-coherence-earthbigdata/data/tiles '
+        '--recursive > earthbigdata.txt'
     )
 
 with open('earthbigdata.txt', encoding='utf-8') as fh:
-    tiff_files = [
-        line.split()[-1][11:] for line in fh.readlines() if '.tif' in line
-    ]
+    tiff_files = [line.split()[-1][11:] for line in fh if '.tif' in line]
 print('Number of TIFF files:', len(tiff_files))
 
 
@@ -162,7 +160,7 @@ coherence_category = {
     '36': 4,
     '48': 5,
 }
-coherence_coordinates = list(int(i) for i in coherence_category.keys())
+coherence_coordinates = [int(i) for i in coherence_category]
 coherence_pattern = (
     rf'_COH(?P<{coherence_label}>{"|".join(coherence_category)})'
 )
@@ -259,12 +257,12 @@ zararray[:] = flightdirection_coordinates
 zararray.attrs['_ARRAY_DIMENSIONS'] = [flightdirection_label]
 
 # base64 encode any values containing non-ascii characters
-for k, v in coordinates.items():
-    v = v.to_bytes()
+for key, value in coordinates.items():
+    val = value.to_bytes()
     try:
-        coordinates[k] = v.decode()
+        coordinates[key] = val.decode()
     except UnicodeDecodeError:
-        coordinates[k] = 'base64:' + base64.b64encode(v).decode()
+        coordinates[key] = 'base64:' + base64.b64encode(val).decode()
 
 coordinates_json = tifffile.zarr._json_dumps(coordinates).decode()
 
@@ -506,7 +504,7 @@ decoded, and stitched to an in-memory NumPy array and plotted using Matplotlib.
 # %%
 image = socal['COH'].loc['winter', 'vv', 12]
 assert image[100, 100] == 53
-xarray.plot.imshow(image, size=6, aspect=1.8)
+xarray.plot.imshow(image, figsize=(10.8, 6), aspect=1.8)
 matplotlib.pyplot.show()
 
 # %% [markdown]
