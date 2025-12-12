@@ -1,4 +1,4 @@
-# tifffile/examples/issues125.py
+# tifffile/examples/issue125.py
 
 """Create a Fsspec ReferenceFileSystem for a sequence of TIFF files on S3.
 
@@ -32,24 +32,23 @@ files = [f's3://{f}' for f in fs.ls('/rsignellbucket1/lcmap/cog')]
 with open('issue125.json', 'w', encoding='utf-8', newline='\n') as jsonfile:
     for i, filename in enumerate(tifffile.natural_sorted(files)):
         url, name = filename.rsplit('/', 1)
-        with fs.open(filename) as fh:
-            with tifffile.TiffFile(fh, name=name) as tif:
-                print(tif.geotiff_metadata)
-                with tif.series[0].aszarr() as store:
-                    store.write_fsspec(
-                        jsonfile,
-                        url=url,
-                        # using an experimental API:
-                        _shape=[len(files)],  # shape of file sequence
-                        _axes='T',  # axes of file sequence
-                        _index=[i],  # index of this file in sequence
-                        _append=i != 0,  # if True, only write index keys+value
-                        _close=i == len(files) - 1,  # if True, no more appends
-                        # groupname='0',  # required for non-pyramidal series
-                    )
+        with fs.open(filename) as fh, tifffile.TiffFile(fh, name=name) as tif:
+            print(tif.geotiff_metadata)
+            with tif.series[0].aszarr() as store:
+                store.write_fsspec(
+                    jsonfile,
+                    url=url,
+                    # using an experimental API:
+                    _shape=[len(files)],  # shape of file sequence
+                    _axes='T',  # axes of file sequence
+                    _index=[i],  # index of this file in sequence
+                    _append=i != 0,  # if True, only write index keys+value
+                    _close=i == len(files) - 1,  # if True, no more appends
+                    # groupname='0',  # required for non-pyramidal series
+                )
 
 
-# create a xarray dataset from the ReferenceFileSystem file
+# create an Xarray dataset from the ReferenceFileSystem file
 
 store = kerchunk.utils.refs_as_store('issue125.json')
 dataset = xarray.open_zarr(store, consolidated=False, mask_and_scale=False)
