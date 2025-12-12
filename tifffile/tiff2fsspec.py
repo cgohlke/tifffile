@@ -32,7 +32,7 @@ except ImportError:
     try:
         from tifffile.tifffile import tiff2fsspec
     except ImportError:
-        from tifffile import tiff2fsspec
+        from tifffile import tiff2fsspec  # noqa: PLW0406
 
 
 def main() -> int:
