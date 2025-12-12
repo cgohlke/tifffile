@@ -77,12 +77,14 @@ try:
         out: Any = None,
     ) -> bytes:
         """Compress LZMA."""
+        del level, out  # unused
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return lzma.compress(data)
 
     def lzma_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Decompress LZMA."""
+        del out  # unused
         return lzma.decompress(data)
 
 except ImportError:
@@ -95,13 +97,15 @@ except ImportError:
         out: Any = None,
     ) -> bytes:
         """Raise ImportError."""
-        import lzma  # noqa
+        del data, level, out  # unused
+        import lzma  # noqa: F401
 
         return b''
 
     def lzma_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Raise ImportError."""
-        import lzma  # noqa
+        del data, out  # unused
+        import lzma  # noqa: F401
 
         return b''
 
@@ -117,12 +121,14 @@ try:
         out: Any = None,
     ) -> bytes:
         """Compress Zlib DEFLATE."""
+        del out  # unused
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return zlib.compress(data, 6 if level is None else level)
 
     def zlib_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Decompress Zlib DEFLATE."""
+        del out  # unused
         return zlib.decompress(data)
 
 except ImportError:
@@ -136,13 +142,15 @@ except ImportError:
         out: Any = None,
     ) -> bytes:
         """Raise ImportError."""
-        import zlib  # noqa
+        del data, level, out  # unused
+        import zlib  # noqa: F401
 
         return b''
 
     def zlib_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Raise ImportError."""
-        import zlib  # noqa
+        del data, out  # unused
+        import zlib  # noqa: F401
 
         return b''
 
@@ -158,12 +166,14 @@ try:
         out: Any = None,
     ) -> bytes:
         """Compress ZSTD."""
+        del out  # unused
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return zstd.compress(data, level=level)
 
     def zstd_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Decompress ZSTD."""
+        del out  # unused
         return zstd.decompress(data)
 
 except ImportError:
@@ -176,13 +186,15 @@ except ImportError:
         out: Any = None,
     ) -> bytes:
         """Raise ImportError."""
-        from compression import zstd  # noqa
+        del data, level, out  # unused
+        from compression import zstd  # noqa: F401
 
         return b''
 
     def zstd_decode(data: bytes, /, *, out: Any = None) -> bytes:
         """Raise ImportError."""
-        from compression import zstd  # noqa
+        del data, out  # unused
+        from compression import zstd  # noqa: F401
 
         return b''
 
@@ -246,6 +258,7 @@ def delta_encode(
     out: Any = None,
 ) -> bytes | NDArray[Any]:
     """Encode Delta."""
+    del out  # unused
     if dist != 1:
         raise NotImplementedError(
             f"delta_encode with {dist=} requires the 'imagecodecs' package"
@@ -263,7 +276,7 @@ def delta_encode(
     key[axis] = 0
     diff = numpy.insert(diff, 0, data[tuple(key)], axis=axis)
     if not data.dtype.isnative:
-        diff = diff.byteswap(True)
+        diff = diff.byteswap(inplace=True)
         diff = diff.view(diff.dtype.newbyteorder())
     if dtype.kind == 'f':
         return diff.view(dtype)
@@ -318,19 +331,31 @@ def delta_decode(
 
 @overload
 def bitorder_decode(
-    data: bytes, /, *, out: Any = None, _bitorder: list[Any] = []
-) -> bytes: ...
-
-
-@overload
-def bitorder_decode(
-    data: bytearray, /, *, out: Any = None, _bitorder: list[Any] = []
+    data: bytearray,
+    /,
+    *,
+    out: Any = None,
+    _bitorder: list[Any] = [],  # noqa: B006
 ) -> bytearray: ...
 
 
 @overload
 def bitorder_decode(
-    data: NDArray[Any], /, *, out: Any = None, _bitorder: list[Any] = []
+    data: bytes,
+    /,
+    *,
+    out: Any = None,
+    _bitorder: list[Any] = [],  # noqa: B006
+) -> bytes: ...
+
+
+@overload
+def bitorder_decode(
+    data: NDArray[Any],
+    /,
+    *,
+    out: Any = None,
+    _bitorder: list[Any] = [],  # noqa: B006
 ) -> NDArray[Any]: ...
 
 
@@ -339,7 +364,7 @@ def bitorder_decode(
     /,
     *,
     out: Any = None,
-    _bitorder: list[Any] = [],
+    _bitorder: list[Any] = [],  # noqa: B006
 ) -> bytes | bytearray | NDArray[Any]:
     r"""Reverse bits in each byte of bytes or numpy array.
 
@@ -360,6 +385,7 @@ def bitorder_decode(
         array([  128, 16473], dtype=uint16)
 
     """
+    del out  # unused
     if not _bitorder:
         _bitorder.append(
             b'\x00\x80@\xc0 \xa0`\xe0\x10\x90P\xd00\xb0p\xf0\x08\x88H'
@@ -373,7 +399,7 @@ def bitorder_decode(
             b'\x99Y\xd99\xb9y\xf9\x05\x85E\xc5%\xa5e\xe5\x15\x95U\xd55'
             b'\xb5u\xf5\r\x8dM\xcd-\xadm\xed\x1d\x9d]\xdd=\xbd}\xfd'
             b'\x03\x83C\xc3#\xa3c\xe3\x13\x93S\xd33\xb3s\xf3\x0b\x8bK'
-            b'\xcb+\xabk\xeb\x1b\x9b[\xdb;\xbb{\xfb\x07\x87G\xc7\'\xa7g'
+            b"\xcb+\xabk\xeb\x1b\x9b[\xdb;\xbb{\xfb\x07\x87G\xc7'\xa7g"
             b'\xe7\x17\x97W\xd77\xb7w\xf7\x0f\x8fO\xcf/\xafo\xef\x1f\x9f_'
             b'\xdf?\xbf\x7f\xff'
         )
@@ -383,18 +409,17 @@ def bitorder_decode(
     try:
         view = data.view('uint8')
         numpy.take(_bitorder[1], view, out=view)
-        return data
     except ValueError as exc:
         raise NotImplementedError(
             "bitorder_decode of slices requires the 'imagecodecs' package"
         ) from exc
-    return None  # type: ignore[unreachable]
+    return data
 
 
 def packints_decode(
     data: bytes,
     /,
-    dtype: DTypeLike,
+    dtype: DTypeLike | None,
     bitspersample: int,
     runlen: int = 0,
     *,
@@ -420,6 +445,7 @@ def packints_decode(
         array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
 
     """
+    del out  # unused
     if bitspersample == 1:  # bitarray
         data_array = numpy.frombuffer(data, '|B')
         data_array = numpy.unpackbits(data_array)
