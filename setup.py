@@ -50,7 +50,7 @@ readme = search(
     re.MULTILINE | re.DOTALL,
 )
 readme = '\n'.join(
-    [description, '=' * len(description)] + readme.splitlines()[1:]
+    [description, '=' * len(description), *readme.splitlines()[1:]]
 )
 
 if 'sdist' in sys.argv:
@@ -107,12 +107,12 @@ setup(
         # 'imagecodecs>=2023.8.12',
     ],
     extras_require={
-        'codecs': ['imagecodecs>=2024.12.30'],
+        'codecs': ['imagecodecs>=2025.11.11'],
         'xml': ['defusedxml', 'lxml'],
         'zarr': ['zarr>=3.1.3', 'fsspec', 'kerchunk'],
         'plot': ['matplotlib'],
         'all': [
-            'imagecodecs>=2024.12.30',
+            'imagecodecs>=2025.11.11',
             'matplotlib',
             'defusedxml',
             'lxml',
