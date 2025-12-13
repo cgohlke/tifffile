@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.10.16
+:Version: 2025.12.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,15 +71,15 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.9, 3.14.0 64-bit
-- `NumPy <https://pypi.org/project/numpy/>`_ 2.3.4
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.8.2
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.11, 3.14.2 64-bit
+- `NumPy <https://pypi.org/project/numpy>`_ 2.3.5
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.11.11
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.7
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.3
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.5
   (required only for using Zarr stores; Zarr 2 is not compatible)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.9
   (required only for opening ReferenceFileSystem files)
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2025.12.12
+
+- Pass 5128 tests.
+- Improve code quality.
+
 2025.10.16
 
-- Pass 5124 tests.
 - Add option to decode EER super-resolution sub-pixels (breaking, #313).
 - Parse EER metadata to dict (breaking).
 
@@ -173,7 +177,6 @@ Refer to the CHANGES file for older revisions.
 
 Notes
 -----
-
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated.
 
@@ -310,7 +313,7 @@ References
 - ScanImage BigTiff Specification.
   https://docs.scanimage.org/Appendix/ScanImage+BigTiff+Specification.html
 - ZIF, the Zoomable Image File format. https://zif.photo/
-- GeoTIFF File Format https://gdal.org/drivers/raster/gtiff.html
+- GeoTIFF File Format. https://gdal.org/drivers/raster/gtiff.html
 - Cloud optimized GeoTIFF.
   https://github.com/cogeotiff/cog-spec/blob/master/spec.md
 - Tags for TIFF and Related Specifications. Digital Preservation.
@@ -662,7 +665,7 @@ image series:
     ...         mag = 2 ** (level + 1)
     ...         tif.write(
     ...             data[..., ::mag, ::mag, :],
-    ...             subfiletype=1,
+    ...             subfiletype=1,  # FILETYPE.REDUCEDIMAGE
     ...             resolution=(1e4 / mag / pixelsize, 1e4 / mag / pixelsize),
     ...             **options,
     ...         )
