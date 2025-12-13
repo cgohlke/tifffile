@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2025.12.12
+
+- Pass 5128 tests.
+- Improve code quality.
+
 2025.10.16
 
-- Pass 5124 tests.
 - Add option to decode EER super-resolution sub-pixels (breaking, #313).
 - Parse EER metadata to dict (breaking).
 
