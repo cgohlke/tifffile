@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.12.12
+:Version: 2025.12.20
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,10 +99,10 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.11, 3.14.2 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.3.5
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.11.11
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.7
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
   (required only for validating and printing XML)
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.12.12
+2025.12.20
 
 - Pass 5128 tests.
+- Do not initialize output arrays.
+
+2025.12.12
+
 - Improve code quality.
 
 2025.10.16
@@ -178,32 +182,13 @@ Revisions
 
 2025.3.30
 
-- Fix for imagecodecs 2025.3.30.
-
-2025.3.13
-
-- Change bytes2str to decode only up to first NULL character (breaking).
-- Remove stripnull function calls to reduce overhead (#285).
-- Deprecate stripnull function.
-
-2025.2.18
-
-- Fix julian_datetime milliseconds (#283).
-- Remove deprecated dtype arguments from imread and FileSequence (breaking).
-- Remove deprecated imsave and TiffWriter.save function/method (breaking).
-- Remove deprecated option to pass multiple values to compression (breaking).
-- Remove deprecated option to pass unit to resolution (breaking).
-- Remove deprecated enums from TIFF namespace (breaking).
-- Remove deprecated lazyattr and squeeze_axes functions (breaking).
-
-2025.1.10
-
 - …
 
 Refer to the CHANGES file for older revisions.
 
 Notes
 -----
+
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated.
 
@@ -783,7 +768,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2025.12.12'
+__version__ = '2025.12.20'
 
 __all__ = [
     'CHUNKMODE',
@@ -1268,8 +1253,8 @@ def imread(
             chunkshape=chunkshape,
             chunkdtype=chunkdtype,
             ioworkers=ioworkers,
-            out=out,
             out_inplace=out_inplace,
+            out=out,
             **imread_kwargs,
         )
 
@@ -4575,7 +4560,7 @@ class TiffFile:
             page0 = pages[0]
             if page0 is None:
                 raise ValueError('page is None')
-            result.shape = page0.shape if squeeze else page0.shaped
+            result = result.reshape(page0.shape if squeeze else page0.shaped)
         else:
             if squeeze is None:
                 squeeze = True
@@ -4584,7 +4569,9 @@ class TiffFile:
             except StopIteration as exc:
                 raise ValueError('pages are all None') from exc
             assert page0 is not None
-            result.shape = (-1,) + (page0.shape if squeeze else page0.shaped)
+            result = result.reshape(
+                (-1, *page0.shape) if squeeze else (-1, *page0.shaped)
+            )
         return result
 
     def aszarr(
@@ -5856,7 +5843,7 @@ class TiffFile:
                     )
                 )
 
-        logger().warning(f'{self!r} BIF series tiles are not stiched')
+        logger().warning(f'{self!r} BIF series tiles are not stitched')
         self.is_uniform = False
         return series
 
@@ -6789,9 +6776,9 @@ class TiffFile:
                 indices = numpy.arange(product(shape)).reshape(shape)
                 indices = numpy.moveaxis(indices, 1, 0)
             else:
-                indices = numpy.arange(npages).reshape(-1, 2)
+                indices = numpy.arange(npages).reshape((-1, 2))
         else:
-            indices = numpy.arange(npages).reshape(-1, 2)
+            indices = numpy.arange(npages).reshape((-1, 2))
 
         # images of reduced page might be stored first
         if pages[0].dataoffsets[0] > pages[1].dataoffsets[0]:
@@ -8740,12 +8727,15 @@ class TiffPage:
             def decode(args, decodeargs=decodeargs, decode=keyframe.decode):
                 return func(decode(*args, **decodeargs))
 
+        number_segments = product(self.chunked)
+
         if maxworkers is None or maxworkers < 1:
             maxworkers = keyframe.maxworkers
         if maxworkers < 2:
             for segment in fh.read_segments(
                 self.dataoffsets,
                 self.databytecounts,
+                length=number_segments,
                 lock=lock,
                 sort=sort,
                 buffersize=buffersize,
@@ -8760,6 +8750,7 @@ class TiffPage:
                 for segments in fh.read_segments(
                     self.dataoffsets,
                     self.databytecounts,
+                    length=number_segments,
                     lock=lock,
                     sort=sort,
                     buffersize=buffersize,
@@ -12947,8 +12938,8 @@ class FileSequence(Sequence[str]):
         chunkshape: tuple[int, ...] | None = None,
         chunkdtype: DTypeLike | None = None,
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
-        out_inplace: bool | None = None,
         ioworkers: int | None = 1,
+        out_inplace: bool | None = None,
         out: OutputType = None,
         **kwargs: Any,
     ) -> NDArray[Any]:
@@ -13050,7 +13041,7 @@ class FileSequence(Sequence[str]):
         else:
             shape = self.shape + chunkshape
             result = create_output(out, shape, chunkdtype)
-            result = result.reshape(-1, *chunkshape)
+            result = result.reshape((-1, *chunkshape))
 
             def func(index: tuple[int | slice, ...], fname: str) -> None:
                 # read single image from file into result
@@ -13879,6 +13870,7 @@ class FileHandle:
         bytecounts: Sequence[int],
         /,
         indices: Sequence[int] | None = None,
+        length: int | None = None,
         *,
         sort: bool = True,
         lock: threading.RLock | NullContext | None = None,
@@ -13905,7 +13897,10 @@ class FileHandle:
                 Byte counts of segments to read from file.
             indices:
                 Indices of segments in image.
-                The default is `range(len(offsets))`.
+                The default is `range(length)`.
+            length:
+                Number of segments to read from file.
+                By default, `len(offsets)`.
             sort:
                 Read segments from file in order of their offsets.
             lock:
@@ -13917,7 +13912,7 @@ class FileHandle:
                 If *True*, return iterator over individual (segment, index)
                 tuples.
                 Else, return an iterator over a list of (segment, index)
-                tuples that were acquired in one pass.
+                tuples that are acquired in one pass.
 
         Yields:
             Individual or lists of `(segment, index)` tuples.
@@ -13925,19 +13920,20 @@ class FileHandle:
         """
         # TODO: Cythonize this?
         assert self._fh is not None
-        length = len(offsets)
+        if length is None:
+            length = len(offsets)
         if length < 1:
             return
         if length == 1:
-            index = 0 if indices is None else indices[0]
-            if bytecounts[index] > 0 and offsets[index] > 0:
+            if bytecounts[0] > 0 and offsets[0] > 0:
                 if lock is None:
                     lock = self._lock
                 with lock:
-                    self.seek(offsets[index])
-                    data = self._fh.read(bytecounts[index])
+                    self.seek(offsets[0])
+                    data = self._fh.read(bytecounts[0])
             else:
                 data = None
+            index = 0 if indices is None else indices[0]
             yield (data, index) if flat else [(data, index)]
             return
 
@@ -13947,11 +13943,22 @@ class FileHandle:
             buffersize = TIFF.BUFFERSIZE
 
         if indices is None:
-            segments = [(i, offsets[i], bytecounts[i]) for i in range(length)]
-        else:
-            segments = [
-                (indices[i], offsets[i], bytecounts[i]) for i in range(length)
-            ]
+            indices = tuple(range(length))
+
+        # corrupted files may be missing some offsets or bytecounts
+        segments = [
+            (indices[i], offsets[i], bytecounts[i])
+            for i in range(min(length, len(offsets), len(bytecounts)))
+        ]
+        if len(segments) < length:
+            logger().warning(
+                'tifffile.read_segments: '
+                f'expected {length} segments, got {len(segments)}'
+            )
+            segments.extend(
+                (indices[i], 0, 0) for i in range(len(segments), length)
+            )
+
         if sort:
             segments = sorted(segments, key=lambda x: x[1])
 
@@ -17677,7 +17684,7 @@ class _TIFF:
             ('OffsetInputLut', 'u4'),
             ('OffsetOutputLut', 'u4'),
             ('OffsetChannelColors', 'u4'),
-            ('TimeIntervall', 'f8'),
+            ('TimeIntervall', 'f8'),  # typo in LSM spec
             ('OffsetChannelDataTypes', 'u4'),
             ('OffsetScanInformation', 'u4'),  # SCANINFO
             ('OffsetKsData', 'u4'),
@@ -17733,7 +17740,7 @@ class _TIFF:
             'VectorOverlay': None,
             'InputLut': read_lsm_lookuptable,
             'OutputLut': read_lsm_lookuptable,
-            'TimeIntervall': None,
+            'TimeIntervall': None,  # typo in LSM spec
             'ChannelDataTypes': read_lsm_channeldatatypes,
             'KsData': None,
             'Roi': None,
@@ -17982,7 +17989,7 @@ class _TIFF:
             0x90000001: 'Name',
             0x90000002: 'Power',
             0x90000003: 'Wavelength',
-            0x90000004: 'Aquire',
+            0x90000004: 'Aquire',  # typo in LSM spec
             0x90000005: 'DetchannelName',
             0x90000006: 'PowerBc1',
             0x90000007: 'PowerBc2',
@@ -18229,7 +18236,7 @@ class _TIFF:
             ('Scaling', '16f4'),
             ('ImageStatistics', '16c16'),
             ('ImageType', 'i4'),
-            ('ImageDisplaType', 'i4'),
+            ('ImageDisplayType', 'i4'),
             ('PixelSizeX', 'f4'),  # distance between two px in x, [nm]
             ('PixelSizeY', 'f4'),  # distance between two px in y, [nm]
             ('ImageDistanceZ', 'f4'),
@@ -18803,7 +18810,7 @@ def read_colormap(
     """Read ColorMap or TransferFunction tag value from file."""
     cmap = fh.read_array(byteorder + TIFF.DATA_FORMATS[dtype][-1], count)
     if count % 3 == 0:
-        cmap.shape = (3, -1)
+        cmap = cmap.reshape((3, -1))
     return cmap
 
 
@@ -18882,7 +18889,7 @@ def read_uic1tag(
     result = {}
     if dtype == 5:
         # pre MetaMorph 2.5 (not tested)
-        values = fh.read_array('<u4', 2 * count).reshape(count, 2)
+        values = fh.read_array('<u4', 2 * count).reshape((count, 2))
         result = {'ZDistance': values[:, 0] / values[:, 1]}
     else:
         for _ in range(count):
@@ -18913,7 +18920,7 @@ def read_uic2tag(
     """Read MetaMorph STK UIC2Tag value from file."""
     if dtype != 5 or byteorder != '<':
         raise ValueError('invalid UIC2Tag')
-    values = fh.read_array('<u4', 6 * count).reshape(count, 6)
+    values = fh.read_array('<u4', 6 * count).reshape((count, 6))
     return {
         'ZDistance': values[:, 0] / values[:, 1],
         'DateCreated': values[:, 2],  # julian days
@@ -18934,7 +18941,7 @@ def read_uic3tag(
     """Read MetaMorph STK UIC3Tag value from file."""
     if dtype != 5 or byteorder != '<':
         raise ValueError('invalid UIC3Tag')
-    values = fh.read_array('<u4', 2 * count).reshape(count, 2)
+    values = fh.read_array('<u4', 2 * count).reshape((count, 2))
     return {'Wavelengths': values[:, 0] / values[:, 1]}
 
 
@@ -19708,7 +19715,7 @@ def read_micromanager_metadata(
             data = fh.read(count * 20)
             result['IndexMap'] = numpy.frombuffer(
                 data, byteorder + 'u4', count * 5
-            ).reshape(-1, 5)
+            ).reshape((-1, 5))
         except Exception as exc:
             logger().warning(
                 '<tifffile.read_micromanager_metadata> '
@@ -20037,7 +20044,7 @@ def imagej_metadata(
         return struct.unpack(byteorder + ('d' * (len(data) // 8)), data)
 
     def _lut(data: bytes, byteorder: ByteOrder, /) -> NDArray[numpy.uint8]:
-        return numpy.frombuffer(data, numpy.uint8).reshape(-1, 256)
+        return numpy.frombuffer(data, numpy.uint8).reshape((-1, 256))
 
     def _bytes(data: bytes, byteorder: ByteOrder, /) -> bytes:
         return data
@@ -20508,8 +20515,7 @@ def fluoview_description_metadata(
                     section[name] = '\n'.join(section[name])
                 if name[:4] == 'LUT ':
                     a = numpy.array(section[name], dtype=numpy.uint8)
-                    a.shape = -1, 3
-                    section[name] = a
+                    section[name] = a.reshape((-1, 3))
                 continue
             # new section
             comment = False
@@ -21992,7 +21998,9 @@ def stack_pages(
             /,
         ) -> None:
             # read, decode, and copy page data
-            if page is not None:
+            if page is None:
+                out[index].fill(0)
+            else:
                 filecache.open(page.parent.filehandle)
                 page.asarray(lock=lock, out=out[index], **kwargs)
                 filecache.close(page.parent.filehandle)
@@ -22018,7 +22026,9 @@ def stack_pages(
             /,
         ) -> None:
             # read, decode, and copy page data
-            if page is not None:
+            if page is None:
+                out[index].fill(0)
+            else:
                 filecache.open(page.parent.filehandle)
                 out[index] = page.asarray(lock=lock, **kwargs)
                 filecache.close(page.parent.filehandle)
@@ -22046,36 +22056,45 @@ def create_output(
     *,
     mode: Literal['r+', 'w+', 'r', 'c'] = 'w+',
     suffix: str | None = None,
-    fillvalue: float | None = 0,
+    fillvalue: float | None = None,
 ) -> NDArray[Any] | numpy.memmap[Any, Any]:
-    """Return NumPy array where images of shape and dtype can be copied.
+    """Return NumPy array where data of shape and dtype can be copied.
 
     Parameters:
         out:
-            Specifies kind of array to return:
+            Specifies kind of array of `shape` and `dtype` to return:
 
                 `None`:
-                    A new array of shape and dtype is created and returned.
+                    Return new array.
                 `numpy.ndarray`:
-                    An existing, writable array compatible with `dtype` and
-                    `shape`. A view of the array is returned.
+                    Return view of existing array.
                 `'memmap'` or `'memmap:tempdir'`:
-                    A memory-map to an array stored in a temporary binary file
-                    on disk is created and returned.
+                    Return memory-map to array stored in temporary binary file.
                 `str` or open file:
-                    File name or file object used to create a memory-map
-                    to an array stored in a binary file on disk.
-                    The memory-mapped array is returned.
+                    Return memory-map to array stored in specified binary file.
         shape:
-            Shape of NumPy array to return.
+            Shape of array to return.
         dtype:
-            Data type of NumPy array to return.
+            Data type of array to return.
+            If `out` is an existing array, `dtype` must be castable to its
+            data type.
+        mode:
+            File mode to create memory-mapped array.
+            The default is 'w+' to create new, or overwrite existing file for
+            reading and writing.
         suffix:
-            Suffix of `NamedTemporaryFile` if `out` is 'memmap'.
-            The default suffix is 'memmap'.
+            Suffix of `NamedTemporaryFile` if `out` is `'memmap'`.
+            The default is '.memmap'.
         fillvalue:
-            Value to initialize newly created arrays.
-            If *None*, return an uninitialized array.
+            Value to initialize output array.
+            By default, return uninitialized array.
+
+    Returns:
+        NumPy array or memory-mapped array of `shape` and `dtype`.
+
+    Raises:
+        ValueError:
+            Existing array cannot be reshaped to `shape` or cast to `dtype`.
 
     """
     shape = tuple(shape)
@@ -22084,16 +22103,17 @@ def create_output(
         if fillvalue is None:
             return numpy.empty(shape, dtype)
         if fillvalue:
-            out = numpy.empty(shape, dtype)
-            out[:] = fillvalue
-            return out
+            return numpy.full(shape, fillvalue, dtype)
         return numpy.zeros(shape, dtype)
     if isinstance(out, numpy.ndarray):
         if product(shape) != product(out.shape):
-            raise ValueError('incompatible output shape')
+            raise ValueError(f'cannot reshape {shape} to {out.shape}')
         if not numpy.can_cast(dtype, out.dtype):
-            raise ValueError('incompatible output dtype')
-        return out.reshape(shape)
+            raise ValueError(f'cannot cast {dtype} to {out.dtype}')
+        out = out.reshape(shape)
+        if fillvalue is not None:
+            out.fill(fillvalue)
+        return out
     if isinstance(out, str) and out[:6] == 'memmap':
         import tempfile
 
@@ -22102,12 +22122,12 @@ def create_output(
             suffix = '.memmap'
         with tempfile.NamedTemporaryFile(dir=tempdir, suffix=suffix) as fh:
             out = numpy.memmap(fh, shape=shape, dtype=dtype, mode=mode)
-            if fillvalue:
-                out[:] = fillvalue
+            if fillvalue is not None:
+                out.fill(fillvalue)
             return out
     out = numpy.memmap(out, shape=shape, dtype=dtype, mode=mode)
-    if fillvalue:
-        out[:] = fillvalue
+    if fillvalue is not None:
+        out.fill(fillvalue)
     return out
 
 
