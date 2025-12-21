@@ -1,9 +1,13 @@
 Revisions
 ---------
 
-2025.12.12
+2025.12.20
 
 - Pass 5128 tests.
+- Do not initialize output arrays.
+
+2025.12.12
+
 - Improve code quality.
 
 2025.10.16
@@ -63,9 +67,7 @@ Revisions
 - Remove doctest command line option.
 - Support Python 3.14.
 
-2025.3.30
-
-- Fix for imagecodecs 2025.3.30.
+2025.3.30.
 
 2025.3.13
 
