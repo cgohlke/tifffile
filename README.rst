@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2025.12.12
+:Version: 2025.12.20
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -72,10 +72,10 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.11, 3.14.2 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.3.5
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.0
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2025.11.11
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.7
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
   (required only for validating and printing XML)
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2025.12.12
+2025.12.20
 
 - Pass 5128 tests.
+- Do not initialize output arrays.
+
+2025.12.12
+
 - Improve code quality.
 
 2025.10.16
@@ -151,32 +155,13 @@ Revisions
 
 2025.3.30
 
-- Fix for imagecodecs 2025.3.30.
-
-2025.3.13
-
-- Change bytes2str to decode only up to first NULL character (breaking).
-- Remove stripnull function calls to reduce overhead (#285).
-- Deprecate stripnull function.
-
-2025.2.18
-
-- Fix julian_datetime milliseconds (#283).
-- Remove deprecated dtype arguments from imread and FileSequence (breaking).
-- Remove deprecated imsave and TiffWriter.save function/method (breaking).
-- Remove deprecated option to pass multiple values to compression (breaking).
-- Remove deprecated option to pass unit to resolution (breaking).
-- Remove deprecated enums from TIFF namespace (breaking).
-- Remove deprecated lazyattr and squeeze_axes functions (breaking).
-
-2025.1.10
-
 - …
 
 Refer to the CHANGES file for older revisions.
 
 Notes
 -----
+
 TIFF, the Tagged Image File Format, was created by the Aldus Corporation and
 Adobe Systems Incorporated.
 
