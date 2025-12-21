@@ -450,7 +450,7 @@ def packints_decode(
         data_array = numpy.frombuffer(data, '|B')
         data_array = numpy.unpackbits(data_array)
         if runlen % 8:
-            data_array = data_array.reshape(-1, runlen + (8 - runlen % 8))
+            data_array = data_array.reshape((-1, runlen + (8 - runlen % 8)))
             data_array = data_array[:, :runlen].reshape(-1)
         return data_array.astype(dtype)
     if bitspersample in (8, 16, 32, 64):
