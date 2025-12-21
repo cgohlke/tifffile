@@ -104,7 +104,7 @@ setup(
     python_requires='>=3.11',
     install_requires=[
         'numpy',
-        # 'imagecodecs>=2023.8.12',
+        # 'imagecodecs>=2025.11.11',
     ],
     extras_require={
         'codecs': ['imagecodecs>=2025.11.11'],
