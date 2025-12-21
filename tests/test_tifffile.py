@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2025.12.12
+:Version: 2025.12.20
 
 """
 
@@ -1612,7 +1612,7 @@ def test_issue_predictor_byteorder():
 @pytest.mark.parametrize('truncate', [False, True])
 @pytest.mark.parametrize('chunkmode', [0, 2])
 def test_issue_dask_multipage(truncate, chunkmode):
-    """Test multi-threaded access of memory-mapable, multi-page Zarr stores."""
+    """Test multi-threaded access of memory-mappable, multi-page Zarr."""
     # https://github.com/cgohlke/tifffile/issues/67#issuecomment-908529425
     data = numpy.arange(5 * 99 * 101, dtype=numpy.uint16).reshape((5, 99, 101))
     with TempFileName(
@@ -2104,23 +2104,23 @@ def test_issue_indexing():
 
     assert_array_equal(data0, imread(fname, series=0))
     assert_array_equal(
-        data0.reshape(-1, 256, 256), imread(fname, series=0, key=slice(None))
+        data0.reshape((-1, 256, 256)), imread(fname, series=0, key=slice(None))
     )
     assert_array_equal(
-        data0.reshape(-1, 256, 256), imread(fname, key=slice(0, -1, 1))
+        data0.reshape((-1, 256, 256)), imread(fname, key=slice(0, -1, 1))
     )
     assert_array_equal(
-        data0.reshape(-1, 256, 256), imread(fname, key=range(1024))
+        data0.reshape((-1, 256, 256)), imread(fname, key=range(1024))
     )
     assert_array_equal(data0[0, 0], imread(fname, key=[0, 1]))
     assert_array_equal(data0[0, 0], imread(fname, series=0, key=(0, 1)))
 
     assert_array_equal(
-        level1.reshape(-1, 128, 128),
+        level1.reshape((-1, 128, 128)),
         imread(fname, series=0, level=1, key=slice(None)),
     )
     assert_array_equal(
-        level1.reshape(-1, 128, 128),
+        level1.reshape((-1, 128, 128)),
         imread(fname, series=0, level=1, key=range(1024)),
     )
 
@@ -2877,11 +2877,11 @@ def test_issue_non_volumetric():
 
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
-def test_issue_trucated_tileoffsets():
+def test_issue_truncated_tileoffsets(caplog):
     """Test reading truncated tile offsets and bytecounts."""
     # https://github.com/cgohlke/tifffile/issues/227
     data = random_data(numpy.uint8, (131, 128))
-    with TempFileName('issue_trucated_tileoffsets') as fname:
+    with TempFileName('issue_truncated_tileoffsets') as fname:
         imwrite(fname, data, tile=(64, 64))
         with TiffFile(fname, mode='r+') as tif:
             # truncate TileOffsets and TileByteCounts
@@ -2892,6 +2892,7 @@ def test_issue_trucated_tileoffsets():
             tag.overwrite(tag.value[:4])
 
         image = imread(fname)
+        assert 'expected 6 segments, got 4' in caplog.text
         assert_raises(AssertionError, assert_array_equal, image, data)
         assert_array_equal(image[:128], data[:128])
 
@@ -5673,24 +5674,67 @@ def test_func_create_output():
     """Test create_output function."""
     shape = (16, 17)
     dtype = numpy.uint16
+
     # None
     a = create_output(None, shape, dtype)
-    assert_array_equal(a, numpy.zeros(shape, dtype))
+    assert a.shape == shape
+    assert a.dtype == dtype
+    # assert_array_equal(a, numpy.zeros(shape, dtype))
+
+    # fillvalue
+    a = create_output(None, shape, dtype, fillvalue=42)
+    assert_array_equal(a, numpy.full(shape, 42, dtype))
+
     # existing array
     b = create_output(a, a.shape, a.dtype)
     assert a is b.base
+    assert_array_equal(a, numpy.full(shape, 42, dtype))
+
+    # existing array with fillvalue
+    b = create_output(a, a.shape, a.dtype, fillvalue=1)
+    assert a is b.base
+    assert_array_equal(a, numpy.ones(shape, dtype))
+
+    # reshapeable
+    b = create_output(a, (1, 17, 16), a.dtype)
+    assert a is b.base
+    assert b.shape == (1, 17, 16)
+
+    # castable dtype
+    b = create_output(a, shape, numpy.uint8)
+    assert a is b.base
+    assert b.dtype == numpy.uint16
+
+    # not contiguous
+    a = numpy.ones((32, 31), dtype)
+    b = create_output(a[: shape[0], : shape[1]], shape, dtype, fillvalue=0)
+    assert b.shape == shape
+    assert a[shape[0], shape[1]] == 1
+    assert_array_equal(a[: shape[0], : shape[1]], numpy.zeros(shape, dtype))
+
     # 'memmap'
     a = create_output('memmap', shape, dtype)
     assert isinstance(a, numpy.memmap)
     del a
+
     # 'memmap:tempdir'
     a = create_output(f'memmap:{os.path.abspath(TEMP_DIR)}', shape, dtype)
     assert isinstance(a, numpy.memmap)
     del a
+
     # filename
     with TempFileName('nopages') as fname:
         a = create_output(fname, shape, dtype)
         del a
+
+    # wrong shape
+    a = create_output(None, shape, dtype)
+    with pytest.raises(ValueError):
+        create_output(a, (16, 16), dtype)
+
+    # wrong dtype
+    with pytest.raises(ValueError):
+        create_output(a, shape, numpy.uint32)
 
 
 def test_func_reorient():
@@ -5822,14 +5866,14 @@ def test_func_delta_codec(byteorder, kind):
             high,
             size=33 * 31 * 3,
             dtype=kind,
-        ).reshape(33, 31, 3)
+        ).reshape((33, 31, 3))
     else:
         # floating point
         if byteorder == '>':
             pytest.xfail('requires imagecodecs')
         low, high = -1e5, 1e5
         data = RNG.integers(low, high, size=33 * 31 * 3, dtype='i4').reshape(
-            33, 31, 3
+            (33, 31, 3)
         )
     data = data.astype(byteorder + kind)
 
@@ -10423,7 +10467,7 @@ def test_read_bif(caplog):
         assert page.shape == (3008, 1008, 3)
 
         series = tif.series
-        assert 'not stiched' in caplog.text
+        assert 'not stitched' in caplog.text
         # baseline
         series = tif.series[0]
         assert series.kind == 'bif'
@@ -15410,7 +15454,7 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
 
 def test_write_lists():
     """Test write lists."""
-    array = numpy.arange(1000).reshape(10, 10, 10).astype(numpy.uint16)
+    array = numpy.arange(1000).reshape((10, 10, 10)).astype(numpy.uint16)
     data = array.tolist()
     with TempFileName('write_lists') as fname:
         with TiffWriter(fname) as tif:
@@ -17013,7 +17057,7 @@ def test_write_small():
 def test_write_2d_as_rgb():
     """Test write RGB color palette as RGB image."""
     # image length should be 1
-    data = numpy.arange(3 * 256, dtype=numpy.uint16).reshape(256, 3) // 3
+    data = numpy.arange(3 * 256, dtype=numpy.uint16).reshape((256, 3)) // 3
     with TempFileName('write_2d_as_rgb_contig') as fname:
         imwrite(fname, data, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
@@ -18505,7 +18549,7 @@ def test_write_volumetric_tiled_planar_rgb():
     """Test write 5D array as RGB volumes."""
     shape = (2, 3, 256, 64, 96)
     data = numpy.empty(shape, dtype=numpy.uint8)
-    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
+    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape((1, 1, -1, 1, 1))
     with TempFileName('write_volumetric_tiled_planar_rgb') as fname:
         imwrite(
             fname,
@@ -18546,7 +18590,7 @@ def test_write_volumetric_tiled_planar_extrasamples():
     """Test write 5D array as grayscale volumes with extrasamples."""
     shape = (2, 3, 256, 64, 96)
     data = numpy.empty(shape, dtype=numpy.uint8)
-    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
+    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape((1, 1, -1, 1, 1))
     with TempFileName('write_volumetric_tiled_planar_extrasamples') as fname:
         imwrite(
             fname,
@@ -18588,7 +18632,7 @@ def test_write_volumetric_tiled_contig_extrasamples():
     """Test write 5D array as grayscale volumes with extrasamples."""
     shape = (2, 256, 64, 96, 3)
     data = numpy.empty(shape, dtype=numpy.uint8)
-    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, -1, 1, 1, 1)
+    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape((1, -1, 1, 1, 1))
     with TempFileName('write_volumetric_tiled_contig_extrasamples') as fname:
         imwrite(
             fname,
@@ -18630,7 +18674,7 @@ def test_write_volumetric_tiled_contig_rgb():
     """Test write 6D array as contig RGB volumes."""
     shape = (2, 3, 256, 64, 96, 3)
     data = numpy.empty(shape, dtype=numpy.uint8)
-    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1, 1)
+    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape((1, 1, -1, 1, 1, 1))
     with TempFileName('write_volumetric_tiled_contig_rgb') as fname:
         imwrite(fname, data, tile=(256, 64, 96), photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
@@ -18660,7 +18704,7 @@ def test_write_volumetric_tiled_contig_rgb():
             image = tif.asarray()
             assert_array_equal(data, image)
             # assert iterating over series.pages
-            data = data.reshape(6, 256, 64, 96, 3)
+            data = data.reshape((6, 256, 64, 96, 3))
             for i, page in enumerate(series.pages):
                 image = page.asarray()
                 assert_array_equal(data[i], image)
@@ -18776,7 +18820,7 @@ def test_write_volumetric_striped_planar_rgb():
     """Test write 5D array as grayscale volumes."""
     shape = (2, 3, 15, 63, 96)
     data = numpy.empty(shape, dtype=numpy.uint8)
-    data[:] = numpy.arange(15, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1)
+    data[:] = numpy.arange(15, dtype=numpy.uint8).reshape((1, 1, -1, 1, 1))
     with TempFileName('write_volumetric_striped_planar_rgb') as fname:
         imwrite(fname, data, volumetric=True, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
@@ -18810,7 +18854,7 @@ def test_write_volumetric_striped_contig_rgb():
     """Test write 6D array as contig RGB volumes."""
     shape = (2, 3, 15, 63, 95, 3)
     data = numpy.empty(shape, dtype=numpy.uint8)
-    data[:] = numpy.arange(15, dtype=numpy.uint8).reshape(1, 1, -1, 1, 1, 1)
+    data[:] = numpy.arange(15, dtype=numpy.uint8).reshape((1, 1, -1, 1, 1, 1))
     with TempFileName('write_volumetric_striped_contig_rgb') as fname:
         imwrite(fname, data, volumetric=True, photometric=PHOTOMETRIC.RGB)
         assert_valid_tiff(fname)
@@ -18951,7 +18995,7 @@ def test_write_5gb_fails():
     """Test data too large for non-BigTIFF file."""
     # TiffWriter should fail without bigtiff parameter
     data = numpy.empty((640, 1024, 1024), dtype=numpy.float64)
-    data[:] = numpy.arange(640, dtype=numpy.float64).reshape(-1, 1, 1)
+    data[:] = numpy.arange(640, dtype=numpy.float64).reshape((-1, 1, 1))
     with TempFileName('write_5gb_fails') as fname:  # noqa: SIM117
         with pytest.raises(ValueError):
             with TiffWriter(fname) as tif:
@@ -18963,7 +19007,7 @@ def test_write_5gb_fails():
 def test_write_5gb_bigtiff():
     """Test write 5GB BigTiff file."""
     data = numpy.empty((640, 1024, 1024), dtype=numpy.float64)
-    data[:] = numpy.arange(640, dtype=numpy.float64).reshape(-1, 1, 1)
+    data[:] = numpy.arange(640, dtype=numpy.float64).reshape((-1, 1, 1))
     with TempFileName('write_5gb_bigtiff') as fname:
         # imwrite should use bigtiff for large data
         imwrite(fname, data)
@@ -19161,7 +19205,7 @@ def test_write_multiple_series():
             )
 
             assert_array_equal(
-                data1[0].reshape(-1, 167, 439)[::2],
+                data1[0].reshape((-1, 167, 439))[::2],
                 tif.asarray(key=slice(107, 122, 2)).reshape((-1, 167, 439)),
             )
 
@@ -19194,7 +19238,7 @@ def test_write_multithreaded():
     data = (
         numpy.arange(4001 * 6003 * 3)
         .astype(numpy.uint8)
-        .reshape(4001, 6003, 3)
+        .reshape((4001, 6003, 3))
     )
     with TempFileName('write_multithreaded') as fname:
         imwrite(fname, data, tile=(512, 512), compression='PNG', maxworkers=6)
@@ -19510,7 +19554,9 @@ def test_write_numcodecs():
     """Test write Zarr with numcodecs.Tiff."""
     from tifffile import numcodecs
 
-    data = numpy.arange(256 * 256 * 3, dtype=numpy.uint16).reshape(256, 256, 3)
+    data = numpy.arange(256 * 256 * 3, dtype=numpy.uint16).reshape(
+        (256, 256, 3)
+    )
     numcodecs.register_codec()
     compressor = numcodecs.Tiff(
         bigtiff=True,
@@ -19590,8 +19636,7 @@ def test_write_imagej(byteorder, dtype, shape):
 
 def test_write_imagej_voxel_size():
     """Test write ImageJ with xyz voxel size 2.6755x2.6755x3.9474 µm^3."""
-    data = numpy.zeros((4, 256, 256), dtype=numpy.float32)
-    data.shape = 4, 1, 256, 256
+    data = numpy.zeros((4, 1, 256, 256), dtype=numpy.float32)
     with TempFileName('write_imagej_voxel_size') as fname:
         imwrite(
             fname,
@@ -19619,7 +19664,9 @@ def test_write_imagej_voxel_size():
 def test_write_imagej_metadata():
     """Test write additional ImageJ metadata."""
     data = numpy.empty((4, 256, 256), dtype=numpy.uint16)
-    data[:] = numpy.arange(256 * 256, dtype=numpy.uint16).reshape(1, 256, 256)
+    data[:] = numpy.arange(256 * 256, dtype=numpy.uint16).reshape(
+        (1, 256, 256)
+    )
     with TempFileName('write_imagej_metadata') as fname:
         imwrite(fname, data, imagej=True, metadata={'unit': 'um'})
         with TiffFile(fname) as tif:
@@ -19637,8 +19684,8 @@ def test_write_imagej_colormap(dtype, photometric):
     """Test write ImageJ with colormap."""
     # https://forum.image.sc/t/101788
     data = numpy.empty((4, 256, 256), dtype=numpy.uint8)
-    data[:] = numpy.arange(256 * 256, dtype=numpy.uint8).reshape(1, 256, 256)
-    colormap = numpy.arange(3 * 256, dtype=numpy.uint16).reshape(3, 256)
+    data[:] = numpy.arange(256 * 256, dtype=numpy.uint8).reshape((1, 256, 256))
+    colormap = numpy.arange(3 * 256, dtype=numpy.uint16).reshape((3, 256))
     photometric_out = (
         PHOTOMETRIC.PALETTE if dtype == 'u1' else PHOTOMETRIC.MINISBLACK
     )
@@ -19778,7 +19825,7 @@ def test_write_imagej_hyperstack(truncate, mmap):
     """Test write ImageJ hyperstack."""
     shape = (5, 6, 7, 49, 61, 3)
     data = numpy.empty(shape, dtype=numpy.uint8)
-    data[:] = numpy.arange(210, dtype=numpy.uint8).reshape(5, 6, 7, 1, 1, 1)
+    data[:] = numpy.arange(210, dtype=numpy.uint8).reshape((5, 6, 7, 1, 1, 1))
 
     _truncate = ['', '_trunc'][truncate]
     _memmap = ['', '_memmap'][mmap]
@@ -19835,7 +19882,7 @@ def test_write_imagej_hyperstack(truncate, mmap):
 def test_write_imagej_append():
     """Test write ImageJ file consecutively."""
     data = numpy.empty((256, 1, 256, 256), dtype=numpy.uint8)
-    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape(-1, 1, 1, 1)
+    data[:] = numpy.arange(256, dtype=numpy.uint8).reshape((-1, 1, 1, 1))
 
     with TempFileName('write_imagej_append') as fname:
         with TiffWriter(fname, imagej=True) as tif:
@@ -19889,7 +19936,7 @@ def test_write_imagej_bigtiff():
 def test_write_imagej_raw():
     """Test write ImageJ 5 GB raw file."""
     data = numpy.empty((1280, 1, 1024, 1024), dtype=numpy.float32)
-    data[:] = numpy.arange(1280, dtype=numpy.float32).reshape(-1, 1, 1, 1)
+    data[:] = numpy.arange(1280, dtype=numpy.float32).reshape((-1, 1, 1, 1))
 
     with TempFileName('write_imagej_big') as fname:
         with pytest.warns(UserWarning):
@@ -20079,7 +20126,7 @@ def test_write_ome_methods(method):
             darr = dask.array.from_zarr(store)
 
     def pages():
-        yield from data.reshape(-1, *data.shape[-2:])
+        yield from data.reshape((-1, *data.shape[-2:]))
 
     with TempFileName(f'write_ome_{method}.ome') as fname:
         if method == 'xml':
@@ -20739,7 +20786,7 @@ def test_embed_tif_openfile():
 
 @pytest.mark.skipif(SKIP_PUBLIC or SKIP_CODECS, reason=REASON)
 def test_embed_tif_openfile_seek():
-    """Test embedded TIFF from seeked file handle."""
+    """Test embedded TIFF from sought file handle."""
     with open(EMBED_NAME, 'rb') as fh:
         fh.seek(EMBED_OFFSET)
         with TiffFile(fh, size=EMBED_SIZE) as tif:
@@ -20784,7 +20831,7 @@ def test_embed_mm_openfile():
 
 @pytest.mark.skipif(SKIP_PUBLIC, reason=REASON)
 def test_embed_mm_openfile_seek():
-    """Test embedded MicroManager TIFF from seeked file handle."""
+    """Test embedded MicroManager TIFF from sought file handle."""
     with open(EMBED_NAME, 'rb') as fh:
         fh.seek(EMBED_OFFSET1)
         with TiffFile(fh, size=EMBED_SIZE1) as tif:
