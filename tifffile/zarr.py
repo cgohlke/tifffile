@@ -1,6 +1,6 @@
 # tifffile/zarr.py
 
-# Copyright (c) 2008-2025, Christoph Gohlke
+# Copyright (c) 2008-2026, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -48,7 +48,8 @@ try:
     from zarr.core.buffer.cpu import NDBuffer
     from zarr.core.chunk_grids import RegularChunkGrid
 except ImportError as exc:
-    raise ValueError(f'zarr {zarr.__version__} < 3 is not supported') from exc
+    msg = f'zarr {zarr.__version__} < 3 is not supported'
+    raise ValueError(msg) from exc
 
 from .tifffile import (
     CHUNKMODE,
@@ -171,7 +172,8 @@ class ZarrStore(Store):
 
     async def delete(self, key: str) -> None:
         """Remove key from store."""
-        raise PermissionError('ZarrStore does not support deletes')
+        msg = 'ZarrStore does not support deletes'
+        raise PermissionError(msg)
 
     @property
     def supports_listing(self) -> bool:
@@ -311,7 +313,8 @@ class ZarrTiffStore(ZarrStore):
             self._chunkmode = enumarg(CHUNKMODE, chunkmode)
 
         if self._chunkmode not in {0, 2}:
-            raise NotImplementedError(f'{self._chunkmode!r} not implemented')
+            msg = f'{self._chunkmode!r} not implemented'
+            raise NotImplementedError(msg)
 
         self._squeeze = None if squeeze is None else bool(squeeze)
         self._buffersize = buffersize
@@ -612,11 +615,13 @@ class ZarrTiffStore(ZarrStore):
         _shape = [] if _shape is None else list(_shape)
         _axes = [] if _axes is None else list(_axes)
         if len(_shape) != len(_axes):
-            raise ValueError('len(_shape) != len(_axes)')
+            msg = 'len(_shape) != len(_axes)'
+            raise ValueError(msg)
         if _index is None:
             index = ''
         elif len(_shape) != len(_index):
-            raise ValueError('len(_shape) != len(_index)')
+            msg = 'len(_shape) != len(_index)'
+            raise ValueError(msg)
         elif _index:
             index = '.'.join(str(i) for i in _index)
             index += '.'
@@ -625,7 +630,8 @@ class ZarrTiffStore(ZarrStore):
         refzarr: dict[str, Any]
         if version == 1:
             if _append:
-                raise ValueError('cannot append to version 1')
+                msg = 'cannot append to version 1'
+                raise ValueError(msg)
             if templatename is None:
                 templatename = 'u'
             refs['version'] = 1
@@ -832,7 +838,8 @@ class ZarrTiffStore(ZarrStore):
         """Return value associated with key."""
         # print(f'get({key=}, {byte_range=})')
         if byte_range is not None:
-            raise NotImplementedError(f'{byte_range=!r} not supported')
+            msg = f'{byte_range=!r} not supported'
+            raise NotImplementedError(msg)
 
         if key in self._store:
             return prototype.buffer.from_bytes(self._store[key])
@@ -906,7 +913,8 @@ class ZarrTiffStore(ZarrStore):
         else:
             chunks = keyframe.chunks
         if chunk.size != product(chunks):
-            raise RuntimeError(f'{chunk.size} != {product(chunks)}')
+            msg = f'{chunk.size} != {product(chunks)}'
+            raise RuntimeError(msg)
         return prototype.buffer(chunk.reshape(-1).view('B'))
 
     async def exists(self, key: str) -> bool:
@@ -932,7 +940,8 @@ class ZarrTiffStore(ZarrStore):
     async def set(self, key: str, value: Buffer) -> None:
         """Store (key, value) pair."""
         if self._read_only:
-            raise PermissionError('ZarrTiffStore is read-only')
+            msg = 'ZarrTiffStore is read-only'
+            raise PermissionError(msg)
 
         if (
             key in self._store
@@ -1055,7 +1064,8 @@ class ZarrTiffStore(ZarrStore):
                 elif strile_chunked[i] == 1:
                     i -= 1
                 else:
-                    raise RuntimeError('shape does not match page shape')
+                    msg = 'shape does not match page shape'
+                    raise RuntimeError(msg)
                 if i < 0 or j < 0:
                     break
             assert product(strile_chunked) == product(chunked)
@@ -1146,13 +1156,16 @@ class ZarrFileSequenceStore(ZarrStore):
         )
 
         if self._chunkmode not in {0, 3}:
-            raise ValueError(f'invalid chunkmode {self._chunkmode!r}')
+            msg = f'invalid chunkmode {self._chunkmode!r}'
+            raise ValueError(msg)
 
         if not isinstance(filesequence, FileSequence):
-            raise TypeError('not a FileSequence')
+            msg = 'not a FileSequence'  # type: ignore[unreachable]
+            raise TypeError(msg)
 
         if filesequence._container:
-            raise NotImplementedError('cannot open container as Zarr store')
+            msg = 'cannot open container as Zarr store'
+            raise NotImplementedError(msg)
 
         # TODO: deprecate kwargs?
         if imreadargs is not None:
@@ -1223,7 +1236,8 @@ class ZarrFileSequenceStore(ZarrStore):
     ) -> Buffer | None:
         """Return value associated with key."""
         if byte_range is not None:
-            raise NotImplementedError(f'{byte_range=!r} not supported')
+            msg = f'{byte_range=!r} not supported'
+            raise NotImplementedError(msg)
 
         if key in self._store:
             return prototype.buffer.from_bytes(self._store[key])
@@ -1302,7 +1316,8 @@ class ZarrFileSequenceStore(ZarrStore):
                 self._imread.__name__ != 'imread'
                 or 'codec' not in self._kwargs
             ):
-                raise ValueError('cannot determine codec_id')
+                msg = 'cannot determine codec_id'
+                raise ValueError(msg)
             codec = kwargs.pop('codec')
             if isinstance(codec, (list, tuple)):
                 codec = codec[0]
@@ -1331,7 +1346,8 @@ class ZarrFileSequenceStore(ZarrStore):
             }[codec]
         else:
             # TODO: choose codec from filename
-            raise ValueError('cannot determine codec_id')
+            msg = 'cannot determine codec_id'
+            raise ValueError(msg)
 
         if url is None:
             url = ''
@@ -1346,7 +1362,8 @@ class ZarrFileSequenceStore(ZarrStore):
         refs: dict[str, Any] = {}
         if version == 1:
             if _append:
-                raise ValueError('cannot append to version 1 files')
+                msg = 'cannot append to version 1 files'
+                raise ValueError(msg)
             if templatename is None:
                 templatename = 'u'
             refs['version'] = 1
@@ -1598,6 +1615,7 @@ def _chunks(
             i += 1
         chunks = chunks[i:]
         if ndim < len(chunks):
-            raise ValueError(f'{shape=!r} is shorter than {chunks=!r}')
+            msg = f'{shape=!r} is shorter than {chunks=!r}'
+            raise ValueError(msg)
     # prepend size 1 dimensions to chunks to match length of shape
     return tuple([1] * (ndim - len(chunks)) + list(chunks))
