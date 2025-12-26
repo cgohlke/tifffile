@@ -14,7 +14,8 @@ def search(pattern: str, string: str, flags: int = 0) -> str:
     """Return first match of pattern in string."""
     match = re.search(pattern, string, flags)
     if match is None:
-        raise ValueError(f'{pattern!r} not found')
+        msg = f'{pattern=!r} not found'
+        raise ValueError(msg)
     return match.groups()[0]
 
 
