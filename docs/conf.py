@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.split(here)[0])
 import tifffile
 
 project = 'tifffile'
-copyright = '2008-2025, Christoph Gohlke'
+copyright = '2008-2026, Christoph Gohlke'
 author = 'Christoph Gohlke'
 version = tifffile.__version__
 
