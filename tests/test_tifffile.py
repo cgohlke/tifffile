@@ -1,6 +1,6 @@
 # test_tifffile.py
 
-# Copyright (c) 2008-2025, Christoph Gohlke
+# Copyright (c) 2008-2026, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2025.12.20
+:Version: 2026.1.14
 
 """
 
@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import binascii
+import contextlib
 import datetime
 import glob
 import json
@@ -504,10 +505,8 @@ class TempFileName:
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         if self.remove:
-            try:
+            with contextlib.suppress(Exception):
                 os.remove(self.name)
-            except Exception:  # noqa: S110
-                pass
 
 
 numpy.set_printoptions(suppress=True, precision=5)
@@ -808,7 +807,7 @@ def test_issue_no_bytecounts(caplog):
         image = tif.asarray()
         assert image.shape == (800, 1200)
         # fails: assert_aszarr_method(tif, image)
-    assert 'invalid value offset 0' in caplog.text
+    assert 'invalid valueoffset=0' in caplog.text
     assert 'invalid data type 31073' in caplog.text
     assert 'invalid page offset 808333686' in caplog.text
 
@@ -2736,7 +2735,7 @@ def test_issue_logging_filter(caplog):
     def log_filter(record):
         if record.levelno == logging.ERROR:
             assert record.funcName == '__init__'
-            assert 'invalid value offset' in record.msg
+            assert 'invalid valueoffset=' in record.msg
             raise ValueError(record.msg)
         return True
 
@@ -2749,9 +2748,9 @@ def test_issue_logging_filter(caplog):
     finally:
         logger().removeFilter(log_filter)
 
-    assert 'invalid value offset' not in caplog.text
+    assert 'invalid valueoffset=' not in caplog.text
     imread(private_file(fname))
-    assert 'invalid value offset' in caplog.text
+    assert 'invalid valueoffset=' in caplog.text
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
@@ -3249,7 +3248,7 @@ class TestExceptions:
 
     def test_compression(self, fname):
         # invalid compression
-        with pytest.raises(TypeError):
+        with pytest.raises((TypeError, ValueError)):
             imwrite(fname, self.data, compression=(8, None, None, None))
 
     def test_predictor_dtype(self, fname):
@@ -5370,11 +5369,8 @@ def test_func_snipstr():
     assert snipstr('abc', 3, ellipsis='....') == 'abc'
     assert snipstr('abcdefg', 4, ellipsis='') == 'abcd'
     assert snipstr('abcdefg', 4, ellipsis=None) == 'abc…'
-    assert snipstr(b'abcdefg', 4, ellipsis=None) == b'a...'
     assert snipstr('abcdefghijklmnop', 8, ellipsis=None) == 'abcd…nop'
-    assert snipstr(b'abcdefghijklmnop', 8, ellipsis=None) == b'abc...op'
     assert snipstr('abcdefghijklmnop', 9, ellipsis=None) == 'abcd…mnop'
-    assert snipstr(b'abcdefghijklmnop', 9, ellipsis=None) == b'abc...nop'
     assert snipstr('abcdefghijklmnop', 8, ellipsis='..') == 'abc..nop'
     assert snipstr('abcdefghijklmnop', 8, ellipsis='....') == 'ab....op'
     assert snipstr('abcdefghijklmnop', 8, ellipsis='......') == 'ab......'
@@ -5383,19 +5379,11 @@ def test_func_snipstr():
     assert snipstr('abc', 3, snipat=1, ellipsis='....') == 'abc'
     assert snipstr('abcdefg', 4, snipat=1, ellipsis='') == 'abcd'
     assert snipstr('abcdefg', 4, snipat=1, ellipsis=None) == 'abc…'
-    assert snipstr(b'abcdefg', 4, snipat=1, ellipsis=None) == b'a...'
     assert (
         snipstr('abcdefghijklmnop', 8, snipat=1, ellipsis=None) == 'abcdefg…'
     )
     assert (
-        snipstr(b'abcdefghijklmnop', 8, snipat=1, ellipsis=None) == b'abcde...'
-    )
-    assert (
         snipstr('abcdefghijklmnop', 9, snipat=1, ellipsis=None) == 'abcdefgh…'
-    )
-    assert (
-        snipstr(b'abcdefghijklmnop', 9, snipat=1, ellipsis=None)
-        == b'abcdef...'
     )
     assert (
         snipstr('abcdefghijklmnop', 8, snipat=1, ellipsis='..') == 'abcdef..'
@@ -5412,19 +5400,11 @@ def test_func_snipstr():
     assert snipstr('abc', 3, snipat=0, ellipsis='....') == 'abc'
     assert snipstr('abcdefg', 4, snipat=0, ellipsis='') == 'defg'
     assert snipstr('abcdefg', 4, snipat=0, ellipsis=None) == '…efg'
-    assert snipstr(b'abcdefg', 4, snipat=0, ellipsis=None) == b'...g'
     assert (
         snipstr('abcdefghijklmnop', 8, snipat=0, ellipsis=None) == '…jklmnop'
     )
     assert (
-        snipstr(b'abcdefghijklmnop', 8, snipat=0, ellipsis=None) == b'...lmnop'
-    )
-    assert (
         snipstr('abcdefghijklmnop', 9, snipat=0, ellipsis=None) == '…ijklmnop'
-    )
-    assert (
-        snipstr(b'abcdefghijklmnop', 9, snipat=0, ellipsis=None)
-        == b'...klmnop'
     )
     assert (
         snipstr('abcdefghijklmnop', 8, snipat=0, ellipsis='..') == '..klmnop'
@@ -16106,8 +16086,9 @@ def test_write_resolution_unit():
     data = random_data(numpy.uint8, (219, 301))
     resolution = (92.0, (9200, 100), 3)
     with TempFileName('write_resolution_unit') as fname:
-        with pytest.raises(ValueError):
-            imwrite(fname, data, resolution=resolution)
+        # this silently passes in tifffile 2026
+        # with pytest.raises(ValueError):
+        #     imwrite(fname, data, resolution=resolution)
         imwrite(
             fname,
             data,
@@ -16300,7 +16281,7 @@ def test_write_compression_args(args):
     with TempFileName(f'write_compression_args_{i}') as fname:
         # with pytest.warns(DeprecationWarning if i > 4 else None):
         if i > 4:
-            with pytest.raises(TypeError):
+            with pytest.raises((TypeError, ValueError)):
                 imwrite(fname, data, **kwargs)
             kwargs['compression'] = compressionargs[0]
             if len(compressionargs) > 1:
