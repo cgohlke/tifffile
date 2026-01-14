@@ -1,6 +1,6 @@
 # tifffile/_imagecodecs.py
 
-# Copyright (c) 2008-2024, Christoph Gohlke
+# Copyright (c) 2008-2026, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -260,9 +260,8 @@ def delta_encode(
     """Encode Delta."""
     del out  # unused
     if dist != 1:
-        raise NotImplementedError(
-            f"delta_encode with {dist=} requires the 'imagecodecs' package"
-        )
+        msg = f"delta_encode with {dist=} requires the 'imagecodecs' package"
+        raise NotImplementedError(msg)
     if isinstance(data, (bytes, bytearray)):
         data = numpy.frombuffer(data, dtype=numpy.uint8)
         diff = numpy.diff(data, axis=0)
@@ -305,9 +304,8 @@ def delta_decode(
 ) -> bytes | NDArray[Any]:
     """Decode Delta."""
     if dist != 1:
-        raise NotImplementedError(
-            f"delta_decode with {dist=} requires the 'imagecodecs' package"
-        )
+        msg = f"delta_decode with {dist=} requires the 'imagecodecs' package"
+        raise NotImplementedError(msg)
     if out is not None and not out.flags.writeable:
         out = None
     if isinstance(data, (bytes, bytearray)):
@@ -317,10 +315,11 @@ def delta_decode(
         ).tobytes()
     if data.dtype.kind == 'f':
         if not data.dtype.isnative:
-            raise NotImplementedError(
+            msg = (
                 f'delta_decode with {data.dtype!r} '
                 "requires the 'imagecodecs' package"
             )
+            raise NotImplementedError(msg)
         view = data.view(f'{data.dtype.byteorder}u{data.dtype.itemsize}')
         view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
         return view.view(data.dtype)
@@ -410,9 +409,8 @@ def bitorder_decode(
         view = data.view('uint8')
         numpy.take(_bitorder[1], view, out=view)
     except ValueError as exc:
-        raise NotImplementedError(
-            "bitorder_decode of slices requires the 'imagecodecs' package"
-        ) from exc
+        msg = "bitorder_decode of slices requires the 'imagecodecs' package"
+        raise NotImplementedError(msg) from exc
     return data
 
 
@@ -455,10 +453,11 @@ def packints_decode(
         return data_array.astype(dtype)
     if bitspersample in (8, 16, 32, 64):
         return numpy.frombuffer(data, dtype)
-    raise NotImplementedError(
+    msg = (
         f'packints_decode of {bitspersample}-bit integers '
         "requires the 'imagecodecs' package"
     )
+    raise NotImplementedError(msg)
 
 
 def packints_encode(
@@ -470,15 +469,13 @@ def packints_encode(
     out: Any = None,
 ) -> bytes | bytearray:
     """Tightly pack integers."""
-    raise NotImplementedError(
-        "packints_encode requires the 'imagecodecs' package"
-    )
+    msg = "packints_encode requires the 'imagecodecs' package"
+    raise NotImplementedError(msg)
 
 
 def float24_decode(
     data: bytes, /, byteorder: Literal['>', '<']
 ) -> NDArray[Any]:
     """Return float32 array from float24."""
-    raise NotImplementedError(
-        "float24_decode requires the 'imagecodecs' package"
-    )
+    msg = "float24_decode requires the 'imagecodecs' package"
+    raise NotImplementedError(msg)
