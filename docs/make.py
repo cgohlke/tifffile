@@ -90,8 +90,7 @@ for name in members:
 memberlist = '\n   '.join(members_)
 
 with open(here + '/index.rst', 'w') as fh:
-    fh.write(
-        f""".. tifffile documentation
+    fh.write(f""".. tifffile documentation
 
 .. currentmodule:: tifffile
 
@@ -117,39 +116,32 @@ with open(here + '/index.rst', 'w') as fh:
    {memberlist}
 
 
-"""
-    )
+""")
 
 
 with open(here + '/genindex.rst', 'w') as fh:
-    fh.write(
-        """
+    fh.write("""
 Index
 =====
 
-"""
-    )
+""")
 
 with open(here + '/license.rst', 'w') as fh:
-    fh.write(
-        """
+    fh.write("""
 License
 =======
 
 .. include:: ../LICENSE
-"""
-    )
+""")
 
 
 with open(here + '/examples.rst', 'w') as fh:
-    fh.write(
-        """
+    fh.write("""
 Examples
 ========
 
 See `#examples <index.html#examples>`_.
-"""
-    )
+""")
 
 
 with open(here + '/revisions.rst', 'w') as fh:
@@ -157,8 +149,7 @@ with open(here + '/revisions.rst', 'w') as fh:
 
 
 with open('tiff.rst', 'w') as fh:
-    fh.write(
-        """
+    fh.write("""
 .. currentmodule:: tifffile
 
 TIFF
@@ -169,8 +160,7 @@ TIFF
 
 .. autoclass:: tifffile._TIFF
     :members:
-"""
-    )
+""")
 
 
 automodule = """.. currentmodule:: {module}
