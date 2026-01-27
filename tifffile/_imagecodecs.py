@@ -76,14 +76,27 @@ try:
         *,
         out: Any = None,
     ) -> bytes:
-        """Compress LZMA."""
+        """Compress LZMA.
+
+        Parameters:
+            data: Data to compress.
+            level: Compression level (currently unused).
+            out: Output buffer (currently unused).
+
+        """
         del level, out  # unused
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return lzma.compress(data)
 
     def lzma_decode(data: bytes, /, *, out: Any = None) -> bytes:
-        """Decompress LZMA."""
+        """Decompress LZMA.
+
+        Parameters:
+            data: Compressed data.
+            out: Output buffer (currently unused).
+
+        """
         del out  # unused
         return lzma.decompress(data)
 
@@ -120,14 +133,27 @@ try:
         *,
         out: Any = None,
     ) -> bytes:
-        """Compress Zlib DEFLATE."""
+        """Compress Zlib DEFLATE.
+
+        Parameters:
+            data: Data to compress.
+            level: Compression level (0-9, default 6).
+            out: Output buffer (currently unused).
+
+        """
         del out  # unused
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return zlib.compress(data, 6 if level is None else level)
 
     def zlib_decode(data: bytes, /, *, out: Any = None) -> bytes:
-        """Decompress Zlib DEFLATE."""
+        """Decompress Zlib DEFLATE.
+
+        Parameters:
+            data: Compressed data.
+            out: Output buffer (currently unused).
+
+        """
         del out  # unused
         return zlib.decompress(data)
 
@@ -165,14 +191,27 @@ try:
         *,
         out: Any = None,
     ) -> bytes:
-        """Compress ZSTD."""
+        """Compress ZSTD.
+
+        Parameters:
+            data: Data to compress.
+            level: Compression level.
+            out: Output buffer (currently unused).
+
+        """
         del out  # unused
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return zstd.compress(data, level=level)
 
     def zstd_decode(data: bytes, /, *, out: Any = None) -> bytes:
-        """Decompress ZSTD."""
+        """Decompress ZSTD.
+
+        Parameters:
+            data: Compressed data.
+            out: Output buffer (currently unused).
+
+        """
         del out  # unused
         return zstd.decompress(data)
 
@@ -202,14 +241,22 @@ except ImportError:
 def packbits_decode(encoded: bytes, /, *, out: Any = None) -> bytes:
     r"""Decompress PackBits encoded byte string.
 
-    >>> packbits_decode(b'\x80\x80')  # NOP
-    b''
-    >>> packbits_decode(b'\x02123')
-    b'123'
-    >>> packbits_decode(
-    ...     b'\xfe\xaa\x02\x80\x00\x2a\xfd\xaa\x03\x80\x00\x2a\x22\xf7\xaa'
-    ... )[:-5]
-    b'\xaa\xaa\xaa\x80\x00*\xaa\xaa\xaa\xaa\x80\x00*"\xaa\xaa\xaa\xaa\xaa'
+    Parameters:
+        encoded: PackBits encoded byte string.
+        out: Output buffer (currently unused).
+
+    Returns:
+        Decompressed byte string.
+
+    Examples:
+        >>> packbits_decode(b'\x80\x80')  # NOP
+        b''
+        >>> packbits_decode(b'\x02123')
+        b'123'
+        >>> packbits_decode(
+        ...     b'\xfe\xaa\x02\x80\x00\x2a\xfd\xaa\x03\x80\x00\x2a\x22\xf7\xaa'
+        ... )[:-5]
+        b'\xaa\xaa\xaa\x80\x00*\xaa\xaa\xaa\xaa\x80\x00*"\xaa\xaa\xaa\xaa\xaa'
 
     """
     out = []
@@ -257,7 +304,21 @@ def delta_encode(
     *,
     out: Any = None,
 ) -> bytes | NDArray[Any]:
-    """Encode Delta."""
+    """Encode Delta.
+
+    Encode differences between consecutive samples along axis.
+
+    Parameters:
+        data: Data to encode.
+        axis: Axis along which to compute differences (default -1).
+        dist: Distance between samples (only dist=1 is supported).
+        out: Output buffer (currently unused).
+
+    Returns:
+        Encoded data.
+        Returns bytes for bytes/bytearray input, numpy array otherwise.
+
+    """
     del out  # unused
     if dist != 1:
         msg = f"delta_encode with {dist=} requires the 'imagecodecs' package"
@@ -302,7 +363,21 @@ def delta_decode(
     *,
     out: Any = None,
 ) -> bytes | NDArray[Any]:
-    """Decode Delta."""
+    """Decode Delta.
+
+    Decode delta-encoded data by computing cumulative sum along axis.
+
+    Parameters:
+        data: Encoded data.
+        axis: Axis along which to compute cumulative sum (default -1).
+        dist: Distance between samples (only dist=1 is supported).
+        out: Output buffer for results.
+
+    Returns:
+        Decoded data.
+        Returns bytes for bytes/bytearray input, numpy array otherwise.
+
+    """
     if dist != 1:
         msg = f"delta_decode with {dist=} requires the 'imagecodecs' package"
         raise NotImplementedError(msg)
@@ -372,8 +447,13 @@ def bitorder_decode(
 
     Parameters:
         data:
-            Data to bit-reversed. If bytes type, a new bit-reversed
-            bytes is returned. NumPy arrays are bit-reversed in-place.
+            Data to be bit-reversed.
+            If bytes type, a new bit-reversed bytes is returned.
+            NumPy arrays are bit-reversed in-place.
+        out:
+            Output buffer (currently unused).
+        _bitorder:
+            Internal caching parameter (not for public use).
 
     Examples:
         >>> bitorder_decode(b'\x01\x64')
@@ -437,6 +517,11 @@ def packints_decode(
             Number of bits per integer.
         runlen:
             Number of consecutive integers after which to start at next byte.
+        out:
+            Output buffer (currently unused).
+
+    Returns:
+        Array of unpacked integers.
 
     Examples:
         >>> packints_decode(b'a', 'B', 1)
@@ -447,7 +532,7 @@ def packints_decode(
     if bitspersample == 1:  # bitarray
         data_array = numpy.frombuffer(data, '|B')
         data_array = numpy.unpackbits(data_array)
-        if runlen % 8:
+        if runlen > 0 and runlen % 8:
             data_array = data_array.reshape((-1, runlen + (8 - runlen % 8)))
             data_array = data_array[:, :runlen].reshape(-1)
         return data_array.astype(dtype)
@@ -468,7 +553,18 @@ def packints_encode(
     axis: int = -1,
     out: Any = None,
 ) -> bytes | bytearray:
-    """Tightly pack integers."""
+    """Tightly pack integers.
+
+    Parameters:
+        data: Array of integers to pack.
+        bitspersample: Number of bits per integer.
+        axis: Axis along which to pack.
+        out: Output buffer.
+
+    Returns:
+        Packed byte string.
+
+    """
     msg = "packints_encode requires the 'imagecodecs' package"
     raise NotImplementedError(msg)
 
@@ -476,6 +572,15 @@ def packints_encode(
 def float24_decode(
     data: bytes, /, byteorder: Literal['>', '<']
 ) -> NDArray[Any]:
-    """Return float32 array from float24."""
+    """Return float32 array from float24.
+
+    Parameters:
+        data: Bytes containing float24 values.
+        byteorder: Byte order, either '>' (big-endian) or '<' (little-endian).
+
+    Returns:
+        Array of float32 values.
+
+    """
     msg = "float24_decode requires the 'imagecodecs' package"
     raise NotImplementedError(msg)
