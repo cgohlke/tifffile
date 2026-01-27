@@ -69,6 +69,8 @@ class Tiff(Codec):  # type: ignore[misc]
         key: int | slice | Iterable[int] | None = None,
         series: int | None = None,
         level: int | None = None,
+        squeeze: bool | None = None,
+        buffersize: int | None = None,
         # TiffWriter
         bigtiff: bool = False,
         byteorder: ByteOrder | None = None,
@@ -93,6 +95,8 @@ class Tiff(Codec):  # type: ignore[misc]
         self.key = key
         self.series = series
         self.level = level
+        self.squeeze = squeeze
+        self.buffersize = buffersize
         self.bigtiff = bigtiff
         self.byteorder = byteorder
         self.imagej = imagej
@@ -148,7 +152,9 @@ class Tiff(Codec):  # type: ignore[misc]
                 key=self.key,
                 series=self.series,
                 level=self.level,
+                squeeze=self.squeeze,
                 maxworkers=self.maxworkers,
+                buffersize=self.buffersize,
                 out=out,
             )
 
