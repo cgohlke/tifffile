@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Published October 9, 2021. Last updated Dec 12, 2025.
+Published October 9, 2021. Last updated Jan 28, 2026.
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -173,7 +173,7 @@ flightdirection_label = 'flightdirection'
 flightdirection_category = {'A': 0, 'D': 1}
 flightdirection_coordinates = list(flightdirection_category.keys())
 flightdirection_pattern = (
-    rf'(?P<{flightdirection_label}>[{"|".join(flightdirection_category)}])_'
+    rf'(?P<{flightdirection_label}>{"|".join(flightdirection_category)})_'
 )
 
 
