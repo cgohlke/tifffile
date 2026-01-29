@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.1.14
+:Version: 2026.1.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2026.1.14
+2026.1.28
 
 - Pass 5128 tests.
+- Deprecate colormaped parameter in imagej_description (use colormapped).
+- Fix code review issues.
+
+2026.1.14
+
 - Improve code quality.
 
 2025.12.20
@@ -776,7 +781,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.1.14'
+__version__ = '2026.1.28'
 
 __all__ = [
     'CHUNKMODE',
@@ -930,10 +935,11 @@ def imread(
     axesorder: Sequence[int] | None = None,
     categories: dict[str, dict[str, int]] | None = None,
     imread: Callable[..., NDArray[Any]] | None = None,
+    imreadargs: dict[str, Any] | None = None,
     sort: Callable[..., Any] | bool | None = None,
     container: str | os.PathLike[Any] | None = None,
     chunkshape: tuple[int, ...] | None = None,
-    dtype: DTypeLike | None = None,
+    chunkdtype: DTypeLike | None = None,
     axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
     ioworkers: int | None = 1,
     chunkmode: CHUNKMODE | int | str | None = None,
@@ -1673,7 +1679,7 @@ class TiffWriter:
         if byteorder is None or byteorder in {'=', '|'}:
             byteorder = '<' if sys.byteorder == 'little' else '>'
         elif byteorder not in {'<', '>'}:
-            msg = f'invalid byteorder {byteorder}'
+            msg = f'invalid {byteorder=}'
             raise ValueError(msg)
 
         if byteorder == '<':
@@ -1798,7 +1804,7 @@ class TiffWriter:
                 This option cannot be used with compression, predictors,
                 packed integers, or bilevel images.
                 A copy of array-like data is made if it is not a C-contiguous
-                numpy or dask array with the same byteorder as the TIFF file.
+                NumPy or dask array with the same byteorder as the TIFF file.
                 Iterators must yield ndarrays or bytes compatible with the
                 file's byteorder as well as the `shape` and `dtype` arguments.
                 Iterator bytes must be compatible with the `compression`,
@@ -1988,6 +1994,7 @@ class TiffWriter:
                 in ImageDescription or IJMetadata tags.
                 Metadata do not determine, but must match, how image data
                 is written to the file.
+                By default, no additional metadata is written.
                 If *None*, or the `shaped` argument to :py:class:`TiffWriter`
                 is *False*, no information in JSON format is written to
                 the ImageDescription tag.
@@ -2777,12 +2784,12 @@ class TiffWriter:
             storedshape.frames = 1 if s0 == 0 else product(inputshape) // s0
 
         if datasize > 0 and not storedshape.is_valid:
-            msg = f'invalid {storedshape!r}'
+            msg = f'invalid {storedshape=!r}'
             raise RuntimeError(msg)
 
         if photometric == PALETTE:
             if storedshape.samples != 1 or storedshape.extrasamples > 0:
-                msg = f'invalid {storedshape!r} for palette mode'
+                msg = f'invalid {storedshape=!r} for palette mode'
                 raise ValueError(msg)
         elif storedshape.samples < photometricsamples:
             msg = (
@@ -2795,7 +2802,7 @@ class TiffWriter:
             planarconfig is not None
             and storedshape.planarconfig != planarconfig
         ):
-            msg = f'{planarconfig!r} does not match {storedshape!r}'
+            msg = f'{planarconfig!r} does not match {storedshape=!r}'
             raise ValueError(msg)
         del planarconfig
 
@@ -2856,7 +2863,7 @@ class TiffWriter:
             description = imagej_description(
                 inputshape,
                 rgb=storedshape.contig_samples in {3, 4},
-                colormaped=self._colormap is not None,
+                colormapped=self._colormap is not None,
                 **self._metadata,
             )
             description += '\x00' * 64  # add buffer for in-place update
@@ -3943,7 +3950,7 @@ class TiffWriter:
             description = imagej_description(
                 self._datashape,
                 rgb=isrgb,
-                colormaped=colormapped,
+                colormapped=colormapped,
                 **self._metadata,
             )
         elif not self._tifffile:
@@ -3978,15 +3985,15 @@ class TiffWriter:
         try:
             datatype = cast(int, dtype)
             dataformat = TIFF.DATA_FORMATS[datatype][-1]
-        except KeyError as exc:
+        except KeyError:
             try:
                 dataformat = cast(str, dtype)
                 if dataformat[0] in '<>':
                     dataformat = dataformat[1:]
                 datatype = TIFF.DATA_DTYPES[dataformat]
             except (KeyError, TypeError):
-                msg = f'unknown dtype {dtype}'
-                raise ValueError(msg) from exc
+                msg = f'unknown {dtype=}'
+                raise ValueError(msg) from None
         del dtype
 
         rawcount = count
@@ -4266,7 +4273,7 @@ class TiffFile:
                 raise TypeError(msg)
 
         if mode not in {None, 'r', 'r+', 'rb', 'r+b'}:
-            msg = f'invalid mode {mode!r}'
+            msg = f'invalid {mode=}'
             raise ValueError(msg)
 
         self._omexml = None
@@ -4290,9 +4297,9 @@ class TiffFile:
             header = fh.read(4)
             try:
                 byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}[header[:2]]
-            except KeyError as exc:
-                msg = f'not a TIFF file {header!r}'
-                raise TiffFileError(msg) from exc
+            except KeyError:
+                msg = f'not a TIFF file: {header=!r}'
+                raise TiffFileError(msg) from None
 
             version = struct.unpack(byteorder + 'H', header[2:4])[0]
             if version == 43:
@@ -4340,7 +4347,7 @@ class TiffFile:
                 else:
                     self.tiff = TIFF.CLASSIC_LE
             else:
-                msg = f'invalid TIFF version {version}'
+                msg = f'invalid TIFF {version=}'
                 raise TiffFileError(msg)
 
             # file handle is at offset to offset to first page
@@ -6028,12 +6035,13 @@ class TiffFile:
                                 # abort reading multifile OME series
                                 # and fall back to generic series
                                 return []
-                            fname = uuid.attrib['FileName']
+                            filename = uuid.attrib['FileName']
                             try:
                                 if not self.filehandle.is_file:
                                     raise ValueError
                                 tif = TiffFile(
-                                    os.path.join(dirname, fname), _parent=self
+                                    os.path.join(dirname, filename),
+                                    _parent=self,
                                 )
                                 load_pages(tif)
                             except (
@@ -6044,7 +6052,7 @@ class TiffFile:
                                 if files_missing == 0:
                                     logger().warning(
                                         f'{self!r} OME series failed to read '
-                                        f'{fname!r}, raised {exc!r:.128}. '
+                                        f'{filename!r}, raised {exc!r:.128}. '
                                         'Missing data are zeroed'
                                     )
                                 files_missing += 1
@@ -6420,10 +6428,10 @@ class TiffFile:
             else:
                 pages = [None] * size
                 page_count = add_file(self, indexmap)
-                for fname in filenames:
-                    if self.filename == os.path.split(fname)[-1]:
+                for filename in filenames:
+                    if self.filename == os.path.split(filename)[-1]:
                         continue
-                    with TiffFile(fname) as tif:
+                    with TiffFile(filename) as tif:
                         indexmap = read_micromanager_metadata(
                             tif.filehandle, {'IndexMap'}
                         )['IndexMap']
@@ -6625,7 +6633,10 @@ class TiffFile:
             indices.get(idx) for idx in numpy.ndindex(shape)
         ]
 
-        keyframe = next(i for i in keyframes.values())
+        if not keyframes:
+            logger().error(f'{self!r} NDTiff.index has no keyframes')
+            return None
+        keyframe = next(iter(keyframes.values()))
         shape += keyframe.shape
         dims += keyframe.dims
         axes = ''.join(TIFF.AXES_CODES.get(i.lower(), 'Q') for i in dims)
@@ -8653,7 +8664,7 @@ class TiffPage:
         else:
             # bilevel and packed integers
             def unpack(data: bytes, /) -> NDArray[Any]:
-                # return NumPy array from packed integers
+                # return numpy array from packed integers
                 return imagecodecs.packints_decode(
                     data, dtype, self.bitspersample, runlen=stwidth * samples
                 )
@@ -8906,7 +8917,7 @@ class TiffPage:
             if keyframe.predictor != 1:
                 # predictors without compression
                 unpredict = TIFF.UNPREDICTORS[keyframe.predictor]
-                if keyframe.predictor == 1:
+                if keyframe.predictor == 2:
                     result = unpredict(result, axis=-2, out=result)
                 else:
                     # floatpred cannot decode in-place
@@ -9014,7 +9025,7 @@ class TiffPage:
         """Return image from page as Zarr store.
 
         Parameters:
-            **kwarg: Passed to :py:class:`ZarrTiffStore`.
+            **kwargs: Passed to :py:class:`ZarrTiffStore`.
 
         """
         from .zarr import ZarrTiffStore
@@ -10429,22 +10440,20 @@ class TiffFrame:
                 fh.close()
         return page
 
-    def asarray(self, *args: Any, **kwargs: Any) -> NDArray[Any]:
+    def asarray(self, **kwargs: Any) -> NDArray[Any]:
         """Return image from frame as NumPy array.
 
         Parameters:
             **kwargs: Arguments passed to :py:meth:`TiffPage.asarray`.
 
         """
-        return TiffPage.asarray(
-            self, *args, **kwargs  # type: ignore[arg-type]
-        )
+        return TiffPage.asarray(self, **kwargs)  # type: ignore[arg-type]
 
     def aszarr(self, **kwargs: Any) -> ZarrTiffStore:
         """Return image from frame as Zarr store.
 
         Parameters:
-            **kwarg: Arguments passed to :py:class:`ZarrTiffStore`.
+            **kwargs: Arguments passed to :py:class:`ZarrTiffStore`.
 
         """
         from .zarr import ZarrTiffStore
@@ -11768,9 +11777,9 @@ class TiffTag:
                 dtype = dtype[1:]
             try:
                 dtype = TIFF.DATA_DTYPES[dtype]
-            except KeyError as exc:
+            except KeyError:
                 msg = f'unknown data type {dtype!r}'
-                raise ValueError(msg) from exc
+                raise ValueError(msg) from None
         else:
             dtype = enumarg(DATATYPE, dtype)
 
@@ -11778,9 +11787,9 @@ class TiffTag:
         dataformat: str
         try:
             dataformat = TIFF.DATA_FORMATS[dtype]
-        except KeyError as exc:
+        except KeyError:
             msg = f'unknown data type {dtype!r}'
-            raise ValueError(msg) from exc
+            raise ValueError(msg) from None
 
         if dtype == 2:
             # strings
@@ -12851,7 +12860,7 @@ class FileSequence(Sequence[str]):
         imread:
             Function to read image array from single file.
         files:
-            Glob filename pattern or sequence of file names.
+            Glob file name pattern or sequence of file names.
             If *None*, use '\*'.
             All files must contain array data of same shape and dtype.
             Binary streams are not supported.
@@ -12961,10 +12970,10 @@ class FileSequence(Sequence[str]):
         if container:
             # redefine imread to read from container
             def imread_(
-                fname: str, _imread: Any = imread, **kwargs: Any
+                filename: str, _imread: Any = imread, **kwargs: Any
             ) -> NDArray[Any]:
                 with (
-                    self._container.open(fname) as handle1,
+                    self._container.open(filename) as handle1,
                     io.BytesIO(handle1.read()) as handle2,
                 ):
                     return _imread(handle2, **kwargs)
@@ -13082,22 +13091,22 @@ class FileSequence(Sequence[str]):
             tiled = TiledSequence(self.shape, chunkshape, axestiled=axestiled)
             result = create_output(out, tiled.shape, chunkdtype)
 
-            def func(index: tuple[int | slice, ...], fname: str, /) -> None:
+            def func(index: tuple[int | slice, ...], filename: str, /) -> None:
                 # read single image from file into result
                 # if index is None:
                 #     return
                 if out_inplace:
-                    self.imread(fname, out=result[index], **kwargs)
+                    self.imread(filename, out=result[index], **kwargs)
                 else:
-                    im = self.imread(fname, **kwargs)
+                    im = self.imread(filename, **kwargs)
                     result[index] = im
                     del im  # delete memory-mapped file
 
             if ioworkers < 2:
-                for index, fname in zip(
+                for index, filename in zip(
                     tiled.slices(self.indices), files, strict=True
                 ):
-                    func(index, fname)
+                    func(index, filename)
             else:
                 with ThreadPoolExecutor(ioworkers) as executor:
                     for _ in executor.map(
@@ -13109,7 +13118,7 @@ class FileSequence(Sequence[str]):
             result = create_output(out, shape, chunkdtype)
             result = result.reshape((-1, *chunkshape))
 
-            def func(index: tuple[int | slice, ...], fname: str, /) -> None:
+            def func(index: tuple[int | slice, ...], filename: str, /) -> None:
                 # read single image from file into result
                 # if index is None:
                 #     return
@@ -13120,15 +13129,15 @@ class FileSequence(Sequence[str]):
                     )
                 )
                 if out_inplace:
-                    self.imread(fname, out=result[index_], **kwargs)
+                    self.imread(filename, out=result[index_], **kwargs)
                 else:
-                    im = self.imread(fname, **kwargs)
+                    im = self.imread(filename, **kwargs)
                     result[index_] = im
                     del im  # delete memory-mapped file
 
             if ioworkers < 2:
-                for index, fname in zip(self.indices, files, strict=True):
-                    func(index, fname)
+                for index, filename in zip(self.indices, files, strict=True):
+                    func(index, filename)
             else:
                 with ThreadPoolExecutor(ioworkers) as executor:
                     for _ in executor.map(func, self.indices, files):
@@ -13579,9 +13588,9 @@ class FileHandle:
             self._fh = cast(IO[bytes], self._file)
             try:
                 self._fh.tell()
-            except Exception as exc:
+            except Exception:
                 msg = 'binary stream is not seekable'
-                raise ValueError(msg) from exc
+                raise ValueError(msg) from None
 
             if self._offset < 0:
                 self._offset = self._fh.tell()
@@ -13604,11 +13613,11 @@ class FileHandle:
             self._fh = cast(IO[bytes], _file.open())
             try:
                 self._fh.tell()
-            except Exception as exc:
+            except Exception:
                 with contextlib.suppress(Exception):
                     self._fh.close()
                 msg = 'OpenFile is not seekable'
-                raise ValueError(msg) from exc
+                raise ValueError(msg) from None
 
             if self._offset < 0:
                 self._offset = self._fh.tell()
@@ -14949,9 +14958,9 @@ class OmeXml:
                 'complex128': 'double-complex',
                 'bool': 'bit',
             }[dtype]
-        except KeyError as exc:
+        except KeyError:
             msg = f'data type {dtype!r} not supported'
-            raise OmeXmlError(msg) from exc
+            raise OmeXmlError(msg) from None
 
         if metadata.get('Type', dtype) != dtype:
             msg = (
@@ -15126,7 +15135,6 @@ class OmeXml:
             )
         else:
             modulo = {}
-            annotationref = ''
 
         hiaxes = hiaxes[::-1]
         for dimorder in (
@@ -15461,16 +15469,14 @@ class OmeXml:
             f'{annotationref}'
             '</Dataset>'
         )
-        return  # f'<DatasetRef ID="Dataset:{index}"/>'
 
     def _annotations(
         self, metadata: dict[str, Any], annotation_refs: list[str]
     ) -> None:
         """Add annotations to self.annotations and annotation_refs."""
-        values: Any
         for item in metadata.items():
-            name, values = item
-            if not values:
+            name, annotation_values = item
+            if not annotation_values:
                 continue
             if name not in {
                 'BooleanAnnotation',
@@ -15485,10 +15491,10 @@ class OmeXml:
             }:
                 continue
 
-            if not isinstance(values, (list, tuple)):
-                values = [values]
+            if not isinstance(annotation_values, (list, tuple)):
+                annotation_values = [annotation_values]
 
-            for value in values:
+            for value in annotation_values:
                 namespace = ''
                 description = ''
                 if isinstance(value, dict):
@@ -17688,8 +17694,7 @@ class _TIFF:
     @property
     def FILE_PATTERNS(self) -> dict[str, str]:
         # predefined FileSequence patterns
-        return {
-            'axes': r"""(?ix)
+        return {'axes': r"""(?ix)
                 # matches Olympus OIF and Leica TIFF series
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
@@ -17698,8 +17703,7 @@ class _TIFF:
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
-                """
-        }
+                """}
 
     @property
     def FILE_EXTENSIONS(self) -> tuple[str, ...]:
@@ -19284,7 +19288,7 @@ def read_lsm_channelcolors(fh: FileHandle, /) -> dict[str, Any]:
     """Read LSM ChannelColors structure from file."""
     result = {'Mono': False, 'Colors': [], 'ColorNames': []}
     pos = fh.tell()
-    (size, ncolors, nnames, coffset, noffset, mono) = struct.unpack(
+    size, ncolors, nnames, coffset, noffset, mono = struct.unpack(
         '<IIIIII', fh.read(24)
     )
     if ncolors != nnames:
@@ -19432,7 +19436,7 @@ def read_sis(
     """
     result: dict[str, Any] = {}
 
-    (magic, minute, hour, day, month, year, name, tagcount) = struct.unpack(
+    magic, minute, hour, day, month, year, name, tagcount = struct.unpack(
         '<4s6xhhhhh6x32sh', fh.read(60)
     )
 
@@ -19452,7 +19456,7 @@ def read_sis(
         fh.seek(offset)
         if tagtype == 1:
             # general data
-            (lenexp, xcal, ycal, mag, camname, pictype) = struct.unpack(
+            lenexp, xcal, ycal, mag, camname, pictype = struct.unpack(
                 '<10xhdd8xd2x34s32s', fh.read(112)  # 220
             )
             m = math.pow(10, lenexp)
@@ -19664,7 +19668,7 @@ def read_scanimage_metadata(
         fh.seek(16)
         magic, version, size0, size1 = struct.unpack('<IIII', fh.read(16))
         if magic != 117637889 or version not in {3, 4}:
-            msg = f'invalid magic {magic} or version {version} number'
+            msg = f'invalid {magic=} or {version=}'
             raise ValueError(msg)
     except UnicodeDecodeError as exc:
         msg = 'file must be opened in binary mode'
@@ -19745,7 +19749,7 @@ def read_micromanager_metadata(
                 # NDTiff v3
                 result['MinorVersion'] = summary_header
                 if summary_length != 2355492:
-                    msg = f'invalid summary_length {summary_length}'
+                    msg = f'invalid {summary_length=}'
                     raise ValueError(msg)
                 summary_length = struct.unpack(byteorder + 'I', fh.read(4))[0]
             if 'Summary' in keys:
@@ -19781,7 +19785,7 @@ def read_micromanager_metadata(
     if 'Summary' in keys:
         try:
             if summary_header != 2355492:
-                msg = f'invalid summary_header {summary_header}'
+                msg = f'invalid {summary_header=}'
                 raise ValueError(msg)
             data = fh.read(summary_length)
             if len(data) != summary_length:
@@ -19797,7 +19801,7 @@ def read_micromanager_metadata(
     if 'IndexMap' in keys:
         try:
             if index_header != 54773648:
-                msg = f'invalid index_header {index_header}'
+                msg = f'invalid {index_header=}'
                 raise ValueError(msg)
             fh.seek(index_offset)
             header, count = struct.unpack(byteorder + 'II', fh.read(8))
@@ -19817,7 +19821,7 @@ def read_micromanager_metadata(
     if 'DisplaySettings' in keys:
         try:
             if display_header != 483765892:
-                msg = f'invalid display_header {display_header}'
+                msg = f'invalid {display_header=}'
                 raise ValueError(msg)
             fh.seek(display_offset)
             header, count = struct.unpack(byteorder + 'II', fh.read(8))
@@ -19826,7 +19830,7 @@ def read_micromanager_metadata(
                 fh.seek(display_offset + 2**32)
                 header, count = struct.unpack(byteorder + 'II', fh.read(8))
                 if header != 347834724:
-                    msg = 'invalid display header'
+                    msg = f'invalid display {header=}'
                     raise ValueError(msg)
             data = fh.read(count)
             if len(data) != count:
@@ -19866,7 +19870,7 @@ def read_micromanager_metadata(
         elif comments_header == 0 and comments_offset == 0:
             pass
         elif 'Comments' in keys:
-            msg = f'invalid comments_header {comments_header}'
+            msg = f'invalid {comments_header=}'
             raise ValueError(msg)
     except Exception as exc:
         logger().warning(
@@ -20232,7 +20236,7 @@ def imagej_description_metadata(description: str, /) -> dict[str, Any]:
         result[key] = val
 
     if 'ImageJ' not in result and 'SCIFIO' not in result:
-        msg = f'not an ImageJ image description {result!r}'
+        msg = f'not an ImageJ image description: {result!r}'
         raise ValueError(msg)
     return result
 
@@ -20243,7 +20247,7 @@ def imagej_description(
     axes: str | None = None,
     *,
     rgb: bool | None = None,
-    colormaped: bool = False,
+    colormapped: bool = False,
     **metadata: Any,  # TODO: use TypedDict
 ) -> str:
     """Return ImageJ image description from data shape and metadata.
@@ -20258,7 +20262,7 @@ def imagej_description(
             slices, and frames entries of the image description.
         rgb:
             Image is RGB type.
-        colormaped:
+        colormapped:
             Image is indexed color.
         **metadata:
             Additional items to be included in image description:
@@ -20268,7 +20272,7 @@ def imagej_description(
                 The default is True unless `colormapped` is true.
             mode (str):
                 Display mode: 'grayscale', 'composite', or 'color'.
-                The default is 'grayscale' unless `rgb` or `colormaped` are
+                The default is 'grayscale' unless `rgb` or `colormapped` are
                 true. Ignored if `hyperstack` is false.
             loop (bool):
                 Loop frames back and forth. The default is False.
@@ -20300,12 +20304,20 @@ def imagej_description(
         loop=false
 
     """
+    if 'colormaped' in metadata:
+        warnings.warn(
+            '<tifffile.imagej_description colormaped parameter '
+            'is deprecated since 2026.2.28. Use colormapped instead.',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        colormapped = bool(metadata.pop('colormaped'))
     mode = metadata.pop('mode', None)
     hyperstack = metadata.pop('hyperstack', None)
     loop = metadata.pop('loop', None)
     version = metadata.pop('ImageJ', '1.11a')
 
-    if colormaped:
+    if colormapped:
         hyperstack = False
         rgb = False
 
@@ -20322,7 +20334,7 @@ def imagej_description(
         append.append(f'hyperstack={bool(hyperstack)}'.lower())
     if shape[2] > 1:
         result.append(f'channels={shape[2]}')
-    if mode is None and not rgb and not colormaped:
+    if mode is None and not rgb and not colormapped:
         mode = 'grayscale'
     if hyperstack and mode:
         append.append(f'mode={mode}')
@@ -21272,15 +21284,15 @@ def parse_filenames(
     if categories is None:
         categories = {}
 
-    def parse(fname: str, /) -> tuple[tuple[str, ...], tuple[int, ...]]:
+    def parse(filename: str, /) -> tuple[tuple[str, ...], tuple[int, ...]]:
         # return axes names and indices from file name
         assert categories is not None
         dims: list[str] = []
         indices: list[int] = []
         groupindex = {v: k for k, v in pattern_compiled.groupindex.items()}
-        matches = pattern_compiled.search(fname)
+        matches = pattern_compiled.search(filename)
         if matches is None:
-            msg = f'pattern does not match file name {fname!r}'
+            msg = f'pattern does not match file name {filename!r}'
             raise ValueError(msg)
         ax = None
         for i, match in enumerate(matches.groups()):
@@ -21313,8 +21325,8 @@ def parse_filenames(
 
     dims: tuple[str, ...] | None = None
     indices: list[tuple[int, ...]] = []
-    for fname in normpaths:
-        lbl, idx = parse(fname[prefix:])
+    for filename in normpaths:
+        lbl, idx = parse(filename[prefix:])
         if dims is None:
             dims = lbl
             if axesorder is not None and (
@@ -22054,7 +22066,11 @@ def stack_pages(
         assert pages[0] is not None
         return pages[0].asarray(out=out, **kwargs)
 
-    page0 = next(p.keyframe for p in pages if p is not None)
+    try:
+        page0 = next(p.keyframe for p in pages if p is not None)
+    except StopIteration:
+        msg = 'pages are all None'
+        raise ValueError(msg) from None
     assert page0 is not None
     shape = (npages, *page0.shape) if tiled is None else tiled.shape
     dtype = page0.dtype
@@ -22382,6 +22398,9 @@ def matlabstr2py(matlabstr: str, /) -> Any:
                 addto = []
                 levels.append(addto)
             elif t in ']}':
+                if len(levels) < 2:
+                    # unbalanced brackets
+                    break
                 x = levels.pop()
                 addto = levels[-1]
                 if len(x) == 1 and isinstance(x[0], (list, str)):
@@ -22399,7 +22418,7 @@ def matlabstr2py(matlabstr: str, /) -> Any:
         d = {}
         for line in matlabstr.splitlines():
             line = line.strip()  # noqa: PLW2901
-            if not line or line[0] == '%':
+            if not line or line[0] == '%' or '=' not in line:
                 continue
             k, v = line.split('=', 1)
             k = k.strip()
