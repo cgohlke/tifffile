@@ -1,9 +1,14 @@
 Revisions
 ---------
 
-2026.1.14
+2026.1.28
 
 - Pass 5128 tests.
+- Deprecate colormaped parameter in imagej_description (use colormapped).
+- Fix code review issues.
+
+2026.1.14
+
 - Improve code quality.
 
 2025.12.20
