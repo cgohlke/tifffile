@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.1.14
+:Version: 2026.1.28
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -87,9 +87,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2026.1.14
+2026.1.28
 
 - Pass 5128 tests.
+- Deprecate colormaped parameter in imagej_description (use colormapped).
+- Fix code review issues.
+
+2026.1.14
+
 - Improve code quality.
 
 2025.12.20
