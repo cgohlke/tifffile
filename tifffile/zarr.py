@@ -129,7 +129,9 @@ class ZarrStore(Store):
             self._chunkmode = enumarg(CHUNKMODE, chunkmode)
 
     def __hash__(self) -> int:
-        return hash((self._store.items(), self._fillvalue, self._chunkmode))
+        return hash(
+            (tuple(self._store.items()), self._fillvalue, self._chunkmode)
+        )
 
     def __eq__(self, other: object) -> bool:
         """Return whether objects are equal."""
@@ -305,7 +307,6 @@ class ZarrTiffStore(ZarrStore):
         buffersize: int | None = None,
         read_only: bool | None = None,
         _openfiles: int | None = None,
-        **kwargs: Any,
     ) -> None:
         if chunkmode is None:
             self._chunkmode = CHUNKMODE(0)
@@ -485,7 +486,7 @@ class ZarrTiffStore(ZarrStore):
                 Shape of file sequence (experimental).
             _axes:
                 Axes of file sequence (experimental).
-            _index
+            _index:
                 Index of file in sequence (experimental).
             _append:
                 If *True*, only write index keys and values (experimental).
@@ -643,18 +644,18 @@ class ZarrTiffStore(ZarrStore):
                 for page in self._data[0].pages:
                     if page is None or page.keyframe is None:
                         continue
-                    fname = page.keyframe.parent.filehandle.name
-                    if fname in templates:
+                    filename = page.keyframe.parent.filehandle.name
+                    if filename in templates:
                         continue
                     key = f'{templatename}{i}'
-                    templates[fname] = f'{{{{{key}}}}}'
-                    refs['templates'][key] = url + fname
+                    templates[filename] = f'{{{{{key}}}}}'
+                    refs['templates'][key] = url + filename
                     i += 1
             else:
-                fname = self._data[0].keyframe.parent.filehandle.name
+                filename = self._data[0].keyframe.parent.filehandle.name
                 key = f'{templatename}'
-                templates[fname] = f'{{{{{key}}}}}'
-                refs['templates'][key] = url + fname
+                templates[filename] = f'{{{{{key}}}}}'
+                refs['templates'][key] = url + filename
 
             refs['refs'] = refzarr = {}
         else:
@@ -810,14 +811,14 @@ class ZarrTiffStore(ZarrStore):
                         offset = page.dataoffsets[0]
                         bytecount = keyframe.nbytes
                     if offset and bytecount:
-                        fname = keyframe.parent.filehandle.name
+                        filename = keyframe.parent.filehandle.name
                         if version == 1:
-                            fname = templates[fname]
+                            filename = templates[filename]
                         else:
-                            fname = f'{url}{fname}'
+                            filename = f'{url}{filename}'
                         fh.write(
                             f',\n{indent}"{groupname}{key}": '
-                            f'["{fname}", {offset}, {bytecount}]'
+                            f'["{filename}", {offset}, {bytecount}]'
                         )
 
         # TODO: support nested groups
@@ -908,12 +909,9 @@ class ZarrTiffStore(ZarrStore):
         if self._transform is not None:
             chunk = self._transform(chunk)
 
-        if self._chunkmode:  # noqa: SIM108
-            chunks = keyframe.shape  # type: ignore[unreachable]
-        else:
-            chunks = keyframe.chunks
+        chunks = keyframe.chunks
         if chunk.size != product(chunks):
-            msg = f'{chunk.size} != {product(chunks)}'
+            msg = f'{chunk.size=} != {product(chunks)=}'
             raise RuntimeError(msg)
         return prototype.buffer(chunk.reshape(-1).view('B'))
 
@@ -1049,7 +1047,8 @@ class ZarrTiffStore(ZarrStore):
                 strile_chunked = list(shape[i:])  # updated later
                 break
         else:
-            raise RuntimeError
+            msg = 'shape does not match keyframe size'
+            raise RuntimeError(msg)
         if len(strile_chunked) == len(keyframe.shape):
             strile_chunked = list(chunked)
         else:
@@ -1114,7 +1113,7 @@ class ZarrFileSequenceStore(ZarrStore):
         imreadargs:
             Arguments passed to :py:attr:`FileSequence.imread`.
         **kwargs:
-            Arguments passed to :py:attr:`FileSequence.imread`in addition
+            Arguments passed to :py:attr:`FileSequence.imread` in addition
             to `imreadargs`.
 
     Notes:
@@ -1166,6 +1165,10 @@ class ZarrFileSequenceStore(ZarrStore):
         if filesequence._container:
             msg = 'cannot open container as Zarr store'
             raise NotImplementedError(msg)
+
+        if len(filesequence) == 0:
+            msg = 'filesequence is empty'
+            raise ValueError(msg)
 
         # TODO: deprecate kwargs?
         if imreadargs is not None:
@@ -1323,27 +1326,31 @@ class ZarrFileSequenceStore(ZarrStore):
                 codec = codec[0]
             if callable(codec):
                 codec = codec.__name__.split('_')[0]
-            codec_id = {
-                'apng': 'imagecodecs_apng',
-                'avif': 'imagecodecs_avif',
-                'gif': 'imagecodecs_gif',
-                'heif': 'imagecodecs_heif',
-                'jpeg': 'imagecodecs_jpeg',
-                'jpeg8': 'imagecodecs_jpeg',
-                'jpeg12': 'imagecodecs_jpeg',
-                'jpeg2k': 'imagecodecs_jpeg2k',
-                'jpegls': 'imagecodecs_jpegls',
-                'jpegxl': 'imagecodecs_jpegxl',
-                'jpegxr': 'imagecodecs_jpegxr',
-                'ljpeg': 'imagecodecs_ljpeg',
-                'lerc': 'imagecodecs_lerc',
-                # 'npy': 'imagecodecs_npy',
-                'png': 'imagecodecs_png',
-                'qoi': 'imagecodecs_qoi',
-                'tiff': 'imagecodecs_tiff',
-                'webp': 'imagecodecs_webp',
-                'zfp': 'imagecodecs_zfp',
-            }[codec]
+            try:
+                codec_id = {
+                    'apng': 'imagecodecs_apng',
+                    'avif': 'imagecodecs_avif',
+                    'gif': 'imagecodecs_gif',
+                    'heif': 'imagecodecs_heif',
+                    'jpeg': 'imagecodecs_jpeg',
+                    'jpeg8': 'imagecodecs_jpeg',
+                    'jpeg12': 'imagecodecs_jpeg',
+                    'jpeg2k': 'imagecodecs_jpeg2k',
+                    'jpegls': 'imagecodecs_jpegls',
+                    'jpegxl': 'imagecodecs_jpegxl',
+                    'jpegxr': 'imagecodecs_jpegxr',
+                    'ljpeg': 'imagecodecs_ljpeg',
+                    'lerc': 'imagecodecs_lerc',
+                    # 'npy': 'imagecodecs_npy',
+                    'png': 'imagecodecs_png',
+                    'qoi': 'imagecodecs_qoi',
+                    'tiff': 'imagecodecs_tiff',
+                    'webp': 'imagecodecs_webp',
+                    'zfp': 'imagecodecs_zfp',
+                }[codec]
+            except KeyError:
+                msg = f'unknown {codec=!r}'
+                raise ValueError(msg) from None
         else:
             # TODO: choose codec from filename
             msg = 'cannot determine codec_id'
@@ -1403,8 +1410,6 @@ class ZarrFileSequenceStore(ZarrStore):
             fh.write(json.dumps(refs, indent=1)[:-2])
             indent = ' '
 
-        prefix = len(self._commonpath)
-
         for item in self._store.items():
             key, value = item
             if '.zarray' in key:
@@ -1412,10 +1417,11 @@ class ZarrFileSequenceStore(ZarrStore):
                 for index, fname in sorted(
                     self._lookup.items(), key=lambda x: x[0]
                 ):
-                    filename = fname[prefix:].replace('\\', '/')
+                    filename = fname.removeprefix(self._commonpath)
+                    filename = filename.replace('\\', '/')
                     if quote is None or quote:
                         filename = quote_(filename)
-                    if filename[0] == '/':
+                    if filename and filename[0] == '/':
                         filename = filename[1:]
                     indexstr = '.'.join(str(i) for i in index)
                     fh.write(
@@ -1521,7 +1527,7 @@ def _dtype_str(dtype: numpy.dtype[Any], /) -> str:
 
 
 def _json_dumps(obj: Any, /) -> bytes:
-    """Serialize object to JSON formatted string."""
+    """Serialize object to JSON formatted bytes."""
     return json.dumps(
         obj,
         indent=1,
