@@ -13,7 +13,7 @@ path = os.environ.get('PATH')
 if path:
     os.environ['PATH'] = os.path.join(sys.exec_prefix, 'Scripts') + ';' + path
 
-import tifffile  # noqa
+import tifffile  # noqa: E402
 
 members = [
     'imread',
@@ -216,4 +216,4 @@ for name in members:
 
 main(['-b', 'html', here, here + '/html'])
 
-os.system('start html/index.html')
+os.system('start html/index.html')  # noqa: S605, S607
