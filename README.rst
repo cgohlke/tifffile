@@ -4,7 +4,7 @@
 Read and write TIFF files
 =========================
 
-Tifffile is a Python library to
+Tifffile is a comprehensive Python library to
 
 (1) store NumPy arrays in TIFF (Tagged Image File Format) files, and
 (2) read image and metadata from TIFF-like files used in bioimaging.
@@ -35,7 +35,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.1.28
+:Version: 2026.2.15
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,8 +71,8 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.11, 3.14.2 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.1
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.12, 3.14.3 64-bit
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.2
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.1.14
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
@@ -87,9 +87,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2026.2.15
+
+- Pass 5129 tests.
+- Support reading multi-file pyramidal OME TIFF files (image.sc/t/119259).
+
 2026.1.28
 
-- Pass 5128 tests.
 - Deprecate colormaped parameter in imagej_description (use colormapped).
 - Fix code review issues.
 
@@ -185,8 +189,9 @@ compression, color space transformations, samples with differing types, or
 IPTC, ICC, and XMP metadata are not implemented.
 
 Besides classic TIFF, tifffile supports several TIFF-like formats that do not
-strictly adhere to the TIFF6 specification. Some formats allow file and data
-sizes to exceed the 4 GB limit of the classic TIFF:
+strictly adhere to the TIFF6 specification. Some formats extend TIFF
+capabilities in various ways, including exceeding the 4 GB limit,
+handling multi-dimensional data, or working around format constraints:
 
 - **BigTIFF** is identified by version number 43 and uses different file
   header, IFD, and tag structures with 64-bit offsets. The format also adds
@@ -199,8 +204,8 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **OME-TIFF** files store up to 8-dimensional image data in one or multiple
   TIFF or BigTIFF files. The UTF-8 encoded OME-XML metadata found in the
   ImageDescription tag of the first IFD defines the position of TIFF IFDs in
-  the high-dimensional image data. Tifffile can read OME-TIFF files (except
-  multi-file pyramidal) and write NumPy arrays to single-file OME-TIFF.
+  the high-dimensional image data. Tifffile can read OME-TIFF files
+  and write NumPy arrays to single-file OME-TIFF.
 - **Micro-Manager NDTiff** stores multi-dimensional image data in one
   or more classic TIFF files. Metadata contained in a separate NDTiff.index
   binary file defines the position of the TIFF IFDs in the image array.
@@ -220,7 +225,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   LSM files of any size.
 - **MetaMorph STK** files contain additional image planes stored
   contiguously after the image data of the first page. The total number of
-  planes is equal to the count of the UIC2tag. Tifffile can read STK files.
+  planes is equal to the count of the UIC2 tag. Tifffile can read STK files.
 - **ZIF**, the Zoomable Image File format, is a subspecification of BigTIFF
   with SGI's ImageDepth extension and additional compression schemes.
   Only little-endian, tiled, interleaved, 8-bit per sample images with
