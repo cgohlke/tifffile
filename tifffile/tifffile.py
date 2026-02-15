@@ -31,7 +31,7 @@
 
 r"""Read and write TIFF files.
 
-Tifffile is a Python library to
+Tifffile is a comprehensive Python library to
 
 (1) store NumPy arrays in TIFF (Tagged Image File Format) files, and
 (2) read image and metadata from TIFF-like files used in bioimaging.
@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.1.28
+:Version: 2026.2.15
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,8 +98,8 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.11, 3.14.2 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.1
+- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.12, 3.14.3 64-bit
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.2
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.1.14
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2026.2.15
+
+- Pass 5129 tests.
+- Support reading multi-file pyramidal OME TIFF files (image.sc/t/119259).
+
 2026.1.28
 
-- Pass 5128 tests.
 - Deprecate colormaped parameter in imagej_description (use colormapped).
 - Fix code review issues.
 
@@ -212,8 +216,9 @@ compression, color space transformations, samples with differing types, or
 IPTC, ICC, and XMP metadata are not implemented.
 
 Besides classic TIFF, tifffile supports several TIFF-like formats that do not
-strictly adhere to the TIFF6 specification. Some formats allow file and data
-sizes to exceed the 4 GB limit of the classic TIFF:
+strictly adhere to the TIFF6 specification. Some formats extend TIFF
+capabilities in various ways, including exceeding the 4 GB limit,
+handling multi-dimensional data, or working around format constraints:
 
 - **BigTIFF** is identified by version number 43 and uses different file
   header, IFD, and tag structures with 64-bit offsets. The format also adds
@@ -226,8 +231,8 @@ sizes to exceed the 4 GB limit of the classic TIFF:
 - **OME-TIFF** files store up to 8-dimensional image data in one or multiple
   TIFF or BigTIFF files. The UTF-8 encoded OME-XML metadata found in the
   ImageDescription tag of the first IFD defines the position of TIFF IFDs in
-  the high-dimensional image data. Tifffile can read OME-TIFF files (except
-  multi-file pyramidal) and write NumPy arrays to single-file OME-TIFF.
+  the high-dimensional image data. Tifffile can read OME-TIFF files
+  and write NumPy arrays to single-file OME-TIFF.
 - **Micro-Manager NDTiff** stores multi-dimensional image data in one
   or more classic TIFF files. Metadata contained in a separate NDTiff.index
   binary file defines the position of the TIFF IFDs in the image array.
@@ -247,7 +252,7 @@ sizes to exceed the 4 GB limit of the classic TIFF:
   LSM files of any size.
 - **MetaMorph STK** files contain additional image planes stored
   contiguously after the image data of the first page. The total number of
-  planes is equal to the count of the UIC2tag. Tifffile can read STK files.
+  planes is equal to the count of the UIC2 tag. Tifffile can read STK files.
 - **ZIF**, the Zoomable Image File format, is a subspecification of BigTIFF
   with SGI's ImageDepth extension and additional compression schemes.
   Only little-endian, tiled, interleaved, 8-bit per sample images with
@@ -781,7 +786,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.1.28'
+__version__ = '2026.2.15'
 
 __all__ = [
     'CHUNKMODE',
@@ -5910,6 +5915,7 @@ class TiffFile:
         self._files = {root_uuid: self}
         dirname = self._fh.dirname
         files_missing = 0
+        is_pyramidal = False
         moduloref = []
         modulo: dict[str, dict[str, tuple[str, int]]] = {}
         series: list[TiffPageSeries] = []
@@ -6072,7 +6078,7 @@ class TiffFile:
                             tif.close()
                         pages = self._files[uuid.text].pages
                         try:
-                            size = num if num else len(pages)
+                            size = num or len(pages)
                             ifds.extend([None] * (size + idx - len(ifds)))
                             for i in range(size):
                                 ifds[idx + i] = pages[ifd_index + i]
@@ -6088,7 +6094,7 @@ class TiffFile:
                         # no uuid found
                         pages = self.pages
                         try:
-                            size = num if num else len(pages)
+                            size = num or len(pages)
                             ifds.extend([None] * (size + idx - len(ifds)))
                             for i in range(size):
                                 ifds[idx + i] = pages[ifd_index + i]
@@ -6125,6 +6131,10 @@ class TiffFile:
                                 keyframe.parent.filehandle.close()
                             break
 
+                # is the series pyramidal?
+                if keyframe.subifds is not None and len(keyframe.subifds) > 0:
+                    is_pyramidal = True
+
                 # does the series spawn multiple files
                 multifile = False
                 for ifd in ifds:
@@ -6160,7 +6170,7 @@ class TiffFile:
                     )
                     ifds.extend([None] * (size - len(ifds)))
 
-                # FIXME: this implementation assumes the last dimensions are
+                # TODO: this implementation assumes the last dimensions are
                 # stored in TIFF pages. Apparently that is not always the case.
                 # For example, TCX (20000, 2, 500) is stored in 2 pages of
                 # (20000, 500) in 'Image 7.ome_h00.tiff'.
@@ -6239,68 +6249,78 @@ class TiffFile:
             aseries._set_dimensions(shape, axes, None)
 
         # pyramids
-        for aseries in series:
-            keyframe = aseries.keyframe
-            if keyframe.subifds is None:
-                continue
-            if len(self._files) > 1:
-                # TODO: support multi-file pyramids; must re-open/close
-                logger().warning(
-                    f'{self!r} OME series cannot read multi-file pyramids'
-                )
-                break
-            for level in range(len(keyframe.subifds)):
-                found_keyframe = False
-                ifds = []
-                for page in aseries.pages:
-                    if (
-                        page is None
-                        or page.subifds is None
-                        or page.subifds[level] < 8
-                    ):
-                        ifds.append(None)
-                        continue
-                    page.parent.filehandle.seek(page.subifds[level])
-                    if page.keyframe == page:
-                        ifd = keyframe = TiffPage(
-                            self, (page.index, level + 1)
-                        )
-                        found_keyframe = True
-                    elif not found_keyframe:
-                        msg = 'no keyframe found'
-                        raise RuntimeError(msg)
-                    else:
-                        ifd = TiffFrame(
-                            self, (page.index, level + 1), keyframe=keyframe
-                        )
-                    ifds.append(ifd)
-                if all(ifd_or_none is None for ifd_or_none in ifds):
-                    logger().warning(
-                        f'{self!r} OME series level {level + 1} is empty'
-                    )
-                    break
-                # fix shape
-                shape = list(aseries.get_shape(squeeze=False))
-                axes = aseries.get_axes(squeeze=False)
-                for i, ax in enumerate(axes):
-                    if ax == 'X':
-                        shape[i] = keyframe.imagewidth
-                    elif ax == 'Y':
-                        shape[i] = keyframe.imagelength
-                # add series
-                aseries.levels.append(
-                    TiffPageSeries(
-                        ifds,
-                        tuple(shape),
-                        keyframe.dtype,
-                        axes,
-                        parent=self,
-                        name=f'level {level + 1}',
-                        kind='ome',
-                    )
-                )
+        if is_pyramidal:
+            filecache = FileCache(size=64)
+            for aseries in series:
+                keyframe = aseries.keyframe
+                if keyframe.subifds is None:
+                    continue
 
-        self.is_uniform = len(series) == 1 and len(series[0].levels) == 1
+                for level in range(len(keyframe.subifds)):
+                    found_keyframe = False
+                    ifds = []
+                    for page in aseries.pages:
+                        if (
+                            page is None
+                            or page.subifds is None
+                            or page.subifds[level] < 8
+                        ):
+                            ifds.append(None)
+                            continue
+
+                        fh = page.parent.filehandle
+                        filecache.open(fh)
+                        try:
+                            fh.seek(page.subifds[level])
+                            if page.keyframe == page:
+                                ifd = keyframe = TiffPage(
+                                    page.parent, (page.index, level + 1)
+                                )
+                                found_keyframe = True
+                            elif not found_keyframe:
+                                msg = 'no keyframe found'
+                                raise RuntimeError(msg)
+                            else:
+                                ifd = TiffFrame(
+                                    page.parent,
+                                    (page.index, level + 1),
+                                    keyframe=keyframe,
+                                )
+                            ifds.append(ifd)
+                        finally:
+                            filecache.close(fh)
+
+                    if all(ifd_or_none is None for ifd_or_none in ifds):
+                        logger().warning(
+                            f'{self!r} OME series level {level + 1} is empty'
+                        )
+                        break
+
+                    # fix shape
+                    shape = list(aseries.get_shape(squeeze=False))
+                    axes = aseries.get_axes(squeeze=False)
+                    for i, ax in enumerate(axes):
+                        if ax == 'X':
+                            shape[i] = keyframe.imagewidth
+                        elif ax == 'Y':
+                            shape[i] = keyframe.imagelength
+
+                    # add series
+                    aseries.levels.append(
+                        TiffPageSeries(
+                            ifds,
+                            tuple(shape),
+                            keyframe.dtype,
+                            axes,
+                            parent=self,
+                            name=f'level {level + 1}',
+                            kind='ome',
+                        )
+                    )
+
+            filecache.clear()
+
+        self.is_uniform = len(series) == 1 and not is_pyramidal
 
         return series
 
@@ -7295,7 +7315,7 @@ class TiffFile:
             result.update(tags.valueof(33471))  # OlympusINI
         with contextlib.suppress(TypeError):
             result.update(tags.valueof(33560))  # OlympusSIS
-        return result if result else None
+        return result or None
 
     @cached_property
     def mdgel_metadata(self) -> dict[str, Any] | None:
@@ -10240,7 +10260,7 @@ class TiffFrame:
         index:
             Index of frame in IFD tree.
         offset:
-            Position of frame in file.
+            Position of frame in file, or zero for virtual frame.
         keyframe:
             TiffPage instance with same hash as frame.
         dataoffsets:
@@ -10370,6 +10390,8 @@ class TiffFrame:
         unpack = struct.unpack
         rlock: Any = NullContext() if lock is None else lock
         tags = []
+
+        assert self.offset > 0
 
         with rlock:
             fh.seek(self.offset)
@@ -12144,7 +12166,7 @@ class TiffTags:
                     break
             if not result:
                 break
-        return result if result else default
+        return result or default
 
     def __getitem__(self, key: int | str, /) -> TiffTag:
         """Return first tag by code or name. Raise KeyError if not found."""
@@ -12373,7 +12395,7 @@ class TiffTagRegistry:
 
         """
         result = [d[key] for d in self._list if key in d]
-        return result if result else default  # type: ignore[return-value]
+        return result or default  # type: ignore[return-value]
 
     @overload
     def __getitem__(self, key: int, /) -> str: ...
@@ -12564,8 +12586,8 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
             dtype = keyframe.dtype
 
         self.dtype = numpy.dtype(dtype)
-        self.kind = kind if kind else ''
-        self.name = name if name else ''
+        self.kind = kind or ''
+        self.name = name or ''
         self.transform = transform
         self.keyframe = keyframe
         self.is_multifile = bool(multifile)
@@ -13534,7 +13556,7 @@ class FileHandle:
         self._mode = 'rb' if mode is None else mode
         self._fh = None
         self._file = file  # reference to original argument for re-opening
-        self._name = name if name else ''
+        self._name = name or ''
         self._dir = ''
         self._offset = -1 if offset is None else offset
         self._size = -1 if size is None else size
@@ -14786,7 +14808,8 @@ class OmeXml:
             Additional OME-XML attributes or elements to be stored.
 
             Creator:
-                Name of creating application. The default is 'tifffile'.
+                Name of creating application.
+                The default is 'tifffile.py and version'.
             UUID:
                 Unique identifier.
 
@@ -22910,7 +22933,7 @@ def xml2dict(
     except ImportError:
         from xml.etree import ElementTree
 
-    at, tx = prefix if prefix else ('', '')
+    at, tx = prefix or ('', '')
 
     def astype(value: Any, /) -> Any:
         # return string value as int, float, bool, tuple, or unchanged
