@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.1.28
+:Version: 2026.2.15
 
 """
 
@@ -11450,6 +11450,74 @@ def test_read_ome_multifile_bytesio(caplog):
         assert_aszarr_method(tif, data, mode='r')
         del data
         assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
+def test_read_ome_multifile_pyramidal():
+    """Test read OME pyramidal series in 35 files."""
+    # (35, 27328, 54002), 7 levels, CYX uint16 in 35 files, 1 page each
+    # https://forum.image.sc/t/119259
+    filename = private_file(
+        'OME/multi-file-pyramid/morphology_focus/ch0000_dapi.ome.tif'
+    )
+    with TiffFile(filename) as tif:
+        assert tif.is_ome
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages.first
+        assert not page.is_contiguous
+        assert page.tags['Software'].value[:15] == 'tifffile.py'
+        assert page.compression == COMPRESSION.JPEG2000
+        assert page.imagewidth == 54002
+        assert page.imagelength == 27328
+        assert page.bitspersample == 16
+        assert page.samplesperpixel == 1
+
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (35, 27328, 54002)
+        assert series.dtype == numpy.uint16
+        assert series.axes == 'CYX'
+        assert series.kind == 'ome'
+        assert series.is_multifile
+        assert series.is_pyramidal
+
+        # assert other files are closed after TiffFile._series_ome
+        for page in tif.series[0].pages:
+            assert bool(page.parent.filehandle._fh) == (page.parent == tif)
+
+        assert len(series.levels) == 8
+        assert series.levels[0].shape == (35, 27328, 54002)
+        assert series.levels[1].shape == (35, 13664, 27001)
+        assert series.levels[2].shape == (35, 6832, 13500)
+        assert series.levels[3].shape == (35, 3416, 6750)
+        assert series.levels[4].shape == (35, 1708, 3375)
+        assert series.levels[5].shape == (35, 854, 1687)
+        assert series.levels[6].shape == (35, 427, 843)
+        assert series.levels[7].shape == (35, 213, 421)
+
+        # assert data
+        data = tif.asarray(level=4)
+        assert data.shape == (35, 1708, 3375)
+        assert data.dtype == numpy.uint16
+        assert data[9, 426, 272] == 99
+
+        # assert other files are still closed after TiffFile.asarray
+        for page in tif.series[0].pages:
+            assert bool(page.parent.filehandle._fh) == (page.parent == tif)
+        assert tif.filehandle._fh
+
+        assert__str__(tif)
+
+        # test aszarr
+        assert_aszarr_method(series.levels[4], data)
+        del data
+
+        # assert other files are still closed after ZarrStore.close
+        for page in tif.series[0].pages:
+            assert bool(page.parent.filehandle._fh) == (page.parent == tif)
 
 
 @pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
