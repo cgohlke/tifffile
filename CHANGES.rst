@@ -1,9 +1,13 @@
 Revisions
 ---------
 
+2026.2.15
+
+- Pass 5129 tests.
+- Support reading multi-file pyramidal OME TIFF files (image.sc/t/119259).
+
 2026.1.28
 
-- Pass 5128 tests.
 - Deprecate colormaped parameter in imagej_description (use colormapped).
 - Fix code review issues.
 
