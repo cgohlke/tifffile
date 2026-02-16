@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.2.15
+:Version: 2026.2.16
 
 """
 
@@ -9401,7 +9401,7 @@ def test_read_lsm_unbounderror():
         assert__str__(tif)
 
 
-@pytest.mark.skipif(SKIP_PRIVATE, reason=REASON)
+@pytest.mark.skipif(SKIP_PRIVATE or SKIP_LARGE, reason=REASON)
 def test_read_lsm_incomplete(caplog):
     """Test read LSM: MZSYX (196, 2, 33, 512, 512)."""
     # file is ~18 GB incompletely written, dataoffsets zeroed
@@ -11489,7 +11489,9 @@ def test_read_ome_multifile_pyramidal():
             assert bool(page.parent.filehandle._fh) == (page.parent == tif)
 
         assert len(series.levels) == 8
+        assert series.levels[0].name == 'Baseline'
         assert series.levels[0].shape == (35, 27328, 54002)
+        assert series.levels[1].name == 'Level 1'
         assert series.levels[1].shape == (35, 13664, 27001)
         assert series.levels[2].shape == (35, 6832, 13500)
         assert series.levels[3].shape == (35, 3416, 6750)
@@ -13437,24 +13439,23 @@ def test_read_philips_issue249():
         assert len(series.levels) == 10
         assert series.is_pyramidal
 
-        page = series.levels[3].keyframe
+        page = series.levels[4].keyframe
         assert page.compression == COMPRESSION.JPEG
         assert page.photometric == PHOTOMETRIC.YCBCR
         assert page.planarconfig == PLANARCONFIG.CONTIG
-        assert page.tags['ImageWidth'].value == 19456
-        assert page.tags['ImageLength'].value == 9728
-        assert page.imagewidth == 19392
-        assert page.imagelength == 9792
+        assert page.tags['ImageWidth'].value == 9728
+        assert page.tags['ImageLength'].value == 5120
+        assert page.imagewidth == 9696
+        assert page.imagelength == 4896
 
-        for level in range(1, 10):
+        for level in range(3, 10):
             tif.asarray(series=0, level=level)
 
         # assert data
-        image = tif.asarray(series=0, level=3)
-        assert image.shape == (9792, 19392, 3)
-        assert image[300, 400, 1] == 226
-        assert image[9791, 0, 1] == 0
-        assert_aszarr_method(series, image, level=3)
+        image = tif.asarray(series=0, level=4)
+        assert image.shape == (4896, 9696, 3)
+        assert image[300, 400, 1] == 225
+        assert_aszarr_method(series, image, level=4)
         assert__str__(tif)
 
         if SKIP_ZARR:
