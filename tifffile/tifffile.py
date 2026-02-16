@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.2.15
+:Version: 2026.2.16
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,13 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
-2026.2.15
+2026.2.16
 
 - Pass 5129 tests.
+- Optimize reading multi-file pyramidal OME TIFF files.
+
+2026.2.15
+
 - Support reading multi-file pyramidal OME TIFF files (image.sc/t/119259).
 
 2026.1.28
@@ -786,7 +790,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.2.15'
+__version__ = '2026.2.16'
 
 __all__ = [
     'CHUNKMODE',
@@ -6253,70 +6257,100 @@ class TiffFile:
             filecache = FileCache(size=64)
             for aseries in series:
                 keyframe = aseries.keyframe
-                if keyframe.subifds is None:
+                if keyframe.subifds is None or len(keyframe.subifds) == 0:
                     continue
 
-                for level in range(len(keyframe.subifds)):
-                    found_keyframe = False
-                    ifds = []
-                    for page in aseries.pages:
-                        if (
-                            page is None
-                            or page.subifds is None
-                            or page.subifds[level] < 8
-                        ):
-                            ifds.append(None)
-                            continue
+                num_levels = len(keyframe.subifds)
+                levels_pages: list[list[TiffPage | TiffFrame | None]] = [
+                    [] for _ in range(num_levels)
+                ]
+                levels_keyframes: list[TiffPage | None] = [None] * num_levels
 
-                        fh = page.parent.filehandle
-                        filecache.open(fh)
-                        try:
+                # iterate over pages first, then levels
+                # to minimize file open/close
+                for page in aseries.pages:
+                    if page is None:
+                        # add None to all levels for this page
+                        for level_pages in levels_pages:
+                            level_pages.append(None)
+                        continue
+
+                    if page.subifds is None:
+                        # should not happen, add None to all levels
+                        for level_pages in levels_pages:
+                            level_pages.append(None)
+                        continue
+
+                    # open file handle once for this page
+                    fh = page.parent.filehandle
+                    filecache.open(fh)
+                    try:
+                        # process all levels for this page
+                        for level in range(num_levels):
+                            if page.subifds[level] < 8:
+                                levels_pages[level].append(None)
+                                continue
+
                             fh.seek(page.subifds[level])
-                            if page.keyframe == page:
-                                ifd = keyframe = TiffPage(
+                            if (
+                                page.keyframe == page
+                                and levels_keyframes[level] is None
+                            ):
+                                # first keyframe for this level
+                                ifd = TiffPage(
                                     page.parent, (page.index, level + 1)
                                 )
-                                found_keyframe = True
-                            elif not found_keyframe:
+                                levels_keyframes[level] = ifd
+                            elif levels_keyframes[level] is None:
                                 msg = 'no keyframe found'
                                 raise RuntimeError(msg)
                             else:
                                 ifd = TiffFrame(
                                     page.parent,
                                     (page.index, level + 1),
-                                    keyframe=keyframe,
+                                    keyframe=levels_keyframes[level],
                                 )
-                            ifds.append(ifd)
-                        finally:
-                            filecache.close(fh)
+                            levels_pages[level].append(ifd)
+                    finally:
+                        filecache.close(fh)
 
+                # create TiffPageSeries for each level
+                for level, ifds in enumerate(levels_pages):
                     if all(ifd_or_none is None for ifd_or_none in ifds):
                         logger().warning(
                             f'{self!r} OME series level {level + 1} is empty'
                         )
                         break
 
+                    level_keyframe = levels_keyframes[level]
+                    if level_keyframe is None:
+                        msg = f'no keyframe found for level {level + 1}'
+                        raise RuntimeError(msg)
+
                     # fix shape
                     shape = list(aseries.get_shape(squeeze=False))
                     axes = aseries.get_axes(squeeze=False)
                     for i, ax in enumerate(axes):
                         if ax == 'X':
-                            shape[i] = keyframe.imagewidth
+                            shape[i] = level_keyframe.imagewidth
                         elif ax == 'Y':
-                            shape[i] = keyframe.imagelength
+                            shape[i] = level_keyframe.imagelength
 
                     # add series
                     aseries.levels.append(
                         TiffPageSeries(
                             ifds,
                             tuple(shape),
-                            keyframe.dtype,
+                            level_keyframe.dtype,
                             axes,
                             parent=self,
-                            name=f'level {level + 1}',
+                            name=f'Level {level + 1}',
                             kind='ome',
                         )
                     )
+
+                if not aseries.name:
+                    aseries.name = 'Baseline'
 
             filecache.clear()
 
