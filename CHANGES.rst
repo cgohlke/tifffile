@@ -1,9 +1,13 @@
 Revisions
 ---------
 
-2026.2.15
+2026.2.16
 
 - Pass 5129 tests.
+- Optimize reading multi-file pyramidal OME TIFF files.
+
+2026.2.15
+
 - Support reading multi-file pyramidal OME TIFF files (image.sc/t/119259).
 
 2026.1.28
