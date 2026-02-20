@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.2.16
+:Version: 2026.2.20
 
 """
 
@@ -1466,6 +1466,7 @@ def test_issue_arw(caplog):
 def test_issue_rational_rounding():
     """Test rational are rounded to 64-bit."""
     # https://github.com/cgohlke/tifffile/issues/81
+    # https://github.com/cgohlke/tifffile/issues/318
 
     data = numpy.array([[255]])
 
@@ -1476,8 +1477,8 @@ def test_issue_rational_rounding():
 
         with TiffFile(filename) as tif:
             tags = tif.pages.first.tags
-            assert tags['XResolution'].value == (4294967295, 579475)
-            assert tags['YResolution'].value == (4294967295, 579475)
+            assert tags['XResolution'].value == (3395816297, 458162)
+            assert tags['YResolution'].value == (3395816297, 458162)
 
 
 def test_issue_omexml_micron():
@@ -2263,12 +2264,12 @@ def test_issue_resolution():
         with TiffFile(filename) as tif:
             page = tif.pages.first
             assert tif.pages.first.tags['XResolution'].value == (
-                4294967295,
-                3904515723,
+                2863315501,
+                2603014092,
             )
             assert tif.pages.first.tags['YResolution'].value == (
-                4294967295,
-                1952257861,
+                1073742382,
+                488064719,
             )
             assert tif.pages.first.tags['ResolutionUnit'].value == (
                 resolutionunit
@@ -4891,9 +4892,39 @@ def test_func_squeeze_axes():
 
 def test_func_transpose_axes():
     """Test transpose_axes function."""
+    # basic: reorder and add missing axis
     assert transpose_axes(
         numpy.zeros((2, 3, 4, 5)), 'TYXC', asaxes='CTZYX'
     ).shape == (5, 2, 1, 3, 4)
+    # no-op: axes already match asaxes
+    assert transpose_axes(
+        numpy.zeros((5, 2, 1, 3, 4)), 'CTZYX', asaxes='CTZYX'
+    ).shape == (5, 2, 1, 3, 4)
+    # default asaxes='CTZYX'
+    assert transpose_axes(numpy.zeros((3, 4)), 'YX').shape == (1, 1, 1, 3, 4)
+    # single axis
+    assert transpose_axes(numpy.zeros((7,)), 'X', asaxes='ZYX').shape == (
+        1,
+        1,
+        7,
+    )
+    # pure reorder, no missing axes
+    assert transpose_axes(
+        numpy.zeros((2, 3, 4)), 'ZYX', asaxes='XYZ'
+    ).shape == (4, 3, 2)
+    # all output axes are missing from input (all length-1)
+    assert transpose_axes(numpy.zeros((3, 4)), 'YX', asaxes='YXC').shape == (
+        3,
+        4,
+        1,
+    )
+    # returns a view when no data copy is needed
+    arr = numpy.zeros((3, 4))
+    result = transpose_axes(arr, 'YX', asaxes='YX')
+    assert numpy.shares_memory(arr, result)
+    # unknown axis raises ValueError
+    with pytest.raises(ValueError, match='unknown axis'):
+        transpose_axes(numpy.zeros((3, 4)), 'QX', asaxes='CTZYX')
 
 
 def test_func_unique_strings():
@@ -5601,7 +5632,7 @@ def test_func_pformat_numpy():
     )
 
     assert pformat(value, height=1, width=60, linewidth=None) == (
-        'array([ 60., 0., 0., 600000., 0., -60., 0., 5900040., 60., 0'
+        'array([60., 0., 0., 600000., 0., -60., 0., 5900040., 60., 0.'
     )
 
     assert pformat(value, height=8, width=60, linewidth=None) == (
