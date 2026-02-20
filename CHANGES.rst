@@ -1,9 +1,14 @@
 Revisions
 ---------
 
+2026.2.20
+
+- Pass 5134 tests.
+- Fix rounding of high resolutions (#318).
+- Fix code review issues.
+
 2026.2.16
 
-- Pass 5129 tests.
 - Optimize reading multi-file pyramidal OME TIFF files.
 
 2026.2.15
