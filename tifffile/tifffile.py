@@ -62,7 +62,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.2.16
+:Version: 2026.2.20
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,9 +114,14 @@ This revision was tested with the following requirements and dependencies
 Revisions
 ---------
 
+2026.2.20
+
+- Pass 5134 tests.
+- Fix rounding of high resolutions (#318).
+- Fix code review issues.
+
 2026.2.16
 
-- Pass 5129 tests.
 - Optimize reading multi-file pyramidal OME TIFF files.
 
 2026.2.15
@@ -790,7 +795,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.2.16'
+__version__ = '2026.2.20'
 
 __all__ = [
     'CHUNKMODE',
@@ -890,6 +895,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime as DateTime  # noqa: N812
 from datetime import timedelta as TimeDelta  # noqa: N812
+from fractions import Fraction
 from functools import cached_property
 
 import numpy
@@ -14255,7 +14261,7 @@ class FileHandle:
 
     @property
     def has_lock(self) -> bool:
-        """A reentrant lock is currently used to sync reads and writes."""
+        """File uses reentrant lock to sync reads and writes."""
         return not isinstance(self._lock, NullContext)
 
     @property
@@ -18476,8 +18482,6 @@ class _TIFF:
     def UIC_TAGS(self) -> list[tuple[str, Any]]:
         # map Universal Imaging Corporation MetaMorph internal tag ids to
         # name and type
-        from fractions import Fraction
-
         return [
             ('AutoScale', int),
             ('MinScale', int),
@@ -21817,17 +21821,15 @@ def transpose_axes(
     """
     if asaxes is None:
         asaxes = 'CTZYX'
+    valid = frozenset(asaxes)
     for ax in axes:
-        if ax not in asaxes:
-            msg = f'unknown axis {ax}'
+        if ax not in valid:
+            msg = f'unknown axis {ax!r}'
             raise ValueError(msg)
     # add missing axes to image
-    shape = image.shape
-    for ax in reversed(asaxes):
-        if ax not in axes:
-            axes = ax + axes
-            shape = (1, *shape)
-    image = image.reshape(shape)
+    missing = [ax for ax in reversed(asaxes) if ax not in axes]
+    axes = ''.join(missing) + axes
+    image = image.reshape((1,) * len(missing) + image.shape)
     # transpose axes
     return image.transpose([axes.index(ax) for ax in asaxes])
 
@@ -22103,7 +22105,7 @@ def stack_pages(
             Maximum number of threads to concurrently decode pages or segments.
             By default, use up to :py:attr:`_TIFF.MAXWORKERS` threads.
         out:
-            Specifies how image array is returned.
+            Output destination for frame data.
             By default, a new NumPy array is created.
             If a *numpy.ndarray*, a writable array to which the images
             are copied.
@@ -22263,10 +22265,12 @@ def create_output(
             data type.
         mode:
             File mode to create memory-mapped array.
+            Only used when `out` is a file path or `'memmap'`.
             The default is 'w+' to create new, or overwrite existing file for
             reading and writing.
         suffix:
             Suffix of `NamedTemporaryFile` if `out` is `'memmap'`.
+            Only used when `out` is `'memmap'`.
             The default is '.memmap'.
         fillvalue:
             Value to initialize output array.
@@ -22285,7 +22289,7 @@ def create_output(
     if out is None:
         if fillvalue is None:
             return numpy.empty(shape, dtype)
-        if fillvalue:
+        if fillvalue:  # fillvalue=0 handled faster by zeros
             return numpy.full(shape, fillvalue, dtype)
         return numpy.zeros(shape, dtype)
     if isinstance(out, numpy.ndarray):
@@ -22299,10 +22303,10 @@ def create_output(
         if fillvalue is not None:
             out.fill(fillvalue)
         return out
-    if isinstance(out, str) and out[:6] == 'memmap':
+    if isinstance(out, str) and out.startswith('memmap'):
         import tempfile
 
-        tempdir = out[7:] if len(out) > 7 else None
+        tempdir = out[7:] or None
         if suffix is None:
             suffix = '.memmap'
         with tempfile.NamedTemporaryFile(dir=tempdir, suffix=suffix) as fh:
@@ -22370,21 +22374,19 @@ def matlabstr2py(matlabstr: str, /) -> Any:
         if length == 0:
             return None, 0
         i = 0
-        while i < length and s[i] == ' ':
+        while i < length and s[i].isspace():
             i += 1
         if i == length:
             return None, i
         if s[i] in '{[;]}':
             return s[i], i + 1
         if s[i] == "'":
-            j = i + 1
-            while j < length and s[j] != "'":
-                j += 1
+            j = s.find("'", i + 1)
+            j = j if j >= 0 else length
             return s[i : j + 1], j + 1
         if s[i] == '<':
-            j = i + 1
-            while j < length and s[j] != '>':
-                j += 1
+            j = s.find('>', i + 1)
+            j = j if j >= 0 else length
             return s[i : j + 1], j + 1
         j = i
         while j < length and s[j] not in ' {[;]}':
@@ -22396,23 +22398,16 @@ def matlabstr2py(matlabstr: str, /) -> Any:
         s = s.strip()
         if not s:
             return s
-        if len(s) == 1:
-            try:
-                return int(s)
-            except Exception as exc:
-                if fail:
-                    raise ValueError from exc
-                return s
         if s[0] == "'":
             if (fail and s[-1] != "'") or "'" in s[1:-1]:
-                raise ValueError
+                raise ValueError(s)
             return s[1:-1]
         if s[0] == '<':
             if (fail and s[-1] != '>') or '<' in s[1:-1]:
-                raise ValueError
+                raise ValueError(s)
             return s
         if fail and any(i in s for i in " ';[]{}"):
-            raise ValueError
+            raise ValueError(s)
         if s[0] == '@':
             return s
         if s in {'true', 'True'}:
@@ -22448,8 +22443,8 @@ def matlabstr2py(matlabstr: str, /) -> Any:
             pass
         result: list[Any]
         addto: list[Any]
-        result = addto = []
-        levels = [addto]
+        result = addto = []  # result and addto alias the same list initially;
+        levels = [addto]  # mutations to addto via levels also update result
         for t in lex(s):
             if t in '[{':
                 addto = []
@@ -22505,26 +22500,24 @@ def strptime(datetime_string: str, fmt: str | None = None, /) -> DateTime:
         datetime.datetime(2022, 8, 1, 22, 23, 24)
 
     """
-    formats = {
-        '%Y:%m:%d %H:%M:%S': 1,  # TIFF6 specification
-        '%Y%m%d %H:%M:%S.%f': 2,  # MetaSeries
-        '%Y-%m-%dT%H %M %S.%f': 3,  # Pilatus
-        '%Y-%m-%dT%H:%M:%S.%f': 4,  # ISO
-        '%Y-%m-%dT%H:%M:%S': 5,  # ISO, microsecond is 0
-        '%Y:%m:%d %H:%M:%S.%f': 6,
-        '%d/%m/%Y %H:%M:%S': 7,
-        '%d/%m/%Y %H:%M:%S.%f': 8,
-        '%m/%d/%Y %I:%M:%S %p': 9,
-        '%m/%d/%Y %I:%M:%S.%f %p': 10,
-        '%Y%m%d %H:%M:%S': 11,
-        '%Y/%m/%d %H:%M:%S': 12,
-        '%Y/%m/%d %H:%M:%S.%f': 13,
-        '%Y-%m-%dT%H:%M:%S%z': 14,
-        '%Y-%m-%dT%H:%M:%S.%f%z': 15,
-    }
-    if fmt is not None:
-        formats[fmt] = 0  # highest priority; replaces existing key if any
-    for fmt_, _ in sorted(formats.items(), key=lambda item: item[1]):
+    formats = (
+        '%Y:%m:%d %H:%M:%S',  # TIFF6 specification
+        '%Y%m%d %H:%M:%S.%f',  # MetaSeries
+        '%Y-%m-%dT%H %M %S.%f',  # Pilatus
+        '%Y-%m-%dT%H:%M:%S.%f',  # ISO 8601 with microseconds
+        '%Y-%m-%dT%H:%M:%S',  # ISO 8601
+        '%Y:%m:%d %H:%M:%S.%f',
+        '%d/%m/%Y %H:%M:%S',
+        '%d/%m/%Y %H:%M:%S.%f',
+        '%m/%d/%Y %I:%M:%S %p',
+        '%m/%d/%Y %I:%M:%S.%f %p',
+        '%Y%m%d %H:%M:%S',
+        '%Y/%m/%d %H:%M:%S',
+        '%Y/%m/%d %H:%M:%S.%f',
+        '%Y-%m-%dT%H:%M:%S%z',
+        '%Y-%m-%dT%H:%M:%S.%f%z',
+    )
+    for fmt_ in (fmt, *formats) if fmt is not None else formats:
         try:
             return DateTime.strptime(datetime_string, fmt_)
         except ValueError:
@@ -22623,8 +22616,10 @@ def asbool(
     /,
     true: Sequence[str | bytes] | None = None,
     false: Sequence[str | bytes] | None = None,
-) -> bool | bytes:
+) -> bool:
     """Return string as bool if possible, else raise TypeError.
+
+    Custom `true` and `false` sequences must contain lowercase strings.
 
     >>> asbool(b' False ')
     False
@@ -22633,29 +22628,33 @@ def asbool(
 
     """
     value = value.strip().lower()
-    isbytes = False
-    if true is None:
-        if isinstance(value, bytes):
-            if value == b'true':
-                return True
-            isbytes = True
-        elif value == 'true':
-            return True
-    elif value in true:
+    true_vals = (
+        true
+        if true is not None
+        else (b'true' if isinstance(value, bytes) else ('true',))
+    )
+    false_vals = (
+        false
+        if false is not None
+        else (b'false' if isinstance(value, bytes) else ('false',))
+    )
+    if value in true_vals:
         return True
-    if false is None:
-        if isbytes or isinstance(value, bytes):
-            if value == b'false':
-                return False
-        elif value == 'false':
-            return False
-    elif value in false:
+    if value in false_vals:
         return False
-    raise TypeError
+    msg = f'{value!r} is not a recognized boolean value'
+    raise TypeError(msg)
 
 
-def astype(value: Any, /, types: Sequence[Any] | None = None) -> Any:
-    """Return argument as one of types if possible.
+def astype(
+    value: Any,
+    /,
+    types: Sequence[Callable[..., Any]] | None = None,
+) -> Any:
+    """Return argument converted to first matching type.
+
+    By default, tries to convert to `int`, `float`, `bool` (via `asbool`),
+    and `str` (via `bytes2str`), in that order.
 
     >>> astype('42')
     42
@@ -22668,50 +22667,73 @@ def astype(value: Any, /, types: Sequence[Any] | None = None) -> Any:
 
     """
     if types is None:
-        types = int, float, asbool, bytes2str
+        types = (int, float, asbool, bytes2str)
     for typ in types:
         try:
             return typ(value)
-        except (ValueError, AttributeError, TypeError, UnicodeEncodeError):
+        except (
+            ValueError,
+            AttributeError,
+            TypeError,
+            UnicodeEncodeError,  # bytes2str may raise on non-decodable bytes
+        ):
             pass
     return value
 
 
 def rational(arg: float | tuple[int, int], /) -> tuple[int, int]:
-    """Return rational numerator and denominator from float or two integers."""
-    from fractions import Fraction
+    """Return rational numerator and denominator from float or two integers.
 
-    if isinstance(arg, Sequence):
+    >>> rational(0.5)
+    (1, 2)
+    >>> rational((3, 4))
+    (3, 4)
+    >>> rational(0)
+    (0, 1)
+
+    """
+    if isinstance(arg, (tuple, list)):
         f = Fraction(arg[0], arg[1])
     else:
-        f = Fraction.from_float(arg)
+        if arg == 0:
+            return 0, 1
+        f = Fraction(arg)
+        # cap denominator so numerator also stays within 32-bit unsigned range
+        max_denominator = min(4294967295, int(4294967295 / abs(f)))
+        f = f.limit_denominator(max_denominator)
+    return f.numerator, f.denominator
 
-    numerator, denominator = f.as_integer_ratio()
-    if numerator > 4294967295 or denominator > 4294967295:
-        s = 4294967295 / max(numerator, denominator)
-        numerator = round(numerator * s)
-        denominator = round(denominator * s)
-    return numerator, denominator
 
-
-def unique_strings(strings: Iterator[str], /) -> Iterator[str]:
-    """Return iterator over unique strings.
+def unique_strings(strings: Iterable[str], /) -> Iterator[str]:
+    """Return iterator over unique strings, appending a counter to duplicates.
 
     >>> list(unique_strings(iter(('a', 'b', 'a'))))
     ['a', 'b', 'a2']
+    >>> list(unique_strings(iter(('a', 'a2', 'a'))))
+    ['a', 'a2', 'a3']
 
     """
-    known = set()
-    for i, s in enumerate(strings):
-        string = s
-        if string in known:
-            string += str(i)
-        known.add(string)
-        yield string
+    known: set[str] = set()
+    counts: dict[str, int] = {}
+    for s in strings:
+        if s not in known:
+            known.add(s)
+            yield s
+        else:
+            counts[s] = counts.get(s, 1) + 1
+            candidate = f'{s}{counts[s]}'
+            while candidate in known:
+                counts[s] += 1
+                candidate = f'{s}{counts[s]}'
+            known.add(candidate)
+            yield candidate
 
 
 def format_size(size: float, /, threshold: float = 1536) -> str:
     """Return file size as string from byte size.
+
+    Sizes below 1.5 KiB (1536 B) are shown in bytes; larger sizes are
+    shown in the largest unit that keeps the value below the threshold.
 
     >>> format_size(1234)
     '1234 B'
@@ -22720,12 +22742,12 @@ def format_size(size: float, /, threshold: float = 1536) -> str:
 
     """
     if size < threshold:
-        return f'{size} B'
+        return f'{size:.0f} B'
     for unit in ('KiB', 'MiB', 'GiB', 'TiB', 'PiB'):
         size /= 1024.0
         if size < threshold:
             return f'{size:.2f} {unit}'
-    return 'ginormous'
+    return f'{size:.2f} PiB'
 
 
 def identityfunc(arg: Any, /, *args: Any, **kwargs: Any) -> Any:
@@ -22761,7 +22783,7 @@ def sequence(value: Any, /) -> Sequence[Any]:
     return value if isinstance(value, (tuple, list)) else (value,)
 
 
-def product(iterable: Iterable[int], /) -> int:
+def product(iterable: Iterable[int | numpy.integer], /) -> int:
     """Return product of integers.
 
     Equivalent of ``math.prod(iterable)``, but multiplying NumPy integers
@@ -22774,13 +22796,18 @@ def product(iterable: Iterable[int], /) -> int:
 
     """
     prod = 1
-    for i in iterable:
-        prod *= int(i)
+    for item in iterable:
+        prod *= int(item)
     return prod
 
 
 def peek_iterator(iterator: Iterator[Any], /) -> tuple[Any, Iterator[Any]]:
-    """Return first item of iterator and iterator.
+    """Return first item and new iterator that includes first item.
+
+    The original iterator must not be used after calling this function.
+
+    Raises:
+        StopIteration: Iterator is empty.
 
     >>> first, it = peek_iterator(iter((0, 1, 2)))
     >>> first
@@ -22791,9 +22818,7 @@ def peek_iterator(iterator: Iterator[Any], /) -> tuple[Any, Iterator[Any]]:
     """
     first = next(iterator)
 
-    def newiter(
-        first: Any = first, iterator: Iterator[Any] = iterator
-    ) -> Iterator[Any]:
+    def newiter() -> Iterator[Any]:
         yield first
         yield from iterator
 
@@ -22801,19 +22826,21 @@ def peek_iterator(iterator: Iterator[Any], /) -> tuple[Any, Iterator[Any]]:
 
 
 def natural_sorted(iterable: Iterable[str], /) -> list[str]:
-    """Return human-sorted list of strings.
+    """Return naturally sorted list of strings.
 
-    Use to sort file names.
+    Use to sort file names containing numbers.
 
     >>> natural_sorted(['f1', 'f2', 'f10'])
     ['f1', 'f2', 'f10']
 
     """
+    numbers = re.compile(r'(\d+)')
 
     def sortkey(x: str, /) -> list[int | str]:
-        return [(int(c) if c.isdigit() else c) for c in re.split(numbers, x)]
+        return [
+            int(c) if numbers.fullmatch(c) else c for c in numbers.split(x)
+        ]
 
-    numbers = re.compile(r'(\d+)')
     return sorted(iterable, key=sortkey)
 
 
@@ -22827,31 +22854,43 @@ def epics_datetime(sec: int, nsec: int, /) -> DateTime:
     return DateTime.fromtimestamp(sec + 631152000 + nsec / 1e9)
 
 
-def excel_datetime(timestamp: float, epoch: int | None = None, /) -> DateTime:
-    """Return datetime object from timestamp in Excel serial format.
+def excel_datetime(
+    timestamp: float,
+    epoch: int = 693594,  # datetime.date(1899, 12, 30).toordinal()
+    /,
+) -> DateTime:
+    """Return datetime from Excel serial timestamp.
 
     Use to convert LSM time stamps.
+
+    Parameters:
+        timestamp:
+            Excel serial date (days since epoch, fractional part is time).
+        epoch:
+            Ordinal of day 0. Default is 1899-12-30 (standard Excel epoch).
 
     >>> excel_datetime(40237.029999999795)
     datetime.datetime(2010, 2, 28, 0, 43, 11, 999982)
 
     """
-    if epoch is None:
-        epoch = 693594
-    return DateTime.fromordinal(epoch) + TimeDelta(timestamp)
+    return DateTime.fromordinal(epoch) + TimeDelta(days=timestamp)
 
 
 def julian_datetime(julianday: int, millisecond: int = 0, /) -> DateTime:
     """Return datetime from days since 1/1/4713 BC and ms since midnight.
 
     Convert Julian dates according to MetaMorph.
+    Algorithm after Meeus, "Astronomical Algorithms", ch. 7.
 
     >>> julian_datetime(2451576, 54362783)
     datetime.datetime(2000, 2, 2, 15, 6, 2, 783000)
+    >>> julian_datetime(1721423)
+    Traceback (most recent call last):
+        ...
+    ValueError: no datetime before year 1 (julianday=1721423)
 
     """
     if julianday <= 1721423:
-        # return DateTime.min  # ?
         msg = f'no datetime before year 1 ({julianday=})'
         raise ValueError(msg)
 
@@ -22859,24 +22898,31 @@ def julian_datetime(julianday: int, millisecond: int = 0, /) -> DateTime:
     if a > 2299160:
         alpha = math.trunc((a - 1867216.25) / 36524.25)
         a += 1 + alpha - alpha // 4
-    b = a + (1524 if a > 1721423 else 1158)
+    b = a + 1524
     c = math.trunc((b - 122.1) / 365.25)
     d = math.trunc(365.25 * c)
     e = math.trunc((b - d) / 30.6001)
 
-    day = b - d - math.trunc(30.6001 * e)
-    month = e - (1 if e < 13.5 else 13)
-    year = c - (4716 if month > 2.5 else 4715)
+    day = b - d - int(30.6001 * e)
+    month = e - (1 if e <= 13 else 13)
+    year = c - (4716 if month > 2 else 4715)
 
-    hour, millisecond = divmod(millisecond, 1000 * 60 * 60)
-    minute, millisecond = divmod(millisecond, 1000 * 60)
-    second, millisecond = divmod(millisecond, 1000)
+    ms = millisecond
+    hour, ms = divmod(ms, 1000 * 60 * 60)
+    minute, ms = divmod(ms, 1000 * 60)
+    second, ms = divmod(ms, 1000)
 
-    return DateTime(year, month, day, hour, minute, second, millisecond * 1000)
+    return DateTime(year, month, day, hour, minute, second, ms * 1000)
+
+
+NATIVE_BYTEORDER: str = '>' if sys.byteorder == 'big' else '<'
 
 
 def byteorder_isnative(byteorder: str, /) -> bool:
-    """Return if byteorder matches system's byteorder.
+    """Return if byteorder matches the system's native byteorder.
+
+    The byte-order characters are '<' (little-endian), '>' (big-endian),
+    '=' (native), as well as the sys.byteorder strings 'little' and 'big'.
 
     >>> byteorder_isnative('=')
     True
@@ -22889,20 +22935,27 @@ def byteorder_isnative(byteorder: str, /) -> bool:
 
 
 def byteorder_compare(byteorder: str, other: str, /) -> bool:
-    """Return if byteorders match.
+    """Return if two NumPy byte-order characters are equivalent.
+
+    The byte-order characters are '<' (little-endian), '>' (big-endian),
+    '=' (native), and '|' (not applicable). '|' matches any order.
 
     >>> byteorder_compare('<', '<')
     True
     >>> byteorder_compare('>', '<')
     False
+    >>> byteorder_compare('|', '>')
+    True
+    >>> byteorder_compare('=', '<')  # on a little-endian system
+    True
 
     """
     if byteorder in {other, '|'} or other == '|':
         return True
     if byteorder == '=':
-        byteorder = {'big': '>', 'little': '<'}[sys.byteorder]
-    elif other == '=':
-        other = {'big': '>', 'little': '<'}[sys.byteorder]
+        byteorder = NATIVE_BYTEORDER
+    if other == '=':
+        other = NATIVE_BYTEORDER
     return byteorder == other
 
 
@@ -23067,6 +23120,8 @@ def hexdump(
             return ''
         nlines = 1
     else:
+        # addr is a printf-style format string; addr % 1 gives a sample
+        # formatted address used to measure the printed width
         addr = b'%%0%ix: ' % len(b'%x' % size)
         bytesperline = min(
             modulo * (((width - len(addr % 1)) // 4) // modulo), size
@@ -23082,7 +23137,7 @@ def hexdump(
         snipat = math.floor(height * snipat)
     if snipat < 0:
         snipat += height
-    assert isinstance(snipat, int)
+    snipat = int(snipat)
 
     blocks: list[tuple[int, bytes | None]]
 
@@ -23124,14 +23179,14 @@ def hexdump(
     result = []
     for start, bstr in blocks:
         if bstr is None:
-            result.append(elps)  # 'skip %i bytes' % start)
+            result.append(elps)
             continue
         hexstr = binascii.hexlify(bstr)
         strstr = re.sub(br'[^\x20-\x7f]', b'.', bstr)
         for i in range(0, len(bstr), bytesperline):
             h = hexstr[2 * i : 2 * i + bytesperline * 2]
             r = (addr % (i + start)) if height > 1 else addr
-            r += b' '.join(h[i : i + 2] for i in range(0, 2 * bytesperline, 2))
+            r += b' '.join(h[j : j + 2] for j in range(0, 2 * bytesperline, 2))
             r += b' ' * (width - len(r))
             r += strstr[i : i + bytesperline]
             result.append(r)
@@ -23162,26 +23217,18 @@ def isprintable(string: str | bytes, /) -> bool:
 def clean_whitespace(string: str, /, *, compact: bool = False) -> str:
     r"""Return string with compressed whitespace.
 
-    >>> clean_whitespace('  a  \n\n  b ')
+    >>> clean_whitespace('  a  \n\n\n  b ')
     'a\n b'
+    >>> clean_whitespace('  a  \n\n  b ', compact=True)
+    'a b'
 
     """
-    string = (
-        string.replace('\r\n', '\n')
-        .replace('\r', '\n')
-        .replace('\n\n', '\n')
-        .replace('\t', ' ')
-        .replace('  ', ' ')
-        .replace('  ', ' ')
-        .replace(' \n', '\n')
-    )
+    string = re.sub(r'(\r\n|\r|\n)+', '\n', string)
+    string = re.sub(r'[ \t]{2,}|\t', ' ', string)
+    string = string.replace(' \n', '\n')
     if compact:
-        string = (
-            string.replace('\n', ' ')
-            .replace('[ ', '[')
-            .replace('  ', ' ')
-            .replace('  ', ' ')
-            .replace('  ', ' ')
+        string = re.sub(
+            r'[ \t]{2,}|\t', ' ', string.replace('\n', ' ').replace('[ ', '[')
         )
     return string.strip()
 
@@ -23189,15 +23236,25 @@ def clean_whitespace(string: str, /, *, compact: bool = False) -> str:
 def indent(*args: Any) -> str:
     """Return joined string representations of objects with indented lines.
 
+    The first line is not indented. Subsequent non-empty lines are indented
+    by two spaces. Empty lines are dropped.
+
     >>> print(indent('Title:', 'Text'))
     Title:
       Text
+    >>> print(indent('Title:', 'Line1', '', 'Line3'))
+    Title:
+      Line1
+      Line3
 
     """
     text = '\n'.join(str(arg) for arg in args)
-    return '\n'.join(
-        ('  ' + line if line else line) for line in text.splitlines() if line
-    )[2:]
+    lines = [line for line in text.splitlines() if line]
+    if not lines:
+        return ''
+    result = [lines[0]]
+    result.extend('  ' + line for line in lines[1:])
+    return '\n'.join(result)
 
 
 def pformat_xml(xml: str | bytes, /) -> str:
@@ -23346,16 +23403,15 @@ def snipstr(
     esize = len(ellipsis)
 
     splitlines = string.splitlines()
-    # TODO: finish and test multiline snip
 
     result = []
     for line in splitlines:
         linelen = len(line)
         if linelen <= width:
-            result.append(string)
+            result.append(line)
             continue
 
-        if snipat is None or snipat == 1:
+        if snipat == 1:
             split = linelen
         elif 0 < abs(snipat) < 1:
             split = math.floor(linelen * snipat)
@@ -23368,40 +23424,37 @@ def snipstr(
 
         if esize == 0 or width < esize + 1:
             if split <= 0:
-                result.append(string[-width:])
+                result.append(line[-width:])
             else:
-                result.append(string[:width])
+                result.append(line[:width])
         elif split <= 0:
-            result.append(ellipsis + string[esize - width :])
+            result.append(ellipsis + line[esize - width :])
         elif split >= linelen or width < esize + 4:
-            result.append(string[: width - esize] + ellipsis)
+            result.append(line[: width - esize] + ellipsis)
         else:
             splitlen = linelen - width + esize
             end1 = split - splitlen // 2
             end2 = end1 + splitlen
-            result.append(string[:end1] + ellipsis + string[end2:])
+            result.append(line[:end1] + ellipsis + line[end2:])
 
     return '\n'.join(result)
 
 
-def enumstr(enum: Any, /) -> str:
+def enumstr(member: enum.Enum, /) -> str:
     """Return short string representation of Enum member.
 
     >>> enumstr(PHOTOMETRIC.RGB)
     'RGB'
 
     """
-    name = enum.name
-    if name is None:
-        name = str(enum)
-    return name
+    return member.name or str(member.value)
 
 
-def enumarg(enum: type[enum.IntEnum], arg: Any, /) -> enum.IntEnum:
+def enumarg(enumtype: type[enum.IntEnum], arg: Any, /) -> enum.IntEnum:
     """Return enum member from its name or value.
 
     Parameters:
-        enum: Type of IntEnum.
+        enumtype: Type of IntEnum.
         arg: Name or value of enum member.
 
     Returns:
@@ -23418,39 +23471,42 @@ def enumarg(enum: type[enum.IntEnum], arg: Any, /) -> enum.IntEnum:
 
     """
     try:
-        return enum(arg)
-    except Exception:
+        return enumtype(arg)
+    except (ValueError, TypeError):
         try:
-            return enum[arg.upper()]
-        except Exception as exc:
-            msg = f'invalid argument {arg!r}'
+            return enumtype[arg.upper()]
+        except (KeyError, AttributeError) as exc:
+            msg = f'{enumtype.__name__}: invalid argument {arg!r}'
             raise ValueError(msg) from exc
 
 
 def parse_kwargs(
     kwargs: dict[str, Any], /, *keys: str, **keyvalues: Any
 ) -> dict[str, Any]:
-    """Return dict with keys from keys|keyvals and values from kwargs|keyvals.
+    """Extract keys from kwargs into a new dict, removing them from kwargs.
 
-    Existing keys are deleted from `kwargs`.
+    Keys listed in `keys` are extracted by name only.
+    Keys listed in `keyvalues` are extracted by name if present in `kwargs`,
+    otherwise their default value is used.
+    Extracted keys are deleted from `kwargs`.
 
     >>> kwargs = {'one': 1, 'two': 2, 'four': 4}
     >>> kwargs2 = parse_kwargs(kwargs, 'two', 'three', four=None, five=5)
-    >>> kwargs == {'one': 1}
-    True
-    >>> kwargs2 == {'two': 2, 'four': 4, 'five': 5}
-    True
+    >>> kwargs
+    {'one': 1}
+    >>> kwargs2
+    {'two': 2, 'four': 4, 'five': 5}
+    >>> parse_kwargs({}, 'a', b=2)
+    {'b': 2}
 
     """
     result = {}
     for key in keys:
         if key in kwargs:
-            result[key] = kwargs[key]
-            del kwargs[key]
+            result[key] = kwargs.pop(key)
     for key, value in keyvalues.items():
         if key in kwargs:
-            result[key] = kwargs[key]
-            del kwargs[key]
+            result[key] = kwargs.pop(key)
         else:
             result[key] = value
     return result
@@ -23466,18 +23522,17 @@ def update_kwargs(kwargs: dict[str, Any], /, **keyvalues: Any) -> None:
 
     """
     for key, value in keyvalues.items():
-        if key not in kwargs:
-            kwargs[key] = value
+        kwargs.setdefault(key, value)
 
 
 def kwargs_notnone(**kwargs: Any) -> dict[str, Any]:
-    """Return dict of kwargs which values are not None.
+    """Return kwargs as dict, excluding items with None values.
 
     >>> kwargs_notnone(one=1, none=None)
     {'one': 1}
 
     """
-    return dict(item for item in kwargs.items() if item[1] is not None)
+    return {k: v for k, v in kwargs.items() if v is not None}
 
 
 def logger() -> logging.Logger:
