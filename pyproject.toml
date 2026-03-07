@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.black]
 line-length = 79
-target-version = ["py311", "py312", "py313", "py314"]
+target-version = ["py312", "py313", "py314"]
 skip-string-normalization = true
 
 [tool.isort]
