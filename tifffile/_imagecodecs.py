@@ -551,8 +551,9 @@ def packints_encode(
     bitspersample: int,
     /,
     *,
-    axis: int = -1,
-    out: Any = None,
+    bitorder: Literal['>', '<'] | None = None,
+    runlen: int = 0,
+    out: int | byterarray | None  = None,
 ) -> bytes | bytearray:
     """Tightly pack integers.
 
