@@ -74,6 +74,7 @@ try:
         /,
         level: int | None = None,
         *,
+        check: int | None = None,
         out: Any = None,
     ) -> bytes:
         """Compress LZMA.
@@ -81,10 +82,11 @@ try:
         Parameters:
             data: Data to compress.
             level: Compression level (currently unused).
+            check: Integrity check type (currently unused).
             out: Output buffer (currently unused).
 
         """
-        del level, out  # unused
+        del level, check, out  # unused
         if isinstance(data, numpy.ndarray):
             data = data.tobytes()
         return lzma.compress(data)
@@ -107,10 +109,11 @@ except ImportError:
         /,
         level: int | None = None,
         *,
+        check: int | None = None,
         out: Any = None,
     ) -> bytes:
         """Raise ImportError."""
-        del data, level, out  # unused
+        del data, level, check, out  # unused
         import lzma  # noqa: F401
 
         return b''
@@ -284,25 +287,25 @@ def packbits_decode(encoded: bytes, /, *, out: Any = None) -> bytes:
 def delta_encode(
     data: bytes | bytearray,
     /,
+    *,
     axis: int = -1,
     dist: int = 1,
-    *,
     out: Any = None,
 ) -> bytes: ...
 
 
 @overload
 def delta_encode(
-    data: NDArray[Any], /, axis: int = -1, dist: int = 1, *, out: Any = None
+    data: NDArray[Any], /, *, axis: int = -1, dist: int = 1, out: Any = None
 ) -> NDArray[Any]: ...
 
 
 def delta_encode(
     data: bytes | bytearray | NDArray[Any],
     /,
+    *,
     axis: int = -1,
     dist: int = 1,
-    *,
     out: Any = None,
 ) -> bytes | NDArray[Any]:
     """Encode Delta.
@@ -346,22 +349,27 @@ def delta_encode(
 
 @overload
 def delta_decode(
-    data: bytes | bytearray, /, axis: int, dist: int, *, out: Any
+    data: bytes | bytearray,
+    /,
+    *,
+    axis: int = -1,
+    dist: int = 1,
+    out: Any = None,
 ) -> bytes: ...
 
 
 @overload
 def delta_decode(
-    data: NDArray[Any], /, axis: int, dist: int, *, out: Any
+    data: NDArray[Any], /, *, axis: int = -1, dist: int = 1, out: Any = None
 ) -> NDArray[Any]: ...
 
 
 def delta_decode(
     data: bytes | bytearray | NDArray[Any],
     /,
+    *,
     axis: int = -1,
     dist: int = 1,
-    *,
     out: Any = None,
 ) -> bytes | NDArray[Any]:
     """Decode Delta.
@@ -497,11 +505,12 @@ def bitorder_decode(
 
 def packints_decode(
     data: bytes,
-    /,
     dtype: DTypeLike | None,
     bitspersample: int,
-    runlen: int = 0,
+    /,
     *,
+    bitorder: str | None = None,
+    runlen: int = 0,
     out: Any = None,
 ) -> NDArray[Any]:
     """Decompress bytes to array of integers.
@@ -516,6 +525,8 @@ def packints_decode(
             Numpy boolean or integer type.
         bitspersample:
             Number of bits per integer.
+        bitorder:
+            Bit order (currently unused).
         runlen:
             Number of consecutive integers after which to start at next byte.
         out:
@@ -529,7 +540,7 @@ def packints_decode(
         array([0, 1, 1, 0, 0, 0, 0, 1], dtype=uint8)
 
     """
-    del out  # unused
+    del bitorder, out  # unused
     if bitspersample == 1:  # bitarray
         data_array = numpy.frombuffer(data, '|B')
         data_array = numpy.unpackbits(data_array)
@@ -551,16 +562,23 @@ def packints_encode(
     bitspersample: int,
     /,
     *,
-    axis: int = -1,
+    bitorder: str | None = None,
+    runlen: int = 0,
     out: Any = None,
 ) -> bytes | bytearray:
     """Tightly pack integers.
 
     Parameters:
-        data: Array of integers to pack.
-        bitspersample: Number of bits per integer.
-        axis: Axis along which to pack.
-        out: Output buffer.
+        data:
+            Array of integers to pack.
+        bitspersample:
+            Number of bits per integer.
+        bitorder:
+            Bit order (currently unused).
+        runlen:
+            Number of consecutive integers after which to start at next byte.
+        out:
+            Output buffer.
 
     Returns:
         Packed byte string.
@@ -571,13 +589,18 @@ def packints_encode(
 
 
 def float24_decode(
-    data: bytes, /, byteorder: Literal['>', '<']
+    data: bytes,
+    /,
+    *,
+    byteorder: Literal['>', '<'] | None = None,
+    out: Any = None,
 ) -> NDArray[Any]:
     """Return float32 array from float24.
 
     Parameters:
         data: Bytes containing float24 values.
         byteorder: Byte order, either '>' (big-endian) or '<' (little-endian).
+        out: Output buffer (currently unused).
 
     Returns:
         Array of float32 values.
