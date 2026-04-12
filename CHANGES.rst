@@ -1,9 +1,17 @@
 Revisions
----------
+=========
+
+2026.4.11
+
+- Pass 5146 tests.
+- Add option to write zarr format 3 fsspec reference file system.
+- Support reading TIFF with embedded C2PA manifest.
+- Sync API of imagecodecs fallback implementations (#320).
+- Do not use defusedxml.
+- Drop support for Python 3.11.
 
 2026.3.3
 
-- Pass 5137 tests.
 - Do not convert TVIPS pixel sizes to m (#319).
 - Support writing packed integers with imagecodecs > 2026.1.14.
 - Support reading ccitt compressed images with imagecodecs > 2026.1.14.
