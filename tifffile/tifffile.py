@@ -50,10 +50,11 @@ Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
 compatible files in multi-page, volumetric, pyramidal, memory-mappable,
 tiled, predicted, or compressed form.
 
-Many compression and predictor schemes are supported via the imagecodecs
-library, including LZW, PackBits, Deflate, CCITT, PIXTIFF, LZMA, LERC, Zstd,
-JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR, JPEG XL, WebP, PNG, EER,
-Jetraw, 24-bit floating-point, and horizontal differencing.
+Many compression schemes, predictors, and data types are supported via the
+imagecodecs library, including LZW, PackBits, Deflate, CCITT, PIXTIFF,
+LZMA, LERC, Zstd, JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR,
+JPEG XL, WebP, PNG, EER, Jetraw, 24-bit floating-point, packed integers,
+and horizontal differencing.
 
 Tifffile can also be used to inspect TIFF structures, read image data from
 multi-dimensional file sequences, write fsspec ReferenceFileSystem for
@@ -62,7 +63,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.3.3
+:Version: 2026.4.11
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -98,25 +99,33 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.12, 3.14.3 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.1.14
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.4 64-bit
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.4
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.3.6
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.5
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.6
   (required only for using Zarr stores; Zarr 2 is not compatible)
-- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.9
+- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2026.4.11
+
+- Pass 5146 tests.
+- Add option to write zarr format 3 fsspec reference file system.
+- Support reading TIFF with embedded C2PA manifest.
+- Sync API of imagecodecs fallback implementations (#320).
+- Do not use defusedxml.
+- Drop support for Python 3.11.
+
 2026.3.3
 
-- Pass 5137 tests.
 - Do not convert TVIPS pixel sizes to m (#319).
 - Support writing packed integers with imagecodecs > 2026.1.14.
 - Support reading ccitt compressed images with imagecodecs > 2026.1.14.
@@ -811,7 +820,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.3.3'
+__version__ = '2026.4.11'
 
 __all__ = [
     'CHUNKMODE',
@@ -924,23 +933,23 @@ except ImportError:
     except ImportError:
         import _imagecodecs as imagecodecs  # type: ignore[no-redef]
 
-from typing import IO, TYPE_CHECKING, ClassVar, cast, final, overload
+from typing import IO, TYPE_CHECKING, ClassVar, cast, final, overload, override
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Container, Iterator
     from types import TracebackType
-    from typing import Any, Literal, Self, TypeAlias
+    from typing import Any, Literal, Self
 
     from numpy.typing import ArrayLike, DTypeLike, NDArray
 
-    ByteOrder: TypeAlias = Literal['>', '<']
-    OutputType: TypeAlias = str | IO[bytes] | NDArray[Any] | None
-    TagTuple: TypeAlias = tuple[int | str, int | str, int | None, Any, bool]
-    DecodeResult: TypeAlias = tuple[
-        NDArray[Any] | None,
-        tuple[int, int, int, int, int],
-        tuple[int, int, int, int],
-    ]
+type ByteOrder = Literal['>', '<']
+type OutputType = str | IO[bytes] | NDArray[Any] | None
+type TagTuple = tuple[int | str, int | str, int | None, Any, bool]
+type DecodeResult = tuple[
+    NDArray[Any] | None,
+    tuple[int, int, int, int, int],
+    tuple[int, int, int, int],
+]
 
 METADATA_DEFAULT: dict[str, Any] = {}  # sentinel for write metadata default
 
@@ -7261,6 +7270,20 @@ class TiffFile:
         return issis
 
     @cached_property
+    def is_c2pa(self) -> bool:
+        """File contains embedded C2PA manifest in last page.
+
+        A potential expensive check.
+
+        """
+        if len(self.pages) == 1 or self.is_scanimage:
+            return False
+        try:
+            return self.pages.get(-1, cache=False).aspage().is_c2pa
+        except Exception:
+            return False
+
+    @cached_property
     def shaped_metadata(self) -> tuple[dict[str, Any], ...] | None:
         """Tifffile metadata from JSON formatted ImageDescription tags."""
         if not self.is_shaped:
@@ -7596,6 +7619,13 @@ class TiffFile:
             self.pages.first.description, self.filehandle
         )
 
+    @cached_property
+    def c2pa_metadata(self) -> bytes | None:
+        """C2PA manifest from C2PAManifestStore tag of last page."""
+        if not self.is_c2pa:
+            return None
+        return self.pages.get(-1).aspage().tags.valueof(52545)
+
 
 @final
 class TiffFormat:
@@ -7926,6 +7956,9 @@ class TiffPage:
 
         if not tags:
             return  # found in FIBICS
+
+        if len(tags) == 1 and 52545 in tags:
+            return  # C2PAManifestStore
 
         for code, name in TIFF.TAG_ATTRIBUTES.items():
             value = tags.valueof(code)
@@ -8773,15 +8806,13 @@ class TiffPage:
             if self.compression == 2:
                 ccitt_decompress = imagecodecs.ccittrle_decode
             elif self.compression == 3:
-                t4options = self.tags.valueof(292)
-                if t4options is None:
-                    t4options = 0
+                t4options = int(self.tags.valueof(292, 0))
 
-                def ccitt_decompress(
-                    data, rows, width, *, t4options=t4options
+                def ccitt_decompress(  # type: ignore[misc]
+                    data, /, height, width, *, out=None
                 ):
                     return imagecodecs.ccittfax3_decode(
-                        data, rows, width, t4options=t4options
+                        data, height, width, t4options=t4options, out=out
                     )
 
             else:
@@ -9214,6 +9245,8 @@ class TiffPage:
             gamma is not corrected, and CFA images are not demosaiced.
             Exceptions are YCbCr JPEG compressed images, which are converted to
             RGB.
+            Return an empty, two-dimensional array if the page contains no
+            image or is missing required tags.
 
         Raises:
             TiffFileError:
@@ -9225,7 +9258,14 @@ class TiffPage:
         keyframe = self.keyframe  # self or keyframe
 
         if 0 in keyframe.shaped or keyframe._dtype is None:
-            return numpy.empty((0,), keyframe.dtype)
+            return numpy.empty(
+                (0, 0),
+                (
+                    keyframe._dtype
+                    if keyframe._dtype is not None
+                    else numpy.bool_
+                ),
+            )
 
         if len(self.dataoffsets) == 0:
             msg = 'missing data offset'
@@ -9598,16 +9638,27 @@ class TiffPage:
     ) -> tuple[float, float]:
         """Return number of pixels per unit in X and Y dimensions.
 
-        By default, the XResolution and YResolution tag values are returned.
+        By default, the raw XResolution and YResolution rational tag values
+        are returned without any unit conversion.
         Missing tag values are set to 1.
 
         Parameters:
             unit:
                 Unit of measurement of returned values.
-                The default is the value of the ResolutionUnit tag.
+                If specified, values are converted using the ResolutionUnit
+                tag (default INCH) as the stored unit.
+                Accepts a :py:class:`RESUNIT` member, its integer value,
+                or a case-insensitive name string such as ``'inch'``.
             scale:
-                Factor to convert resolution values to meter unit.
-                The default is determined from the ResolutionUnit tag.
+                Multiplier applied to raw rational tag values.
+                If `unit` is also given, `scale` overrides reading the
+                ResolutionUnit tag and is used as the source scale
+                (pixels per meter for the stored unit), which is then
+                divided by the scale for `unit`.
+                If only `scale` is given (`unit=None`), it is applied
+                directly to the raw tag values.
+                The default, when neither `unit` nor `scale` is given,
+                is 1 (no conversion).
 
         Returns:
             Number of pixels per unit in X and Y dimensions.
@@ -9652,15 +9703,14 @@ class TiffPage:
             except Exception:
                 value = 1.0
             resolution.append(value)
-        return resolution[0], resolution[1]
+        return float(resolution[0]), float(resolution[1])
 
     @cached_property
     def resolution(self) -> tuple[float, float]:
         """Number of pixels per resolutionunit in X and Y directions."""
         # values are returned in (somewhat unexpected) XY order to
         # keep symmetry with the TiffWriter.write resolution argument
-        resolution = self.get_resolution()
-        return float(resolution[0]), float(resolution[1])
+        return self.get_resolution()
 
     @property
     def resolutionunit(self) -> int:
@@ -10574,6 +10624,11 @@ class TiffPage:
             and self.tags[65001].dtype == 7
             and self.tags[65001].value[:10] == b'<metadata>'
         )
+
+    @property
+    def is_c2pa(self) -> bool:
+        """Page contains embedded C2PA manifest."""
+        return len(self.tags) == 1 and 52545 in self.tags
 
 
 @final
@@ -11671,6 +11726,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         self, key: slice | Sequence[int], /
     ) -> list[TiffPage | TiffFrame]: ...
 
+    @override
     def __getitem__(
         self, key: int | slice | Sequence[int], /
     ) -> TiffPage | TiffFrame | list[TiffPage | TiffFrame]:
@@ -11692,6 +11748,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         msg = 'key must be an integer, slice, or sequence'
         raise TypeError(msg)
 
+    @override
     def __iter__(self) -> Iterator[TiffPage | TiffFrame]:
         for i in itertools.count():
             try:
@@ -11706,6 +11763,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         """Return True if file contains any pages."""
         return len(self._offsets) > 0
 
+    @override
     def __len__(self) -> int:
         """Return number of pages in file."""
         if not self._indexed:
@@ -13226,6 +13284,7 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         self, key: slice | Sequence[int], /
     ) -> list[TiffPage | TiffFrame | None]: ...
 
+    @override
     def __getitem__(
         self, key: int | numpy.integer[Any] | slice | Sequence[int], /
     ) -> TiffPage | TiffFrame | list[TiffPage | TiffFrame | None] | None:
@@ -13239,6 +13298,7 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         msg = 'key must be an integer, slice, or sequence'
         raise TypeError(msg)
 
+    @override
     def __iter__(self) -> Iterator[TiffPage | TiffFrame | None]:
         """Return iterator over pages in series."""
         if len(self._pages) == self._len:
@@ -13251,6 +13311,7 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
             for i in range(self._len):
                 yield pages[index + i]
 
+    @override
     def __len__(self) -> int:
         """Return number of pages in series."""
         return self._len
@@ -13269,7 +13330,7 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
                 self.kind,
                 (f'{len(self.levels)} Levels') if self.is_pyramidal else '',
                 f'{len(self)} Pages',
-                # dataoffset is an potential expensive lookup
+                # dataoffset is a potential expensive lookup
                 (f'@{self.dataoffset}') if self.dataoffset else '',
             )
             if s
@@ -13598,10 +13659,12 @@ class FileSequence(Sequence[str]):
         """Number of missing files in sequence."""
         return product(self.shape) - len(self._files)
 
+    @override
     def __iter__(self) -> Iterator[str]:
         """Return iterator over all file names."""
         return iter(self._files)
 
+    @override
     def __len__(self) -> int:
         return len(self._files)
 
@@ -13611,6 +13674,7 @@ class FileSequence(Sequence[str]):
     @overload
     def __getitem__(self, key: slice, /) -> list[str]: ...
 
+    @override
     def __getitem__(self, key: int | slice, /) -> str | list[str]:
         return self._files[key]
 
@@ -13652,6 +13716,7 @@ class TiffSequence(FileSequence):
 
     """
 
+    @override
     def __init__(
         self,
         files: (
@@ -13663,6 +13728,7 @@ class TiffSequence(FileSequence):
     ) -> None:
         super().__init__(imread, '*.tif' if files is None else files, **kwargs)
 
+    @override
     def __repr__(self) -> str:
         return f'<tifffile.TiffSequence @0x{id(self):016X}>'
 
@@ -14999,6 +15065,7 @@ class StoredShape(Sequence[int]):
             return 1  # PLANARCONFIG.CONTIG
         return None
 
+    @override
     def __len__(self) -> int:
         return 6
 
@@ -15008,6 +15075,7 @@ class StoredShape(Sequence[int]):
     @overload
     def __getitem__(self, key: slice, /) -> tuple[int, ...]: ...
 
+    @override
     def __getitem__(self, key: int | slice, /) -> int | tuple[int, ...]:
         return self.shape[key]
 
@@ -16248,6 +16316,7 @@ class CompressionCodec(Mapping[int, Callable[..., object]]):
         self._codecs = {1: identityfunc}
         self._encode = bool(encode)
 
+    @override
     def __getitem__(self, key: int, /) -> Callable[..., Any]:
         """Return encode or decode function for COMPRESSION value.
 
@@ -16411,6 +16480,7 @@ class CompressionCodec(Mapping[int, Callable[..., object]]):
         self._codecs[key] = codec
         return codec
 
+    @override
     def __contains__(self, key: Any, /) -> bool:
         # side effect: resolves and caches codec function for key
         try:
@@ -16419,9 +16489,11 @@ class CompressionCodec(Mapping[int, Callable[..., object]]):
             return False
         return True
 
+    @override
     def __iter__(self) -> Iterator[int]:
         return iter(self._codecs)
 
+    @override
     def __len__(self) -> int:
         return len(self._codecs)
 
@@ -16442,6 +16514,7 @@ class PredictorCodec(Mapping[int, Callable[..., object]]):
         self._codecs = {1: identityfunc}
         self._encode = bool(encode)
 
+    @override
     def __getitem__(self, key: int, /) -> Callable[..., Any]:
         """Return encode or decode function for PREDICTOR value.
 
@@ -16537,6 +16610,7 @@ class PredictorCodec(Mapping[int, Callable[..., object]]):
         self._codecs[key] = codec
         return codec
 
+    @override
     def __contains__(self, key: Any, /) -> bool:
         # side effect: resolves and caches codec function for key
         try:
@@ -16545,9 +16619,11 @@ class PredictorCodec(Mapping[int, Callable[..., object]]):
             return False
         return True
 
+    @override
     def __iter__(self) -> Iterator[int]:
         return iter(self._codecs)
 
+    @override
     def __len__(self) -> int:
         return len(self._codecs)
 
@@ -17662,6 +17738,7 @@ class _TIFF:
                 (52534, 'IlluminantData2'),  # DNG 1.6
                 (53535, 'IlluminantData3'),  # DNG 1.6
                 (52544, 'ProfileGainTableMap2'),  # DNG 1.7
+                (52545, 'C2PAManifestStore'),
                 (52547, 'ColumnInterleaveFactor'),  # DNG 1.7
                 (52548, 'ImageSequenceInfo'),  # DNG 1.7
                 (52550, 'ImageStats'),  # DNG 1.7
@@ -20889,9 +20966,7 @@ def imagej_metadata(
         result[name.strip()] = values[0] if count == 1 else values
     prop = result.get('Properties')
     if isinstance(prop, list) and len(prop) % 2 == 0:
-        result['Properties'] = dict(
-            prop[i : i + 2] for i in range(0, len(prop), 2)
-        )
+        result['Properties'] = dict(itertools.batched(prop, 2))
     return result
 
 
@@ -23788,10 +23863,7 @@ def xml2dict(
         {'level1': {'level2': (3.5322, -3.14)}}
 
     """
-    try:
-        from defusedxml import ElementTree
-    except ImportError:
-        from xml.etree import ElementTree
+    from xml.etree import ElementTree
 
     at, tx = prefix or ('', '')
 
@@ -24451,6 +24523,7 @@ def tiff2fsspec(
     squeeze: bool | None = None,
     groupname: str | None = None,
     version: int | None = None,
+    zarr_format: int | None = None,
 ) -> str:
     """Write fsspec ReferenceFileSystem in JSON format for data in TIFF file.
 
@@ -24466,7 +24539,7 @@ def tiff2fsspec(
             The default is `filename` with a '.json' extension appended.
         key, series, level, chunkmode, fillvalue, zattrs, squeeze:
             Passed to :py:meth:`TiffFile.aszarr`.
-        groupname, version:
+        groupname, version, zarr_format:
             Passed to :py:meth:`ZarrTiffStore.write_fsspec`.
 
     Returns:
@@ -24487,7 +24560,13 @@ def tiff2fsspec(
             squeeze=squeeze,
         ) as store,
     ):
-        store.write_fsspec(out, url, groupname=groupname, version=version)
+        store.write_fsspec(
+            out,
+            url,
+            groupname=groupname,
+            version=version,
+            zarr_format=zarr_format,
+        )
     return out
 
 
