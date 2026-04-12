@@ -40,7 +40,7 @@ import base64
 import contextlib
 import json
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import numpy
 import zarr
@@ -136,6 +136,7 @@ class ZarrStore(Store):
             (tuple(self._store.items()), self._fillvalue, self._chunkmode)
         )
 
+    @override
     def __eq__(self, other: object) -> bool:
         """Return whether objects are equal."""
         return (
@@ -145,6 +146,7 @@ class ZarrStore(Store):
             and self._chunkmode == other._chunkmode
         )
 
+    @override
     async def get_partial_values(
         self,
         prototype: BufferPrototype,
@@ -157,6 +159,7 @@ class ZarrStore(Store):
             for key, byte_range in key_ranges
         ]
 
+    @override
     @property
     def supports_writes(self) -> bool:
         """Store supports writes."""
@@ -166,30 +169,36 @@ class ZarrStore(Store):
         """Store (key, value) pair."""
         raise NotImplementedError
 
+    @override
     async def set(self, key: str, value: Buffer) -> None:
         """Store (key, value) pair."""
         self._set(key, value)
 
+    @override
     @property
     def supports_deletes(self) -> bool:
         """Store supports deletes."""
         return False
 
+    @override
     async def delete(self, key: str) -> None:
         """Remove key from store."""
         msg = 'ZarrStore does not support deletes'
         raise PermissionError(msg)
 
+    @override
     @property
     def supports_listing(self) -> bool:
         """Store supports listing."""
         return True
 
+    @override
     async def list(self) -> AsyncIterator[str]:
         """Return all keys in store."""
         for key in self._store:
             yield key
 
+    @override
     async def list_prefix(self, prefix: str) -> AsyncIterator[str]:
         """Return all keys in store that begin with prefix.
 
@@ -200,6 +209,7 @@ class ZarrStore(Store):
             if key.startswith(prefix):
                 yield key
 
+    @override
     async def list_dir(self, prefix: str) -> AsyncIterator[str]:
         """Return all keys and prefixes with prefix.
 
@@ -428,6 +438,10 @@ class ZarrTiffStore(ZarrStore):
         if fillvalue is None:
             fillvalue = keyframe.nodata
             self._fillvalue = fillvalue
+        if keyframe._dtype is None:
+            # empty page (e.g. C2PA), consistent with TiffPage.asarray()
+            shape = (0, 0)
+            dtype = numpy.dtype(numpy.bool_)
         chunks = keyframe.shape if self._chunkmode else keyframe.chunks
         self._store[key] = _json_dumps(
             {
@@ -445,6 +459,7 @@ class ZarrTiffStore(ZarrStore):
             self._read_only = not _is_writable(keyframe)
         return fillvalue, shape
 
+    @override
     def close(self) -> None:
         """Close store."""
         super().close()
@@ -459,6 +474,7 @@ class ZarrTiffStore(ZarrStore):
         groupname: str | None = None,
         templatename: str | None = None,
         compressors: dict[COMPRESSION | int, str | None] | None = None,
+        zarr_format: int | None = None,
         version: int | None = None,
         _shape: Sequence[int] | None = None,
         _axes: Sequence[str] | None = None,
@@ -479,7 +495,16 @@ class ZarrTiffStore(ZarrStore):
                 Version 1 URL template name. The default is 'u'.
             compressors:
                 Mapping of :py:class:`COMPRESSION` codes to Numcodecs codec
-                names.
+                names (zarr format 2) or imagecodecs.zarr codec names
+                (zarr format 3).
+            zarr_format:
+                Version of Zarr array format to write.
+                The default is 2.
+                If 3, write Zarr version 3 format using
+                :py:mod:`imagecodecs.zarr` native codec specifications.
+                Chunk keys use 'c/' prefix with '/' separator and
+                :py:meth:`imagecodecs.zarr.register_codecs` must be called
+                before reading the resulting store.
             version:
                 Version of fsspec file to write. The default is 0.
             _shape:
@@ -536,7 +561,7 @@ class ZarrTiffStore(ZarrStore):
             34892: 'imagecodecs_jpeg',
             34933: 'imagecodecs_png',
             34934: 'imagecodecs_jpegxr',
-            48124: 'imagecodecs_jetraw',
+            # 48124: 'imagecodecs_jetraw',  # not supported by imagecodecs.zarr
             50000: 'imagecodecs_zstd',  # numcodecs.zstd fails w/ unknown sizes
             50001: 'imagecodecs_webp',
             50002: 'imagecodecs_jpegxl',
@@ -662,120 +687,339 @@ class ZarrTiffStore(ZarrStore):
             refzarr = refs
 
         if not _append:
-            if groupname:
-                # TODO: support nested groups
-                refzarr['.zgroup'] = _json_dumps({'zarr_format': 2}).decode()
-
-            for item in self._store.items():
-                key, value = item
-                if '.zattrs' in key and _axes:
-                    value = json.loads(value)
-                    if '_ARRAY_DIMENSIONS' in value:
-                        value['_ARRAY_DIMENSIONS'] = (
-                            _axes + value['_ARRAY_DIMENSIONS']
-                        )
-                    value = _json_dumps(value)
-                elif '.zarray' in key:
-                    value = json.loads(value)
-                    level = int(key.split('/')[0]) if '/' in key else 0
-                    keyframe = self._data[level].keyframe
-                    if _shape:
-                        value['shape'] = _shape + value['shape']
-                        value['chunks'] = [1] * len(_shape) + value['chunks']
-                    codec_id = compressors[keyframe.compression]
-                    if codec_id == 'imagecodecs_jpeg':
-                        # TODO: handle JPEG color spaces
-                        jpegtables = keyframe.jpegtables
-                        if jpegtables is None:
-                            tables = None
-                        else:
-                            tables = base64.b64encode(jpegtables).decode()
-                        jpegheader = keyframe.jpegheader
-                        if jpegheader is None:
-                            header = None
-                        else:
-                            header = base64.b64encode(jpegheader).decode()
-                        (
-                            colorspace_jpeg,
-                            colorspace_data,
-                        ) = jpeg_decode_colorspace(
-                            keyframe.photometric,
-                            keyframe.planarconfig,
-                            keyframe.extrasamples,
-                            keyframe.is_jfif,
-                        )
-                        value['compressor'] = {
-                            'id': codec_id,
-                            'tables': tables,
-                            'header': header,
-                            'bitspersample': keyframe.bitspersample,
-                            'colorspace_jpeg': colorspace_jpeg,
-                            'colorspace_data': colorspace_data,
+            if zarr_format == 3:
+                # Zarr v3: combine .zgroup/.zattrs/.zarray into zarr.json
+                if groupname:
+                    # TODO: support nested groups
+                    refzarr['zarr.json'] = _json_dumps(
+                        {
+                            'zarr_format': 3,
+                            'node_type': 'group',
+                            'attributes': {},
                         }
-                    elif (
-                        codec_id == 'imagecodecs_webp'
-                        and keyframe.samplesperpixel == 4
-                    ):
-                        value['compressor'] = {
-                            'id': codec_id,
-                            'hasalpha': True,
-                        }
-                    elif codec_id == 'imagecodecs_eer':
-                        horzbits = vertbits = 2
-                        if keyframe.compression == 65002:
-                            skipbits = int(keyframe.tags.valueof(65007, 7))
-                            horzbits = int(keyframe.tags.valueof(65008, 2))
-                            vertbits = int(keyframe.tags.valueof(65009, 2))
-                        elif keyframe.compression == 65001:
-                            skipbits = 7
-                        else:
-                            skipbits = 8
-                        value['compressor'] = {
-                            'id': codec_id,
-                            'shape': keyframe.chunks,
-                            'skipbits': skipbits,
-                            'horzbits': horzbits,
-                            'vertbits': vertbits,
-                            'superres': keyframe.parent._superres,
-                        }
-                    elif codec_id is not None:
-                        value['compressor'] = {'id': codec_id}
-                    if byteorder is not None:
-                        value['dtype'] = byteorder + value['dtype'][1:]
-                    if keyframe.predictor > 1:
-                        # predictors need access to chunk shape and dtype
-                        # requires imagecodecs > 2021.8.26 to read
-                        if keyframe.predictor in {2, 34892, 34893}:
-                            filter_id = 'imagecodecs_delta'
-                        else:
-                            filter_id = 'imagecodecs_floatpred'
-                        if keyframe.predictor <= 3:
-                            dist = 1
-                        elif keyframe.predictor in {34892, 34894}:
-                            dist = 2
-                        else:
-                            dist = 4
-                        if (
-                            keyframe.planarconfig == 1
-                            and keyframe.samplesperpixel > 1
-                        ):
-                            axis = -2
-                        else:
-                            axis = -1
-                        value['filters'] = [
+                    ).decode()
+                for key, value_bytes in self._store.items():
+                    if '.zgroup' in key:
+                        # Group zarr.json: .zgroup + .zattrs -> zarr.json
+                        zattrs_key = key.replace('.zgroup', '.zattrs')
+                        group_attrs: dict[str, Any] = {}
+                        if zattrs_key in self._store:
+                            group_attrs = json.loads(self._store[zattrs_key])
+                        if _axes and '_ARRAY_DIMENSIONS' in group_attrs:
+                            group_attrs['_ARRAY_DIMENSIONS'] = (
+                                _axes + group_attrs['_ARRAY_DIMENSIONS']
+                            )
+                        zarr_json_key = key.replace('.zgroup', 'zarr.json')
+                        refzarr[groupname + zarr_json_key] = _json_dumps(
                             {
-                                'id': filter_id,
-                                'axis': axis,
-                                'dist': dist,
-                                'shape': value['chunks'],
-                                'dtype': value['dtype'],
+                                'zarr_format': 3,
+                                'node_type': 'group',
+                                'attributes': group_attrs,
                             }
-                        ]
-                    value = _json_dumps(value)
-                # else:
-                #     pass through value
+                        ).decode()
+                    elif '.zarray' in key:
+                        # Array zarr.json: .zarray + .zattrs -> zarr.json
+                        value = json.loads(value_bytes)
+                        level = int(key.split('/')[0]) if '/' in key else 0
+                        levelstr = f'{level}/' if '/' in key else ''
+                        keyframe = self._data[level].keyframe
+                        if _shape:
+                            value['shape'] = _shape + value['shape']
+                            value['chunks'] = [1] * len(_shape) + value[
+                                'chunks'
+                            ]
+                        # Get attributes from corresponding .zattrs
+                        array_attrs: dict[str, Any] = {}
+                        zattrs_key = key.replace('.zarray', '.zattrs')
+                        if zattrs_key in self._store:
+                            array_attrs = json.loads(self._store[zattrs_key])
+                        if _axes and '_ARRAY_DIMENSIONS' in array_attrs:
+                            array_attrs['_ARRAY_DIMENSIONS'] = (
+                                _axes + array_attrs['_ARRAY_DIMENSIONS']
+                            )
+                        # Build zarr v3 codec pipeline
+                        codec_id = compressors[keyframe.compression]
+                        dtype = numpy.dtype(value['dtype'])
+                        tiff_byteorder = keyframe.parent.byteorder
+                        if dtype.itemsize == 1 or tiff_byteorder is None:
+                            bytes_codec: dict[str, Any] = {'name': 'bytes'}
+                        elif tiff_byteorder == '>':
+                            bytes_codec = {
+                                'name': 'bytes',
+                                'configuration': {'endian': 'big'},
+                            }
+                        else:
+                            bytes_codec = {
+                                'name': 'bytes',
+                                'configuration': {'endian': 'little'},
+                            }
+                        codecs: list[dict[str, Any]] = []
+                        if keyframe.predictor > 1:
+                            # array-array filter codec
+                            if keyframe.predictor in {2, 34892, 34893}:
+                                filter_id = 'imagecodecs_delta'
+                            else:
+                                filter_id = 'imagecodecs_floatpred'
+                            if keyframe.predictor <= 3:
+                                dist = 1
+                            elif keyframe.predictor in {34892, 34894}:
+                                dist = 2
+                            else:
+                                dist = 4
+                            if (
+                                keyframe.planarconfig == 1
+                                and keyframe.samplesperpixel > 1
+                            ):
+                                axis = -2
+                            else:
+                                axis = -1
+                            codecs.append(
+                                {
+                                    'name': filter_id,
+                                    'configuration': {
+                                        'axis': axis,
+                                        'dist': dist,
+                                    },
+                                }
+                            )
+                        if codec_id is None:
+                            # no compression: just bytes array-bytes codec
+                            codecs.append(bytes_codec)
+                        elif codec_id in _ARRAY_BYTES_CODECS:
+                            # array-bytes codec: handles array↔bytes directly
+                            if codec_id == 'imagecodecs_jpeg':
+                                # TODO: handle JPEG color spaces
+                                jpegtables = keyframe.jpegtables
+                                tables = (
+                                    None
+                                    if jpegtables is None
+                                    else base64.b64encode(jpegtables).decode()
+                                )
+                                jpegheader = keyframe.jpegheader
+                                header = (
+                                    None
+                                    if jpegheader is None
+                                    else base64.b64encode(jpegheader).decode()
+                                )
+                                (
+                                    colorspace_jpeg,
+                                    colorspace_data,
+                                ) = jpeg_decode_colorspace(
+                                    keyframe.photometric,
+                                    keyframe.planarconfig,
+                                    keyframe.extrasamples,
+                                    keyframe.is_jfif,
+                                )
+                                cfg: dict[str, Any] = {
+                                    'bitspersample': keyframe.bitspersample,
+                                    'colorspace_jpeg': colorspace_jpeg,
+                                    'colorspace_data': colorspace_data,
+                                }
+                                if tables is not None:
+                                    cfg['tables'] = tables
+                                if header is not None:
+                                    cfg['header'] = header
+                                codecs.append(
+                                    {
+                                        'name': codec_id,
+                                        'configuration': cfg,
+                                    }
+                                )
+                            elif (
+                                codec_id == 'imagecodecs_webp'
+                                and keyframe.samplesperpixel == 4
+                            ):
+                                codecs.append(
+                                    {
+                                        'name': codec_id,
+                                        'configuration': {'hasalpha': True},
+                                    }
+                                )
+                            elif codec_id == 'imagecodecs_eer':
+                                horzbits = vertbits = 2
+                                if keyframe.compression == 65002:
+                                    skipbits = int(
+                                        keyframe.tags.valueof(65007, 7)
+                                    )
+                                    horzbits = int(
+                                        keyframe.tags.valueof(65008, 2)
+                                    )
+                                    vertbits = int(
+                                        keyframe.tags.valueof(65009, 2)
+                                    )
+                                elif keyframe.compression == 65001:
+                                    skipbits = 7
+                                else:
+                                    skipbits = 8
+                                eer_cfg: dict[str, Any] = {
+                                    'shape': list(keyframe.chunks),
+                                    'skipbits': skipbits,
+                                    'horzbits': horzbits,
+                                    'vertbits': vertbits,
+                                }
+                                if keyframe.parent._superres:
+                                    eer_cfg['superres'] = (
+                                        keyframe.parent._superres
+                                    )
+                                codecs.append(
+                                    {
+                                        'name': codec_id,
+                                        'configuration': eer_cfg,
+                                    }
+                                )
+                            else:
+                                codecs.append({'name': codec_id})
+                        else:
+                            # bytes-bytes codec: needs bytes array-bytes first
+                            zarr3_codec_id = _ZARR2_TO_ZARR3_CODEC.get(
+                                codec_id, codec_id
+                            )
+                            codecs.append(bytes_codec)
+                            codecs.append({'name': zarr3_codec_id})
+                        array_meta: dict[str, Any] = {
+                            'zarr_format': 3,
+                            'node_type': 'array',
+                            'shape': value['shape'],
+                            'data_type': dtype.name,
+                            'chunk_grid': {
+                                'name': 'regular',
+                                'configuration': {
+                                    'chunk_shape': value['chunks']
+                                },
+                            },
+                            'chunk_key_encoding': {
+                                'name': 'default',
+                                'configuration': {'separator': '/'},
+                            },
+                            'fill_value': value['fill_value'],
+                            'codecs': codecs,
+                            'attributes': array_attrs,
+                            'storage_transformers': [],
+                        }
+                        refzarr[groupname + levelstr + 'zarr.json'] = (
+                            _json_dumps(array_meta).decode()
+                        )
+                    # else: skip .zattrs (folded into zarr.json above)
+            else:
+                # Zarr v2 format
+                if groupname:
+                    # TODO: support nested groups
+                    refzarr['.zgroup'] = _json_dumps(
+                        {'zarr_format': 2}
+                    ).decode()
 
-                refzarr[groupname + key] = value.decode()
+                for item in self._store.items():
+                    key, value = item
+                    if '.zattrs' in key and _axes:
+                        value = json.loads(value)
+                        if '_ARRAY_DIMENSIONS' in value:
+                            value['_ARRAY_DIMENSIONS'] = (
+                                _axes + value['_ARRAY_DIMENSIONS']
+                            )
+                        value = _json_dumps(value)
+                    elif '.zarray' in key:
+                        value = json.loads(value)
+                        level = int(key.split('/')[0]) if '/' in key else 0
+                        keyframe = self._data[level].keyframe
+                        if _shape:
+                            value['shape'] = _shape + value['shape']
+                            value['chunks'] = [1] * len(_shape) + value[
+                                'chunks'
+                            ]
+                        codec_id = compressors[keyframe.compression]
+                        if codec_id == 'imagecodecs_jpeg':
+                            # TODO: handle JPEG color spaces
+                            jpegtables = keyframe.jpegtables
+                            if jpegtables is None:
+                                tables = None
+                            else:
+                                tables = base64.b64encode(jpegtables).decode()
+                            jpegheader = keyframe.jpegheader
+                            if jpegheader is None:
+                                header = None
+                            else:
+                                header = base64.b64encode(jpegheader).decode()
+                            (
+                                colorspace_jpeg,
+                                colorspace_data,
+                            ) = jpeg_decode_colorspace(
+                                keyframe.photometric,
+                                keyframe.planarconfig,
+                                keyframe.extrasamples,
+                                keyframe.is_jfif,
+                            )
+                            value['compressor'] = {
+                                'id': codec_id,
+                                'tables': tables,
+                                'header': header,
+                                'bitspersample': keyframe.bitspersample,
+                                'colorspace_jpeg': colorspace_jpeg,
+                                'colorspace_data': colorspace_data,
+                            }
+                        elif (
+                            codec_id == 'imagecodecs_webp'
+                            and keyframe.samplesperpixel == 4
+                        ):
+                            value['compressor'] = {
+                                'id': codec_id,
+                                'hasalpha': True,
+                            }
+                        elif codec_id == 'imagecodecs_eer':
+                            horzbits = vertbits = 2
+                            if keyframe.compression == 65002:
+                                skipbits = int(keyframe.tags.valueof(65007, 7))
+                                horzbits = int(keyframe.tags.valueof(65008, 2))
+                                vertbits = int(keyframe.tags.valueof(65009, 2))
+                            elif keyframe.compression == 65001:
+                                skipbits = 7
+                            else:
+                                skipbits = 8
+                            value['compressor'] = {
+                                'id': codec_id,
+                                'shape': keyframe.chunks,
+                                'skipbits': skipbits,
+                                'horzbits': horzbits,
+                                'vertbits': vertbits,
+                                'superres': keyframe.parent._superres,
+                            }
+                        elif codec_id is not None:
+                            value['compressor'] = {'id': codec_id}
+                        if byteorder is not None:
+                            value['dtype'] = byteorder + value['dtype'][1:]
+                        if keyframe.predictor > 1:
+                            # predictors need access to chunk shape and dtype
+                            # requires imagecodecs > 2021.8.26 to read
+                            if keyframe.predictor in {2, 34892, 34893}:
+                                filter_id = 'imagecodecs_delta'
+                            else:
+                                filter_id = 'imagecodecs_floatpred'
+                            if keyframe.predictor <= 3:
+                                dist = 1
+                            elif keyframe.predictor in {34892, 34894}:
+                                dist = 2
+                            else:
+                                dist = 4
+                            if (
+                                keyframe.planarconfig == 1
+                                and keyframe.samplesperpixel > 1
+                            ):
+                                axis = -2
+                            else:
+                                axis = -1
+                            value['filters'] = [
+                                {
+                                    'id': filter_id,
+                                    'axis': axis,
+                                    'dist': dist,
+                                    'shape': value['chunks'],
+                                    'dtype': value['dtype'],
+                                }
+                            ]
+                        value = _json_dumps(value)
+                    # else:
+                    #     pass through value
+
+                    refzarr[groupname + key] = value.decode()
 
         fh: TextIO
         with contextlib.ExitStack() as stack:
@@ -794,6 +1038,8 @@ class ZarrTiffStore(ZarrStore):
                 indent = ' '
 
             offset: int | None
+            chunk_sep = '/' if zarr_format == 3 else '.'
+            chunk_prefix = 'c/' if zarr_format == 3 else ''
             for item in self._store.items():
                 key, value = item
                 if '.zarray' in key:
@@ -802,9 +1048,17 @@ class ZarrTiffStore(ZarrStore):
                     chunks = value['chunks']
                     levelstr = (key.split('/')[0] + '/') if '/' in key else ''
                     for chunkindex in _ndindex(shape, chunks):
-                        key = levelstr + chunkindex
+                        # internal_key uses '.' for _parse_key/_indices
+                        internal_key = levelstr + chunkindex
+                        fsspec_key = (
+                            levelstr
+                            + chunk_prefix
+                            + chunkindex.replace('.', chunk_sep)
+                            if zarr_format == 3
+                            else internal_key
+                        )
                         keyframe, page, _, offset, bytecount = self._parse_key(
-                            key
+                            internal_key
                         )
                         if page and self._chunkmode and offset is None:
                             offset = page.dataoffsets[0]
@@ -816,7 +1070,7 @@ class ZarrTiffStore(ZarrStore):
                             else:
                                 filename = f'{url}{filename}'
                             fh.write(
-                                f',\n{indent}"{groupname}{key}": '
+                                f',\n{indent}"{groupname}{fsspec_key}": '
                                 f'["{filename}", {offset}, {bytecount}]'
                             )
 
@@ -826,6 +1080,7 @@ class ZarrTiffStore(ZarrStore):
             elif _close:
                 fh.write('\n}')
 
+    @override
     async def get(
         self,
         key: str,
@@ -912,6 +1167,7 @@ class ZarrTiffStore(ZarrStore):
             raise RuntimeError(msg)
         return prototype.buffer.from_array_like(chunk.reshape(-1).view('B'))
 
+    @override
     async def exists(self, key: str) -> bool:
         """Return whether key exists in store."""
         # print(f'exists({key=})')
@@ -931,6 +1187,7 @@ class ZarrTiffStore(ZarrStore):
             and bytecount > 0
         )
 
+    @override
     async def set(self, key: str, value: Buffer) -> None:
         """Store (key, value) pair."""
         if self._read_only:
@@ -1213,6 +1470,7 @@ class ZarrFileSequenceStore(ZarrStore):
             }
         )
 
+    @override
     async def exists(self, key: str) -> bool:
         """Return whether key exists in store."""
         # print(f'exists({key=})')
@@ -1225,6 +1483,7 @@ class ZarrFileSequenceStore(ZarrStore):
             return False
         return indices in self._lookup
 
+    @override
     async def get(
         self,
         key: str,
@@ -1273,6 +1532,7 @@ class ZarrFileSequenceStore(ZarrStore):
         groupname: str | None = None,
         templatename: str | None = None,
         codec_id: str | None = None,
+        zarr_format: int | None = None,
         version: int | None = None,
         _append: bool = False,
         _close: bool = True,
@@ -1292,7 +1552,16 @@ class ZarrFileSequenceStore(ZarrStore):
             templatename:
                 Version 1 URL template name. The default is 'u'.
             codec_id:
-                Name of Numcodecs codec to decode files or chunks.
+                Name of Numcodecs (zarr format 2) or imagecodecs.zarr
+                (zarr format 3) codec to decode files or chunks.
+            zarr_format:
+                Version of Zarr array format to write.
+                The default is 2.
+                If 3, write Zarr version 3 format using
+                :py:mod:`imagecodecs.zarr` native codec specifications.
+                Chunk keys use 'c/' prefix with '/' separator and
+                :py:meth:`imagecodecs.zarr.register_codecs` must be called
+                before reading the resulting store.
             version:
                 Version of fsspec file to write. The default is 0.
             _append, _close:
@@ -1327,8 +1596,12 @@ class ZarrFileSequenceStore(ZarrStore):
                 codec_id = {
                     'apng': 'imagecodecs_apng',
                     'avif': 'imagecodecs_avif',
+                    'bmp': 'imagecodecs_bmp',
+                    'dds': 'imagecodecs_dds',
+                    'exr': 'imagecodecs_exr',
                     'gif': 'imagecodecs_gif',
                     'heif': 'imagecodecs_heif',
+                    'htj2k': 'imagecodecs_htj2k',
                     'jpeg': 'imagecodecs_jpeg',
                     'jpeg8': 'imagecodecs_jpeg',
                     'jpeg12': 'imagecodecs_jpeg',
@@ -1341,8 +1614,11 @@ class ZarrFileSequenceStore(ZarrStore):
                     # 'npy': 'imagecodecs_npy',
                     'png': 'imagecodecs_png',
                     'qoi': 'imagecodecs_qoi',
+                    'rgbe': 'imagecodecs_rgbe',
                     'tiff': 'imagecodecs_tiff',
+                    'ultrahdr': 'imagecodecs_ultrahdr',
                     'webp': 'imagecodecs_webp',
+                    'wic': 'imagecodecs_wic',
                     'zfp': 'imagecodecs_zfp',
                 }[codec]
             except KeyError:
@@ -1379,16 +1655,74 @@ class ZarrFileSequenceStore(ZarrStore):
             refzarr = refs
 
         if groupname and not _append:
-            refzarr['.zgroup'] = _json_dumps({'zarr_format': 2}).decode()
+            if zarr_format == 3:
+                refzarr['zarr.json'] = _json_dumps(
+                    {'zarr_format': 3, 'node_type': 'group', 'attributes': {}}
+                ).decode()
+            else:
+                refzarr['.zgroup'] = _json_dumps({'zarr_format': 2}).decode()
 
-        for item in self._store.items():
-            key, value = item
-            if '.zarray' in key:
-                value = json.loads(value)
-                # TODO: make kwargs serializable
-                value['compressor'] = {'id': codec_id, **kwargs}
-                value = _json_dumps(value)
-            refzarr[groupname + key] = value.decode()
+        if zarr_format == 3:
+            for key, value_bytes in self._store.items():
+                if '.zarray' in key:
+                    value = json.loads(value_bytes)
+                    # Get attributes from corresponding .zattrs
+                    zattrs_key = key.replace('.zarray', '.zattrs')
+                    seq_attrs: dict[str, Any] = {}
+                    if zattrs_key in self._store:
+                        seq_attrs = json.loads(self._store[zattrs_key])
+                    # Build zarr v3 codec pipeline
+                    dtype = numpy.dtype(value['dtype'])
+                    if dtype.itemsize == 1:
+                        seq_bytes_codec: dict[str, Any] = {'name': 'bytes'}
+                    else:
+                        seq_bytes_codec = {
+                            'name': 'bytes',
+                            'configuration': {'endian': 'little'},
+                        }
+                    zarr3_id = _ZARR2_TO_ZARR3_CODEC.get(codec_id, codec_id)
+                    if zarr3_id in _ARRAY_BYTES_CODECS:
+                        seq_codecs: list[dict[str, Any]] = [
+                            {'name': zarr3_id, **kwargs}
+                        ]
+                    else:
+                        seq_codecs = [
+                            seq_bytes_codec,
+                            {'name': zarr3_id, **kwargs},
+                        ]
+                    zarr_json_key = key.replace('.zarray', 'zarr.json')
+                    refzarr[groupname + zarr_json_key] = _json_dumps(
+                        {
+                            'zarr_format': 3,
+                            'node_type': 'array',
+                            'shape': value['shape'],
+                            'data_type': dtype.name,
+                            'chunk_grid': {
+                                'name': 'regular',
+                                'configuration': {
+                                    'chunk_shape': value['chunks']
+                                },
+                            },
+                            'chunk_key_encoding': {
+                                'name': 'default',
+                                'configuration': {'separator': '/'},
+                            },
+                            'fill_value': value['fill_value'],
+                            'codecs': seq_codecs,
+                            'attributes': seq_attrs,
+                            'storage_transformers': [],
+                        }
+                    ).decode()
+                # else: skip .zattrs (folded into zarr.json above)
+        else:
+            for item in self._store.items():
+                key, value = item
+                if '.zarray' in key:
+                    value = json.loads(value)
+                    # TODO: make kwargs serializable
+                    value['compressor'] = {'id': codec_id, **kwargs}
+                    value = _json_dumps(value)
+                refzarr[groupname + key] = value.decode()
 
         fh: TextIO
         with contextlib.ExitStack() as stack:
@@ -1421,7 +1755,10 @@ class ZarrFileSequenceStore(ZarrStore):
                             filename = quote_(filename)
                         if filename and filename[0] == '/':
                             filename = filename[1:]
-                        indexstr = '.'.join(str(i) for i in index)
+                        if zarr_format == 3:
+                            indexstr = 'c/' + '/'.join(str(i) for i in index)
+                        else:
+                            indexstr = '.'.join(str(i) for i in index)
                         fh.write(
                             f',\n{indent}"{groupname}{indexstr}": '
                             f'["{url}{filename}"]'
@@ -1554,8 +1891,65 @@ def _json_value(value: Any, dtype: numpy.dtype[Any], /) -> Any:
     return value
 
 
+# ImageCodecs.zarr ArrayBytesCodecs: handle array-to-bytes themselves, so
+# no preceding 'bytes' codec is needed in the Zarr v3 codec pipeline.
+_ARRAY_BYTES_CODECS: frozenset[str] = frozenset(
+    {
+        'imagecodecs_apng',
+        'imagecodecs_avif',
+        'imagecodecs_bfloat16',
+        'imagecodecs_bmp',
+        'imagecodecs_ccittfax3',
+        'imagecodecs_ccittfax4',
+        'imagecodecs_ccittrle',
+        'imagecodecs_dds',
+        'imagecodecs_dicomrle',
+        'imagecodecs_eer',
+        'imagecodecs_exr',
+        'imagecodecs_float24',
+        'imagecodecs_gif',
+        'imagecodecs_heif',
+        'imagecodecs_htj2k',
+        'imagecodecs_jpeg',
+        'imagecodecs_jpeg2k',
+        'imagecodecs_jpegls',
+        'imagecodecs_jpegxl',
+        'imagecodecs_jpegxr',
+        'imagecodecs_jpegxs',
+        'imagecodecs_lerc',
+        'imagecodecs_ljpeg',
+        'imagecodecs_meshopt',
+        'imagecodecs_packints',
+        'imagecodecs_pcodec',
+        'imagecodecs_pixarlog',
+        'imagecodecs_png',
+        'imagecodecs_qoi',
+        'imagecodecs_rcomp',
+        'imagecodecs_rgbe',
+        'imagecodecs_sperr',
+        'imagecodecs_spng',
+        'imagecodecs_sz3',
+        'imagecodecs_tiff',
+        'imagecodecs_ultrahdr',
+        'imagecodecs_webp',
+        'imagecodecs_wic',
+        'imagecodecs_zfp',
+    }
+)
+
+# Zarr v2 / Numcodecs codec name -> Zarr v3 imagecodecs.zarr codec name.
+# Only entries that differ are listed; imagecodecs_* names are unchanged.
+_ZARR2_TO_ZARR3_CODEC: dict[str, str] = {
+    'zlib': 'imagecodecs_zlib',
+    'lzma': 'imagecodecs_lzma',
+}
+
+
 def _ndindex(
-    shape: tuple[int, ...], chunks: tuple[int, ...], /
+    shape: tuple[int, ...],
+    chunks: tuple[int, ...],
+    /,
+    separator: str = '.',
 ) -> Iterator[str]:
     """Return iterator over all chunk index strings."""
     assert len(shape) == len(chunks)
@@ -1563,7 +1957,7 @@ def _ndindex(
         (i + j - 1) // j for i, j in zip(shape, chunks, strict=True)
     )
     for indices in numpy.ndindex(chunked):
-        yield '.'.join(str(index) for index in indices)
+        yield separator.join(str(index) for index in indices)
 
 
 def _is_writable(keyframe: TiffPage) -> bool:
