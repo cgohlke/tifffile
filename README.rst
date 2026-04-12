@@ -23,10 +23,11 @@ Image data can be written to TIFF, BigTIFF, OME-TIFF, and ImageJ hyperstack
 compatible files in multi-page, volumetric, pyramidal, memory-mappable,
 tiled, predicted, or compressed form.
 
-Many compression and predictor schemes are supported via the imagecodecs
-library, including LZW, PackBits, Deflate, CCITT, PIXTIFF, LZMA, LERC, Zstd,
-JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR, JPEG XL, WebP, PNG, EER,
-Jetraw, 24-bit floating-point, and horizontal differencing.
+Many compression schemes, predictors, and data types are supported via the
+imagecodecs library, including LZW, PackBits, Deflate, CCITT, PIXTIFF,
+LZMA, LERC, Zstd, JPEG (8 and 12-bit, lossless), JPEG 2000, JPEG XR,
+JPEG XL, WebP, PNG, EER, Jetraw, 24-bit floating-point, packed integers,
+and horizontal differencing.
 
 Tifffile can also be used to inspect TIFF structures, read image data from
 multi-dimensional file sequences, write fsspec ReferenceFileSystem for
@@ -35,7 +36,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.3.3
+:Version: 2026.4.11
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,25 +72,33 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.11.9, 3.12.10, 3.13.12, 3.14.3 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.2
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.1.14
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.4 64-bit
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.4
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.3.6
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.2
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.5
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.6
   (required only for using Zarr stores; Zarr 2 is not compatible)
-- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.9
+- `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2026.4.11
+
+- Pass 5146 tests.
+- Add option to write zarr format 3 fsspec reference file system.
+- Support reading TIFF with embedded C2PA manifest.
+- Sync API of imagecodecs fallback implementations (#320).
+- Do not use defusedxml.
+- Drop support for Python 3.11.
+
 2026.3.3
 
-- Pass 5137 tests.
 - Do not convert TVIPS pixel sizes to m (#319).
 - Support writing packed integers with imagecodecs > 2026.1.14.
 - Support reading ccitt compressed images with imagecodecs > 2026.1.14.
