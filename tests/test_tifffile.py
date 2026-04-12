@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.3.3
+:Version: 2026.4.11
 
 """
 
@@ -226,6 +226,7 @@ SKIP_FILE = skip('SKIP_FILE', default=not os.path.exists(DATA_DIR))
 SKIP_VALIDATE = skip('SKIP_VALIDATE', default=True)
 SKIP_CODECS = skip('SKIP_CODECS', default=False)
 SKIP_ZARR = skip('SKIP_ZARR', default=False)
+SKIP_ZARR3 = skip('SKIP_ZARR3', default=False)
 SKIP_DASK = skip('SKIP_DASK', default=False)
 SKIP_NDTIFF = skip('SKIP_NDTIFF', default=False)
 SKIP_HTTP = skip('SKIP_HTTP', default=not IS_CG)
@@ -274,6 +275,14 @@ else:
         zarr = None
         fsspec = None
         SKIP_ZARR = True
+
+if not SKIP_ZARR3:
+    try:
+        from imagecodecs.zarr import register_codecs
+
+        register_codecs(verbose=False)
+    except ImportError:
+        SKIP_ZARR3 = True
 
 dask: ModuleType | None
 if SKIP_DASK:
@@ -339,10 +348,10 @@ def random_data(dtype: DTypeLike, shape: tuple[int, ...]) -> NDArray[Any]:
     return data.astype(dtype)
 
 
-def assert_fsspec(url: str, data: NDArray[Any]) -> None:
+def assert_fsspec(url: str, data: NDArray[Any], zarr_format: int = 2) -> None:
     """Assert fsspec ReferenceFileSystem from local http server."""
     assert zarr is not None
-    zobj = zarr.open(refs_as_store(url), zarr_format=2)
+    zobj = zarr.open(refs_as_store(url), zarr_format=zarr_format)
 
     if isinstance(zobj, zarr.Group):
         assert_array_equal(zobj['0'][:], data)
@@ -2244,6 +2253,92 @@ def test_issue_resolution():
                 page.get_resolution(scale=111.111),
                 (resolution[0] * scale, resolution[1] * scale),
             )
+            # unit as string (other than 'inch')
+            assert_allclose(
+                page.get_resolution('centimeter'),
+                resolution,
+            )
+            assert_allclose(
+                page.get_resolution('millimeter'),
+                (resolution[0] / 10, resolution[1] / 10),
+            )
+            # unit=RESUNIT.NONE (meter baseline, key 1 in scales dict)
+            # resolutionunit=CENTIMETER: scale=100, scale2=1 -> factor=100
+            # 1.1 px/cm * 100 cm/m = 110 px/m
+            assert_allclose(
+                page.get_resolution(RESUNIT.NONE),
+                (resolution[0] * 100, resolution[1] * 100),
+            )
+
+    # missing XResolution/YResolution tags -> default (1, 1), returned as 1.0
+    with TempFileName('issue_resolution_missing_tags') as filename:
+        imwrite(
+            filename,
+            [[0]],
+            resolution=(5, 5),
+            resolutionunit=RESUNIT.CENTIMETER,
+        )
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            del page.tags[282]  # XResolution
+            del page.tags[283]  # YResolution
+            # unit=None: scale=1, default tag value (1,1) -> 1.0
+            assert page.get_resolution() == (1.0, 1.0)
+            # unit=CENTIMETER, resolutionunit still CENTIMETER: factor=1 -> 1.0
+            assert_allclose(
+                page.get_resolution(RESUNIT.CENTIMETER),
+                (1.0, 1.0),
+            )
+
+    # zero denominator in rational tag value (d == 0 path: value = n * scale)
+    with TempFileName('issue_resolution_zero_denom') as filename:
+        imwrite(
+            filename, [[0]], resolution=(1, 1), resolutionunit=RESUNIT.INCH
+        )
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            # patch the tag values to have d=0
+            page.tags[282].value = (96, 0)
+            page.tags[283].value = (72, 0)
+            # no unit: scale=1, n * scale = 96 and 72
+            assert_allclose(page.get_resolution(), (96.0, 72.0))
+            # unit=CENTIMETER, resolutionunit=INCH:
+            # scale = scales[INCH] / scales[CENTIMETER] = 1/2.54
+            assert_allclose(
+                page.get_resolution(RESUNIT.CENTIMETER),
+                (96 / 2.54, 72 / 2.54),
+            )
+
+    # resolutionunit=NONE (1): unit=None -> scale=1, raw tag values returned
+    with TempFileName('issue_resolution_resunit_none') as filename:
+        imwrite(
+            filename, [[0]], resolution=(50, 50), resolutionunit=RESUNIT.NONE
+        )
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            assert page.resolutionunit == RESUNIT.NONE
+            # no unit: scale=1, raw value returned unchanged
+            assert page.get_resolution() == (50.0, 50.0)
+            # unit=NONE: resolutionunit=1, scale=1, scale2=1, factor=1
+            assert_allclose(page.get_resolution(RESUNIT.NONE), (50.0, 50.0))
+            # unit=INCH: resolutionunit=1, scale=1, scale2=100/2.54
+            # result = 50 / (100/2.54) = 50 * 2.54/100 = 1.27 px/inch
+            assert_allclose(
+                page.get_resolution(RESUNIT.INCH),
+                (50 * 2.54 / 100, 50 * 2.54 / 100),
+            )
+
+    # unrecognized resolutionunit in tag triggers except fallback (scale=1)
+    with TempFileName('issue_resolution_bad_resunit') as filename:
+        imwrite(
+            filename, [[0]], resolution=(100, 100), resolutionunit=RESUNIT.INCH
+        )
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            # patch ResolutionUnit to an unrecognized value not in scales dict
+            page.tags[296].value = 99
+            # scales[99] raises KeyError -> caught -> scale=1 -> raw * 1
+            assert page.get_resolution(RESUNIT.INCH) == (100.0, 100.0)
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -4056,7 +4151,7 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
-    numtags = 667
+    numtags = 668
     tags = TIFF.TAGS
     assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
@@ -7988,6 +8083,48 @@ def test_read_ccitt_g4():
         assert image.shape == (2439, 2551)
         assert image.dtype == numpy.bool_
         assert image.sum(dtype=numpy.uint32) == 475457
+        assert_aszarr_method(page, image)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_FILE, reason=REASON)
+def test_read_c2pa():
+    """Test read embedded C2PA manifest from last page of TIFF."""
+    filename = _file('c2pa/C2PAManifestStore.tif')
+    with TiffFile(filename) as tif:
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 6
+        assert tif.is_c2pa
+
+        # assert first page properties
+        page = tif.pages.first
+        assert page.compression == COMPRESSION.CCITTFAX4
+        assert page.photometric == PHOTOMETRIC.MINISWHITE
+        assert page.imagewidth == 1696
+        assert page.imagelength == 2175
+        assert page.bitspersample == 1
+        assert page.samplesperpixel == 1
+        # assert first page data
+        # image = page.asarray()
+        # assert image.shape == (2175, 1696)
+        # assert image.dtype == numpy.bool_
+        # assert image.sum(dtype=numpy.uint32) == 873394
+        # assert last page properties
+
+        page = tif.pages[-1]
+        assert page.is_c2pa
+        assert page.compression == 1
+        assert page.imagewidth == 0
+        assert page.imagelength == 0
+        # assert page.shape == ()
+        assert page.dtype is None
+        assert len(page.tags) == 1
+        assert page.tags['C2PAManifestStore'].value == tif.c2pa_metadata
+        # assert last page data
+        image = page.asarray()
+        assert image.shape == (0, 0)
+        assert image.dtype == numpy.bool_
+        assert image.sum() == 0.0
         assert_aszarr_method(page, image)
         assert__str__(tif)
 
@@ -19720,8 +19857,12 @@ def test_write_zarr():
 )
 @pytest.mark.parametrize('byteorder', ['<', '>'])
 @pytest.mark.parametrize('version', [0, 1])
-def test_write_fsspec(version, byteorder):
+@pytest.mark.parametrize('zarr_format', [2, 3])
+def test_write_fsspec(zarr_format, version, byteorder):
     """Test write fsspec for multi-series OME-TIFF."""
+    if zarr_format == 3 and SKIP_ZARR3:
+        pytest.skip('imagecodecs.zarr not available')
+
     from imagecodecs.numcodecs import register_codecs
 
     register_codecs('imagecodecs_jpeg', verbose=False)
@@ -19734,9 +19875,10 @@ def test_write_fsspec(version, byteorder):
     data3 = random_data(numpy.float32, (210, 301))
 
     bo = {'>': 'be', '<': 'le'}[byteorder]
+    zf = f'zf{zarr_format}'
 
     with TempFileName(
-        f'write_fsspec_v{version}_{bo}', ext='.ome.tif'
+        f'write_fsspec_v{version}_{bo}_{zf}', ext='.ome.tif'
     ) as filepath:
         filename = os.path.split(filepath)[-1]
         with TiffWriter(filepath, ome=True, byteorder=byteorder) as tif:
@@ -19789,68 +19931,113 @@ def test_write_fsspec(version, byteorder):
             with tif.series[0].aszarr() as store:
                 assert store.is_multiscales
                 store.write_fsspec(
-                    filepath + f'.v{version}.s0.json', URL, version=version
+                    filepath + f'.v{version}.{zf}.s0.json',
+                    URL,
+                    version=version,
+                    zarr_format=zarr_format,
                 )
             assert_array_equal(tif.series[0].asarray(), data0)
-            assert_fsspec(URL + filename + f'.v{version}.s0.json', data0)
+            assert_fsspec(
+                URL + filename + f'.v{version}.{zf}.s0.json',
+                data0,
+                zarr_format,
+            )
 
             with tif.series[1].aszarr() as store:
                 assert not store.is_multiscales
                 store.write_fsspec(
-                    filepath + f'.v{version}.s1.json', URL, version=version
+                    filepath + f'.v{version}.{zf}.s1.json',
+                    URL,
+                    version=version,
+                    zarr_format=zarr_format,
                 )
             assert_array_equal(tif.series[1].asarray(), data1)
-            assert_fsspec(URL + filename + f'.v{version}.s1.json', data1)
+            assert_fsspec(
+                URL + filename + f'.v{version}.{zf}.s1.json',
+                data1,
+                zarr_format,
+            )
 
             with tif.series[2].aszarr() as store:
                 store.write_fsspec(
-                    filepath + f'.v{version}.s2.json', URL, version=version
+                    filepath + f'.v{version}.{zf}.s2.json',
+                    URL,
+                    version=version,
+                    zarr_format=zarr_format,
                 )
             assert_array_equal(tif.series[2].asarray(), data2)
-            assert_fsspec(URL + filename + f'.v{version}.s2.json', data2)
+            assert_fsspec(
+                URL + filename + f'.v{version}.{zf}.s2.json',
+                data2,
+                zarr_format,
+            )
 
             with tif.series[3].aszarr(chunkmode=2) as store:
                 store.write_fsspec(
-                    filepath + f'.v{version}.s3.json', URL, version=version
+                    filepath + f'.v{version}.{zf}.s3.json',
+                    URL,
+                    version=version,
+                    zarr_format=zarr_format,
                 )
             assert_array_equal(tif.series[3].asarray(), data1)
-            assert_fsspec(URL + filename + f'.v{version}.s3.json', data1)
+            assert_fsspec(
+                URL + filename + f'.v{version}.{zf}.s3.json',
+                data1,
+                zarr_format,
+            )
 
             with tif.series[3].aszarr() as store:  # noqa: SIM117
                 with pytest.raises(ValueError):
                     # imagelength % rowsperstrip != 0
                     store.write_fsspec(
-                        filepath + f'.v{version}.s3fail.json',
+                        filepath + f'.v{version}.{zf}.s3fail.json',
                         URL,
                         version=version,
+                        zarr_format=zarr_format,
                     )
 
             with tif.series[4].aszarr() as store:
                 store.write_fsspec(
-                    filepath + f'.v{version}.s4.json', URL, version=version
+                    filepath + f'.v{version}.{zf}.s4.json',
+                    URL,
+                    version=version,
+                    zarr_format=zarr_format,
                 )
             assert_fsspec(
-                URL + filename + f'.v{version}.s4.json',
+                URL + filename + f'.v{version}.{zf}.s4.json',
                 tif.series[4].asarray(),
+                zarr_format,
             )
 
             with tif.series[5].aszarr() as store:
                 store.write_fsspec(
-                    filepath + f'.v{version}.s5.json', URL, version=version
+                    filepath + f'.v{version}.{zf}.s5.json',
+                    URL,
+                    version=version,
+                    zarr_format=zarr_format,
                 )
             assert_array_equal(tif.series[5].asarray(), data3)
-            assert_fsspec(URL + filename + f'.v{version}.s5.json', data3)
+            assert_fsspec(
+                URL + filename + f'.v{version}.{zf}.s5.json',
+                data3,
+                zarr_format,
+            )
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_ZARR, reason=REASON)
 @pytest.mark.parametrize('version', [0, 1])
 @pytest.mark.parametrize('chunkmode', [0, 2])
-def test_write_fsspec_multifile(version, chunkmode):
+@pytest.mark.parametrize('zarr_format', [2, 3])
+def test_write_fsspec_multifile(zarr_format, version, chunkmode):
     """Test write fsspec for multi-file OME series."""
+    if zarr_format == 3 and SKIP_ZARR3:
+        pytest.skip('imagecodecs.zarr not available')
+
     filename = _file('OME/multifile/multifile-Z1.ome.tiff')
     url = os.path.dirname(filename).replace('\\', '/')
+    zf = f'zf{zarr_format}'
     with TempFileName(
-        f'write_fsspec_multifile_{version}{chunkmode}', ext='.json'
+        f'write_fsspec_multifile_{version}{chunkmode}_{zf}', ext='.json'
     ) as jsonfile:
         # write to file handle
         with (
@@ -19860,9 +20047,13 @@ def test_write_fsspec_multifile(version, chunkmode):
             data = tif.series[0].asarray()
             with tif.series[0].aszarr(chunkmode=chunkmode) as store:
                 store.write_fsspec(
-                    fh, url=url, version=version, templatename='f'
+                    fh,
+                    url=url,
+                    version=version,
+                    templatename='f',
+                    zarr_format=zarr_format,
                 )
-        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=zarr_format)
         assert_array_equal(zobj[:], data)
 
 
@@ -19910,12 +20101,17 @@ def test_write_fsspec_sequence(version):
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_ZARR, reason=REASON)
-def test_write_tiff2fsspec():
+@pytest.mark.parametrize('zarr_format', [2, 3])
+def test_write_tiff2fsspec(zarr_format):
     """Test tiff2fsspec function."""
+    if zarr_format == 3 and SKIP_ZARR3:
+        pytest.skip('imagecodecs.zarr not available')
+
     filename = _file('tifffile/multiscene_pyramidal.ome.tif')
     url = os.path.dirname(filename).replace('\\', '/')
     data = imread(filename, series=0, level=1, maxworkers=1)
-    with TempFileName('write_tiff2fsspec', ext='.json') as jsonfile:
+    zf = f'zf{zarr_format}'
+    with TempFileName(f'write_tiff2fsspec_{zf}', ext='.json') as jsonfile:
         tiff2fsspec(
             filename,
             url,
@@ -19923,8 +20119,9 @@ def test_write_tiff2fsspec():
             series=0,
             level=1,
             version=0,
+            zarr_format=zarr_format,
         )
-        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=zarr_format)
         assert_array_equal(zobj[:], data)
 
         with pytest.raises(ValueError):
@@ -19935,6 +20132,7 @@ def test_write_tiff2fsspec():
                 series=0,
                 level=1,
                 version=0,
+                zarr_format=zarr_format,
                 chunkmode=CHUNKMODE.PAGE,
             )
 
@@ -21606,56 +21804,16 @@ def test_dependent_czifile():
     czifile = pytest.importorskip('czifile')
 
     filename = _file('czi/pollen.czi')
-    # with pytest.warns(DeprecationWarning):
-    with czifile.CziFile(filename) as czi:
-        assert czi.shape == (1, 1, 104, 365, 364, 1)
-        assert czi.axes == 'TCZYX0'
+    with czifile.CziFile(filename, squeeze=False) as czi:
+        img = czi.scenes[0]
+        assert img.shape == (1, 1, 104, 365, 364, 1)
+        assert img.axes == 'TCZYXS'
         # verify data
         data = czi.asarray()
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (1, 1, 104, 365, 364, 1)
         assert data.dtype == numpy.uint8
         assert data[0, 0, 52, 182, 182, 0] == 10
-
-
-@pytest.mark.skipif(SKIP_FILE or SKIP_LARGE, reason=REASON)
-def test_dependent_czi2tif():
-    """Test czifile.czi2tif."""
-    czifile = pytest.importorskip('czifile.czifile')
-
-    filename = _file('CZI/pollen.czi')
-    # with pytest.warns(DeprecationWarning):
-    with czifile.CziFile(filename) as czi:
-        metadata = czi.metadata()
-        data = czi.asarray().squeeze()
-    with TempFileName('depend_czi2tif') as tif:
-        czifile.czi2tif(filename, tif, bigtiff=False)
-        with TiffFile(tif) as t:
-            im = t.asarray()
-            assert t.pages[0].description == metadata
-
-        assert_array_equal(im, data)
-        del im
-        del data
-        assert_valid_tiff(tif)
-
-
-@pytest.mark.skipif(SKIP_FILE or SKIP_LARGE, reason=REASON)
-def test_dependent_czi2tif_airy():
-    """Test czifile.czi2tif with AiryScan."""
-    czifile = pytest.importorskip('czifile.czifile')
-
-    filename = _file('CZI/AiryscanSRChannel.czi')
-    with TempFileName('depend_czi2tif_airy') as tif:
-        # with pytest.warns(DeprecationWarning):
-        czifile.czi2tif(
-            filename, tif, verbose=True, truncate=True, bigtiff=False
-        )
-        im = memmap(tif)
-        assert im.shape == (32, 6, 1680, 1680)
-        assert tuple(im[17, :, 1500, 1000]) == (95, 109, 3597, 0, 0, 0)
-        del im
-        assert_valid_tiff(tif)
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -21946,9 +22104,11 @@ def test_dependent_kerchunk():
     z = zarr.open(store, zarr_format=2)
 
 
-@pytest.mark.skipif(not hasattr(sys, '_is_gil_enabled'), reason=REASON)
+@pytest.mark.skipif(
+    not hasattr(sys, '_is_gil_enabled'), reason='Python < 3.13'
+)
 def test_gil_enabled():
-    """Test that GIL is disabled on thread-free Python."""
+    """Test that GIL state is consistent with build configuration."""
     assert sys._is_gil_enabled() != sysconfig.get_config_var('Py_GIL_DISABLED')
 
 
