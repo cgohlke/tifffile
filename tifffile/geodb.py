@@ -2060,6 +2060,25 @@ class VertCS(enum.IntEnum):
     Caspian_Sea = 5106
 
 
+LINEAR_UNIT_NAMES: dict[int, str] = {
+    Linear.Meter: 'meter',
+    Linear.Foot: 'foot',
+    Linear.Foot_US_Survey: 'foot',
+    Linear.Foot_Modified_American: 'foot',
+    Linear.Foot_Clarke: 'foot',
+    Linear.Foot_Indian: 'foot',
+    Linear.Link: 'link',
+    Linear.Link_Benoit: 'link',
+    Linear.Link_Sears: 'link',
+    Linear.Chain_Benoit: 'chain',
+    Linear.Chain_Sears: 'chain',
+    Linear.Yard_Sears: 'yard',
+    Linear.Yard_Indian: 'yard',
+    Linear.Fathom: 'fathom',
+    Linear.Mile_International_Nautical: 'nautical_mile',
+}
+"""Map GeoTIFF Linear unit codes to unit name strings."""
+
 GEO_CODES: dict[int, type[enum.IntEnum]] = {
     # map :py:class:`GeoKeys` to GeoTIFF codes
     GeoKeys.GTModelTypeGeoKey: ModelType,
