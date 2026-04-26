@@ -68,6 +68,12 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         help='version of ReferenceFileSystem spec',
     )
+    parser.add_argument(
+        '--zarr-format',
+        dest='zarr_format',
+        type=int,
+        help='Zarr format version (2 or 3)',
+    )
     args = parser.parse_args(None if argv is None else argv[1:])
 
     chunkmode: int | str | None = args.chunkmode
@@ -100,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
             groupname=args.groupname,
             zattrs=zattrs,
             version=args.version,
+            zarr_format=args.zarr_format,
         )
     except Exception as exc:
         print(f'{args.tifffile}: {exc}', file=sys.stderr)
