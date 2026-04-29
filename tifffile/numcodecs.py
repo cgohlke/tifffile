@@ -36,7 +36,7 @@ from __future__ import annotations
 __all__ = ['Tiff', 'register_codec']
 
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from numcodecs import registry
 from numcodecs.abc import Codec
@@ -68,14 +68,13 @@ class Tiff(Codec):  # type: ignore[misc]
         # TiffFile.asarray
         key: int | slice | Sequence[int] | None = None,
         series: int | None = None,
+        kind: Literal['generic', 'imagej', 'ome', 'shaped'] | None = None,
         level: int | None = None,
         squeeze: bool | None = None,
         buffersize: int | None = None,
         # TiffWriter
         bigtiff: bool = False,
         byteorder: ByteOrder | None = None,
-        imagej: bool = False,
-        ome: bool | None = None,
         # TiffWriter.write
         photometric: PHOTOMETRIC | int | str | None = None,
         planarconfig: PLANARCONFIG | int | str | None = None,
@@ -83,6 +82,7 @@ class Tiff(Codec):  # type: ignore[misc]
         volumetric: bool = False,
         tile: Sequence[int] | None = None,
         rowsperstrip: int | None = None,
+        bitspersample: int | None = None,
         compression: COMPRESSION | int | str | None = None,
         compressionargs: dict[str, Any] | None = None,
         predictor: PREDICTOR | int | str | bool | None = None,
@@ -94,19 +94,19 @@ class Tiff(Codec):  # type: ignore[misc]
     ) -> None:
         self.key = key
         self.series = series
+        self.kind = kind
         self.level = level
         self.squeeze = squeeze
         self.buffersize = buffersize
         self.bigtiff = bigtiff
         self.byteorder = byteorder
-        self.imagej = imagej
-        self.ome = ome
         self.photometric = photometric
         self.planarconfig = planarconfig
         self.extrasamples = extrasamples
         self.volumetric = volumetric
         self.tile = tile
         self.rowsperstrip = rowsperstrip
+        self.bitspersample = bitspersample
         self.compression = compression
         self.compressionargs = compressionargs
         self.predictor = predictor
@@ -123,8 +123,7 @@ class Tiff(Codec):  # type: ignore[misc]
                 fh,
                 bigtiff=self.bigtiff,
                 byteorder=self.byteorder,
-                imagej=self.imagej,
-                ome=self.ome,
+                kind=self.kind,
             ) as tif:
                 tif.write(
                     buf,
@@ -134,6 +133,7 @@ class Tiff(Codec):  # type: ignore[misc]
                     volumetric=self.volumetric,
                     tile=self.tile,
                     rowsperstrip=self.rowsperstrip,
+                    bitspersample=self.bitspersample,
                     compression=self.compression,
                     compressionargs=self.compressionargs,
                     predictor=self.predictor,
@@ -151,6 +151,7 @@ class Tiff(Codec):  # type: ignore[misc]
             return tif.asarray(
                 key=self.key,
                 series=self.series,
+                kind=self.kind,
                 level=self.level,
                 squeeze=self.squeeze,
                 maxworkers=self.maxworkers,
