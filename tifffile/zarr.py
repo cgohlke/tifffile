@@ -29,26 +29,37 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-"""Zarr 3 TIFF and file sequence stores."""
+"""Zarr 3 TIFF codec, TIFF and file sequence stores."""
 
 from __future__ import annotations
 
-__all__ = ['ZarrFileSequenceStore', 'ZarrStore', 'ZarrTiffStore']
+__all__ = [
+    'Tiff',
+    'ZarrFileSequenceStore',
+    'ZarrStore',
+    'ZarrTiffStore',
+    'register_codec',
+]
 
 import asyncio
 import base64
 import contextlib
+import enum
 import json
 import sys
-from typing import TYPE_CHECKING, override
+from dataclasses import dataclass, field
+from io import BytesIO
+from typing import TYPE_CHECKING, Literal, override
 
 import numpy
 import zarr
 
 try:
+    from zarr.abc.codec import ArrayBytesCodec
     from zarr.abc.store import ByteRequest, Store
-    from zarr.core.buffer.cpu import NDBuffer
-    from zarr.core.chunk_grids import RegularChunkGrid
+    from zarr.core.buffer.cpu import NDBuffer as NDBufferCPU
+    from zarr.core.chunk_grids import ChunkGrid
+    from zarr.core.common import parse_named_configuration
     from zarr.core.indexing import BasicIndexer
 except ImportError as exc:
     msg = f'zarr {zarr.__version__} < 3 is not supported'
@@ -57,12 +68,21 @@ except ImportError as exc:
 from .tifffile import (
     CHUNKMODE,
     COMPRESSION,
+    EXTRASAMPLE,
+    METADATA_DEFAULT,
+    PHOTOMETRIC,
+    PLANARCONFIG,
+    PREDICTOR,
+    ByteOrder,
     FileCache,
     FileSequence,
     NullContext,
+    TagTuple,
+    TiffFile,
     TiffFrame,
     TiffPage,
     TiffPageSeries,
+    TiffWriter,
     TiledSequence,
     create_output,
     enumarg,
@@ -81,13 +101,249 @@ if TYPE_CHECKING:
         Iterator,
         Sequence,
     )
-    from typing import Any, TextIO
+    from typing import Any, Self, TextIO
 
     from numpy.typing import DTypeLike, NDArray
-    from zarr.core.buffer import Buffer, BufferPrototype
+    from zarr.core.array_spec import ArraySpec
+    from zarr.core.buffer import Buffer, BufferPrototype, NDBuffer
+    from zarr.core.common import JSON
     from zarr.core.indexing import BasicSelection
 
     from .tifffile import ByteOrder, OutputType
+
+
+@dataclass(frozen=True)
+class Tiff(ArrayBytesCodec):
+    """TIFF codec for Zarr 3."""
+
+    is_fixed_size = False
+
+    # TiffFile.asarray
+    key: int | slice | Sequence[int] | None = None
+    series: int | None = None
+    kind: Literal['generic', 'imagej', 'ome', 'shaped'] | None = None
+    level: int | None = None
+    squeeze: bool | None = None
+    buffersize: int | None = None
+    # TiffWriter
+    bigtiff: bool = False
+    byteorder: ByteOrder | None = None
+    # TiffWriter.write
+    photometric: str | None = None
+    planarconfig: str | None = None
+    extrasamples: tuple[str, ...] | None = None
+    volumetric: bool = False
+    tile: tuple[int, ...] | None = None
+    rowsperstrip: int | None = None
+    bitspersample: int | None = None
+    compression: str | None = None
+    compressionargs: dict[str, Any] | None = None
+    predictor: str | bool | None = None
+    subsampling: tuple[int, int] | None = None
+    metadata: dict[str, Any] | None = field(default_factory=dict)
+    extratags: Sequence[TagTuple] | None = None
+    truncate: bool = False
+    maxworkers: int | None = None
+
+    def __init__(
+        self,
+        *,
+        key: int | slice | Sequence[int] | None = None,
+        series: int | None = None,
+        kind: Literal['generic', 'imagej', 'ome', 'shaped'] | None = None,
+        level: int | None = None,
+        squeeze: bool | None = None,
+        buffersize: int | None = None,
+        bigtiff: bool = False,
+        byteorder: ByteOrder | None = None,
+        photometric: PHOTOMETRIC | int | str | None = None,
+        planarconfig: PLANARCONFIG | int | str | None = None,
+        extrasamples: Sequence[EXTRASAMPLE | int | str] | None = None,
+        volumetric: bool = False,
+        tile: Sequence[int] | None = None,
+        rowsperstrip: int | None = None,
+        bitspersample: int | None = None,
+        compression: COMPRESSION | int | str | None = None,
+        compressionargs: dict[str, Any] | None = None,
+        predictor: PREDICTOR | int | str | bool | None = None,
+        subsampling: tuple[int, int] | None = None,
+        metadata: dict[str, Any] | None = METADATA_DEFAULT,
+        extratags: Sequence[TagTuple] | None = None,
+        truncate: bool = False,
+        maxworkers: int | None = None,
+    ) -> None:
+        _setattrs(
+            self,
+            key=key,
+            series=int(series) if series is not None else None,
+            kind=kind,
+            level=int(level) if level is not None else None,
+            squeeze=bool(squeeze) if squeeze is not None else None,
+            buffersize=int(buffersize) if buffersize is not None else None,
+            bigtiff=bool(bigtiff),
+            byteorder=byteorder,
+            photometric=_enum_name(photometric, PHOTOMETRIC),
+            planarconfig=_enum_name(planarconfig, PLANARCONFIG),
+            extrasamples=(
+                tuple(_enum_name(e, EXTRASAMPLE) for e in extrasamples)
+                if extrasamples is not None
+                else None
+            ),
+            volumetric=bool(volumetric),
+            tile=tuple(int(x) for x in tile) if tile is not None else None,
+            rowsperstrip=(
+                int(rowsperstrip) if rowsperstrip is not None else None
+            ),
+            bitspersample=(
+                int(bitspersample) if bitspersample is not None else None
+            ),
+            compression=_enum_name(compression, COMPRESSION),
+            compressionargs=compressionargs,
+            predictor=(
+                predictor
+                if isinstance(predictor, bool)
+                else _enum_name(predictor, PREDICTOR)
+            ),
+            subsampling=(
+                (int(subsampling[0]), int(subsampling[1]))
+                if subsampling is not None
+                else None
+            ),
+            metadata=metadata,
+            extratags=extratags,
+            truncate=bool(truncate),
+            maxworkers=int(maxworkers) if maxworkers is not None else None,
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, JSON]) -> Self:
+        """Create instance of model from dictionary."""
+        _, cfg = parse_named_configuration(
+            data, 'tifffile', require_configuration=False
+        )
+        return cls(**(cfg if cfg is not None else {}))  # type: ignore[arg-type]
+
+    def to_dict(self) -> dict[str, JSON]:
+        """Convert instance of model to dictionary."""
+        cfg: dict[str, JSON] = {}
+        if self.key is not None:
+            cfg['key'] = self.key  # type: ignore[assignment]
+        if self.series is not None:
+            cfg['series'] = self.series
+        if self.kind is not None:
+            cfg['kind'] = self.kind
+        if self.level is not None:
+            cfg['level'] = self.level
+        if self.squeeze is not None:
+            cfg['squeeze'] = self.squeeze
+        if self.buffersize is not None:
+            cfg['buffersize'] = self.buffersize
+        if self.bigtiff:
+            cfg['bigtiff'] = self.bigtiff
+        if self.byteorder is not None:
+            cfg['byteorder'] = self.byteorder
+        if self.photometric is not None:
+            cfg['photometric'] = self.photometric
+        if self.planarconfig is not None:
+            cfg['planarconfig'] = self.planarconfig
+        if self.extrasamples is not None:
+            cfg['extrasamples'] = list(self.extrasamples)
+        if self.volumetric:
+            cfg['volumetric'] = self.volumetric
+        if self.tile is not None:
+            cfg['tile'] = list(self.tile)
+        if self.rowsperstrip is not None:
+            cfg['rowsperstrip'] = self.rowsperstrip
+        if self.bitspersample is not None:
+            cfg['bitspersample'] = self.bitspersample
+        if self.compression is not None:
+            cfg['compression'] = self.compression
+        if self.compressionargs is not None:
+            cfg['compressionargs'] = self.compressionargs
+        if self.predictor is not None:
+            cfg['predictor'] = self.predictor
+        if self.subsampling is not None:
+            cfg['subsampling'] = list(self.subsampling)
+        if self.metadata is not METADATA_DEFAULT:
+            cfg['metadata'] = self.metadata
+        if self.extratags is not None:
+            cfg['extratags'] = list(self.extratags)
+        if self.truncate:
+            cfg['truncate'] = self.truncate
+        if self.maxworkers is not None:
+            cfg['maxworkers'] = self.maxworkers
+        if cfg:
+            return {'name': 'tifffile', 'configuration': cfg}
+        return {'name': 'tifffile'}
+
+    def _decode_sync(
+        self, chunk_bytes: Buffer, chunk_spec: ArraySpec
+    ) -> NDBuffer:
+        with BytesIO(chunk_bytes.as_buffer_like()) as fh, TiffFile(fh) as tif:
+            decoded = tif.asarray(
+                key=self.key,
+                series=self.series,
+                kind=self.kind,
+                level=self.level,
+                squeeze=self.squeeze,
+                maxworkers=self.maxworkers,
+                buffersize=self.buffersize,
+            )
+        return chunk_spec.prototype.nd_buffer.from_numpy_array(
+            decoded.reshape(chunk_spec.shape)
+        )
+
+    async def _decode_single(
+        self, chunk_bytes: Buffer, chunk_spec: ArraySpec
+    ) -> NDBuffer:
+        return await asyncio.to_thread(
+            self._decode_sync, chunk_bytes, chunk_spec
+        )
+
+    def _encode_sync(
+        self, chunk_array: NDBuffer, chunk_spec: ArraySpec
+    ) -> Buffer | None:
+        arr = numpy.atleast_2d(numpy.squeeze(chunk_array.as_numpy_array()))
+        with BytesIO() as fh:
+            with TiffWriter(
+                fh,
+                bigtiff=self.bigtiff,
+                byteorder=self.byteorder,
+                kind=self.kind,
+            ) as tif:
+                tif.write(
+                    arr,
+                    photometric=self.photometric,
+                    planarconfig=self.planarconfig,
+                    extrasamples=self.extrasamples,
+                    volumetric=self.volumetric,
+                    tile=self.tile,
+                    rowsperstrip=self.rowsperstrip,
+                    bitspersample=self.bitspersample,
+                    compression=self.compression,
+                    compressionargs=self.compressionargs,
+                    predictor=self.predictor,
+                    subsampling=self.subsampling,
+                    metadata=self.metadata,
+                    extratags=self.extratags,
+                    truncate=self.truncate,
+                    maxworkers=self.maxworkers,
+                )
+            encoded = fh.getvalue()
+        return chunk_spec.prototype.buffer.from_bytes(encoded)
+
+    async def _encode_single(
+        self, chunk_array: NDBuffer, chunk_spec: ArraySpec
+    ) -> Buffer | None:
+        return await asyncio.to_thread(
+            self._encode_sync, chunk_array, chunk_spec
+        )
+
+    def compute_encoded_size(
+        self, input_byte_length: int, chunk_spec: ArraySpec
+    ) -> int:
+        """Compute size of encoded chunk in bytes."""
+        raise NotImplementedError
 
 
 class ZarrStore(Store):
@@ -104,8 +360,9 @@ class ZarrStore(Store):
 
     References:
         1. https://zarr.readthedocs.io/en/stable/api/zarr/abc/store/
-        2. https://zarr.readthedocs.io/en/stable/spec/v2.html
-        3. https://forum.image.sc/t/multiscale-arrays-v0-1/37930
+        2. https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html
+        3. https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html
+        4. https://ngff.openmicroscopy.org/specifications/0.5/
 
     """
 
@@ -232,7 +489,10 @@ class ZarrStore(Store):
     @property
     def is_multiscales(self) -> bool:
         """Return whether ZarrStore contains multiscales."""
-        return b'multiscales' in self._store.get('.zattrs', b'')
+        for key in ('zarr.json', '.zattrs'):
+            if b'multiscales' in self._store.get(key, b''):
+                return True
+        return False
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}'
@@ -251,6 +511,9 @@ class ZarrStore(Store):
 
 class ZarrTiffStore(ZarrStore):
     """Zarr 3 store interface to image array in TiffPage or TiffPageSeries.
+
+    The store uses Zarr v3 format. Pyramidal series use OME-Zarr v0.5
+    multiscales metadata.
 
     ZarrTiffStore is using a TiffFile instance for reading and decoding chunks.
     Therefore, ZarrTiffStore instances cannot be pickled.
@@ -274,11 +537,11 @@ class ZarrTiffStore(ZarrStore):
             Create a multiscales-compatible Zarr group store.
             By default, create a Zarr array store for pages and non-pyramidal
             series.
+            If *True*, encode coordinate metadata (pixel sizes, units, offsets)
+            using the NGFF 0.5 multiscales structure.
         lock:
             Reentrant lock to synchronize seeks and reads from file.
             By default, the lock of the parent's file handle is used.
-        squeeze:
-            Remove length-1 dimensions from shape of TiffPageSeries.
         maxworkers:
             If `chunkmode=0`, asynchronously run chunk decode function
             in separate thread if greater than 1.
@@ -301,7 +564,6 @@ class ZarrTiffStore(ZarrStore):
     _transform: Callable[[NDArray[Any]], NDArray[Any]] | None
     _maxworkers: int
     _buffersize: int | None
-    _squeeze: bool | None
     _multiscales: bool
 
     def __init__(
@@ -315,7 +577,6 @@ class ZarrTiffStore(ZarrStore):
         zattrs: dict[str, Any] | None = None,
         multiscales: bool | None = None,
         lock: threading.RLock | NullContext | None = None,
-        squeeze: bool | None = None,
         maxworkers: int | None = None,
         buffersize: int | None = None,
         read_only: bool | None = None,
@@ -330,7 +591,6 @@ class ZarrTiffStore(ZarrStore):
             msg = f'{chunkmode!r} not implemented'
             raise NotImplementedError(msg)
 
-        self._squeeze = None if squeeze is None else bool(squeeze)
         self._buffersize = buffersize
 
         if isinstance(arg, TiffPageSeries):
@@ -370,70 +630,134 @@ class ZarrTiffStore(ZarrStore):
         # TODO: Zarr Encoding Specification
         # https://xarray.pydata.org/en/stable/internals/zarr-encoding-spec.html
 
-        if multiscales is True or (
-            multiscales is None and len(self._data) > 1
-        ):
-            # multiscales
+        if multiscales or (multiscales is None and len(self._data) > 1):
+            # multiscales: NGFF 0.5 + Zarr v3
             self._multiscales = True
-            if '_ARRAY_DIMENSIONS' in zattrs:
-                array_dimensions = zattrs.pop('_ARRAY_DIMENSIONS')
-            else:
-                array_dimensions = list(self._data[0].get_axes(squeeze))
-            self._store['.zgroup'] = _json_dumps({'zarr_format': 2})
-            self._store['.zattrs'] = _json_dumps(
+            array_dimensions: list[str] = list(
+                zattrs.pop('_ARRAY_DIMENSIONS', None) or self._data[0].axes
+            )
+            series0 = self._data[0]
+            shape0 = series0.shape
+            coord_units = series0.coord_units
+            coord_offsets = series0.coord_offsets
+
+            ngff_axes: list[dict[str, Any]] = []
+            for ax in array_dimensions:
+                ngff_axis: dict[str, Any] = {'name': ax}
+                ax_type = _NGFF_AXIS_TYPE.get(ax.upper())
+                if ax_type:
+                    ngff_axis['type'] = ax_type
+                unit = coord_units.get(ax)
+                if unit:
+                    ngff_axis['unit'] = unit
+                ngff_axes.append(ngff_axis)
+
+            datasets: list[dict[str, Any]] = []
+            for ilevel, series in enumerate(self._data):
+                level_scales = series.coord_scales
+                scale = [
+                    float(
+                        level_scales[ax]
+                        if ax in level_scales and s > 0
+                        else s0 / s if s > 0 else 1.0
+                    )
+                    for ax, s0, s in zip(
+                        array_dimensions, shape0, series.shape, strict=True
+                    )
+                ]
+                coord_transforms: list[dict[str, Any]] = [
+                    {'type': 'scale', 'scale': scale}
+                ]
+                if ilevel == 0:
+                    offsets = [
+                        coord_offsets.get(ax) for ax in array_dimensions
+                    ]
+                    if any(o is not None for o in offsets):
+                        coord_transforms.append(
+                            {
+                                'type': 'translation',
+                                'translation': [
+                                    float(o) if o is not None else 0.0
+                                    for o in offsets
+                                ],
+                            }
+                        )
+                datasets.append(
+                    {
+                        'path': str(ilevel),
+                        'coordinateTransformations': coord_transforms,
+                    }
+                )
+
+            self._store['zarr.json'] = _json_dumps(
                 {
-                    # TODO: use https://ngff.openmicroscopy.org/latest/
-                    'multiscales': [
-                        {
-                            'version': '0.1',
-                            'name': name,
-                            'datasets': [
-                                {'path': str(i)}
-                                for i in range(len(self._data))
+                    'zarr_format': 3,
+                    'node_type': 'group',
+                    'attributes': {
+                        'ome': {
+                            'version': '0.5',
+                            'multiscales': [
+                                {
+                                    'name': name,
+                                    'axes': ngff_axes,
+                                    'datasets': datasets,
+                                }
                             ],
-                            # 'axes': [...]
-                            # 'type': 'unknown',
-                            'metadata': {},
-                        }
-                    ],
-                    **zattrs,
+                        },
+                        **zattrs,
+                    },
                 }
             )
-            shape0 = self._data[0].get_shape(squeeze)
             for ilevel, series in enumerate(self._data):
-                fillvalue, shape = self._init_zarray(
-                    series, f'{ilevel}/.zarray', squeeze, fillvalue
-                )
-                self._store[f'{ilevel}/.zattrs'] = _json_dumps(
-                    {
-                        '_ARRAY_DIMENSIONS': [
-                            (f'{ax}{ilevel}' if i != j else ax)
-                            for ax, i, j in zip(
-                                array_dimensions, shape, shape0, strict=True
-                            )
-                        ]
-                    }
+                # use level-suffixed axis names for axes that differ in size
+                # from the base level (xarray requires unique dim names per
+                # dataset that have different lengths)
+                if ilevel == 0:
+                    level_dims = array_dimensions
+                else:
+                    level_dims = [
+                        (f'{ax}{ilevel}' if i != j else ax)
+                        for ax, i, j in zip(
+                            array_dimensions,
+                            series.shape,
+                            shape0,
+                            strict=True,
+                        )
+                    ]
+                fillvalue, _ = self._init_zarray(
+                    series,
+                    f'{ilevel}/zarr.json',
+                    fillvalue,
+                    level_dims,
                 )
         else:
             self._multiscales = False
             series = self._data[0]
-            if '_ARRAY_DIMENSIONS' not in zattrs:
-                zattrs['_ARRAY_DIMENSIONS'] = list(series.get_axes(squeeze))
-            self._store['.zattrs'] = _json_dumps(zattrs)
-            self._init_zarray(series, '.zarray', squeeze, fillvalue)
+            dimension_names: list[str] = list(
+                zattrs.pop('_ARRAY_DIMENSIONS')
+                if '_ARRAY_DIMENSIONS' in zattrs
+                else series.axes
+            )
+            fillvalue, _ = self._init_zarray(
+                series, 'zarr.json', fillvalue, dimension_names
+            )
+            if zattrs:
+                zarr_json = json.loads(self._store['zarr.json'])
+                zarr_json['attributes'].update(zattrs)
+                self._store['zarr.json'] = _json_dumps(zarr_json)
 
     def _init_zarray(
         self,
         series: TiffPageSeries,
         key: str,
-        squeeze: bool | None,  # noqa: FBT001
         fillvalue: float | None,
         /,
+        dimension_names: list[str] | None = None,
     ) -> tuple[float | None, tuple[int, ...]]:
-        """Store .zarray for series; return updated fillvalue and shape."""
+        """Store zarr.json for series; return updated fillvalue and shape."""
         keyframe = series.keyframe
         keyframe.decode  # noqa: B018 - cache decode function
-        shape = series.get_shape(squeeze)
+        shape = series.shape
         dtype = series.dtype
         if fillvalue is None:
             fillvalue = keyframe.nodata
@@ -442,21 +766,54 @@ class ZarrTiffStore(ZarrStore):
             # empty page (e.g. C2PA), consistent with TiffPage.asarray()
             shape = (0, 0)
             dtype = numpy.dtype(numpy.bool_)
+            dimension_names = None  # reset: forced 2D shape, names invalid
         chunks = keyframe.shape if self._chunkmode else keyframe.chunks
+        chunk_shape = list(_chunks(chunks, shape, keyframe.shaped))
+        # get() returns already-decoded, native-endian numpy data, so the
+        # bytes codec must use native byte order regardless of TIFF byteorder
+        if dtype.itemsize == 1:
+            bytes_codec: dict[str, Any] = {'name': 'bytes'}
+        elif sys.byteorder == 'big':
+            bytes_codec = {
+                'name': 'bytes',
+                'configuration': {'endian': 'big'},
+            }
+        else:
+            bytes_codec = {
+                'name': 'bytes',
+                'configuration': {'endian': 'little'},
+            }
         self._store[key] = _json_dumps(
             {
-                'zarr_format': 2,
-                'shape': shape,
-                'chunks': _chunks(chunks, shape, keyframe.shaped),
-                'dtype': _dtype_str(dtype),
-                'compressor': None,
+                'zarr_format': 3,
+                'node_type': 'array',
+                'shape': list(shape),
+                'data_type': dtype.name,
+                'chunk_grid': {
+                    'name': 'regular',
+                    'configuration': {'chunk_shape': chunk_shape},
+                },
+                'chunk_key_encoding': {
+                    'name': 'default',
+                    'configuration': {'separator': '/'},
+                },
                 'fill_value': _json_value(fillvalue, dtype),
-                'order': 'C',
-                'filters': None,
+                'codecs': [bytes_codec],
+                'dimension_names': dimension_names,
+                'attributes': {},
             }
         )
         if not self._read_only:
-            self._read_only = not _is_writable(keyframe)
+            self._read_only = not (
+                keyframe.compression == 1
+                and keyframe.fillorder == 1
+                and keyframe.sampleformat in {1, 2, 3, 6}
+                and keyframe.bitspersample in {8, 16, 32, 64, 128}
+                # and (
+                #     keyframe.rowsperstrip == 0
+                #     or keyframe.imagelength % keyframe.rowsperstrip == 0
+                # )
+            )
         return fillvalue, shape
 
     @override
@@ -533,9 +890,14 @@ class ZarrTiffStore(ZarrStore):
                 Files containing incomplete tiles may fail at runtime.
 
         Notes:
-            Parameters `_shape`,  `_axes`, `_index`, `_append`, and `_close`
-            are an experimental API for joining the ReferenceFileSystems of
-            multiple files of a TiffSequence.
+            Parameters ``_shape``,  ``_axes``, ``_index``, ``_append``, and
+            ``_close`` are an experimental API for joining the
+            ReferenceFileSystems of multiple files of a TiffSequence.
+
+            Multiscales metadata for pyramidal series uses OME-Zarr v0.5
+            when ``zarr_format=3`` and OME-Zarr v0.4 when ``zarr_format=2``.
+
+            ``zarr_format=3`` requires imagecodecs > 2026.3.6.
 
         References:
             - `fsspec ReferenceFileSystem format
@@ -613,7 +975,7 @@ class ZarrTiffStore(ZarrStore):
                 raise ValueError('incomplete chunks are' + errormsg)
             if self._chunkmode and not keyframe.is_final:
                 raise ValueError(f'{self._chunkmode!r} is' + errormsg)
-            if keyframe.jpegtables is not None and len(series.pages) > 1:
+            if keyframe.jpegtables is not None and len(series) > 1:
                 raise ValueError(
                     'JPEGTables in multi-page files are' + errormsg
                 )
@@ -666,7 +1028,7 @@ class ZarrTiffStore(ZarrStore):
             templates = {}
             if self._data[0].is_multifile:
                 i = 0
-                for page in self._data[0].pages:
+                for page in self._data[0]:
                     if page is None or page.keyframe is None:
                         continue
                     filename = page.keyframe.parent.filehandle.name
@@ -688,338 +1050,26 @@ class ZarrTiffStore(ZarrStore):
 
         if not _append:
             if zarr_format == 3:
-                # Zarr v3: combine .zgroup/.zattrs/.zarray into zarr.json
-                if groupname:
-                    # TODO: support nested groups
-                    refzarr['zarr.json'] = _json_dumps(
-                        {
-                            'zarr_format': 3,
-                            'node_type': 'group',
-                            'attributes': {},
-                        }
-                    ).decode()
-                for key, value_bytes in self._store.items():
-                    if '.zgroup' in key:
-                        # Group zarr.json: .zgroup + .zattrs -> zarr.json
-                        zattrs_key = key.replace('.zgroup', '.zattrs')
-                        group_attrs: dict[str, Any] = {}
-                        if zattrs_key in self._store:
-                            group_attrs = json.loads(self._store[zattrs_key])
-                        if _axes and '_ARRAY_DIMENSIONS' in group_attrs:
-                            group_attrs['_ARRAY_DIMENSIONS'] = (
-                                _axes + group_attrs['_ARRAY_DIMENSIONS']
-                            )
-                        zarr_json_key = key.replace('.zgroup', 'zarr.json')
-                        refzarr[groupname + zarr_json_key] = _json_dumps(
-                            {
-                                'zarr_format': 3,
-                                'node_type': 'group',
-                                'attributes': group_attrs,
-                            }
-                        ).decode()
-                    elif '.zarray' in key:
-                        # Array zarr.json: .zarray + .zattrs -> zarr.json
-                        value = json.loads(value_bytes)
-                        level = int(key.split('/')[0]) if '/' in key else 0
-                        levelstr = f'{level}/' if '/' in key else ''
-                        keyframe = self._data[level].keyframe
-                        if _shape:
-                            value['shape'] = _shape + value['shape']
-                            value['chunks'] = [1] * len(_shape) + value[
-                                'chunks'
-                            ]
-                        # Get attributes from corresponding .zattrs
-                        array_attrs: dict[str, Any] = {}
-                        zattrs_key = key.replace('.zarray', '.zattrs')
-                        if zattrs_key in self._store:
-                            array_attrs = json.loads(self._store[zattrs_key])
-                        if _axes and '_ARRAY_DIMENSIONS' in array_attrs:
-                            array_attrs['_ARRAY_DIMENSIONS'] = (
-                                _axes + array_attrs['_ARRAY_DIMENSIONS']
-                            )
-                        # Build zarr v3 codec pipeline
-                        codec_id = compressors[keyframe.compression]
-                        dtype = numpy.dtype(value['dtype'])
-                        tiff_byteorder = keyframe.parent.byteorder
-                        if dtype.itemsize == 1 or tiff_byteorder is None:
-                            bytes_codec: dict[str, Any] = {'name': 'bytes'}
-                        elif tiff_byteorder == '>':
-                            bytes_codec = {
-                                'name': 'bytes',
-                                'configuration': {'endian': 'big'},
-                            }
-                        else:
-                            bytes_codec = {
-                                'name': 'bytes',
-                                'configuration': {'endian': 'little'},
-                            }
-                        codecs: list[dict[str, Any]] = []
-                        if keyframe.predictor > 1:
-                            # array-array filter codec
-                            if keyframe.predictor in {2, 34892, 34893}:
-                                filter_id = 'imagecodecs_delta'
-                            else:
-                                filter_id = 'imagecodecs_floatpred'
-                            if keyframe.predictor <= 3:
-                                dist = 1
-                            elif keyframe.predictor in {34892, 34894}:
-                                dist = 2
-                            else:
-                                dist = 4
-                            if (
-                                keyframe.planarconfig == 1
-                                and keyframe.samplesperpixel > 1
-                            ):
-                                axis = -2
-                            else:
-                                axis = -1
-                            codecs.append(
-                                {
-                                    'name': filter_id,
-                                    'configuration': {
-                                        'axis': axis,
-                                        'dist': dist,
-                                    },
-                                }
-                            )
-                        if codec_id is None:
-                            # no compression: just bytes array-bytes codec
-                            codecs.append(bytes_codec)
-                        elif codec_id in _ARRAY_BYTES_CODECS:
-                            # array-bytes codec: handles array↔bytes directly
-                            if codec_id == 'imagecodecs_jpeg':
-                                # TODO: handle JPEG color spaces
-                                jpegtables = keyframe.jpegtables
-                                tables = (
-                                    None
-                                    if jpegtables is None
-                                    else base64.b64encode(jpegtables).decode()
-                                )
-                                jpegheader = keyframe.jpegheader
-                                header = (
-                                    None
-                                    if jpegheader is None
-                                    else base64.b64encode(jpegheader).decode()
-                                )
-                                (
-                                    colorspace_jpeg,
-                                    colorspace_data,
-                                ) = jpeg_decode_colorspace(
-                                    keyframe.photometric,
-                                    keyframe.planarconfig,
-                                    keyframe.extrasamples,
-                                    keyframe.is_jfif,
-                                )
-                                cfg: dict[str, Any] = {
-                                    'bitspersample': keyframe.bitspersample,
-                                    'colorspace_jpeg': colorspace_jpeg,
-                                    'colorspace_data': colorspace_data,
-                                }
-                                if tables is not None:
-                                    cfg['tables'] = tables
-                                if header is not None:
-                                    cfg['header'] = header
-                                codecs.append(
-                                    {
-                                        'name': codec_id,
-                                        'configuration': cfg,
-                                    }
-                                )
-                            elif (
-                                codec_id == 'imagecodecs_webp'
-                                and keyframe.samplesperpixel == 4
-                            ):
-                                codecs.append(
-                                    {
-                                        'name': codec_id,
-                                        'configuration': {'hasalpha': True},
-                                    }
-                                )
-                            elif codec_id == 'imagecodecs_eer':
-                                horzbits = vertbits = 2
-                                if keyframe.compression == 65002:
-                                    skipbits = int(
-                                        keyframe.tags.valueof(65007, 7)
-                                    )
-                                    horzbits = int(
-                                        keyframe.tags.valueof(65008, 2)
-                                    )
-                                    vertbits = int(
-                                        keyframe.tags.valueof(65009, 2)
-                                    )
-                                elif keyframe.compression == 65001:
-                                    skipbits = 7
-                                else:
-                                    skipbits = 8
-                                eer_cfg: dict[str, Any] = {
-                                    'shape': list(keyframe.chunks),
-                                    'skipbits': skipbits,
-                                    'horzbits': horzbits,
-                                    'vertbits': vertbits,
-                                }
-                                if keyframe.parent._superres:
-                                    eer_cfg['superres'] = (
-                                        keyframe.parent._superres
-                                    )
-                                codecs.append(
-                                    {
-                                        'name': codec_id,
-                                        'configuration': eer_cfg,
-                                    }
-                                )
-                            else:
-                                codecs.append({'name': codec_id})
-                        else:
-                            # bytes-bytes codec: needs bytes array-bytes first
-                            zarr3_codec_id = _ZARR2_TO_ZARR3_CODEC.get(
-                                codec_id, codec_id
-                            )
-                            codecs.append(bytes_codec)
-                            codecs.append({'name': zarr3_codec_id})
-                        array_meta: dict[str, Any] = {
-                            'zarr_format': 3,
-                            'node_type': 'array',
-                            'shape': value['shape'],
-                            'data_type': dtype.name,
-                            'chunk_grid': {
-                                'name': 'regular',
-                                'configuration': {
-                                    'chunk_shape': value['chunks']
-                                },
-                            },
-                            'chunk_key_encoding': {
-                                'name': 'default',
-                                'configuration': {'separator': '/'},
-                            },
-                            'fill_value': value['fill_value'],
-                            'codecs': codecs,
-                            'attributes': array_attrs,
-                            'storage_transformers': [],
-                        }
-                        refzarr[groupname + levelstr + 'zarr.json'] = (
-                            _json_dumps(array_meta).decode()
-                        )
-                    # else: skip .zattrs (folded into zarr.json above)
+                _write_fsspec_v3_metadata(
+                    self._store,
+                    self._data,
+                    refzarr,
+                    groupname,
+                    compressors,
+                    _shape,
+                    _axes,
+                )
             else:
-                # Zarr v2 format
-                if groupname:
-                    # TODO: support nested groups
-                    refzarr['.zgroup'] = _json_dumps(
-                        {'zarr_format': 2}
-                    ).decode()
-
-                for item in self._store.items():
-                    key, value = item
-                    if '.zattrs' in key and _axes:
-                        value = json.loads(value)
-                        if '_ARRAY_DIMENSIONS' in value:
-                            value['_ARRAY_DIMENSIONS'] = (
-                                _axes + value['_ARRAY_DIMENSIONS']
-                            )
-                        value = _json_dumps(value)
-                    elif '.zarray' in key:
-                        value = json.loads(value)
-                        level = int(key.split('/')[0]) if '/' in key else 0
-                        keyframe = self._data[level].keyframe
-                        if _shape:
-                            value['shape'] = _shape + value['shape']
-                            value['chunks'] = [1] * len(_shape) + value[
-                                'chunks'
-                            ]
-                        codec_id = compressors[keyframe.compression]
-                        if codec_id == 'imagecodecs_jpeg':
-                            # TODO: handle JPEG color spaces
-                            jpegtables = keyframe.jpegtables
-                            if jpegtables is None:
-                                tables = None
-                            else:
-                                tables = base64.b64encode(jpegtables).decode()
-                            jpegheader = keyframe.jpegheader
-                            if jpegheader is None:
-                                header = None
-                            else:
-                                header = base64.b64encode(jpegheader).decode()
-                            (
-                                colorspace_jpeg,
-                                colorspace_data,
-                            ) = jpeg_decode_colorspace(
-                                keyframe.photometric,
-                                keyframe.planarconfig,
-                                keyframe.extrasamples,
-                                keyframe.is_jfif,
-                            )
-                            value['compressor'] = {
-                                'id': codec_id,
-                                'tables': tables,
-                                'header': header,
-                                'bitspersample': keyframe.bitspersample,
-                                'colorspace_jpeg': colorspace_jpeg,
-                                'colorspace_data': colorspace_data,
-                            }
-                        elif (
-                            codec_id == 'imagecodecs_webp'
-                            and keyframe.samplesperpixel == 4
-                        ):
-                            value['compressor'] = {
-                                'id': codec_id,
-                                'hasalpha': True,
-                            }
-                        elif codec_id == 'imagecodecs_eer':
-                            horzbits = vertbits = 2
-                            if keyframe.compression == 65002:
-                                skipbits = int(keyframe.tags.valueof(65007, 7))
-                                horzbits = int(keyframe.tags.valueof(65008, 2))
-                                vertbits = int(keyframe.tags.valueof(65009, 2))
-                            elif keyframe.compression == 65001:
-                                skipbits = 7
-                            else:
-                                skipbits = 8
-                            value['compressor'] = {
-                                'id': codec_id,
-                                'shape': keyframe.chunks,
-                                'skipbits': skipbits,
-                                'horzbits': horzbits,
-                                'vertbits': vertbits,
-                                'superres': keyframe.parent._superres,
-                            }
-                        elif codec_id is not None:
-                            value['compressor'] = {'id': codec_id}
-                        if byteorder is not None:
-                            value['dtype'] = byteorder + value['dtype'][1:]
-                        if keyframe.predictor > 1:
-                            # predictors need access to chunk shape and dtype
-                            # requires imagecodecs > 2021.8.26 to read
-                            if keyframe.predictor in {2, 34892, 34893}:
-                                filter_id = 'imagecodecs_delta'
-                            else:
-                                filter_id = 'imagecodecs_floatpred'
-                            if keyframe.predictor <= 3:
-                                dist = 1
-                            elif keyframe.predictor in {34892, 34894}:
-                                dist = 2
-                            else:
-                                dist = 4
-                            if (
-                                keyframe.planarconfig == 1
-                                and keyframe.samplesperpixel > 1
-                            ):
-                                axis = -2
-                            else:
-                                axis = -1
-                            value['filters'] = [
-                                {
-                                    'id': filter_id,
-                                    'axis': axis,
-                                    'dist': dist,
-                                    'shape': value['chunks'],
-                                    'dtype': value['dtype'],
-                                }
-                            ]
-                        value = _json_dumps(value)
-                    # else:
-                    #     pass through value
-
-                    refzarr[groupname + key] = value.decode()
+                _write_fsspec_v2_metadata(
+                    self._store,
+                    self._data,
+                    refzarr,
+                    groupname,
+                    byteorder,
+                    compressors,
+                    _shape,
+                    _axes,
+                )
 
         fh: TextIO
         with contextlib.ExitStack() as stack:
@@ -1040,39 +1090,41 @@ class ZarrTiffStore(ZarrStore):
             offset: int | None
             chunk_sep = '/' if zarr_format == 3 else '.'
             chunk_prefix = 'c/' if zarr_format == 3 else ''
-            for item in self._store.items():
-                key, value = item
-                if '.zarray' in key:
-                    value = json.loads(value)
-                    shape = value['shape']
-                    chunks = value['chunks']
-                    levelstr = (key.split('/')[0] + '/') if '/' in key else ''
-                    for chunkindex in _ndindex(shape, chunks):
-                        # internal_key uses '.' for _parse_key/_indices
-                        internal_key = levelstr + chunkindex
-                        fsspec_key = (
-                            levelstr
-                            + chunk_prefix
-                            + chunkindex.replace('.', chunk_sep)
-                            if zarr_format == 3
-                            else internal_key
+            for key, value_bytes in self._store.items():
+                if not key.endswith('zarr.json'):
+                    continue
+                value = json.loads(value_bytes)
+                if value.get('node_type') != 'array':
+                    continue
+                shape = value['shape']
+                chunks = value['chunk_grid']['configuration']['chunk_shape']
+                levelstr = (key.split('/')[0] + '/') if '/' in key else ''
+                for chunkindex in _ndindex(shape, chunks):
+                    # internal_key uses '.' for _parse_key/_indices
+                    internal_key = levelstr + chunkindex
+                    fsspec_key = (
+                        levelstr
+                        + chunk_prefix
+                        + chunkindex.replace('.', chunk_sep)
+                        if zarr_format == 3
+                        else internal_key
+                    )
+                    keyframe, page, _, offset, bytecount = self._parse_key(
+                        internal_key
+                    )
+                    if page and self._chunkmode and offset is None:
+                        offset = page.dataoffsets[0]
+                        bytecount = keyframe.nbytes
+                    if offset and bytecount:
+                        filename = keyframe.parent.filehandle.name
+                        if version == 1:
+                            filename = templates[filename]
+                        else:
+                            filename = f'{url}{filename}'
+                        fh.write(
+                            f',\n{indent}"{groupname}{fsspec_key}": '
+                            f'["{filename}", {offset}, {bytecount}]'
                         )
-                        keyframe, page, _, offset, bytecount = self._parse_key(
-                            internal_key
-                        )
-                        if page and self._chunkmode and offset is None:
-                            offset = page.dataoffsets[0]
-                            bytecount = keyframe.nbytes
-                        if offset and bytecount:
-                            filename = keyframe.parent.filehandle.name
-                            if version == 1:
-                                filename = templates[filename]
-                            else:
-                                filename = f'{url}{filename}'
-                            fh.write(
-                                f',\n{indent}"{groupname}{fsspec_key}": '
-                                f'["{filename}", {offset}, {bytecount}]'
-                            )
 
             # TODO: support nested groups
             if version == 1:
@@ -1097,12 +1149,11 @@ class ZarrTiffStore(ZarrStore):
             return prototype.buffer.from_bytes(self._store[key])
 
         if (
-            key == 'zarr.json'
-            or key[-10:] == '.zmetadata'
+            key[-10:] == '.zmetadata'
             or key[-7:] == '.zarray'
             or key[-7:] == '.zgroup'
+            or key[-7:] == '.zattrs'
         ):
-            # catch '.zarray' and 'attribute/.zarray'
             return None
 
         keyframe, page, chunkindex, offset, bytecount = self._parse_key(key)
@@ -1196,12 +1247,12 @@ class ZarrTiffStore(ZarrStore):
 
         if (
             key in self._store
-            or key == 'zarr.json'
+            or key[-8:] == 'zarr.json'
             or key[-10:] == '.zmetadata'
             or key[-7:] == '.zarray'
             or key[-7:] == '.zgroup'
+            or key[-7:] == '.zattrs'
         ):
-            # catch '.zarray' and 'attribute/.zarray'
             return
 
         _keyframe, page, _chunkindex, offset, bytecount = self._parse_key(key)
@@ -1239,6 +1290,10 @@ class ZarrTiffStore(ZarrStore):
             key = chunk_key
         else:
             series = self._data[0]
+        # Normalize Zarr v3 chunk key: strip 'c/' prefix, convert '/' to '.'
+        key = key.removeprefix('c/')
+        if '/' in key:
+            key = key.replace('/', '.')
         keyframe = series.keyframe
         page: TiffPage | TiffFrame | None = None
         offset: int | None = None
@@ -1282,7 +1337,7 @@ class ZarrTiffStore(ZarrStore):
     def _indices(self, key: str, series: TiffPageSeries, /) -> tuple[int, int]:
         """Return page and strile indices from Zarr chunk index."""
         keyframe = series.keyframe
-        shape = series.get_shape(self._squeeze)
+        shape = series.shape
         try:
             indices = [int(i) for i in key.split('.')]
         except ValueError as exc:
@@ -1339,6 +1394,8 @@ class ZarrTiffStore(ZarrStore):
 
 class ZarrFileSequenceStore(ZarrStore):
     """Zarr 3 store interface to image array in FileSequence.
+
+    The store uses Zarr v2 format.
 
     Parameters:
         filesequence:
@@ -1452,6 +1509,8 @@ class ZarrFileSequenceStore(ZarrStore):
         )
 
         zattrs = {} if zattrs is None else dict(zattrs)
+
+        # TODO: update to zarr_format=3 and imagecodecs > 2026.3.6
         # TODO: add _ARRAY_DIMENSIONS to ZarrFileSequenceStore
         # if '_ARRAY_DIMENSIONS' not in zattrs:
         #     zattrs['_ARRAY_DIMENSIONS'] = list(...)
@@ -1805,7 +1864,7 @@ def zarr_selection(
     zarray: zarr.Array[Any]
 
     try:
-        z = zarr.open(store, mode='r', zarr_format=2)
+        z = zarr.open(store, mode='r', zarr_format=None)
         if isinstance(z, zarr.Group):
             if groupindex is None:
                 groupindex = '0'
@@ -1816,9 +1875,9 @@ def zarr_selection(
             shape = BasicIndexer(
                 selection,
                 shape=zarray.shape,
-                chunk_grid=RegularChunkGrid(chunk_shape=zarray.chunks),
+                chunk_grid=ChunkGrid.from_sizes(zarray.shape, zarray.chunks),
             ).shape
-            ndbuffer = NDBuffer.from_numpy_array(
+            ndbuffer = NDBufferCPU.from_numpy_array(
                 create_output(out, shape, zarray.dtype)
             )
         else:
@@ -1831,28 +1890,399 @@ def zarr_selection(
     return result  # type: ignore[return-value]
 
 
-def _empty_chunk(
-    shape: tuple[int, ...],
-    dtype: DTypeLike | None,
-    fillvalue: float | None,
+def _write_fsspec_v3_metadata(
+    store: dict[str, Any],
+    pages: list[TiffPageSeries],
+    refzarr: dict[str, Any],
+    groupname: str,
+    compressors: dict[COMPRESSION | int, str | None],
+    _shape: list[int],
+    _axes: list[str],
     /,
-) -> NDArray[Any]:
-    """Return empty chunk."""
-    if fillvalue is None or fillvalue == 0:
-        # return bytes(product(shape) * dtype.itemsize)
-        return numpy.zeros(shape, dtype)
-    chunk = numpy.empty(shape, dtype)
-    chunk[:] = fillvalue
-    return chunk  # .tobytes()
+) -> None:
+    """Write Zarr v3 metadata to refzarr dict based on store and pages."""
+    # Zarr v3: internal store is already zarr.json-based (NGFF 0.5)
+    if groupname:
+        # root wrapper group for groupname prefix
+        refzarr['zarr.json'] = _json_dumps(
+            {
+                'zarr_format': 3,
+                'node_type': 'group',
+                'attributes': {},
+            }
+        ).decode()
+    for key, value_bytes in store.items():
+        value = json.loads(value_bytes)
+        node_type = value.get('node_type')
+        if node_type == 'group':
+            # Group zarr.json: inject _axes into NGFF multiscales
+            attrs = value.get('attributes', {})
+            if _axes:
+                ome = attrs.get('ome', {})
+                for ms in ome.get('multiscales', []):
+                    ms['axes'] = [{'name': ax} for ax in _axes] + ms.get(
+                        'axes', []
+                    )
+                    for ds in ms.get('datasets', []):
+                        for ct in ds.get('coordinateTransformations', []):
+                            if ct['type'] == 'scale':
+                                ct['scale'] = [1.0] * len(_axes) + ct['scale']
+                            elif ct['type'] == 'translation':
+                                ct['translation'] = [0.0] * len(_axes) + ct[
+                                    'translation'
+                                ]
+            refzarr[groupname + key] = _json_dumps(
+                {
+                    'zarr_format': 3,
+                    'node_type': 'group',
+                    'attributes': attrs,
+                }
+            ).decode()
+        elif node_type == 'array':
+            # Array zarr.json: replace placeholder codec with
+            # actual codec pipeline for the TIFF compression
+            level = int(key.split('/')[0]) if '/' in key else 0
+            levelstr = f'{level}/' if '/' in key else ''
+            keyframe = pages[level].keyframe
+            shape = list(value['shape'])
+            chunk_shape = list(
+                value['chunk_grid']['configuration']['chunk_shape']
+            )
+            dim_names = value.get('dimension_names')
+            if _shape:
+                shape = list(_shape) + shape
+                chunk_shape = [1] * len(_shape) + chunk_shape
+            if _axes and dim_names is not None:
+                dim_names = list(_axes) + dim_names
+            # build zarr v3 codec pipeline
+            codec_id = compressors[keyframe.compression]
+            dtype = numpy.dtype(value['data_type'])
+            tiff_byteorder = keyframe.parent.byteorder
+            if dtype.itemsize == 1 or tiff_byteorder is None:
+                bytes_codec: dict[str, Any] = {'name': 'bytes'}
+            elif tiff_byteorder == '>':
+                bytes_codec = {
+                    'name': 'bytes',
+                    'configuration': {'endian': 'big'},
+                }
+            else:
+                bytes_codec = {
+                    'name': 'bytes',
+                    'configuration': {'endian': 'little'},
+                }
+            codecs: list[dict[str, Any]] = []
+            if keyframe.predictor > 1:
+                # array-array filter codec
+                if keyframe.predictor in {2, 34892, 34893}:
+                    filter_id = 'imagecodecs_delta'
+                else:
+                    filter_id = 'imagecodecs_floatpred'
+                if keyframe.predictor <= 3:
+                    dist = 1
+                elif keyframe.predictor in {34892, 34894}:
+                    dist = 2
+                else:
+                    dist = 4
+                if keyframe.planarconfig == 1 and keyframe.samplesperpixel > 1:
+                    axis = -2
+                else:
+                    axis = -1
+                codecs.append(
+                    {
+                        'name': filter_id,
+                        'configuration': {
+                            'axis': axis,
+                            'dist': dist,
+                        },
+                    }
+                )
+            if codec_id is None:
+                # no compression: just bytes array-bytes codec
+                codecs.append(bytes_codec)
+            elif codec_id in _ARRAY_BYTES_CODECS:
+                # array-bytes codec: handles array-bytes directly
+                if codec_id == 'imagecodecs_jpeg':
+                    # TODO: handle JPEG color spaces
+                    jpegtables = keyframe.jpegtables
+                    tables = (
+                        None
+                        if jpegtables is None
+                        else base64.b64encode(jpegtables).decode()
+                    )
+                    jpegheader = keyframe.jpegheader
+                    header = (
+                        None
+                        if jpegheader is None
+                        else base64.b64encode(jpegheader).decode()
+                    )
+                    (
+                        colorspace_jpeg,
+                        colorspace_data,
+                    ) = jpeg_decode_colorspace(
+                        keyframe.photometric,
+                        keyframe.planarconfig,
+                        keyframe.extrasamples,
+                        keyframe.is_jfif,
+                    )
+                    cfg: dict[str, Any] = {
+                        'bitspersample': keyframe.bitspersample,
+                        'colorspace_jpeg': colorspace_jpeg,
+                        'colorspace_data': colorspace_data,
+                    }
+                    if tables is not None:
+                        cfg['tables'] = tables
+                    if header is not None:
+                        cfg['header'] = header
+                    codecs.append(
+                        {
+                            'name': codec_id,
+                            'configuration': cfg,
+                        }
+                    )
+                elif (
+                    codec_id == 'imagecodecs_webp'
+                    and keyframe.samplesperpixel == 4
+                ):
+                    codecs.append(
+                        {
+                            'name': codec_id,
+                            'configuration': {'hasalpha': True},
+                        }
+                    )
+                elif codec_id == 'imagecodecs_eer':
+                    horzbits = vertbits = 2
+                    if keyframe.compression == 65002:
+                        skipbits = int(keyframe.tags.valueof(65007, 7))
+                        horzbits = int(keyframe.tags.valueof(65008, 2))
+                        vertbits = int(keyframe.tags.valueof(65009, 2))
+                    elif keyframe.compression == 65001:
+                        skipbits = 7
+                    else:
+                        skipbits = 8
+                    eer_cfg: dict[str, Any] = {
+                        'shape': list(keyframe.chunks),
+                        'skipbits': skipbits,
+                        'horzbits': horzbits,
+                        'vertbits': vertbits,
+                    }
+                    if keyframe.parent._superres:
+                        eer_cfg['superres'] = keyframe.parent._superres
+                    codecs.append(
+                        {
+                            'name': codec_id,
+                            'configuration': eer_cfg,
+                        }
+                    )
+                else:
+                    codecs.append({'name': codec_id})
+            else:
+                # bytes-bytes codec: needs bytes array-bytes first
+                zarr3_codec_id = _ZARR2_TO_ZARR3_CODEC.get(codec_id, codec_id)
+                codecs.append(bytes_codec)
+                codecs.append({'name': zarr3_codec_id})
+            array_meta: dict[str, Any] = {
+                'zarr_format': 3,
+                'node_type': 'array',
+                'shape': shape,
+                'data_type': dtype.name,
+                'chunk_grid': {
+                    'name': 'regular',
+                    'configuration': {'chunk_shape': chunk_shape},
+                },
+                'chunk_key_encoding': {
+                    'name': 'default',
+                    'configuration': {'separator': '/'},
+                },
+                'fill_value': value['fill_value'],
+                'codecs': codecs,
+                'dimension_names': dim_names,
+                'attributes': value.get('attributes', {}),
+                'storage_transformers': [],
+            }
+            refzarr[groupname + levelstr + 'zarr.json'] = _json_dumps(
+                array_meta
+            ).decode()
 
 
-def _dtype_str(dtype: numpy.dtype[Any], /) -> str:
-    """Return dtype as string with native byte order."""
-    if dtype.itemsize == 1:
-        byteorder = '|'
-    else:
-        byteorder = {'big': '>', 'little': '<'}[sys.byteorder]
-    return byteorder + dtype.str[1:]
+def _write_fsspec_v2_metadata(
+    store: dict[str, Any],
+    pages: list[TiffPageSeries],
+    refzarr: dict[str, Any],
+    groupname: str,
+    byteorder: ByteOrder | None,
+    compressors: dict[COMPRESSION | int, str | None],
+    _shape: list[int],
+    _axes: list[str],
+    /,
+) -> None:
+    """Write Zarr v2 metadata to refzarr dict based on store and pages."""
+    # Zarr v2 format: convert internal zarr.json to .zarray/.zattrs
+    if groupname:
+        # TODO: support nested groups
+        refzarr['.zgroup'] = _json_dumps({'zarr_format': 2}).decode()
+
+    for key, value_bytes in store.items():
+        value = json.loads(value_bytes)
+        node_type = value.get('node_type')
+        if node_type == 'group':
+            # Group zarr.json -> .zgroup + .zattrs
+            # expose ome namespace at top level for NGFF v2 compat
+            attrs = dict(value.get('attributes', {}))
+            ome_attrs = attrs.pop('ome', {})
+            v2_attrs: dict[str, Any] = {}
+            if 'multiscales' in ome_attrs:
+                multiscales = ome_attrs['multiscales']
+                if _axes:
+                    for ms in multiscales:
+                        ms['axes'] = [{'name': ax} for ax in _axes] + ms.get(
+                            'axes', []
+                        )
+                        for ds in ms.get('datasets', []):
+                            for ct in ds.get('coordinateTransformations', []):
+                                if ct['type'] == 'scale':
+                                    ct['scale'] = [1.0] * len(_axes) + ct[
+                                        'scale'
+                                    ]
+                                elif ct['type'] == 'translation':
+                                    ct['translation'] = [0.0] * len(
+                                        _axes
+                                    ) + ct['translation']
+                for ms in multiscales:
+                    ms.setdefault('version', '0.4')
+                v2_attrs['multiscales'] = multiscales
+            v2_attrs.update(attrs)
+            zgroup_key = key.replace('zarr.json', '.zgroup')
+            zattrs_key = key.replace('zarr.json', '.zattrs')
+            refzarr[groupname + zgroup_key] = _json_dumps(
+                {'zarr_format': 2}
+            ).decode()
+            if v2_attrs:
+                refzarr[groupname + zattrs_key] = _json_dumps(
+                    v2_attrs
+                ).decode()
+        elif node_type == 'array':
+            # Array zarr.json -> .zarray + .zattrs
+            level = int(key.split('/')[0]) if '/' in key else 0
+            keyframe = pages[level].keyframe
+            dim_names = value.get('dimension_names')
+            shape = list(value['shape'])
+            chunk_shape = list(
+                value['chunk_grid']['configuration']['chunk_shape']
+            )
+            if _shape:
+                shape = list(_shape) + shape
+                chunk_shape = [1] * len(_shape) + chunk_shape
+            if _axes and dim_names is not None:
+                dim_names = list(_axes) + dim_names
+            dtype = numpy.dtype(value['data_type'])
+            dtype_str = (
+                byteorder + dtype.str[1:]
+                if byteorder is not None
+                else _dtype_str(dtype)
+            )
+            zarray: dict[str, Any] = {
+                'zarr_format': 2,
+                'shape': shape,
+                'chunks': chunk_shape,
+                'dtype': dtype_str,
+                'compressor': None,
+                'fill_value': value['fill_value'],
+                'order': 'C',
+                'filters': None,
+            }
+            codec_id = compressors[keyframe.compression]
+            if codec_id == 'imagecodecs_jpeg':
+                # TODO: handle JPEG color spaces
+                jpegtables = keyframe.jpegtables
+                jpegtables_b64 = (
+                    None
+                    if jpegtables is None
+                    else base64.b64encode(jpegtables).decode()
+                )
+                jpegheader = keyframe.jpegheader
+                jpegheader_b64 = (
+                    None
+                    if jpegheader is None
+                    else base64.b64encode(jpegheader).decode()
+                )
+                (
+                    colorspace_jpeg,
+                    colorspace_data,
+                ) = jpeg_decode_colorspace(
+                    keyframe.photometric,
+                    keyframe.planarconfig,
+                    keyframe.extrasamples,
+                    keyframe.is_jfif,
+                )
+                zarray['compressor'] = {
+                    'id': codec_id,
+                    'tables': jpegtables_b64,
+                    'header': jpegheader_b64,
+                    'bitspersample': keyframe.bitspersample,
+                    'colorspace_jpeg': colorspace_jpeg,
+                    'colorspace_data': colorspace_data,
+                }
+            elif (
+                codec_id == 'imagecodecs_webp'
+                and keyframe.samplesperpixel == 4
+            ):
+                zarray['compressor'] = {
+                    'id': codec_id,
+                    'hasalpha': True,
+                }
+            elif codec_id == 'imagecodecs_eer':
+                horzbits = vertbits = 2
+                if keyframe.compression == 65002:
+                    skipbits = int(keyframe.tags.valueof(65007, 7))
+                    horzbits = int(keyframe.tags.valueof(65008, 2))
+                    vertbits = int(keyframe.tags.valueof(65009, 2))
+                elif keyframe.compression == 65001:
+                    skipbits = 7
+                else:
+                    skipbits = 8
+                zarray['compressor'] = {
+                    'id': codec_id,
+                    'shape': keyframe.chunks,
+                    'skipbits': skipbits,
+                    'horzbits': horzbits,
+                    'vertbits': vertbits,
+                    'superres': keyframe.parent._superres,
+                }
+            elif codec_id is not None:
+                zarray['compressor'] = {'id': codec_id}
+            if keyframe.predictor > 1:
+                # predictors need access to chunk shape and dtype
+                # requires imagecodecs > 2021.8.26 to read
+                if keyframe.predictor in {2, 34892, 34893}:
+                    filter_id = 'imagecodecs_delta'
+                else:
+                    filter_id = 'imagecodecs_floatpred'
+                if keyframe.predictor <= 3:
+                    dist = 1
+                elif keyframe.predictor in {34892, 34894}:
+                    dist = 2
+                else:
+                    dist = 4
+                if keyframe.planarconfig == 1 and keyframe.samplesperpixel > 1:
+                    axis = -2
+                else:
+                    axis = -1
+                zarray['filters'] = [
+                    {
+                        'id': filter_id,
+                        'axis': axis,
+                        'dist': dist,
+                        'shape': chunk_shape,
+                        'dtype': dtype_str,
+                    }
+                ]
+            zarray_key = key.replace('zarr.json', '.zarray')
+            refzarr[groupname + zarray_key] = _json_dumps(zarray).decode()
+            if dim_names is not None:
+                zattrs_key = key.replace('zarr.json', '.zattrs')
+                refzarr[groupname + zattrs_key] = _json_dumps(
+                    {'_ARRAY_DIMENSIONS': dim_names}
+                ).decode()
 
 
 def _json_dumps(obj: Any, /) -> bytes:
@@ -1891,8 +2321,96 @@ def _json_value(value: Any, dtype: numpy.dtype[Any], /) -> Any:
     return value
 
 
-# ImageCodecs.zarr ArrayBytesCodecs: handle array-to-bytes themselves, so
-# no preceding 'bytes' codec is needed in the Zarr v3 codec pipeline.
+def _dtype_str(dtype: numpy.dtype[Any], /) -> str:
+    """Return dtype as string with native byte order."""
+    if dtype.itemsize == 1:
+        byteorder = '|'
+    else:
+        byteorder = {'big': '>', 'little': '<'}[sys.byteorder]
+    return byteorder + dtype.str[1:]
+
+
+def _ndindex(
+    shape: tuple[int, ...],
+    chunks: tuple[int, ...],
+    /,
+    separator: str = '.',
+) -> Iterator[str]:
+    """Return iterator over all chunk index strings."""
+    chunked = tuple(
+        (i + j - 1) // j for i, j in zip(shape, chunks, strict=True)
+    )
+    for indices in numpy.ndindex(chunked):
+        yield separator.join(str(index) for index in indices)
+
+
+def _chunks(
+    chunks: tuple[int, ...],
+    shape: tuple[int, ...],
+    shaped: tuple[int, int, int, int, int],
+    /,
+) -> tuple[int, ...]:
+    """Return chunks with same length as shape."""
+    ndim = len(shape)
+    if ndim == 0:
+        return ()  # empty array
+    if 0 in shape:
+        return (1,) * ndim
+    d = 0 if shaped[1] == 1 else 1
+    i = min(ndim, 3 + d)
+    if (
+        len(chunks) == 2 + d
+        and i != 2 + d
+        and shape[-1] == 1
+        and shape[-i:] == shaped[-i:]
+    ):
+        # planarconfig=contig with one sample
+        chunks = (*chunks, 1)
+    if ndim < len(chunks):
+        # remove leading dimensions of size 1 from chunks
+        i = 0
+        for size in chunks:
+            if size > 1:
+                break
+            i += 1
+        chunks = chunks[i:]
+        if ndim < len(chunks):
+            msg = f'{shape=!r} is shorter than {chunks=!r}'
+            raise ValueError(msg)
+    # prepend size 1 dimensions to chunks to match length of shape
+    return (1,) * (ndim - len(chunks)) + chunks
+
+
+def _enum_name(
+    value: int | str | enum.Enum | None, enum_cls: type[enum.Enum], /
+) -> str | None:
+    """Normalize int, str, or enum member to canonical enum name string."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, enum_cls):
+        return value.name
+    if isinstance(value, enum.Enum):
+        return enum_cls(value.value).name
+    return enum_cls(value).name
+
+
+def _setattrs(obj: object, /, **kwargs: Any) -> None:
+    """Set attributes on a frozen dataclass instance."""
+    for k, v in kwargs.items():
+        object.__setattr__(obj, k, v)
+
+
+def register_codec() -> None:
+    """Register zarr 3 tifffile codec."""
+    from zarr.registry import register_codec
+
+    register_codec('tifffile', Tiff)
+
+
+# imagecodecs.zarr ArrayBytesCodecs: handle array-to-bytes themselves,
+# so no preceding 'bytes' codec is needed in the Zarr v3 codec pipeline
 _ARRAY_BYTES_CODECS: frozenset[str] = frozenset(
     {
         'imagecodecs_apng',
@@ -1944,68 +2462,12 @@ _ZARR2_TO_ZARR3_CODEC: dict[str, str] = {
     'lzma': 'imagecodecs_lzma',
 }
 
-
-def _ndindex(
-    shape: tuple[int, ...],
-    chunks: tuple[int, ...],
-    /,
-    separator: str = '.',
-) -> Iterator[str]:
-    """Return iterator over all chunk index strings."""
-    assert len(shape) == len(chunks)
-    chunked = tuple(
-        (i + j - 1) // j for i, j in zip(shape, chunks, strict=True)
-    )
-    for indices in numpy.ndindex(chunked):
-        yield separator.join(str(index) for index in indices)
-
-
-def _is_writable(keyframe: TiffPage) -> bool:
-    """Return True if chunks are writable."""
-    return (
-        keyframe.compression == 1
-        and keyframe.fillorder == 1
-        and keyframe.sampleformat in {1, 2, 3, 6}
-        and keyframe.bitspersample in {8, 16, 32, 64, 128}
-        # and (
-        #     keyframe.rowsperstrip == 0
-        #     or keyframe.imagelength % keyframe.rowsperstrip == 0
-        # )
-    )
-
-
-def _chunks(
-    chunks: tuple[int, ...],
-    shape: tuple[int, ...],
-    shaped: tuple[int, int, int, int, int],
-    /,
-) -> tuple[int, ...]:
-    """Return chunks with same length as shape."""
-    ndim = len(shape)
-    if ndim == 0:
-        return ()  # empty array
-    if 0 in shape:
-        return (1,) * ndim
-    d = 0 if shaped[1] == 1 else 1
-    i = min(ndim, 3 + d)
-    if (
-        len(chunks) == 2 + d
-        and i != 2 + d
-        and shape[-1] == 1
-        and shape[-i:] == shaped[-i:]
-    ):
-        # planarconfig=contig with one sample
-        chunks = (*chunks, 1)
-    if ndim < len(chunks):
-        # remove leading dimensions of size 1 from chunks
-        i = 0
-        for size in chunks:
-            if size > 1:
-                break
-            i += 1
-        chunks = chunks[i:]
-        if ndim < len(chunks):
-            msg = f'{shape=!r} is shorter than {chunks=!r}'
-            raise ValueError(msg)
-    # prepend size 1 dimensions to chunks to match length of shape
-    return (1,) * (ndim - len(chunks)) + chunks
+# NGFF 0.5 axis type from TIFF axis character code.
+_NGFF_AXIS_TYPE: dict[str, str] = {
+    'X': 'space',
+    'Y': 'space',
+    'Z': 'space',
+    'T': 'time',
+    'C': 'channel',
+    'S': 'channel',
+}
