@@ -1,9 +1,33 @@
 Revisions
 =========
 
+2026.5.2
+
+- Change TiffFile.series from list to callable TiffSeries sequence (breaking).
+- Remove TiffPageSeries squeeze dual-state (breaking).
+- Remove TiffPageSeries.get_shape, get_axes, and get_coords (breaking).
+- Remove ZarrTiffStore squeeze parameter (breaking).
+- Update ZarrTiffStore to zarr format 3 and multiscales to NGFF 0.5 (breaking).
+- Update multiscales zarr format 2 fsspec files to NGFF 0.4 (breaking).
+- Remove generic TiffPage coords (breaking).
+- Change dims and sizes to use single-char axis codes (breaking).
+- Add zarr format 3 compatible Tiff codec.
+- Add asxarray methods to TiffFile, TiffPage, TiffPageSeries (requires xarray).
+- Add geotiff kind of TiffPageSeries.
+- Add mpp and coord_offsets/scales/units properties to TiffPageSeries.
+- Add attrs property to TiffPage and TiffPageSeries.
+- Add kind and squeeze parameters to memmap.
+- Add kind parameter to imwrite and TiffFile; deprecate ome, imagej, shaped.
+- Add return_as parameter to imread; deprecate aszarr.
+- Fix writing TIFF trees (#326).
+- Fix wrong TiffTagRegistry entries (#323).
+- Implement TiffPageSeries.coords property.
+- Deprecate kwargs to FileSequence.asarray; use imreadargs.
+- Require zarr>=3.2.0 for zarr support.
+- Drop support for numpy 2.0 (SPEC0, #324).
+
 2026.4.11
 
-- Pass 5146 tests.
 - Add option to write zarr format 3 fsspec reference file system.
 - Support reading TIFF with embedded C2PA manifest.
 - Sync API of imagecodecs fallback implementations (#320).
