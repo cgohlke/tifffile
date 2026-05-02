@@ -36,7 +36,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.4.11
+:Version: 2026.5.2
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -76,21 +76,47 @@ This revision was tested with the following requirements and dependencies
 - `NumPy <https://pypi.org/project/numpy>`_ 2.4.4
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.3.6
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
+- `Xarray <https://pypi.org/project/xarray>`_ 2026.4.0
+  (required only for reading xarray DataArrays)
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.9
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.3
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.1.0
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.6
-  (required only for using Zarr stores; Zarr 2 is not compatible)
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.2.0
+  (required only for using Zarr stores)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2026.5.2
+
+- Change TiffFile.series from list to callable TiffSeries sequence (breaking).
+- Remove TiffPageSeries squeeze dual-state (breaking).
+- Remove TiffPageSeries.get_shape, get_axes, and get_coords (breaking).
+- Remove ZarrTiffStore squeeze parameter (breaking).
+- Update ZarrTiffStore to zarr format 3 and multiscales to NGFF 0.5 (breaking).
+- Update multiscales zarr format 2 fsspec files to NGFF 0.4 (breaking).
+- Remove generic TiffPage coords (breaking).
+- Change dims and sizes to use single-char axis codes (breaking).
+- Add zarr format 3 compatible Tiff codec.
+- Add asxarray methods to TiffFile, TiffPage, TiffPageSeries (requires xarray).
+- Add geotiff kind of TiffPageSeries.
+- Add mpp and coord_offsets/scales/units properties to TiffPageSeries.
+- Add attrs property to TiffPage and TiffPageSeries.
+- Add kind and squeeze parameters to memmap.
+- Add kind parameter to imwrite and TiffFile; deprecate ome, imagej, shaped.
+- Add return_as parameter to imread; deprecate aszarr.
+- Fix writing TIFF trees (#326).
+- Fix wrong TiffTagRegistry entries (#323).
+- Implement TiffPageSeries.coords property.
+- Deprecate kwargs to FileSequence.asarray; use imreadargs.
+- Require zarr>=3.2.0 for zarr support.
+- Drop support for numpy 2.0 (SPEC0, #324).
+
 2026.4.11
 
-- Pass 5146 tests.
 - Add option to write zarr format 3 fsspec reference file system.
 - Support reading TIFF with embedded C2PA manifest.
 - Sync API of imagecodecs fallback implementations (#320).
@@ -131,79 +157,6 @@ Revisions
 - Fix code review issues.
 
 2026.1.14
-
-- Improve code quality.
-
-2025.12.20
-
-- Do not initialize output arrays.
-
-2025.12.12
-
-- Improve code quality.
-
-2025.10.16
-
-- Add option to decode EER super-resolution sub-pixels (breaking, #313).
-- Parse EER metadata to dict (breaking).
-
-2025.10.4
-
-- Fix parsing SVS description ending with "|".
-
-2025.9.30
-
-- Fix reading NDTiff series with unordered axes in index (#311).
-
-2025.9.20
-
-- Derive TiffFileError from ValueError.
-- Natural-sort files in glob pattern passed to imread by default (breaking).
-- Fix optional sorting of list of files passed to FileSequence and imread.
-
-2025.9.9
-
-- Consolidate Nuvu camera metadata.
-
-2025.8.28
-
-- Support DNG DCP files (#306).
-
-2025.6.11
-
-- Fix reading images with dimension length 1 through Zarr (#303).
-
-2025.6.1
-
-- Add experimental option to write iterator of bytes and bytecounts (#301).
-
-2025.5.26
-
-- Use threads in Zarr stores.
-
-2025.5.24
-
-- Fix incorrect tags created by Philips DP v1.1 (#299).
-- Make Zarr stores partially listable.
-
-2025.5.21
-
-- Move Zarr stores to tifffile.zarr namespace (breaking).
-- Require Zarr 3 for Zarr stores and remove support for Zarr 2 (breaking).
-- Drop support for Python 3.10.
-
-2025.5.10
-
-- Raise ValueError when using Zarr 3 (#296).
-- Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
-- Remove doctest command line option.
-- Support Python 3.14.
-
-2025.3.30
-
-- Fix for imagecodecs 2025.3.30.
-
-2025.3.13
 
 - …
 
@@ -392,7 +345,7 @@ Read the image from the TIFF file as NumPy array:
     >>> image.shape
     (256, 256, 3)
 
-Use the `photometric` and `planarconfig` arguments to write a 3x3x3 NumPy
+Use the ``photometric`` and ``planarconfig`` arguments to write a 3x3x3 NumPy
 array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 
 .. code-block:: python
@@ -402,7 +355,7 @@ array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
     >>> imwrite('temp.tif', data, photometric='rgb', planarconfig='separate')
     >>> imwrite('temp.tif', data, photometric='minisblack')
 
-Use the `extrasamples` argument to specify how extra components are
+Use the ``extrasamples`` argument to specify how extra components are
 interpreted, for example, for an RGBA image with unassociated alpha channel:
 
 .. code-block:: python
@@ -542,7 +495,7 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
     >>> imwrite(
     ...     'temp.tif',
     ...     volume,
-    ...     imagej=True,
+    ...     kind='imagej',
     ...     resolution=(1.0 / 2.6755, 1.0 / 2.6755),
     ...     metadata={
     ...         'spacing': 3.947368,
@@ -554,19 +507,28 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
     ...     },
     ... )
 
-Read the volume and metadata from the ImageJ hyperstack file:
+Read the volume and metadata from the ImageJ hyperstack file
+as xarray DataArray:
 
 .. code-block:: python
 
     >>> with TiffFile('temp.tif') as tif:
-    ...     volume = tif.asarray()
-    ...     axes = tif.series[0].axes
+    ...     volume = tif.asxarray()
     ...     imagej_metadata = tif.imagej_metadata
     ...
-    >>> volume.shape
-    (6, 57, 256, 256)
-    >>> axes
-    'TZYX'
+    >>> volume
+    <xarray.DataArray '' (T: 6, Z: 57, Y: 256, X: 256)> Size: 90MB
+    array([[[[...]]]],
+            shape=(6, 57, 256, 256), dtype=float32)
+    Coordinates:
+        * T        (T) float64 48B 0.0 0.1 0.2 0.3 0.4 0.5
+        * Z        (Z) float64 456B 0.0 3.947 ... 221.1
+        * Y        (Y) float32 1kB 0.0 2.675 ... 682.3
+        * X        (X) float32 1kB 0.0 2.675 ... 682.3
+    Attributes:
+        photometric:    minisblack
+        mode:           grayscale
+    ...
     >>> imagej_metadata['slices']
     57
     >>> imagej_metadata['frames']
@@ -712,16 +674,30 @@ image series:
     ...     tif.write(thumbnail, metadata={'Name': 'thumbnail'})
     ...
 
-Access the image levels in the pyramidal OME-TIFF file:
+Access image levels in the pyramidal OME-TIFF file:
 
 .. code-block:: python
 
     >>> baseimage = imread('temp.ome.tif')
     >>> second_level = imread('temp.ome.tif', series=0, level=1)
     >>> with TiffFile('temp.ome.tif') as tif:
-    ...     baseimage = tif.series[0].asarray()
-    ...     second_level = tif.series[0].levels[1].asarray()
-    ...     number_levels = len(tif.series[0].levels)  # includes base level
+    ...     series = tif.series[0]
+    ...     assert series.kind == 'ome'
+    ...     assert series.sizes == {'T': 8, 'C': 2, 'Y': 512, 'X': 512, 'S': 3}
+    ...     baseimage = series.asarray()
+    ...     second_level = series.levels[1].asarray()
+    ...     number_levels = len(series.levels)  # includes base level
+    ...
+
+Read image data from a generic kind of series, ignoring OME metadata:
+
+.. code-block:: python
+
+    >>> with TiffFile('temp.ome.tif') as tif:
+    ...     series = tif.series(kind='generic')[0]
+    ...     assert series.kind == 'generic'
+    ...     assert series.sizes == {'I': 16, 'Y': 512, 'X': 512, 'S': 3}
+    ...     image = series.asarray()
     ...
 
 Iterate over and decode single JPEG compressed tiles in the TIFF file:
@@ -746,7 +722,7 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 .. code-block:: python
 
     >>> import zarr
-    >>> store = imread('temp.ome.tif', aszarr=True)
+    >>> store = imread('temp.ome.tif', return_as='zarr')
     >>> z = zarr.open(store, mode='r')
     >>> z
     <Group ZarrTiffStore>
@@ -761,8 +737,8 @@ Load the base layer from the Zarr store as a dask array:
 .. code-block:: python
 
     >>> import dask.array
-    >>> store = imread('temp.ome.tif', aszarr=True)
-    >>> dask.array.from_zarr(store, '0', zarr_format=2)
+    >>> store = imread('temp.ome.tif', return_as='zarr')
+    >>> dask.array.from_zarr(store, '0')
     dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
     >>> store.close()
 
@@ -770,11 +746,11 @@ Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
 .. code-block:: python
 
-    >>> store = imread('temp.ome.tif', aszarr=True)
-    >>> store.write_fsspec('temp.ome.tif.json', url='file://')
+    >>> store = imread('temp.ome.tif', return_as='zarr')
+    >>> store.write_fsspec('temp.ome.tif.json', url='file://', zarr_format=2)
     >>> store.close()
 
-Open the fsspec ReferenceFileSystem as a Zarr group:
+Open the fsspec ReferenceFileSystem as a Zarr group and read the first layer:
 
 .. code-block:: python
 
@@ -782,8 +758,8 @@ Open the fsspec ReferenceFileSystem as a Zarr group:
     >>> import imagecodecs.numcodecs
     >>> imagecodecs.numcodecs.register_codecs(verbose=False)
     >>> z = zarr.open(refs_as_store('temp.ome.tif.json'), mode='r')
-    >>> z
-    <Group <FsspecStore(ReferenceFileSystem, /)>>
+    >>> z['1']  # first layer
+    <Array <FsspecStore(ReferenceFileSystem, /)>/1 shape=(8, 2, 256, 256, 3) ...>
 
 Create an OME-TIFF file containing an empty, tiled image series and write
 to it via the Zarr interface (note: this does not work with compression):
@@ -798,7 +774,7 @@ to it via the Zarr interface (note: this does not work with compression):
     ...     tile=(128, 128),
     ...     metadata={'axes': 'CYX'},
     ... )
-    >>> store = imread('temp2.ome.tif', mode='r+', aszarr=True)
+    >>> store = imread('temp2.ome.tif', mode='r+', return_as='zarr')
     >>> z = zarr.open(store, mode='r+')
     >>> z
     <Array ZarrTiffStore shape=(8, 800, 600) dtype=uint16>
