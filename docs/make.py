@@ -30,6 +30,7 @@ members = [
     'TiffTags',
     'TiffTagRegistry',
     'TiffPageSeries',
+    'TiffSeries',
     'TiffSequence',
     'FileSequence',
     'zarr.ZarrStore',
@@ -57,6 +58,7 @@ members = [
     'TiledSequence',
     # functions
     'logger',
+    'rational',
     'repeat_nd',
     'natural_sorted',
     'parse_filenames',
