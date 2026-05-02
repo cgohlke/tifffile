@@ -63,7 +63,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.4.11
+:Version: 2026.5.2
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -103,21 +103,47 @@ This revision was tested with the following requirements and dependencies
 - `NumPy <https://pypi.org/project/numpy>`_ 2.4.4
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.3.6
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.8
+- `Xarray <https://pypi.org/project/xarray>`_ 2026.4.0
+  (required only for reading xarray DataArrays)
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.9
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.0.3
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.1.0
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.1.6
-  (required only for using Zarr stores; Zarr 2 is not compatible)
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.2.0
+  (required only for using Zarr stores)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
 
+2026.5.2
+
+- Change TiffFile.series from list to callable TiffSeries sequence (breaking).
+- Remove TiffPageSeries squeeze dual-state (breaking).
+- Remove TiffPageSeries.get_shape, get_axes, and get_coords (breaking).
+- Remove ZarrTiffStore squeeze parameter (breaking).
+- Update ZarrTiffStore to zarr format 3 and multiscales to NGFF 0.5 (breaking).
+- Update multiscales zarr format 2 fsspec files to NGFF 0.4 (breaking).
+- Remove generic TiffPage coords (breaking).
+- Change dims and sizes to use single-char axis codes (breaking).
+- Add zarr format 3 compatible Tiff codec.
+- Add asxarray methods to TiffFile, TiffPage, TiffPageSeries (requires xarray).
+- Add geotiff kind of TiffPageSeries.
+- Add mpp and coord_offsets/scales/units properties to TiffPageSeries.
+- Add attrs property to TiffPage and TiffPageSeries.
+- Add kind and squeeze parameters to memmap.
+- Add kind parameter to imwrite and TiffFile; deprecate ome, imagej, shaped.
+- Add return_as parameter to imread; deprecate aszarr.
+- Fix writing TIFF trees (#326).
+- Fix wrong TiffTagRegistry entries (#323).
+- Implement TiffPageSeries.coords property.
+- Deprecate kwargs to FileSequence.asarray; use imreadargs.
+- Require zarr>=3.2.0 for zarr support.
+- Drop support for numpy 2.0 (SPEC0, #324).
+
 2026.4.11
 
-- Pass 5146 tests.
 - Add option to write zarr format 3 fsspec reference file system.
 - Support reading TIFF with embedded C2PA manifest.
 - Sync API of imagecodecs fallback implementations (#320).
@@ -158,79 +184,6 @@ Revisions
 - Fix code review issues.
 
 2026.1.14
-
-- Improve code quality.
-
-2025.12.20
-
-- Do not initialize output arrays.
-
-2025.12.12
-
-- Improve code quality.
-
-2025.10.16
-
-- Add option to decode EER super-resolution sub-pixels (breaking, #313).
-- Parse EER metadata to dict (breaking).
-
-2025.10.4
-
-- Fix parsing SVS description ending with "|".
-
-2025.9.30
-
-- Fix reading NDTiff series with unordered axes in index (#311).
-
-2025.9.20
-
-- Derive TiffFileError from ValueError.
-- Natural-sort files in glob pattern passed to imread by default (breaking).
-- Fix optional sorting of list of files passed to FileSequence and imread.
-
-2025.9.9
-
-- Consolidate Nuvu camera metadata.
-
-2025.8.28
-
-- Support DNG DCP files (#306).
-
-2025.6.11
-
-- Fix reading images with dimension length 1 through Zarr (#303).
-
-2025.6.1
-
-- Add experimental option to write iterator of bytes and bytecounts (#301).
-
-2025.5.26
-
-- Use threads in Zarr stores.
-
-2025.5.24
-
-- Fix incorrect tags created by Philips DP v1.1 (#299).
-- Make Zarr stores partially listable.
-
-2025.5.21
-
-- Move Zarr stores to tifffile.zarr namespace (breaking).
-- Require Zarr 3 for Zarr stores and remove support for Zarr 2 (breaking).
-- Drop support for Python 3.10.
-
-2025.5.10
-
-- Raise ValueError when using Zarr 3 (#296).
-- Fall back to compression.zstd on Python >= 3.14 if no imagecodecs.
-- Remove doctest command line option.
-- Support Python 3.14.
-
-2025.3.30
-
-- Fix for imagecodecs 2025.3.30.
-
-2025.3.13
 
 - …
 
@@ -415,7 +368,7 @@ Read the image from the TIFF file as NumPy array:
 >>> image.shape
 (256, 256, 3)
 
-Use the `photometric` and `planarconfig` arguments to write a 3x3x3 NumPy
+Use the ``photometric`` and ``planarconfig`` arguments to write a 3x3x3 NumPy
 array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 
 >>> data = numpy.random.randint(0, 255, (3, 3, 3), 'uint8')
@@ -423,7 +376,7 @@ array to an interleaved RGB, a planar RGB, or a 3-page grayscale TIFF:
 >>> imwrite('temp.tif', data, photometric='rgb', planarconfig='separate')
 >>> imwrite('temp.tif', data, photometric='minisblack')
 
-Use the `extrasamples` argument to specify how extra components are
+Use the ``extrasamples`` argument to specify how extra components are
 interpreted, for example, for an RGBA image with unassociated alpha channel:
 
 >>> data = numpy.random.randint(0, 255, (256, 256, 4), 'uint8')
@@ -539,7 +492,7 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
 >>> imwrite(
 ...     'temp.tif',
 ...     volume,
-...     imagej=True,
+...     kind='imagej',
 ...     resolution=(1.0 / 2.6755, 1.0 / 2.6755),
 ...     metadata={
 ...         'spacing': 3.947368,
@@ -551,17 +504,26 @@ micron^3 to an ImageJ hyperstack formatted TIFF file:
 ...     },
 ... )
 
-Read the volume and metadata from the ImageJ hyperstack file:
+Read the volume and metadata from the ImageJ hyperstack file
+as xarray DataArray:
 
 >>> with TiffFile('temp.tif') as tif:
-...     volume = tif.asarray()
-...     axes = tif.series[0].axes
+...     volume = tif.asxarray()
 ...     imagej_metadata = tif.imagej_metadata
 ...
->>> volume.shape
-(6, 57, 256, 256)
->>> axes
-'TZYX'
+>>> volume
+<xarray.DataArray '' (T: 6, Z: 57, Y: 256, X: 256)> Size: 90MB
+array([[[[...]]]],
+        shape=(6, 57, 256, 256), dtype=float32)
+Coordinates:
+    * T        (T) float64 48B 0.0 0.1 0.2 0.3 0.4 0.5
+    * Z        (Z) float64 456B 0.0 3.947 ... 221.1
+    * Y        (Y) float32 1kB 0.0 2.675 ... 682.3
+    * X        (X) float32 1kB 0.0 2.675 ... 682.3
+Attributes:
+    photometric:    minisblack
+    mode:           grayscale
+...
 >>> imagej_metadata['slices']
 57
 >>> imagej_metadata['frames']
@@ -691,14 +653,26 @@ image series:
 ...     tif.write(thumbnail, metadata={'Name': 'thumbnail'})
 ...
 
-Access the image levels in the pyramidal OME-TIFF file:
+Access image levels in the pyramidal OME-TIFF file:
 
 >>> baseimage = imread('temp.ome.tif')
 >>> second_level = imread('temp.ome.tif', series=0, level=1)
 >>> with TiffFile('temp.ome.tif') as tif:
-...     baseimage = tif.series[0].asarray()
-...     second_level = tif.series[0].levels[1].asarray()
-...     number_levels = len(tif.series[0].levels)  # includes base level
+...     series = tif.series[0]
+...     assert series.kind == 'ome'
+...     assert series.sizes == {'T': 8, 'C': 2, 'Y': 512, 'X': 512, 'S': 3}
+...     baseimage = series.asarray()
+...     second_level = series.levels[1].asarray()
+...     number_levels = len(series.levels)  # includes base level
+...
+
+Read image data from a generic kind of series, ignoring OME metadata:
+
+>>> with TiffFile('temp.ome.tif') as tif:
+...     series = tif.series(kind='generic')[0]
+...     assert series.kind == 'generic'
+...     assert series.sizes == {'I': 16, 'Y': 512, 'X': 512, 'S': 3}
+...     image = series.asarray()
 ...
 
 Iterate over and decode single JPEG compressed tiles in the TIFF file:
@@ -719,7 +693,7 @@ Iterate over and decode single JPEG compressed tiles in the TIFF file:
 Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 
 >>> import zarr
->>> store = imread('temp.ome.tif', aszarr=True)
+>>> store = imread('temp.ome.tif', return_as='zarr')
 >>> z = zarr.open(store, mode='r')
 >>> z
 <Group ZarrTiffStore>
@@ -732,25 +706,25 @@ Use Zarr to read parts of the tiled, pyramidal images in the TIFF file:
 Load the base layer from the Zarr store as a dask array:
 
 >>> import dask.array
->>> store = imread('temp.ome.tif', aszarr=True)
->>> dask.array.from_zarr(store, '0', zarr_format=2)
+>>> store = imread('temp.ome.tif', return_as='zarr')
+>>> dask.array.from_zarr(store, '0')
 dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
 >>> store.close()
 
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
->>> store = imread('temp.ome.tif', aszarr=True)
->>> store.write_fsspec('temp.ome.tif.json', url='file://')
+>>> store = imread('temp.ome.tif', return_as='zarr')
+>>> store.write_fsspec('temp.ome.tif.json', url='file://', zarr_format=2)
 >>> store.close()
 
-Open the fsspec ReferenceFileSystem as a Zarr group:
+Open the fsspec ReferenceFileSystem as a Zarr group and read the first layer:
 
 >>> from kerchunk.utils import refs_as_store
 >>> import imagecodecs.numcodecs
 >>> imagecodecs.numcodecs.register_codecs(verbose=False)
 >>> z = zarr.open(refs_as_store('temp.ome.tif.json'), mode='r')
->>> z
-<Group <FsspecStore(ReferenceFileSystem, /)>>
+>>> z['1']  # first layer
+<Array <FsspecStore(ReferenceFileSystem, /)>/1 shape=(8, 2, 256, 256, 3) ...>
 
 Create an OME-TIFF file containing an empty, tiled image series and write
 to it via the Zarr interface (note: this does not work with compression):
@@ -763,7 +737,7 @@ to it via the Zarr interface (note: this does not work with compression):
 ...     tile=(128, 128),
 ...     metadata={'axes': 'CYX'},
 ... )
->>> store = imread('temp2.ome.tif', mode='r+', aszarr=True)
+>>> store = imread('temp2.ome.tif', mode='r+', return_as='zarr')
 >>> z = zarr.open(store, mode='r+')
 >>> z
 <Array ZarrTiffStore shape=(8, 800, 600) dtype=uint16>
@@ -820,7 +794,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.4.11'
+__version__ = '2026.5.2'
 
 __all__ = [
     'CHUNKMODE',
@@ -854,6 +828,7 @@ __all__ = [
     'TiffPages',
     'TiffReader',
     'TiffSequence',
+    'TiffSeries',
     'TiffTag',
     'TiffTagRegistry',
     'TiffTags',
@@ -883,6 +858,7 @@ __all__ = [
     'parse_kwargs',
     'pformat',
     'product',
+    'rational',
     'read_gdal_structural_metadata',
     'read_micromanager_metadata',
     'read_ndtiff_index',
@@ -941,6 +917,7 @@ if TYPE_CHECKING:
     from typing import Any, Literal, Self
 
     from numpy.typing import ArrayLike, DTypeLike, NDArray
+    from xarray import DataArray
 
 type ByteOrder = Literal['>', '<']
 type OutputType = str | IO[bytes] | NDArray[Any] | None
@@ -966,9 +943,10 @@ def imread(
     ) = None,
     *,
     selection: Any | None = None,  # TODO: type this
-    aszarr: Literal[False] = ...,
+    return_as: Literal['xarray'],
     key: int | slice | Sequence[int] | None = None,
     series: int | None = None,
+    kind: str | None = None,
     level: int | None = None,
     squeeze: bool | None = None,
     maxworkers: int | None = None,
@@ -999,7 +977,7 @@ def imread(
     _multifile: bool | None = None,
     _useframes: bool | None = None,
     **kwargs: Any,
-) -> NDArray[Any]: ...
+) -> DataArray: ...
 
 
 @overload
@@ -1014,9 +992,10 @@ def imread(
     ) = None,
     *,
     selection: Any | None = None,  # TODO: type this
-    aszarr: Literal[True],
+    return_as: Literal['zarr'],
     key: int | slice | Sequence[int] | None = None,
     series: int | None = None,
+    kind: str | None = None,
     level: int | None = None,
     squeeze: bool | None = None,
     maxworkers: int | None = None,
@@ -1062,9 +1041,10 @@ def imread(
     ) = None,
     *,
     selection: Any | None = None,  # TODO: type this
-    aszarr: bool = False,
+    return_as: Literal['numpy'] | None = None,
     key: int | slice | Sequence[int] | None = None,
     series: int | None = None,
+    kind: str | None = None,
     level: int | None = None,
     squeeze: bool | None = None,
     maxworkers: int | None = None,
@@ -1095,7 +1075,7 @@ def imread(
     _multifile: bool | None = None,
     _useframes: bool | None = None,
     **kwargs: Any,
-) -> NDArray[Any] | ZarrTiffStore | ZarrFileSequenceStore: ...
+) -> NDArray[Any]: ...
 
 
 def imread(
@@ -1109,9 +1089,11 @@ def imread(
     ) = None,
     *,
     selection: Any | None = None,  # TODO: type this
+    return_as: Literal['numpy', 'xarray', 'zarr'] | None = None,
     aszarr: bool = False,
     key: int | slice | Sequence[int] | None = None,
     series: int | None = None,
+    kind: str | None = None,
     level: int | None = None,
     squeeze: bool | None = None,
     maxworkers: int | None = None,
@@ -1142,7 +1124,7 @@ def imread(
     _multifile: bool | None = None,
     _useframes: bool | None = None,
     **kwargs: Any,
-) -> NDArray[Any] | ZarrTiffStore | ZarrFileSequenceStore:
+) -> NDArray[Any] | ZarrTiffStore | ZarrFileSequenceStore | DataArray:
     """Return image from TIFF file(s) as NumPy array or Zarr store.
 
     The first image series in the file(s) is returned by default.
@@ -1150,28 +1132,36 @@ def imread(
     Parameters:
         files:
             File name, seekable binary stream, glob pattern, or sequence of
-            file names. May be *None* if `container` is specified.
+            file names. May be ``None`` if ``container`` is specified.
         selection:
             Subset of image to be extracted.
-            If not None, a Zarr array is created internally, indexed with the
-            `selection` value, and returned as a NumPy array (not a store).
+            If not ``None``, a Zarr array is created internally, indexed with
+            the ``selection`` value, and returned as a NumPy array (not a
+            store).
             Only segments that are part of the selection will be read from
             file. Refer to the Zarr documentation for valid selections.
             Depending on selection size, image size, and storage properties,
             it may be more efficient to read the whole image from file and
             then index it.
+        return_as:
+            Return type of image data.
+            If ``'xarray'``, return as :py:class:`xarray.DataArray`.
+            Cannot be combined with ``selection``.
+            Not supported for file sequences.
+            If ``'zarr'``, return as Zarr store.
+            When ``selection`` is not ``None``, a Zarr store is used
+            internally regardless of this value, but a NumPy array is
+            returned.
+            If ``'numpy'`` or ``None`` (default), return as NumPy array.
         aszarr:
-            Return file sequences, series, or single pages as Zarr store
-            instead of NumPy array. When `selection` is not *None*, a Zarr
-            store is used internally regardless of this flag, but a NumPy
-            array is returned.
+            Deprecated: use ``return_as='zarr'``.
         mode, name, offset, size, superres, omexml, _multifile, _useframes:
             Passed to :py:class:`TiffFile`.
-        key, series, level, squeeze, maxworkers, buffersize:
-            Passed to :py:meth:`TiffFile.asarray`
-            or :py:meth:`TiffFile.aszarr`.
-            When `aszarr` is *True* and reading a single file, `key` must be
-            *None* or an integer.
+        key, series, kind, level, squeeze, maxworkers, buffersize:
+            Passed to :py:meth:`TiffFile.asarray`,
+            :py:meth:`TiffFile.asxarray`, or :py:meth:`TiffFile.aszarr`.
+            When ``return_as='zarr'`` or ``return_as='xarray'`` and reading a
+            single file, ``key`` must be ``None`` or an integer.
         imread, container, sort, pattern, axesorder, axestiled, categories:
             Passed to :py:class:`FileSequence`.
         chunkmode, fillvalue, zattrs, multiscales:
@@ -1200,14 +1190,28 @@ def imread(
     Raises:
         ValueError:
             No files matching the pattern were found.
-            Binary IO streams are not supported with `container`.
-            `key` is not *None* or an integer when `aszarr` is *True*.
+            Binary IO streams are not supported with ``container``.
+            ``key`` is not ``None`` or an integer when ``return_as='zarr'``
+            or ``return_as='xarray'``.
+            ``return_as='xarray'`` and ``aszarr`` are both set.
+        NotImplementedError:
+            ``return_as='xarray'`` and a file sequence is used.
+            ``return_as='xarray'`` and ``selection`` are both specified.
         TypeError:
             Unexpected keyword arguments were passed.
 
     """
     store: ZarrStore
+    if return_as == 'zarr':
+        aszarr = True
+    asxarray = return_as == 'xarray'
+    if asxarray and selection is not None:
+        msg = 'asxarray with selection is not implemented'
+        raise NotImplementedError(msg)
     aszarr = aszarr or (selection is not None)
+    if asxarray and aszarr:
+        msg = 'asxarray and aszarr are mutually exclusive'
+        raise ValueError(msg)
     is_flags = parse_kwargs(kwargs, *(k for k in kwargs if k[:3] == 'is_'))
 
     if imread is None and kwargs:
@@ -1245,6 +1249,19 @@ def imread(
                 _useframes=_useframes,
                 **is_flags,
             ) as tif:
+                if asxarray:
+                    if key is not None and not isinstance(key, int):
+                        msg = 'asxarray requires key to be None or an integer'
+                        raise ValueError(msg)
+                    return tif.asxarray(
+                        key,
+                        series=series,
+                        kind=kind,
+                        level=level,
+                        squeeze=squeeze,
+                        maxworkers=maxworkers,
+                        buffersize=buffersize,
+                    )
                 if aszarr:
                     if key is not None and not isinstance(key, int):
                         msg = 'aszarr requires key to be None or an integer'
@@ -1252,6 +1269,7 @@ def imread(
                     store = tif.aszarr(
                         key=key,
                         series=series,
+                        kind=kind,
                         level=level,
                         squeeze=squeeze,
                         maxworkers=maxworkers,
@@ -1267,9 +1285,11 @@ def imread(
                     from .zarr import zarr_selection
 
                     return zarr_selection(store, selection, out=out)
+
                 return tif.asarray(
                     key=key,
                     series=series,
+                    kind=kind,
                     level=level,
                     squeeze=squeeze,
                     maxworkers=maxworkers,
@@ -1284,6 +1304,7 @@ def imread(
     imread_kwargs = kwargs_notnone(
         key=key,
         series=series,
+        kind=kind,
         level=level,
         squeeze=squeeze,
         maxworkers=maxworkers,
@@ -1298,6 +1319,10 @@ def imread(
     if glob_pattern is not None:
         # TODO: this forces glob to be executed again
         files = glob_pattern
+
+    if asxarray:
+        msg = 'asxarray is not supported for file sequences'
+        raise NotImplementedError(msg)
 
     with TiffSequence(
         files,
@@ -1350,6 +1375,7 @@ def imwrite(
     mode: Literal['w', 'x', 'r+'] | None = None,
     bigtiff: bool | None = None,
     byteorder: ByteOrder | None = None,
+    kind: Literal['generic', 'imagej', 'ome', 'shaped'] | None = None,
     imagej: bool = False,
     ome: bool | None = None,
     shaped: bool | None = None,
@@ -1391,10 +1417,10 @@ def imwrite(
     """Write array or image data to TIFF file.
 
     A BigTIFF file is written if the data size is larger than 4 GB less
-    32 MB for metadata, and `bigtiff` is not *False*, and `imagej`,
-    `truncate` and `compression` are not enabled.
-    Unless `byteorder` is specified, the TIFF file byte order is determined
-    from the dtype of `data` or the `dtype` argument.
+    32 MB for metadata, and ``bigtiff`` is not ``False``, and ``imagej``,
+    ``truncate`` and ``compression`` are not enabled.
+    Unless ``byteorder`` is specified, the TIFF file byte order is determined
+    from the dtype of ``data`` or the ``dtype`` argument.
 
     Parameters:
         file:
@@ -1403,15 +1429,15 @@ def imwrite(
             Image data to write.
             May be a NumPy array, an iterator of arrays, an iterator of
             encoded bytes, an iterator of ``(bytes, bytecount)`` tuples,
-            or *None* to write an empty file.
-            If *None*, `shape` and `dtype` are required.
+            or ``None`` to write an empty file.
+            If ``None``, ``shape`` and ``dtype`` are required.
         shape:
-            Shape of empty array when `data` is *None*.
+            Shape of empty array when ``data`` is ``None``.
             Otherwise passed to :py:meth:`TiffWriter.write`.
         dtype:
-            Data type of empty array when `data` is *None*.
+            Data type of empty array when ``data`` is ``None``.
             Otherwise passed to :py:meth:`TiffWriter.write`.
-        mode, append, byteorder, bigtiff, imagej, ome, shaped:
+        mode, append, byteorder, bigtiff, kind, imagej, ome, shaped:
             Passed to :py:class:`TiffWriter`.
         photometric, planarconfig, extrasamples, volumetric, tile,\
         rowsperstrip, bitspersample, compression, compressionargs, predictor,\
@@ -1425,12 +1451,13 @@ def imwrite(
             in file.
 
     Returns:
-        If `returnoffset` is *True* and the image data in the file are
+        If ``returnoffset`` is ``True`` and the image data in the file are
         memory-mappable, a tuple of ``(offset, bytecount)``.
-        Otherwise *None*.
+        Otherwise ``None``.
 
     Raises:
-        ValueError: `data` is *None* and `shape` or `dtype` is not provided.
+        ValueError:
+            ``data`` is ``None`` and ``shape`` or ``dtype`` is not provided.
 
     """
     if data is None:
@@ -1454,7 +1481,7 @@ def imwrite(
     if bigtiff is None:
         bigtiff = (
             datasize > 2**32 - 2**25
-            and not imagej
+            and not (kind == 'imagej' or imagej)
             and not truncate
             and compression in {None, 0, 1, 'NONE', 'None', 'none'}
         )
@@ -1465,6 +1492,7 @@ def imwrite(
         bigtiff=bigtiff,
         byteorder=byteorder,
         append=append,
+        kind=kind,
         imagej=imagej,
         ome=ome,
         shaped=shaped,
@@ -1511,8 +1539,10 @@ def memmap(
     shape: Sequence[int] | None = None,
     dtype: DTypeLike | None = None,
     page: int | None = None,
-    series: int = 0,
-    level: int = 0,
+    series: int | None = None,
+    kind: str | None = None,
+    level: int | None = None,
+    squeeze: bool | None = None,
     mode: Literal['r+', 'r', 'c'] = 'r+',
     **kwargs: Any,
 ) -> numpy.memmap[Any, Any]:
@@ -1520,33 +1550,46 @@ def memmap(
 
     Memory-mapping requires the image data to be stored in native byte order,
     without tiling, compression, predictors, etc.
-    If both `shape` and `dtype` are provided, a new TIFF file is created
-    (overwriting or appending depending on the `append` keyword argument)
+    If both ``shape`` and ``dtype`` are provided, a new TIFF file is created
+    (overwriting or appending depending on the ``append`` keyword argument)
     and the image data region is memory-mapped read-write.
     Otherwise, the image data of a specified page or series in an existing
     file are memory-mapped.
-    Call `flush` to write any changes in the array back to the file.
+    Call ``flush`` to write any changes in the array back to the file.
 
     Parameters:
         filename:
             Name of TIFF file to create or memory-map.
         shape:
-            Shape of array to create. Requires `dtype`.
-            If provided together with `dtype`, a new TIFF file is written.
+            Shape of array to create. Requires ``dtype``.
+            If provided together with ``dtype``, a new TIFF file is written.
         dtype:
-            Data type of array to create. Requires `shape`.
+            Data type of array to create. Requires ``shape``.
         page:
             Index of page whose image data to memory-map.
-            If provided, `series` and `level` are ignored.
+            If provided, ``series``, ``kind``, and ``level`` are ignored.
         series:
-            Index of page series to memory-map. Ignored if `page` is set.
+            Index of page series to memory-map (default is 0).
+            Ignored if ``page`` is set.
+        kind:
+            Series format kind, such as ``'ome'`` or ``'imagej'``.
+            By default, the format is auto-detected.
+            Ignored if ``page`` is set.
         level:
-            Index of pyramid level to memory-map. Ignored if `page` is set.
+            Index of pyramid level to memory-map (default is 0).
+            Ignored if ``page`` is set.
+        squeeze:
+            Remove length-1 dimensions from the memory-mapped array shape,
+            except X and Y.
+            If ``False``, preserve all dimensions.
+            If ``None`` (default), remove length-1 dimensions except for
+            ``'shaped'`` series.
+            For single pages, ``None`` is treated as ``True``.
         mode:
             Memory-map file open mode for existing files.
             The default is 'r+' (read-write). Use 'r' for read-only or
             'c' for copy-on-write.
-            When creating a new file (`shape` and `dtype` provided), this
+            When creating a new file (``shape`` and ``dtype`` provided), this
             argument is ignored and the file is always opened read-write.
         **kwargs:
             Additional arguments passed to :py:func:`imwrite` when creating
@@ -1572,6 +1615,7 @@ def memmap(
             data=None,
             shape=shape,
             dtype=dtype,
+            kind=kind,
             align=TIFF.ALLOCATIONGRANULARITY,
             returnoffset=True,
         )
@@ -1586,7 +1630,14 @@ def memmap(
         # use existing file
         with TiffFile(filename, **kwargs) as tif:
             if page is None:
-                tiffseries = tif.series[series].levels[level]
+                if series is None:
+                    series = 0
+                if level is None:
+                    level = 0
+                s = tif._get_series(kind)[series]
+                if squeeze or (squeeze is None and s.kind != 'shaped'):
+                    s = tif._get_series(kind, squeeze=True)[series]
+                tiffseries = s.levels[level]
                 if tiffseries.dataoffset is None:
                     msg = 'image data are not memory-mappable'
                     raise ValueError(msg)
@@ -1599,7 +1650,11 @@ def memmap(
                     msg = 'image data are not memory-mappable'
                     raise ValueError(msg)
                 offset = tiffpage.dataoffsets[0]
-                shape = tiffpage.shape
+                shape = (
+                    tiffpage.shape
+                    if (squeeze is None or squeeze)
+                    else tiffpage.shaped
+                )
                 dtype = tiffpage.dtype
                 if dtype is None:
                     msg = 'image data are not memory-mappable'
@@ -1632,64 +1687,76 @@ class TiffWriter:
         file:
             Specifies file to write.
         mode:
-            Binary file open mode if `file` is a file name.
+            Binary file open mode if ``file`` is a file name.
             The default is 'w', which opens files for writing, truncating
             existing files.
             'x' opens files for exclusive creation, failing on existing files.
-            'r+' opens files for updating, enabling `append`.
+            'r+' opens files for updating, enabling ``append``.
         bigtiff:
             Write 64-bit BigTIFF formatted file, which can exceed 4 GB.
             By default, a classic 32-bit TIFF file is written, which is
             limited to 4 GB.
-            If `append` is *True*, the format of the existing file is used.
-            Using BigTIFF with `imagej` produces a non-conformant file and
-            raises a UserWarning.
+            If ``append`` is ``True``, the format of the existing file is used.
+            Using BigTIFF with ``kind='imagej'`` produces a non-conformant
+            file and raises a UserWarning.
         byteorder:
             Endianness of TIFF format. One of '<', '>', '=', or '|'.
             The default is the system's native byte order.
         append:
-            If `file` is an existing standard TIFF file, append image data
+            If ``file`` is an existing standard TIFF file, append image data
             and tags to the file.
             Pass ``'force'`` to append to files containing metadata (such as
             OME-TIFF), which may corrupt the existing metadata.
-            Parameters `bigtiff` and `byteorder` are set from the existing
+            Parameters ``bigtiff`` and ``byteorder`` are set from the existing
             file.
             Appending does not scale well with the number of pages already in
             the file and may corrupt specifically formatted TIFF files such as
             OME-TIFF, LSM, STK, ImageJ, or FluoView.
-        imagej:
-            Write ImageJ hyperstack compatible file if `ome` is not enabled.
-            This format can handle data types uint8, uint16, or float32 and
-            data shapes up to 6 dimensions in TZCYXS order.
-            RGB images (S=3 or S=4) must be `uint8`.
-            ImageJ's default byte order is big-endian, but this
-            implementation uses the system's native byte order by default.
-            ImageJ hyperstacks do not support BigTIFF or compression.
-            The ImageJ file format is undocumented.
-            Use FIJI's Bio-Formats import function for compressed files.
-        ome:
-            Write OME-TIFF compatible file.
+        kind:
+            Kind of TIFF file to write.
+
+            If ``'ome'``, write OME-TIFF compatible file.
             By default, the OME-TIFF format is used if the file name extension
-            contains '.ome.', `imagej` is not enabled, and the `description`
-            argument in the first call of :py:meth:`TiffWriter.write` is not
-            specified.
+            contains '.ome.' and ``description`` is not specified in the first
+            call to :py:meth:`TiffWriter.write`.
             The format supports multiple image series up to 9 dimensions.
             The default axes order is TZC(S)YX(S).
             Refer to the OME model for restrictions of this format.
+
+            If ``'imagej'``, write ImageJ hyperstack compatible file.
+            This format handles data types uint8, uint16, or float32 and
+            shapes up to 6 dimensions in TZCYXS order.
+            RGB images (S=3 or S=4) must be ``uint8``.
+            ImageJ hyperstacks do not support BigTIFF or compression.
+            The ImageJ file format is undocumented.
+
+            If ``'shaped'``, write tifffile "shaped" TIFF file.
+            The image shape is stored in JSON format in an ImageDescription
+            tag of the first page of a series.
+            Suppresses auto-detection of OME-TIFF format from the file name
+            extension.
+            This is the default format used by tifffile if the file name
+            extension does not contain '.ome.' and ``metadata=None`` is not
+            passed to :py:meth:`TiffWriter.write`.
+
+            If ``'generic'``, write generic TIFF file without extra metadata.
+            Image series written to generic TIFF may not be recoverable.
+
+            If ``None`` (default), ``'shaped'`` is used unless the file name
+            extension contains '.ome.', in which case ``'ome'`` is used.
+        imagej:
+            Deprecated. Use ``kind='imagej'`` instead.
+        ome:
+            Deprecated. Use ``kind='ome'`` instead.
         shaped:
-            Write tifffile "shaped" compatible file.
-            The shape of multi-dimensional images is stored in JSON format in
-            an ImageDescription tag of the first page of a series.
-            This is the default format used by tifffile unless `imagej` or
-            `ome` are enabled or ``metadata=None`` is passed to
-            :py:meth:`TiffWriter.write`.
+            Deprecated. Use ``kind='shaped'`` or ``kind='generic'`` instead.
 
     Raises:
         ValueError:
             The file contains metadata and cannot be appended to
             without ``append='force'``.
-            `mode` is not 'r+' when `append` is *True*.
-            `byteorder` is not a valid byte order character.
+            ``mode`` is not 'r+' when ``append`` is ``True``.
+            ``byteorder`` is not a valid byte order character.
 
     """
 
@@ -1713,6 +1780,7 @@ class TiffWriter:
     _descriptiontag: TiffTag | None  # TiffTag for updating comment
     _ifdoffset: int
     _subifds: int  # number of subifds
+    _subifds_tree: bool  # write subifds as tree instead of chain
     _subifdslevel: int  # index of current subifd level
     _subifdsoffsets: list[int]  # offsets to offsets to subifds
     _nextifdoffsets: list[int]  # offsets to offset to next ifd
@@ -1728,9 +1796,10 @@ class TiffWriter:
         bigtiff: bool = False,
         byteorder: ByteOrder | None = None,
         append: bool | str = False,
-        imagej: bool = False,
-        ome: bool | None = None,
-        shaped: bool | None = None,
+        kind: Literal['generic', 'imagej', 'ome', 'shaped'] | None = None,
+        imagej: bool = False,  # deprecated
+        ome: bool | None = None,  # deprecated
+        shaped: bool | None = None,  # deprecated
     ) -> None:
         if mode in {'r+', 'r+b'} or (
             isinstance(file, FileHandle) and file._mode == 'r+b'
@@ -1790,6 +1859,7 @@ class TiffWriter:
         self._dataoffsetstag = None
         self._descriptiontag = None
         self._subifds = 0
+        self._subifds_tree = True
         self._subifdslevel = -1
         self._subifdsoffsets = []
         self._nextifdoffsets = []
@@ -1809,6 +1879,49 @@ class TiffWriter:
             # first IFD
             self._ifdoffset = self._fh.tell()
             self._fh.write(struct.pack(self.tiff.offsetformat, 0))
+
+        # TODO: warn if imagej, ome, or shaped arguments are used
+        # if imagej:
+        #     warnings.warn(
+        #         f'{self!r} use kind=imagej instead of imagej=True',
+        #         DeprecationWarning,
+        #         stacklevel=2
+        #     )
+        # if ome is not None:
+        #     warnings.warn(
+        #         f'{self!r} use kind=ome instead of ome=True',
+        #         DeprecationWarning,
+        #         stacklevel=2
+        #     )
+        # if shaped is not None:
+        #     warnings.warn(
+        #         f'{self!r} use kind=shaped instead of shaped=True',
+        #         DeprecationWarning,
+        #         stacklevel=2
+        #     )
+
+        match kind:
+            case 'ome':
+                ome = True
+                imagej = False
+                shaped = False
+            case 'imagej':
+                imagej = True
+                ome = False
+                shaped = False
+            case 'shaped':
+                ome = False
+                imagej = False
+                shaped = True
+            case 'generic':
+                ome = False
+                imagej = False
+                shaped = False
+            case None:
+                pass
+            case _:
+                msg = f'invalid {kind=}'
+                raise ValueError(msg)
 
         self._ome = None if ome is None else bool(ome)
         self._imagej = False if self._ome else bool(imagej)
@@ -1890,38 +2003,39 @@ class TiffWriter:
         Parameters:
             data:
                 Image data to write.
-                If *None*, an empty image is written, which size and type must
-                be specified using `shape` and `dtype` arguments.
+                If ``None``, an empty image is written, which size and type
+                must be specified using ``shape`` and ``dtype`` arguments.
                 This option cannot be used with compression, predictors,
                 packed integers, or bilevel images.
                 A copy of array-like data is made if it is not a C-contiguous
                 NumPy or dask array with the same byteorder as the TIFF file.
                 Iterators must yield ndarrays or bytes compatible with the
-                file's byteorder as well as the `shape` and `dtype` arguments.
-                Iterator bytes must be compatible with the `compression`,
-                `predictor`, `subsampling`, and `jpegtables` arguments.
-                If `tile` is specified, iterator items must match the tile
+                file's byteorder as well as the ``shape`` and ``dtype``
+                arguments.
+                Iterator bytes must be compatible with the ``compression``,
+                ``predictor``, ``subsampling``, and ``jpegtables`` arguments.
+                If ``tile`` is specified, iterator items must match the tile
                 shape. Incomplete tiles are zero-padded.
                 Iterators of non-tiled images must yield ndarrays of
-                `shape[1:]` or strips as bytes. Iterators of strip ndarrays
+                ``shape[1:]`` or strips as bytes. Iterators of strip ndarrays
                 are not supported.
                 Writing dask arrays might be excruciatingly slow for arrays
                 with many chunks or files with many segments.
                 (https://github.com/dask/dask/issues/8570).
             shape:
                 Shape of image to write.
-                The default is inferred from the `data` argument if possible.
+                The default is inferred from the ``data`` argument if possible.
                 A ValueError is raised if the value is incompatible with
-                the `data` or other arguments.
+                the ``data`` or other arguments.
             dtype:
                 NumPy data type of image to write.
-                The default is inferred from the `data` argument if possible.
+                The default is inferred from the ``data`` argument if possible.
                 A ValueError is raised if the value is incompatible with
-                the `data` argument.
+                the ``data`` argument.
             photometric:
                 Color space of image.
                 The default is inferred from the data shape, dtype, and the
-                `colormap` argument.
+                ``colormap`` argument.
                 A UserWarning is logged if RGB color space is auto-detected.
                 Specify this parameter to silence the warning and to avoid
                 ambiguities.
@@ -1932,13 +2046,13 @@ class TiffWriter:
                 *PALETTE*: the image is used as an index into a colormap.
                 *CFA*: the image is a Color Filter Array. The
                 CFARepeatPatternDim, CFAPattern, and other DNG or TIFF/EP tags
-                must be specified in `extratags` to produce a valid file.
+                must be specified in ``extratags`` to produce a valid file.
                 The value is written to the PhotometricInterpretation tag.
             planarconfig:
                 Interleaved or planar sample storage.
                 *CONTIG*: the last dimension contains samples.
                 *SEPARATE*: the 3rd or 4th last dimension contains samples.
-                The default is inferred from the data shape and `photometric`
+                The default is inferred from the data shape and ``photometric``
                 mode.
                 If this parameter is set, extra samples are used to store
                 grayscale images.
@@ -1967,7 +2081,7 @@ class TiffWriter:
                 TileDepth tags.
             rowsperstrip:
                 Number of rows per strip.
-                By default, strips are about 256 KB if `compression` is
+                By default, strips are about 256 KB if ``compression`` is
                 enabled, else rowsperstrip is set to the image length.
                 The value is written to the RowsPerStrip tag.
             bitspersample:
@@ -2024,7 +2138,7 @@ class TiffWriter:
             colormap:
                 RGB color values for corresponding data value.
                 The colormap array must be of shape
-                `(3, 2\*\*(data.itemsize*8))` (or `(3, 256)` for ImageJ)
+                ``(3, 2\*\*(data.itemsize*8))`` (or ``(3, 256)`` for ImageJ)
                 and dtype uint16.
                 The image's data type must be uint8 or uint16 (or float32
                 for ImageJ) and the values are indices into the last
@@ -2038,17 +2152,17 @@ class TiffWriter:
             datetime:
                 Date and time of image creation.
                 String in ``%Y:%m:%d %H:%M:%S`` format,
-                ``datetime.datetime`` object, or *True* for now.
+                ``datetime.datetime`` object, or ``True`` for now.
                 The value is written to the DateTime tag of the first page
                 of a series.
             resolution:
-                Number of pixels per `resolutionunit` in X and Y directions.
+                Number of pixels per ``resolutionunit`` in X and Y directions.
                 Values are float or rational numbers.
                 The default is (1.0, 1.0).
                 The values are written to the YResolution and XResolution tags.
             resolutionunit:
-                Unit of measurement for `resolution` values.
-                The default is *NONE* if `resolution` is not specified and
+                Unit of measurement for ``resolution`` values.
+                The default is *NONE* if ``resolution`` is not specified and
                 for ImageJ format, else *INCH*.
                 The value is written to the ResolutionUnit tags.
             subfiletype:
@@ -2062,14 +2176,21 @@ class TiffWriter:
             software:
                 Name of software used to create file.
                 Must be 7-bit ASCII. The default is 'tifffile.py'.
-                Unless *False*, the value is written to the Software tag of
+                Unless ``False``, the value is written to the Software tag of
                 the first page of a series.
             subifds:
                 Number of child IFDs to write per page (int or sequence).
                 If a sequence is given, its length is used (for example,
                 a ``TiffPage.subifds`` tuple).
-                If greater than 0, the following `subifds` number of series
-                are written as child IFDs of the current series.
+                If greater than 0, the following ``subifds`` number of series
+                are written as child IFDs of the current series as a SubIFD
+                tree: all SubIFD offsets are stored directly in the parent's
+                SubIFDs tag and all SubIFD NextIFD fields are zero, as
+                required by DNG and TIFF-EP.
+                If less than 0, ``abs(subifds)`` SubIFD levels are written as
+                a SubIFD chain: only the first SubIFD offset is stored in the
+                parent's SubIFDs tag, and subsequent SubIFDs are linked via
+                their NextIFD fields.
                 The number of IFDs written for each SubIFD level must match
                 the number of IFDs written for the current series.
                 All pages written to a certain SubIFD level of the current
@@ -2083,11 +2204,11 @@ class TiffWriter:
                 is written to the file.
                 By default, the image shape and dtype are written in shaped
                 format with no additional metadata keys.
-                If *None*, or the `shaped` argument to :py:class:`TiffWriter`
-                is *False*, no information in JSON format is written to
-                the ImageDescription tag.
+                If ``None``, or the ``shaped`` argument to
+                :py:class:`TiffWriter` is ``False``, no information in JSON
+                format is written to the ImageDescription tag.
                 The 'axes' item defines the character codes for dimensions in
-                `data` or `shape`.
+                ``data`` or ``shape``.
                 Refer to :py:class:`OmeXml` for supported keys when writing
                 OME-TIFF.
                 Refer to :py:func:`imagej_description` and
@@ -2102,11 +2223,11 @@ class TiffWriter:
 
                 0. code (int): Tag Id.
                 1. dtype (:py:class:`DATATYPE`):
-                   Data type of items in `value`.
+                   Data type of items in ``value``.
                 2. count (int): Number of data values.
                    Not used for string or bytes values.
-                3. value (Sequence[Any]): `count` values compatible with
-                   `dtype`. Bytes must contain count values of dtype packed
+                3. value (Sequence[Any]): ``count`` values compatible with
+                   ``dtype``. Bytes must contain count values of dtype packed
                    as binary data.
                 4. writeonce (bool): Write tag to first page of a series only.
 
@@ -2116,22 +2237,22 @@ class TiffWriter:
 
             contiguous:
                 Write data contiguously after the previous series.
-                If *False* (default), write data to a new series.
-                If *True* and the data and arguments are compatible with
+                If ``False`` (default), write data to a new series.
+                If ``True`` and the data and arguments are compatible with
                 previous written ones (same shape, no compression, etc.),
                 the image data are stored contiguously after the previous one.
-                In that case, `photometric`, `planarconfig`, and
-                `rowsperstrip` are ignored.
-                Metadata such as `description`, `metadata`, `datetime`,
-                and `extratags` are written to the first page of a contiguous
+                In that case, ``photometric``, ``planarconfig``, and
+                ``rowsperstrip`` are ignored.
+                Metadata such as ``description``, ``metadata``, ``datetime``,
+                and ``extratags`` are written to the first page of a contiguous
                 series only.
                 Contiguous mode cannot be used with the OME or ImageJ formats.
             truncate:
                 Write only first page of contiguous series if possible.
-                If *True*, only write first page of contiguous series
+                If ``True``, only write first page of contiguous series
                 if possible (uncompressed, contiguous, not tiled).
                 Other TIFF readers will only be able to read part of the data.
-                Cannot be used with the OME or ImageJ formats.
+                Cannot be used with the OME format.
             align:
                 Byte boundary on which to align image data in file.
                 The default is 16.
@@ -2139,7 +2260,7 @@ class TiffWriter:
                 Following contiguous writes are not aligned.
             maxworkers:
                 Maximum number of threads for compressing tiles or strips.
-                If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS` CPU
+                If ``None`` or *0*, use up to :py:attr:`_TIFF.MAXWORKERS` CPU
                 cores for compressing large segments.
                 Using multiple threads can significantly speed up this
                 function if the bottleneck is encoding the data, for example,
@@ -2153,7 +2274,7 @@ class TiffWriter:
                 Return offset and byte count of memory-mappable image data.
 
         Returns:
-            If `returnoffset` is *True* and the image data in the file are
+            If ``returnoffset`` is ``True`` and the image data in the file are
             memory-mappable, return the offset and number of bytes of the
             image data in the file.
 
@@ -2344,6 +2465,7 @@ class TiffWriter:
                         self._subifdsoffsets = []
                         self._subifdslevel = -1
                         self._subifds = 0
+                        self._subifds_tree = True
                         self._ifdindex = 0
                     elif subifds:
                         msg = 'SubIFDs in SubIFDs are not supported'
@@ -2451,6 +2573,10 @@ class TiffWriter:
         elif compressiontag in {33003, 33004, 33005, 34712}:
             # JPEG2000: use J2K instead of JP2
             compressionargs['codecformat'] = 0  # OPJ_CODEC_J2K
+        elif compressiontag == 52546:
+            # JPEGXL_DNG: requires bare, lossless JXL codestream
+            compressionargs.setdefault('usecontainer', False)
+            compressionargs.setdefault('lossless', True)
 
         assert compressionargs is not None
 
@@ -3036,9 +3162,16 @@ class TiffWriter:
                 subifds = len(subifds)  # type: ignore[arg-type]
             else:
                 subifds = int(subifds)  # type: ignore[arg-type]
+            if subifds < 0:
+                subifds = -subifds
+                self._subifds_tree = False
             self._subifds = subifds
             addtag(
-                tags, 330, 18 if offsetsize > 4 else 13, subifds, [0] * subifds
+                tags,
+                330,
+                18 if offsetsize > 4 else 13,
+                subifds if self._subifds_tree else 1,
+                [0] * (subifds if self._subifds_tree else 1),
             )
         if not bilevel and datadtype.kind != 'u':
             # SampleFormat
@@ -3452,7 +3585,9 @@ class TiffWriter:
                 runlen = data.shape[-1]
                 if axis == -2:
                     runlen *= data.shape[-2]
-                return imagecodecs.packints_encode(data, bps, runlen=runlen)
+                return imagecodecs.packints_encode(
+                    data, bps, runlen=runlen
+                )  # type: ignore[return-value]
 
         else:
             compressionfunc = None
@@ -3766,12 +3901,15 @@ class TiffWriter:
                 fh.write(pack(offsetformat, ifdpos))
 
                 # update SubIFD chain offsets
-                if self._subifdslevel == 0:
-                    self._nextifdoffsets.append(ifdpos + ifdoffset)
-                else:
-                    fh.seek(self._nextifdoffsets[self._ifdindex])
-                    fh.write(pack(offsetformat, ifdpos))
-                    self._nextifdoffsets[self._ifdindex] = ifdpos + ifdoffset
+                if not self._subifds_tree:
+                    if self._subifdslevel == 0:
+                        self._nextifdoffsets.append(ifdpos + ifdoffset)
+                    else:
+                        fh.seek(self._nextifdoffsets[self._ifdindex])
+                        fh.write(pack(offsetformat, ifdpos))
+                        self._nextifdoffsets[self._ifdindex] = (
+                            ifdpos + ifdoffset
+                        )
                 self._ifdindex += 1
                 self._ifdindex %= len(self._subifdsoffsets)
 
@@ -3970,12 +4108,15 @@ class TiffWriter:
                 fh.write(pack(offsetformat, ifdpos))
 
                 # update SubIFD chain
-                if self._subifdslevel == 0:
-                    self._nextifdoffsets.append(ifdpos + ifdoffset)
-                else:
-                    fh.seek(self._nextifdoffsets[self._ifdindex])
-                    fh.write(pack(offsetformat, ifdpos))
-                    self._nextifdoffsets[self._ifdindex] = ifdpos + ifdoffset
+                if not self._subifds_tree:
+                    if self._subifdslevel == 0:
+                        self._nextifdoffsets.append(ifdpos + ifdoffset)
+                    else:
+                        fh.seek(self._nextifdoffsets[self._ifdindex])
+                        fh.write(pack(offsetformat, ifdpos))
+                        self._nextifdoffsets[self._ifdindex] = (
+                            ifdpos + ifdoffset
+                        )
                 self._ifdindex += 1
                 self._ifdindex %= len(self._subifdsoffsets)
                 ifdpos += ifdsize
@@ -4133,6 +4274,19 @@ class TiffWriter:
             count = int(count)
 
         if datatype in {5, 10}:  # rational
+            # flatten a sequence of (numerator, denominator) pairs into a
+            # flat sequence of ints, e.g. [(1,2),(3,4)] -> (1,2,3,4).
+            if (
+                not isinstance(value, (bytes, numpy.ndarray))
+                and hasattr(value, '__iter__')
+                and count > 0
+            ):
+                first = next(iter(value), None)
+                if isinstance(first, (tuple, list)):
+                    flat: list[int] = []
+                    for pair in value:
+                        flat.extend(pair)
+                    value = flat
             count *= 2
             dataformat = dataformat[-1]
 
@@ -4285,15 +4439,15 @@ class TiffFile:
             File objects must be open in binary mode and positioned at the
             TIFF header.
         mode:
-            File open mode if `file` is file name. The default is 'rb'.
+            File open mode if ``file`` is file name. The default is 'rb'.
         name:
-            Name of file if `file` is file handle.
+            Name of file if ``file`` is file handle.
         offset:
             Start position of embedded file.
             The default is the current file position.
         size:
             Size of embedded file. The default is the number of bytes
-            from the `offset` to the end of the file.
+            from the ``offset`` to the end of the file.
         omexml:
             OME metadata in XML format, for example, from external companion
             file or sanitized XML overriding XML in file.
@@ -4303,7 +4457,7 @@ class TiffFile:
         _multifile, _useframes, _root:
             Internal use.
         **is_flags:
-            Override `TiffFile.is_` flags, for example:
+            Override ``TiffFile.is_`` flags, for example:
 
             ``is_ome=False``: disable processing of OME-XML metadata.
             ``is_lsm=False``: disable special handling of LSM files.
@@ -4323,9 +4477,12 @@ class TiffFile:
     _fh: FileHandle
     _multifile: bool
     _root: TiffFile  # OME root file
-    _files: dict[str | None, TiffFile]  # cache of TiffFile instances
     _omexml: str | None  # external OME-XML
     _superres: int  # EER super-resolution level
+    # cache of TiffFile instances in multifile series
+    _files: dict[str | None, TiffFile]
+    # cache of TiffPageSeries instances by (shape, squeeze) key
+    _series: dict[tuple[str | None, bool], list[TiffPageSeries]]
     # cache of TiffPage.decode functions
     _decoders: dict[int, Callable[..., DecodeResult]]
 
@@ -4370,6 +4527,7 @@ class TiffFile:
         self._multifile = True if _multifile is None else bool(_multifile)
         self._files = {fh.name: self}
         self._decoders = {}
+        self._series = {}
         self._root = self if _root is None else _root
         self._superres = 0 if superres is None else max(0, int(superres))
 
@@ -4510,6 +4668,7 @@ class TiffFile:
         key: int | slice | Sequence[int] | None = None,
         *,
         series: int | TiffPageSeries | None = None,
+        kind: str | None = None,
         level: int | None = None,
         squeeze: bool | None = None,
         out: OutputType = None,
@@ -4524,29 +4683,34 @@ class TiffFile:
         Parameters:
             key:
                 Specifies which pages to return as array.
-                By default, the image of the specified `series` and `level`
+                By default, the image of the specified ``series`` and ``level``
                 is returned.
-                If not *None*, the images from the specified pages in the
-                whole file (if `series` is *None*) or a specified series are
-                returned as a stacked array.
+                If not ``None``, the images from the specified pages in the
+                whole file (if ``series`` is ``None``) or a specified series
+                are returned as a stacked array.
                 Requesting an array from multiple pages that are not
                 compatible with respect to shape, dtype, compression etc.
                 is undefined, that is, it may crash or return incorrect values.
             series:
                 Specifies which series of pages to return as array.
                 The default is 0.
+            kind:
+                Series format kind, such as ``'ome'`` or ``'imagej'``.
+                By default, the format is auto-detected.
             level:
                 Specifies which level of multi-resolution series to return
                 as array. The default is 0.
             squeeze:
-                Remove all length-1 dimensions from array, except X and Y.
-                If *False*, single pages are returned as 5D array of shape
+                Remove length-1 dimensions from image array, except X and Y.
+                If ``False``, preserve all dimensions.
+                Single pages are returned as 5D array of shape
                 :py:attr:`TiffPage.shaped`.
                 For series, the shape of the returned array also includes
                 singlet dimensions specified in some file formats.
                 For example, ImageJ series and most commonly also OME series,
                 are returned in TZCYXS order.
-                By default, all but `"shaped"` series are squeezed.
+                If ``None`` (default), remove length-1 dimensions except
+                for ``'shaped'`` series.
             out:
                 Output array, *'memmap'*, or file for image data.
                 By default, a new NumPy array is created.
@@ -4560,7 +4724,7 @@ class TiffFile:
             maxworkers:
                 Maximum number of threads to concurrently decode data from
                 multiple pages or compressed segments.
-                If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS`
+                If ``None`` or *0*, use up to :py:attr:`_TIFF.MAXWORKERS`
                 threads. Reading data from file is limited to the main thread.
                 Using multiple threads can significantly speed up this
                 function if the bottleneck is decoding compressed data,
@@ -4573,7 +4737,7 @@ class TiffFile:
                 The default is :py:attr:`_TIFF.BUFFERSIZE`.
 
         Returns:
-            Images from specified pages. See `TiffPage.asarray`
+            Images from specified pages. See ``TiffPage.asarray``
             for operations that are applied (or not) to the image data
             stored in the file.
 
@@ -4590,7 +4754,7 @@ class TiffFile:
             pages = self.pages
         else:
             if not isinstance(series, TiffPageSeries):
-                series = self.series[series]
+                series = self._get_series(kind)[series]
             if level is not None:
                 series = series.levels[level]
             pages = series
@@ -4621,19 +4785,21 @@ class TiffFile:
             and series.dataoffset is not None
         ):
             typecode = self.byteorder + series.dtype.char
+            if squeeze or (squeeze is None and series.kind != 'shaped'):
+                shape = squeeze_axes(series.shape, series.axes)[0]
+            else:
+                shape = series.shape
             if (
                 series.keyframe.is_memmappable
                 and isinstance(out, str)
                 and out == 'memmap'
             ):
                 # direct mapping
-                shape = series.get_shape(squeeze=squeeze)
                 result = self.filehandle.memmap_array(
                     typecode, shape, series.dataoffset
                 )
             else:
                 # read into output
-                shape = series.get_shape(squeeze=squeeze)
                 if out is not None:
                     out = create_output(out, shape, series.dtype)
                 result = self.filehandle.read_array(
@@ -4659,10 +4825,12 @@ class TiffFile:
 
         if key is None:
             assert series is not None  # TODO: ?
-            shape = series.get_shape(squeeze=squeeze)
+            if squeeze or (squeeze is None and series.kind != 'shaped'):
+                shape = squeeze_axes(series.shape, series.axes)[0]
+            else:
+                shape = series.shape
             try:
-                # result = result.reshape(shape, copy=False)
-                result.shape = shape
+                result = result.reshape(shape, copy=False)
             except ValueError as exc:
                 try:
                     logger().warning(
@@ -4670,14 +4838,12 @@ class TiffFile:
                         f'{result.shape} to {shape}, raised {exc!r:.128}'
                     )
                     # try series of expected shapes
-                    # result = result.reshape((-1, *shape), copy=False)
-                    result.shape = (-1, *shape)
+                    result = result.reshape((-1, *shape), copy=False)
                 except ValueError:
                     # revert to generic shape
-                    # result = result.reshape(
-                    #     (-1, *series.keyframe.shape), copy=False
-                    # )
-                    result.shape = (-1, *series.keyframe.shape)
+                    result = result.reshape(
+                        (-1, *series.keyframe.shape), copy=False
+                    )
         elif len(pages) == 1:
             if squeeze is None:
                 squeeze = True
@@ -4700,12 +4866,105 @@ class TiffFile:
             )
         return result
 
+    def asxarray(
+        self,
+        key: int | slice | Sequence[int] | None = None,
+        *,
+        series: int | TiffPageSeries | None = None,
+        kind: str | None = None,
+        level: int | None = None,
+        squeeze: bool | None = None,
+        maxworkers: int | None = None,
+        buffersize: int | None = None,
+    ) -> DataArray:
+        """Return images from select pages as xarray DataArray.
+
+        By default, the image array from the first level of the first series
+        is returned.
+
+        Parameters:
+            key:
+                Specifies which page to return as DataArray.
+                By default, the image of the specified ``series`` and ``level``
+                is returned.
+                If not ``None`` and an integer, the image from the specified
+                page is returned.
+                Requesting a DataArray from multiple pages (slice or sequence)
+                is not supported.
+            series:
+                Specifies which series of pages to return as DataArray.
+                The default is 0.
+            kind:
+                Series format kind, such as ``'ome'`` or ``'imagej'``.
+                By default, the format is auto-detected.
+            level:
+                Specifies which level of multi-resolution series to return
+                as DataArray. The default is 0.
+            squeeze:
+                Remove length-1 dimensions from image array, except X and Y.
+                If ``False``, preserve all dimensions.
+                If ``None`` (default), remove length-1 dimensions except
+                for ``'shaped'`` series.
+            maxworkers:
+                Maximum number of threads to concurrently decode data.
+                See :py:meth:`TiffFile.asarray` for details.
+            buffersize:
+                Approximate number of bytes to read from file in one pass.
+                The default is :py:attr:`_TIFF.BUFFERSIZE`.
+
+        Returns:
+            :py:class:`xarray.DataArray`
+                Image data with coordinates, dimensions, and attributes.
+
+        """
+        if not self.pages:
+            msg = 'empty xarray DataArrays not supported'
+            raise NotImplementedError(msg)
+        if key is None and series is None:
+            s = self._get_series(kind)[0]
+            if squeeze or (squeeze is None and s.kind != 'shaped'):
+                s = self._get_series(kind, squeeze=True)[0]
+            return s.asxarray(
+                level=level,
+                squeeze=squeeze,
+                maxworkers=maxworkers,
+                buffersize=buffersize,
+            )
+
+        pages: Any
+        if series is None:
+            pages = self.pages
+        else:
+            if not isinstance(series, TiffPageSeries):
+                s = self._get_series(kind)[series]
+                if squeeze or (squeeze is None and s.kind != 'shaped'):
+                    s = self._get_series(kind, squeeze=True)[series]
+                series = s
+            if key is None:
+                return series.asxarray(
+                    level=level,
+                    squeeze=squeeze,
+                    maxworkers=maxworkers,
+                    buffersize=buffersize,
+                )
+            if level is not None:
+                series = series.levels[level]
+            pages = series
+
+        if isinstance(key, (int, numpy.integer)):
+            page: TiffPage | TiffFrame = pages[int(key)]
+            return page.asxarray(maxworkers=maxworkers, buffersize=buffersize)
+        msg = 'key must be None or an integer index'
+        raise NotImplementedError(msg)
+
     def aszarr(
         self,
         key: int | None = None,
         *,
         series: int | TiffPageSeries | None = None,
+        kind: str | None = None,
         level: int | None = None,
+        squeeze: bool | None = None,
         **kwargs: Any,
     ) -> ZarrTiffStore:
         """Return images from select pages as Zarr store.
@@ -4715,15 +4974,22 @@ class TiffFile:
 
         Parameters:
             key:
-                Index of page in file (if `series` is None) or series to wrap
-                as Zarr store.
+                Index of page in file or series to wrap as Zarr store.
                 By default, a series is wrapped.
             series:
                 Index of series to wrap as Zarr store.
-                The default is 0 (if `key` is None).
+                The default is 0 (if ``key`` is ``None``).
+            kind:
+                Series format kind, such as ``'ome'`` or ``'imagej'``.
+                By default, the format is auto-detected.
             level:
                 Index of pyramid level in series to wrap as Zarr store.
                 By default, all levels are included as a multi-scale group.
+            squeeze:
+                Remove length-1 dimensions from image array, except X and Y.
+                If ``False``, preserve all dimensions.
+                If ``None`` (default), remove length-1 dimensions except
+                for ``'shaped'`` series.
             **kwargs:
                 Additional arguments passed to :py:meth:`TiffPage.aszarr`
                 or :py:meth:`TiffPageSeries.aszarr`.
@@ -4733,14 +4999,20 @@ class TiffFile:
             msg = 'empty Zarr arrays not supported'
             raise NotImplementedError(msg)
         if key is None and series is None:
-            return self.series[0].aszarr(level=level, **kwargs)
+            s = self._get_series(kind)[0]
+            if squeeze or (squeeze is None and s.kind != 'shaped'):
+                s = self._get_series(kind, squeeze=True)[0]
+            return s.aszarr(level=level, **kwargs)
 
         pages: Any
         if series is None:
             pages = self.pages
         else:
             if not isinstance(series, TiffPageSeries):
-                series = self.series[series]
+                s = self._get_series(kind)[series]
+                if squeeze or (squeeze is None and s.kind != 'shaped'):
+                    s = self._get_series(kind, squeeze=True)[series]
+                series = s
             if key is None:
                 return series.aszarr(level=level, **kwargs)
             if level is not None:
@@ -4753,61 +5025,141 @@ class TiffFile:
         msg = 'key must be an integer index'
         raise TypeError(msg)
 
-    @cached_property
-    def series(self) -> list[TiffPageSeries]:
+    @property
+    def series(self) -> TiffSeries:
         """Series of pages with compatible shape and data type.
 
+        Call with parameters to get differently configured series::
+
+            tif.series                    # default series, squeezed
+            tif.series(squeeze=False)     # unsqueezed
+            tif.series(kind='generic')    # specific kind
+
         Notes:
-            After accessing this property, `TiffFile.pages` might
-            contain `TiffPage` and `TiffFrame` instead of only `TiffPage`
+            After accessing this property, ``TiffFile.pages`` might
+            contain ``TiffPage`` and ``TiffFrame`` instead of only ``TiffPage``
             instances.
 
         """
+        return TiffSeries(self)
+
+    def _get_series(
+        self,
+        kind: str | None = None,
+        /,
+        *,
+        squeeze: bool = False,
+    ) -> list[TiffPageSeries]:
+        """Return list of series, computing and caching if necessary.
+
+        Parameters:
+            kind:
+                If ``None``, dispatch through format-specific parsers.
+                If a string, compute the specified kind directly.
+            squeeze:
+                If ``True``, return series with length-1 dimensions removed.
+
+        """
+        if (kind, squeeze) in self._series:
+            return self._series[(kind, squeeze)]
+
+        if squeeze:
+            attributes = (
+                'dims',
+                'sizes',
+                'size',
+                'nbytes',
+                'coords',
+                'coord_scales',
+                'coord_offsets',
+                'coord_units',
+                'mpp',
+                'attrs',
+                'dataoffset',
+            )
+            unsqueezed = self._get_series(kind)
+            squeezed = []
+            for s in unsqueezed:
+                shape, axes, _ = squeeze_axes(s._shape, s._axes)
+                if shape == s._shape:
+                    squeezed.append(s)
+                    continue
+                sq = TiffPageSeries.__new__(TiffPageSeries)
+                sq.__dict__.update(s.__dict__)
+                sq._shape = shape
+                sq._axes = axes
+                sq._coords = {k: v for k, v in s._coords.items() if k in axes}
+                for attr in attributes:
+                    sq.__dict__.pop(attr, None)
+                sq_levels = [sq]
+                for level in s.levels[1:]:
+                    lshape, laxes, _ = squeeze_axes(level._shape, level._axes)
+                    if lshape == level._shape:
+                        sq_levels.append(level)
+                    else:
+                        sq_level = TiffPageSeries.__new__(TiffPageSeries)
+                        sq_level.__dict__.update(level.__dict__)
+                        sq_level._shape = lshape
+                        sq_level._axes = laxes
+                        sq_level._coords = {
+                            k: v
+                            for k, v in level._coords.items()
+                            if k in laxes
+                        }
+                        for attr in attributes:
+                            sq_level.__dict__.pop(attr, None)
+                        sq_level.levels = [sq_level]
+                        sq_levels.append(sq_level)
+                sq.levels = sq_levels
+                squeezed.append(sq)
+            self._series[(kind, True)] = squeezed
+            return squeezed
+
         if not self.pages:
+            self._series[(kind, False)] = []
             return []
+
+        if kind is not None:
+            try:
+                func = TIFF.SERIES[kind]
+            except KeyError:
+                msg = f'unknown series {kind=!r}'
+                raise ValueError(msg) from None
+            if kind != 'generic' and not getattr(self, 'is_' + kind, False):
+                return []
+            assert self.pages.keyframe is not None
+            useframes = self.pages.useframes
+            keyframe = self.pages.keyframe.index
+            result = func(self) or []
+            self.pages.useframes = useframes
+            self.pages.set_keyframe(keyframe)
+            for i, s in enumerate(result):
+                s._index = i
+            self._series[(kind, False)] = result
+            return result
+
         assert self.pages.keyframe is not None
         useframes = self.pages.useframes
         keyframe = self.pages.keyframe.index
         series: list[TiffPageSeries] | None = None
-        for kind in (
-            'shaped',
-            'lsm',
-            'mmstack',
-            'ome',
-            'imagej',
-            'ndtiff',
-            'fluoview',
-            'stk',
-            'sis',
-            'svs',
-            'scn',
-            'qpi',
-            'ndpi',
-            'bif',
-            'avs',
-            'eer',
-            'philips',
-            'scanimage',
-            # 'indica',  # TODO: rewrite _series_indica()
-            'nih',
-            'mdgel',  # adds second page to cache
-            'uniform',
-        ):
-            if getattr(self, 'is_' + kind, False):
-                series = getattr(self, '_series_' + kind)()
+        for skind, func in TIFF.SERIES.items():
+            if skind == 'generic':
+                continue
+            if getattr(self, 'is_' + skind, False):
+                series = func(self)
                 if not series:
-                    if kind == 'ome' and self.is_imagej:
+                    if skind == 'ome' and self.is_imagej:
                         # try ImageJ series if OME series fails.
                         # clear pages cache since _series_ome() might leave
                         # some frames without keyframe
                         self.pages._clear()
                         continue
-                    if kind == 'mmstack':
+                    if skind == 'mmstack':
                         # try OME, ImageJ, uniform
                         continue
-                break  # fall through to _series_generic() if series is empty
+                break  # fall through to generic if series is empty
         if not series:
-            series = self._series_generic() or []
+            series = series_generic(self) or []
 
         self.pages.useframes = useframes
         self.pages.set_keyframe(keyframe)
@@ -4817,2068 +5169,7 @@ class TiffFile:
         assert series is not None
         for i, s in enumerate(series):
             s._index = i
-        return series
-
-    def _series_uniform(self) -> list[TiffPageSeries] | None:
-        """Return all images in file as single series."""
-        self.pages.useframes = True
-        self.pages.set_keyframe(0)
-        page = self.pages.first
-        validate = not (page.is_scanimage or page.is_nih)  # pages may differ
-        pages = self.pages._getlist(validate=validate)
-        if len(pages) == 1:
-            shape = page.shape
-            axes = page.axes
-        else:
-            shape = (len(pages), *page.shape)
-            axes = 'I' + page.axes
-        dtype = page.dtype
-        return [TiffPageSeries(pages, shape, dtype, axes, kind='uniform')]
-
-    def _series_generic(self) -> list[TiffPageSeries] | None:
-        """Return image series in file.
-
-        A series is a sequence of TiffPages with the same hash.
-
-        """
-        pages = self.pages
-        pages._clear(fully=False)
-        pages.useframes = False
-        if pages.cache:
-            pages._load()
-
-        series = []
-        seriesdict: dict[int, list[TiffPage | TiffFrame]] = {}
-
-        def addpage(page: TiffPage | TiffFrame, /) -> None:
-            if not page.shape:  # or product(page.shape) == 0:
-                return
-            key = page.hash
-            if key in seriesdict:
-                for p in seriesdict[key]:
-                    if p.offset == page.offset:
-                        break  # remove duplicate page
-                else:
-                    seriesdict[key].append(page)
-            else:
-                seriesdict[key] = [page]
-
-        for page in pages:
-            addpage(page)
-            if page.subifds is not None:
-                for i, offset in enumerate(page.subifds):
-                    if offset < 8:
-                        continue
-                    try:
-                        self._fh.seek(offset)
-                        subifd = TiffPage(self, (page.index, i))
-                    except Exception as exc:
-                        logger().warning(
-                            f'{self!r} generic series raised {exc!r:.128}'
-                        )
-                    else:
-                        addpage(subifd)
-
-        for pagelist in seriesdict.values():
-            page = pagelist[0]
-            shape = (len(pagelist), *page.shape)
-            axes = 'I' + page.axes
-            if 'S' not in axes:
-                shape += (1,)
-                axes += 'S'
-            series.append(
-                TiffPageSeries(
-                    pagelist, shape, page.dtype, axes, kind='generic'
-                )
-            )
-
-        self.is_uniform = len(series) == 1  # replaces is_uniform method
-        if not self.is_agilent:
-            pyramidize_series(series)
-        return series or None
-
-    def _series_shaped(self) -> list[TiffPageSeries] | None:
-        """Return image series in tifffile "shaped" formatted file."""
-        # TODO: all series need to have JSON metadata for this to succeed
-
-        def append(
-            series: list[TiffPageSeries],
-            pages: list[TiffPage | TiffFrame | None],
-            axes: str | None,
-            shape: tuple[int, ...] | None,
-            reshape: tuple[int, ...],
-            name: str,
-            truncated: bool | None,  # noqa: FBT001
-            /,
-        ) -> None:
-            assert isinstance(pages[0], TiffPage)
-            page = pages[0]
-            failed = not check_shape(page.shape, reshape)
-            if failed:
-                logger().warning(
-                    f'{self!r} shaped series metadata does not match '
-                    f'page shape {page.shape} != {tuple(reshape)}'
-                )
-            if failed or axes is None or shape is None:
-                shape = page.shape
-                axes = page.axes
-                if len(pages) > 1:
-                    shape = (len(pages), *shape)
-                    axes = 'Q' + axes
-                if failed:
-                    reshape = shape
-            size = product(shape)
-            resize = product(reshape)
-            if page.is_contiguous and resize > size and resize % size == 0:
-                if truncated is None:
-                    truncated = True
-                axes = 'Q' + axes
-                shape = (resize // size, *shape)
-            try:
-                axes = reshape_axes(axes, shape, reshape)
-                shape = reshape
-            except ValueError as exc:
-                logger().error(
-                    f'{self!r} shaped series failed to reshape, '
-                    f'raised {exc!r:.128}'
-                )
-            series.append(
-                TiffPageSeries(
-                    pages,
-                    shape,
-                    page.dtype,
-                    axes,
-                    name=name,
-                    kind='shaped',
-                    truncated=bool(truncated),
-                    squeeze=False,
-                )
-            )
-
-        def detect_series(
-            pages: TiffPages | list[TiffPage | TiffFrame | None],
-            series: list[TiffPageSeries],
-            /,
-        ) -> list[TiffPageSeries] | None:
-            shape: tuple[int, ...] | None
-            reshape: tuple[int, ...]
-            page: TiffPage | TiffFrame | None
-            keyframe: TiffPage
-            subifds: list[TiffPage | TiffFrame | None] = []
-            subifd: TiffPage | TiffFrame
-            keysubifd: TiffPage
-            axes: str | None
-            name: str
-
-            lenpages = len(pages)
-            index = 0
-            while index < lenpages:
-                if isinstance(pages, TiffPages):
-                    # new keyframe; start of new series
-                    pages.set_keyframe(index)
-                    keyframe = cast(TiffPage, pages.keyframe)
-                else:
-                    # pages is list of SubIFDs
-                    keyframe = cast(TiffPage, pages[0])
-
-                if keyframe.shaped_description is None:
-                    logger().error(
-                        f'{self!r} '
-                        'invalid shaped series metadata or corrupted file'
-                    )
-                    return None
-                # read metadata
-                axes = None
-                shape = None
-                metadata = shaped_description_metadata(
-                    keyframe.shaped_description
-                )
-                name = metadata.get('name', '')
-                reshape = metadata['shape']
-                truncated = None if keyframe.subifds is None else False
-                truncated = metadata.get('truncated', truncated)
-                if 'axes' in metadata:
-                    axes = cast(str, metadata['axes'])
-                    if len(axes) == len(reshape):
-                        shape = reshape
-                    else:
-                        axes = ''
-                        logger().error(
-                            f'{self!r} shaped series axes do not match shape'
-                        )
-                # skip pages if possible
-                spages: list[TiffPage | TiffFrame | None] = [keyframe]
-                size = product(reshape)
-                if size > 0:
-                    npages, mod = divmod(size, product(keyframe.shape))
-                else:
-                    npages = 1
-                    mod = 0
-                if mod:
-                    logger().error(
-                        f'{self!r} '
-                        'shaped series shape does not match page shape'
-                    )
-                    return None
-
-                if 1 < npages <= lenpages - index:
-                    assert keyframe._dtype is not None
-                    size *= keyframe._dtype.itemsize
-                    if truncated:
-                        npages = 1
-                    else:
-                        page = pages[index + 1]
-                        if (
-                            keyframe.is_final
-                            and page is not None
-                            and keyframe.offset + size < page.offset
-                            and keyframe.subifds is None
-                        ):
-                            truncated = False
-                        else:
-                            # must read all pages for series
-                            truncated = False
-                            for j in range(index + 1, index + npages):
-                                page = pages[j]
-                                assert page is not None
-                                page.keyframe = keyframe
-                                spages.append(page)
-                append(series, spages, axes, shape, reshape, name, truncated)
-                index += npages
-
-                # create series from SubIFDs
-                if keyframe.subifds:
-                    subifds_size = len(keyframe.subifds)
-                    for i, offset in enumerate(keyframe.subifds):
-                        if offset < 8:
-                            continue
-                        subifds = []
-                        for j, page in enumerate(spages):
-                            # if page.subifds is not None:
-                            try:
-                                if (
-                                    page is None
-                                    or page.subifds is None
-                                    or len(page.subifds) < subifds_size
-                                ):
-                                    msg = f'{page!r} contains invalid subifds'
-                                    raise ValueError(msg)
-                                self._fh.seek(page.subifds[i])
-                                if j == 0:
-                                    subifd = TiffPage(self, (page.index, i))
-                                    keysubifd = subifd
-                                else:
-                                    subifd = TiffFrame(
-                                        self,
-                                        (page.index, i),
-                                        keyframe=keysubifd,
-                                    )
-                            except Exception as exc:
-                                logger().error(
-                                    f'{self!r} shaped series '
-                                    f'raised {exc!r:.128}'
-                                )
-                                return None
-                            subifds.append(subifd)
-                        if subifds:
-                            result = detect_series(subifds, series)
-                            if result is None:
-                                return None
-                            series = result
-            return series
-
-        self.pages.useframes = True
-        series = detect_series(self.pages, [])
-        if series is None:
-            return None
-        self.is_uniform = len(series) == 1
-        pyramidize_series(series, reduced=True)
-        return series
-
-    def _series_imagej(self) -> list[TiffPageSeries] | None:
-        """Return image series in ImageJ file."""
-        # ImageJ's dimension order is TZCYXS
-        # TODO: fix loading of color, composite, or palette images
-        meta = self.imagej_metadata
-        if meta is None:
-            return None
-
-        pages = self.pages
-        pages.useframes = True
-        pages.set_keyframe(0)
-        page = self.pages.first
-
-        order = meta.get('order', 'czt').lower()
-        frames = meta.get('frames', 1)
-        slices = meta.get('slices', 1)
-        channels = meta.get('channels', 1)
-        images = meta.get('images', 1)  # not reliable
-
-        if images < 1 or frames < 1 or slices < 1 or channels < 1:
-            logger().warning(
-                f'{self!r} ImageJ series metadata invalid or corrupted file'
-            )
-            return None
-
-        if channels == 1 or (
-            page.shaped[0] > 1 and page.shaped[0] == channels
-        ):
-            # Bio-Formats may declare separate samples as channels
-            images = frames * slices
-        elif images == frames * slices and page.shaped[4] == channels:
-            # RGB contig samples declared as channel
-            channels = 1
-        else:
-            images = frames * slices * channels
-
-        if images == 1 and pages.is_multipage:
-            images = len(pages)
-
-        nbytes = images * page.nbytes
-
-        # ImageJ virtual hyperstacks store all image metadata in the first
-        # page and image data are stored contiguously before the second
-        # page, if any
-        if not page.is_final:
-            isvirtual = False
-        elif page.dataoffsets[0] + nbytes > self.filehandle.size:
-            logger().error(
-                f'{self!r} ImageJ series metadata invalid or corrupted file'
-            )
-            return None
-        elif images <= 1:
-            isvirtual = True
-        elif (
-            pages.is_multipage
-            and page.dataoffsets[0] + nbytes > pages[1].offset
-        ):
-            # next page is not stored after data
-            isvirtual = False
-        else:
-            isvirtual = True
-
-        # no need to read other pages if virtual
-        page_list: list[TiffPage | TiffFrame] = (
-            [page] if isvirtual else pages[:]
-        )
-
-        shape: tuple[int, ...]
-        axes: str
-
-        match order:
-            case 'czt' | 'default':
-                axes = 'TZC'
-                shape = (frames, slices, channels)
-            case 'ctz':
-                axes = 'ZTC'
-                shape = (slices, frames, channels)
-            case 'zct':
-                axes = 'TCZ'
-                shape = (frames, channels, slices)
-            case 'ztc':
-                axes = 'CTZ'
-                shape = (channels, frames, slices)
-            case 'tcz':
-                axes = 'ZCT'
-                shape = (slices, channels, frames)
-            case 'tzc':
-                axes = 'CZT'
-                shape = (channels, slices, frames)
-            case _:
-                axes = 'TZC'
-                shape = (frames, slices, channels)
-                logger().warning(
-                    f'{self!r} ImageJ series of unknown order {order!r}'
-                )
-
-        remain = images // product(shape)
-        if remain > 1:
-            logger().debug(
-                f'{self!r} ImageJ series contains unidentified dimension'
-            )
-            shape = (remain, *shape)
-            axes = 'I' + axes
-
-        if page.shaped[0] > 1:
-            # Bio-Formats declares separate samples as channels
-            assert axes[-1] == 'C'
-            shape = shape[:-1] + page.shape
-            axes += page.axes[1:]
-        else:
-            shape += page.shape
-            axes += page.axes
-
-        if 'S' not in axes:
-            shape += (1,)
-            axes += 'S'
-        # assert axes.endswith('TZCYXS'), axes
-
-        truncated = (
-            isvirtual and not pages.is_multipage and page.nbytes != nbytes
-        )
-
-        self.is_uniform = True
-        return [
-            TiffPageSeries(
-                page_list,
-                shape,
-                page.dtype,
-                axes,
-                kind='imagej',
-                truncated=truncated,
-            )
-        ]
-
-    def _series_nih(self) -> list[TiffPageSeries] | None:
-        """Return all images in NIH Image file as single series."""
-        series = self._series_uniform()
-        if series is not None:
-            for s in series:
-                s.kind = 'nih'
-        return series
-
-    def _series_scanimage(self) -> list[TiffPageSeries] | None:
-        """Return image series in ScanImage file."""
-        pages = self.pages._getlist(validate=False)
-        page = self.pages.first
-        shape = None
-
-        meta = self.scanimage_metadata
-        framedata = {} if meta is None else meta.get('FrameData', {})
-        if 'SI.hChannels.channelSave' in framedata:
-            try:
-                channels = framedata['SI.hChannels.channelSave']
-                try:
-                    # channelSave is a list of channel IDs
-                    channels = len(channels)
-                except TypeError:
-                    # channelSave is a single channel ID
-                    channels = 1
-                # slices = framedata.get(
-                #    'SI.hStackManager.actualNumSlices',
-                #     framedata.get('SI.hStackManager.numSlices', None),
-                # )
-                # if slices is None:
-                #     raise ValueError('unable to determine numSlices')
-                slices = None
-                try:
-                    frames = int(framedata['SI.hStackManager.framesPerSlice'])
-                except (KeyError, OverflowError, ValueError) as exc:
-                    # framesPerSlice is inf
-                    slices = 1
-                    if len(pages) % channels:
-                        msg = 'unable to determine framesPerSlice'
-                        raise ValueError(msg) from exc
-                    frames = len(pages) // channels
-                if slices is None:
-                    slices = max(len(pages) // (frames * channels), 1)
-                shape = (slices, frames, channels, *page.shape)
-                axes = 'ZTC' + page.axes
-            except Exception as exc:
-                logger().warning(
-                    f'{self!r} ScanImage series raised {exc!r:.128}'
-                )
-
-        # TODO: older versions of ScanImage store non-varying frame data in
-        # the ImageDescription tag. Candidates are scanimage.SI5.channelsSave,
-        # scanimage.SI5.stackNumSlices, scanimage.SI5.acqNumFrames
-        # scanimage.SI4., state.acq.numberOfFrames, state.acq.numberOfFrames...
-
-        if shape is None:
-            shape = (len(pages), *page.shape)
-            axes = 'I' + page.axes
-
-        return [
-            TiffPageSeries(pages, shape, page.dtype, axes, kind='scanimage')
-        ]
-
-    def _series_fluoview(self) -> list[TiffPageSeries] | None:
-        """Return image series in FluoView file."""
-        meta = self.fluoview_metadata
-        if meta is None:
-            return None
-        pages = self.pages._getlist(validate=False)
-        mmhd = meta['Dimensions'][::-1]
-        axes = ''.join(TIFF.MM_DIMENSIONS.get(i[0].upper(), 'Q') for i in mmhd)
-        shape = tuple(int(i[1]) for i in mmhd)
-        self.is_uniform = True
-        return [
-            TiffPageSeries(
-                pages,
-                shape,
-                pages[0].dtype,
-                axes,
-                name=meta['ImageName'],
-                kind='fluoview',
-            )
-        ]
-
-    def _series_mdgel(self) -> list[TiffPageSeries] | None:
-        """Return image series in MD Gel file."""
-        # only a single page, scaled according to metadata in second page
-        meta = self.mdgel_metadata
-        if meta is None:
-            return None
-        transform: Callable[[NDArray[Any]], NDArray[Any]] | None
-        self.pages.useframes = False
-        self.pages.set_keyframe(0)
-        page = self.pages.first
-
-        if meta['FileTag'] in {2, 128}:
-            dtype = numpy.dtype(numpy.float32)
-            scale = meta['ScalePixel'][0] / meta['ScalePixel'][1]  # rational
-            if meta['FileTag'] == 2:
-                # square root data format
-                def transform(a: NDArray[Any], /) -> NDArray[Any]:
-                    return a.astype(numpy.float32) ** 2 * scale
-
-            else:
-
-                def transform(a: NDArray[Any], /) -> NDArray[Any]:
-                    return a.astype(numpy.float32) * scale
-
-        else:
-            assert page.dtype is not None
-            dtype = page.dtype
-            transform = None
-        self.is_uniform = False
-        return [
-            TiffPageSeries(
-                [page],
-                page.shape,
-                dtype,
-                page.axes,
-                transform=transform,
-                kind='mdgel',
-            )
-        ]
-
-    def _series_eer(self) -> list[TiffPageSeries] | None:
-        """Return image series in EER file."""
-        series = []
-        page = self.pages.first
-        if page.compression == 1:
-            # integrated/final image
-            if len(self.pages) < 2:
-                return None
-            series.append(
-                TiffPageSeries(
-                    [page],
-                    page.shape,
-                    page.dtype,
-                    page.axes,
-                    name='integrated',
-                    kind='eer',
-                )
-            )
-            self.is_uniform = False
-            page = self.pages[1].aspage()  # first EER frame
-
-        assert page.compression in {65000, 65001, 65002}
-        self.pages.useframes = True
-        self.pages.set_keyframe(page.index)
-        pages = self.pages._getlist(slice(page.index, None), validate=False)
-        if len(pages) == 1:
-            shape = page.shape
-            axes = page.axes
-        else:
-            shape = (len(pages), *page.shape)
-            axes = 'I' + page.axes
-        if not series:
-            self.is_uniform = True
-        frames = TiffPageSeries(
-            pages, shape, page.dtype, axes, name='frames', kind='eer'
-        )
-        return [frames, *series]
-
-    def _series_ndpi(self) -> list[TiffPageSeries] | None:
-        """Return pyramidal image series in NDPI file."""
-        series = self._series_generic()
-        if not series:
-            return None
-        for s in series:
-            s.kind = 'ndpi'
-            if s.axes[0] == 'I':
-                s._set_dimensions(s.shape, 'Z' + s.axes[1:], None, True)
-            if s.is_pyramidal:
-                s.name = s.keyframe.tags.valueof(65427) or 'Baseline'
-                continue
-            mag = s.keyframe.tags.valueof(65421)
-            if mag is not None:
-                if mag == -1.0:
-                    s.name = 'Macro'
-                    # s.kind += '_macro'
-                elif mag == -2.0:
-                    s.name = 'Map'
-                    # s.kind += '_map'
-        self.is_uniform = False
-        return series
-
-    def _series_avs(self) -> list[TiffPageSeries] | None:
-        """Return pyramidal image series in AVS file."""
-        series = self._series_generic()
-        if not series:
-            return None
-        if len(series) != 3:
-            logger().warning(
-                f'{self!r} AVS series expected 3 series, got {len(series)}'
-            )
-        s = series[0]
-        s.kind = 'avs'
-        if s.axes[0] == 'I':
-            s._set_dimensions(s.shape, 'Z' + s.axes[1:], None, True)
-        if s.is_pyramidal:
-            s.name = 'Baseline'
-        if len(series) == 3:
-            for s2, name in zip(series[1:], ('Map', 'Macro'), strict=True):
-                s2.name = name
-                s2.kind = 'avs'
-        self.is_uniform = False
-        return series
-
-    def _series_philips(self) -> list[TiffPageSeries] | None:
-        """Return pyramidal image series in Philips DP file."""
-        from xml.etree import ElementTree
-
-        series = []
-        pages = self.pages
-        pages.cache = False
-        pages.useframes = False
-        pages.set_keyframe(0)
-        pages._load()
-
-        meta = self.philips_metadata
-        assert meta is not None
-
-        try:
-            tree = ElementTree.fromstring(meta)
-        except ElementTree.ParseError as exc:
-            logger().error(f'{self!r} Philips series raised {exc!r:.128}')
-            return None
-
-        pixel_spacing = [
-            tuple(float(v) for v in elem.text.replace('"', '').split())
-            for elem in tree.findall(
-                './/*'
-                '/DataObject[@ObjectType="PixelDataRepresentation"]'
-                '/Attribute[@Name="DICOM_PIXEL_SPACING"]'
-            )
-            if elem.text is not None
-        ]
-        if len(pixel_spacing) < 2:
-            logger().error(
-                f'{self!r} Philips series {len(pixel_spacing)=} < 2'
-            )
-            return None
-
-        series_dict: dict[str, list[TiffPage]] = {}
-        series_dict['Level'] = []
-        series_dict['Other'] = []
-        for page in pages:
-            assert isinstance(page, TiffPage)
-            if page.description.startswith('Macro'):
-                series_dict['Macro'] = [page]
-            elif page.description.startswith('Label'):
-                series_dict['Label'] = [page]
-            elif not page.is_tiled:
-                series_dict['Other'].append(page)
-            else:
-                series_dict['Level'].append(page)
-
-        levels = series_dict.pop('Level')
-        if len(levels) != len(pixel_spacing):
-            logger().error(
-                f'{self!r} Philips series '
-                f'{len(levels)=} != {len(pixel_spacing)=}'
-            )
-            return None
-
-        # fix padding of sublevels
-        imagewidth0 = levels[0].imagewidth
-        imagelength0 = levels[0].imagelength
-        h0, w0 = pixel_spacing[0]
-        for page, (h, w) in zip(levels[1:], pixel_spacing[1:], strict=True):
-            # if page.dtype.itemsize == 1:
-            #     page.nodata = 255
-
-            imagewidth = imagewidth0 // round(w / w0)
-            imagelength = imagelength0 // round(h / h0)
-
-            if page.imagewidth - page.tilewidth >= imagewidth:
-                logger().warning(
-                    f'{self!r} Philips series {page.index=} '
-                    f'{page.imagewidth=}-{page.tilewidth=} >= {imagewidth=}'
-                )
-                page.imagewidth -= page.tilewidth - 1
-            elif page.imagewidth < imagewidth:
-                logger().warning(
-                    f'{self!r} Philips series {page.index=} '
-                    f'{page.imagewidth=} < {imagewidth=}'
-                )
-            else:
-                page.imagewidth = imagewidth
-            imagewidth = page.imagewidth
-
-            if page.imagelength - page.tilelength >= imagelength:
-                logger().warning(
-                    f'{self!r} Philips series {page.index=} '
-                    f'{page.imagelength=}-{page.tilelength=} >= {imagelength=}'
-                )
-                page.imagelength -= page.tilelength - 1
-            # elif page.imagelength < imagelength:
-            #    # in this case image is padded with zero
-            else:
-                page.imagelength = imagelength
-            imagelength = page.imagelength
-
-            if page.shaped[-1] > 1:
-                page.shape = (imagelength, imagewidth, page.shape[-1])
-            elif page.shaped[0] > 1:
-                page.shape = (page.shape[0], imagelength, imagewidth)
-            else:
-                page.shape = (imagelength, imagewidth)
-            page.shaped = (
-                *page.shaped[:2],
-                imagelength,
-                imagewidth,
-                *page.shaped[-1:],
-            )
-
-        series = [TiffPageSeries([levels[0]], name='Baseline', kind='philips')]
-        for i, page in enumerate(levels[1:]):
-            series[0].levels.append(
-                TiffPageSeries([page], name=f'Level{i + 1}', kind='philips')
-            )
-        for key, value in series_dict.items():
-            for page in value:
-                series.append(TiffPageSeries([page], name=key, kind='philips'))
-
-        self.is_uniform = False
-        return series
-
-    def _series_indica(self) -> list[TiffPageSeries] | None:
-        """Return pyramidal image series in IndicaLabs file."""
-        # TODO: need more IndicaLabs sample files
-        # TODO: parse indica series from XML
-        # TODO: alpha channels in SubIFDs or main IFDs
-
-        from xml.etree import ElementTree
-
-        series = self._series_generic()
-        if not series or len(series) != 1:
-            return series
-
-        try:
-            tree = ElementTree.fromstring(self.pages.first.description)
-        except ElementTree.ParseError as exc:
-            logger().error(f'{self!r} Indica series raised {exc!r:.128}')
-            return series
-
-        channel_names = [
-            channel.attrib['name'] for channel in tree.iter('channel')
-        ]
-        s = series[0]
-        s.kind = 'indica'
-        # TODO: identify other dimensions
-        if s.axes[0] == 'I' and s.shape[0] == len(channel_names):
-            s._set_dimensions(s.shape, 'C' + s.axes[1:], None, True)
-        if s.is_pyramidal:
-            s.name = 'Baseline'
-        self.is_uniform = False
-        return series
-
-    def _series_sis(self) -> list[TiffPageSeries] | None:
-        """Return image series in Olympus SIS file."""
-        meta = self.sis_metadata
-        if meta is None:
-            return None
-        pages = self.pages._getlist(validate=False)  # TODO: this fails for VSI
-        page = pages[0]
-
-        if 'shape' in meta and 'axes' in meta:
-            shape = meta['shape'] + page.shape
-            axes = meta['axes'] + page.axes
-        else:
-            shape = (len(pages), *page.shape)
-            axes = 'I' + page.axes
-        self.is_uniform = True
-        return [TiffPageSeries(pages, shape, page.dtype, axes, kind='sis')]
-
-    def _series_qpi(self) -> list[TiffPageSeries] | None:
-        """Return image series in PerkinElmer QPI file."""
-        series = []
-        pages = self.pages
-        pages.cache = True
-        pages.useframes = False
-        pages.set_keyframe(0)
-        pages._load()
-        page0 = pages.first
-
-        # Baseline
-        # TODO: get name from ImageDescription XML
-        ifds = []
-        index = 0
-        axes = 'C' + page0.axes
-        dtype = page0.dtype
-        pshape = page0.shape
-        while index < len(pages):
-            page = pages[index]
-            if page.shape != pshape:
-                break
-            ifds.append(page)
-            index += 1
-        shape = (len(ifds), *pshape)
-        series.append(
-            TiffPageSeries(
-                ifds, shape, dtype, axes, name='Baseline', kind='qpi'
-            )
-        )
-
-        if index < len(pages):
-            # Thumbnail
-            page = pages[index]
-            series.append(
-                TiffPageSeries(
-                    [page],
-                    page.shape,
-                    page.dtype,
-                    page.axes,
-                    name='Thumbnail',
-                    kind='qpi',
-                )
-            )
-            index += 1
-
-        if page0.is_tiled:
-            # Resolutions
-            while index < len(pages):
-                pshape = (pshape[0] // 2, pshape[1] // 2, *pshape[2:])
-                ifds = []
-                while index < len(pages):
-                    page = pages[index]
-                    if page.shape != pshape:
-                        break
-                    ifds.append(page)
-                    index += 1
-                if len(ifds) != len(series[0].pages):
-                    break
-                shape = (len(ifds), *pshape)
-                series[0].levels.append(
-                    TiffPageSeries(
-                        ifds, shape, dtype, axes, name='Resolution', kind='qpi'
-                    )
-                )
-
-        if series[0].is_pyramidal and index < len(pages):
-            # Macro
-            page = pages[index]
-            series.append(
-                TiffPageSeries(
-                    [page],
-                    page.shape,
-                    page.dtype,
-                    page.axes,
-                    name='Macro',
-                    kind='qpi',
-                )
-            )
-            index += 1
-            # Label
-            if index < len(pages):
-                page = pages[index]
-                series.append(
-                    TiffPageSeries(
-                        [page],
-                        page.shape,
-                        page.dtype,
-                        page.axes,
-                        name='Label',
-                        kind='qpi',
-                    )
-                )
-
-        self.is_uniform = False
-        return series
-
-    def _series_svs(self) -> list[TiffPageSeries] | None:
-        """Return image series in Aperio SVS file."""
-        pages = self.pages
-        if not pages.first.is_tiled:
-            return None
-
-        series = []
-        pages.cache = True
-        pages.useframes = False
-        pages.set_keyframe(0)
-        pages._load()
-
-        # baseline
-        firstpage = pages.first
-        if len(pages) == 1:
-            self.is_uniform = False
-            return [
-                TiffPageSeries(
-                    [firstpage],
-                    firstpage.shape,
-                    firstpage.dtype,
-                    firstpage.axes,
-                    name='Baseline',
-                    kind='svs',
-                )
-            ]
-
-        # thumbnail
-        page = pages[1]
-        thumbnail = TiffPageSeries(
-            [page],
-            page.shape,
-            page.dtype,
-            page.axes,
-            name='Thumbnail',
-            kind='svs',
-        )
-
-        # resolutions and focal planes
-        levels = {firstpage.shape: [firstpage]}
-        index = 2
-        while index < len(pages):
-            page = cast(TiffPage, pages[index])
-            if not page.is_tiled or page.is_reduced:
-                break
-            if page.shape in levels:
-                levels[page.shape].append(page)
-            else:
-                levels[page.shape] = [page]
-            index += 1
-
-        zsize = len(levels[firstpage.shape])
-        if not all(len(level) == zsize for level in levels.values()):
-            logger().warning(f'{self!r} SVS series focal planes do not match')
-            zsize = 1
-        baseline = TiffPageSeries(
-            levels[firstpage.shape],
-            (zsize, *firstpage.shape),
-            firstpage.dtype,
-            'Z' + firstpage.axes,
-            name='Baseline',
-            kind='svs',
-        )
-        for shape, level in levels.items():
-            if shape == firstpage.shape:
-                continue
-            page = level[0]
-            baseline.levels.append(
-                TiffPageSeries(
-                    level,
-                    (zsize, *page.shape),
-                    page.dtype,
-                    'Z' + page.axes,
-                    name='Resolution',
-                    kind='svs',
-                )
-            )
-        series.append(baseline)
-        series.append(thumbnail)
-
-        # Label, Macro; subfiletype 1, 9
-        for _ in range(2):
-            if index == len(pages):
-                break
-            page = pages[index]
-            assert isinstance(page, TiffPage)
-            name = 'Macro' if page.subfiletype == 9 else 'Label'
-            series.append(
-                TiffPageSeries(
-                    [page],
-                    page.shape,
-                    page.dtype,
-                    page.axes,
-                    name=name,
-                    kind='svs',
-                )
-            )
-            index += 1
-        self.is_uniform = False
-        return series
-
-    def _series_scn(self) -> list[TiffPageSeries] | None:
-        """Return pyramidal image series in Leica SCN file."""
-        # TODO: support collections
-        from xml.etree import ElementTree
-
-        pages = self.pages
-        scnxml = pages.first.description
-        root = ElementTree.fromstring(scnxml)
-
-        series = []
-        pages.cache = True
-        pages.useframes = False
-        pages.set_keyframe(0)
-        pages._load()
-
-        for collection in root:
-            if not collection.tag.endswith('collection'):
-                continue
-            for image in collection:
-                if not image.tag.endswith('image'):
-                    continue
-                name = image.attrib.get('name', 'Unknown')
-                if int(image.attrib.get('sizeZ', 1)) > 1:
-                    msg = (
-                        'SCN series: Z-Stacks not supported. '
-                        'Please submit a sample file.'
-                    )
-                    raise NotImplementedError(msg)
-                for pixels in image:
-                    if not pixels.tag.endswith('pixels'):
-                        continue
-                    resolutions: dict[int, dict[str, Any]] = {}
-                    for dimension in pixels:
-                        if not dimension.tag.endswith('dimension'):
-                            continue
-                        c = int(dimension.attrib.get('c', 0))
-                        z = int(dimension.attrib.get('z', 0))
-                        r = int(dimension.attrib.get('r', 0))
-                        ifd = int(dimension.attrib['ifd'])
-                        if r in resolutions:
-                            level = resolutions[r]
-                            level['channels'] = max(level['channels'], c)
-                            level['sizez'] = max(level['sizez'], z)
-                            level['ifds'][(c, z)] = ifd
-                        else:
-                            resolutions[r] = {
-                                'channels': c,
-                                'sizez': z,
-                                'ifds': {(c, z): ifd},
-                            }
-                    if not resolutions:
-                        continue
-                    levels = []
-                    for _r, level in sorted(resolutions.items()):
-                        shape: tuple[int, ...] = (
-                            level['channels'] + 1,
-                            level['sizez'] + 1,
-                        )
-                        axes = 'CZ'
-
-                        ifds: list[TiffPage | TiffFrame | None] = [
-                            None
-                        ] * product(shape)
-                        for (c, z), ifd in sorted(level['ifds'].items()):
-                            ifds[c * shape[1] + z] = pages[ifd]
-
-                        assert ifds[0] is not None
-                        axes += ifds[0].axes
-                        shape += ifds[0].shape
-                        dtype = ifds[0].dtype
-
-                        levels.append(
-                            TiffPageSeries(
-                                ifds,
-                                shape,
-                                dtype,
-                                axes,
-                                parent=self,
-                                name=name,
-                                kind='scn',
-                            )
-                        )
-                    levels[0].levels.extend(levels[1:])
-                    series.append(levels[0])
-
-        self.is_uniform = False
-        return series
-
-    def _series_bif(self) -> list[TiffPageSeries] | None:
-        """Return image series in Ventana/Roche BIF file."""
-        series = []
-        baseline: TiffPageSeries | None = None
-        pages = self.pages
-        pages.cache = True
-        pages.useframes = False
-        pages.set_keyframe(0)
-        pages._load()
-
-        for page in pages:
-            page = cast(TiffPage, page)
-            if page.description.startswith('Label'):
-                series.append(
-                    TiffPageSeries(
-                        [page],
-                        page.shape,
-                        page.dtype,
-                        page.axes,
-                        name='Label',
-                        kind='bif',
-                    )
-                )
-            elif (
-                page.description == 'Thumbnail'
-                or page.description.startswith('Probability')
-            ):
-                series.append(
-                    TiffPageSeries(
-                        [page],
-                        page.shape,
-                        page.dtype,
-                        page.axes,
-                        name='Thumbnail',
-                        kind='bif',
-                    )
-                )
-            elif 'level' not in page.description:
-                # TODO: is this necessary?
-                series.append(
-                    TiffPageSeries(
-                        [page],
-                        page.shape,
-                        page.dtype,
-                        page.axes,
-                        name='Unknown',
-                        kind='bif',
-                    )
-                )
-            elif baseline is None:
-                baseline = TiffPageSeries(
-                    [page],
-                    page.shape,
-                    page.dtype,
-                    page.axes,
-                    name='Baseline',
-                    kind='bif',
-                )
-                series = [baseline, *series]
-            else:
-                baseline.levels.append(
-                    TiffPageSeries(
-                        [page],
-                        page.shape,
-                        page.dtype,
-                        page.axes,
-                        name='Resolution',
-                        kind='bif',
-                    )
-                )
-
-        logger().warning(f'{self!r} BIF series tiles are not stitched')
-        self.is_uniform = False
-        return series
-
-    def _series_ome(self) -> list[TiffPageSeries] | None:
-        """Return image series in OME-TIFF file(s)."""
-        # xml.etree found to be faster than lxml
-        from xml.etree import ElementTree
-
-        omexml = self.ome_metadata
-        if omexml is None:
-            return None
-        try:
-            root = ElementTree.fromstring(omexml)
-        except ElementTree.ParseError as exc:
-            # TODO: test badly encoded OME-XML
-            logger().error(f'{self!r} OME series raised {exc!r:.128}')
-            return None
-
-        keyframe: TiffPage
-        ifds: list[TiffPage | TiffFrame | None]
-        size: int = -1
-
-        def load_pages(tif: TiffFile, /) -> None:
-            tif.pages.cache = True
-            tif.pages.useframes = True
-            tif.pages.set_keyframe(0)
-            tif.pages._load(None)
-
-        load_pages(self)
-
-        root_uuid = root.attrib.get('UUID')
-        self._files = {root_uuid: self}
-        dirname = self._fh.dirname
-        files_missing = 0
-        is_pyramidal = False
-        moduloref = []
-        modulo: dict[str, dict[str, tuple[str, int]]] = {}
-        series: list[TiffPageSeries] = []
-        for element in root:
-            if element.tag.endswith('BinaryOnly'):
-                # TODO: load OME-XML from root or companion file
-                logger().debug(
-                    f'{self!r} OME series is BinaryOnly, '
-                    'not an OME-TIFF root file'
-                )
-                break
-            if element.tag.endswith('StructuredAnnotations'):
-                for annot in element:
-                    if not annot.attrib.get('Namespace', '').endswith(
-                        'modulo'
-                    ):
-                        continue
-                    modulo[annot.attrib['ID']] = mod = {}
-                    for value in annot:
-                        for modulo_ns in value:
-                            for along in modulo_ns:
-                                if not along.tag[:-1].endswith('Along'):
-                                    continue
-                                axis = along.tag[-1]
-                                newaxis = along.attrib.get('Type', 'other')
-                                newaxis = TIFF.AXES_CODES[newaxis]
-                                if 'Start' in along.attrib:
-                                    step = float(along.attrib.get('Step', 1))
-                                    start = float(along.attrib['Start'])
-                                    stop = float(along.attrib['End']) + step
-                                    labels = len(
-                                        numpy.arange(start, stop, step)
-                                    )
-                                else:
-                                    labels = len(
-                                        [
-                                            label
-                                            for label in along
-                                            if label.tag.endswith('Label')
-                                        ]
-                                    )
-                                mod[axis] = (newaxis, labels)
-
-            if not element.tag.endswith('Image'):
-                continue
-
-            for annot in element:
-                if annot.tag.endswith('AnnotationRef'):
-                    annotationref = annot.attrib['ID']
-                    break
-            else:
-                annotationref = None
-
-            attr = element.attrib
-            name = attr.get('Name')
-
-            for pixels in element:
-                if not pixels.tag.endswith('Pixels'):
-                    continue
-                attr = pixels.attrib
-                # dtype = attr.get('PixelType')
-                axes = ''.join(reversed(attr['DimensionOrder']))
-                shape = [int(attr['Size' + ax]) for ax in axes]
-                ifds = []
-                spp = 1  # samples per pixel
-                first = True
-
-                for data in pixels:
-                    if data.tag.endswith('Channel'):
-                        attr = data.attrib
-                        if first:
-                            first = False
-                            spp = int(attr.get('SamplesPerPixel', spp))
-                            if spp > 1:
-                                # correct channel dimension for spp
-                                shape = [
-                                    shape[i] // spp if ax == 'C' else shape[i]
-                                    for i, ax in enumerate(axes)
-                                ]
-                        elif int(attr.get('SamplesPerPixel', 1)) != spp:
-                            msg = (
-                                'OME series cannot handle differing '
-                                'SamplesPerPixel'
-                            )
-                            raise ValueError(msg)
-                        continue
-
-                    if not data.tag.endswith('TiffData'):
-                        continue
-
-                    attr = data.attrib
-                    ifd_index = int(attr.get('IFD', 0))
-                    num = int(attr.get('NumPlanes', 1 if 'IFD' in attr else 0))
-                    num = int(attr.get('PlaneCount', num))
-                    idxs = [int(attr.get('First' + ax, 0)) for ax in axes[:-2]]
-                    try:
-                        idx = int(numpy.ravel_multi_index(idxs, shape[:-2]))
-                    except ValueError as exc:
-                        # ImageJ produces invalid ome-xml when cropping
-                        logger().warning(
-                            f'{self!r} '
-                            'OME series contains invalid TiffData index, '
-                            f'raised {exc!r:.128}',
-                        )
-                        continue
-                    for uuid in data:
-                        if not uuid.tag.endswith('UUID'):
-                            continue
-                        if (
-                            root_uuid is None
-                            and uuid.text is not None
-                            and (
-                                uuid.attrib.get('FileName', '').lower()
-                                == self.filename.lower()
-                            )
-                        ):
-                            # no global UUID, use this file
-                            root_uuid = uuid.text
-                            self._files[root_uuid] = self._files[None]
-                            del self._files[None]
-                        elif uuid.text not in self._files:
-                            if not self._multifile:
-                                # abort reading multifile OME series
-                                # and fall back to generic series
-                                return []
-                            filename = uuid.attrib['FileName']
-                            try:
-                                if not self.filehandle.is_file:
-                                    raise ValueError
-                                tif = TiffFile(
-                                    os.path.join(dirname, filename),
-                                    _root=self,
-                                )
-                                load_pages(tif)
-                            except (
-                                OSError,
-                                FileNotFoundError,
-                                ValueError,
-                            ) as exc:
-                                if files_missing == 0:
-                                    logger().warning(
-                                        f'{self!r} OME series failed to read '
-                                        f'{filename!r}, raised {exc!r:.128}. '
-                                        'Missing data are zeroed'
-                                    )
-                                files_missing += 1
-                                # assume that size is same as in previous file
-                                # if no NumPlanes or PlaneCount are given
-                                if num:
-                                    size = num
-                                elif size == -1:
-                                    msg = (
-                                        'OME series missing '
-                                        'NumPlanes or PlaneCount'
-                                    )
-                                    raise ValueError(msg) from exc
-                                ifds.extend([None] * (size + idx - len(ifds)))
-                                break
-                            self._files[uuid.text] = tif
-                            tif.close()
-                        pages = self._files[uuid.text].pages
-                        try:
-                            size = num or len(pages)
-                            ifds.extend([None] * (size + idx - len(ifds)))
-                            for i in range(size):
-                                ifds[idx + i] = pages[ifd_index + i]
-                        except IndexError as exc:
-                            logger().warning(
-                                f'{self!r} '
-                                'OME series contains index out of range, '
-                                f'raised {exc!r:.128}'
-                            )
-                        # only process first UUID
-                        break
-                    else:
-                        # no uuid found
-                        pages = self.pages
-                        try:
-                            size = num or len(pages)
-                            ifds.extend([None] * (size + idx - len(ifds)))
-                            for i in range(size):
-                                ifds[idx + i] = pages[ifd_index + i]
-                        except IndexError as exc:
-                            logger().warning(
-                                f'{self!r} '
-                                'OME series contains index out of range, '
-                                f'raised {exc!r:.128}'
-                            )
-
-                if not ifds or all(i is None for i in ifds):
-                    # skip images without data
-                    continue
-
-                # find a keyframe
-                for ifd in ifds:
-                    # try find a TiffPage
-                    if ifd is not None and ifd == ifd.keyframe:
-                        keyframe = cast(TiffPage, ifd)
-                        break
-                else:
-                    # reload a TiffPage from file
-                    for i, ifd in enumerate(ifds):
-                        if ifd is not None:
-                            isclosed = ifd.parent.filehandle.closed
-                            if isclosed:
-                                ifd.parent.filehandle.open()
-                            ifd.parent.pages.set_keyframe(ifd.index)
-                            keyframe = cast(
-                                TiffPage, ifd.parent.pages[ifd.index]
-                            )
-                            ifds[i] = keyframe
-                            if isclosed:
-                                keyframe.parent.filehandle.close()
-                            break
-
-                # is the series pyramidal?
-                if keyframe.subifds:
-                    is_pyramidal = True
-
-                # does the series spawn multiple files
-                multifile = False
-                for ifd in ifds:
-                    if ifd and ifd.parent != keyframe.parent:
-                        multifile = True
-                        break
-
-                if spp > 1:
-                    if keyframe.planarconfig == 1:
-                        shape.append(spp)
-                        axes += 'S'
-                    else:
-                        shape = [*shape[:-2], spp, *shape[-2:]]
-                        axes = axes[:-2] + 'S' + axes[-2:]
-                if 'S' not in axes:
-                    shape.append(1)
-                    axes += 'S'
-
-                # number of pages in the file might mismatch XML metadata, for
-                # example Nikon-cell011.ome.tif or stack_t24_y2048_x2448.tiff
-                size = max(product(shape) // keyframe.size, 1)
-                if size < len(ifds):
-                    logger().warning(
-                        f'{self!r} '
-                        f'OME series expected {size} frames, got {len(ifds)}'
-                    )
-                    ifds = ifds[:size]
-                elif size > len(ifds):
-                    logger().warning(
-                        f'{self!r} '
-                        f'OME series is missing {size - len(ifds)} frames.'
-                        ' Missing data are zeroed'
-                    )
-                    ifds.extend([None] * (size - len(ifds)))
-
-                # TODO: this implementation assumes the last dimensions are
-                # stored in TIFF pages. Apparently that is not always the case.
-                # For example, TCX (20000, 2, 500) is stored in 2 pages of
-                # (20000, 500) in 'Image 7.ome_h00.tiff'.
-                # For now, verify that shapes of keyframe and series match.
-                # If not, skip series.
-                squeezed = squeeze_axes(shape, axes)[0]
-                if keyframe.shape != tuple(squeezed[-len(keyframe.shape) :]):
-                    logger().warning(
-                        f'{self!r} OME series cannot handle discontiguous '
-                        f'storage ({keyframe.shape} != '
-                        f'{tuple(squeezed[-len(keyframe.shape) :])})',
-                    )
-                    del ifds
-                    continue
-
-                # set keyframe on all IFDs
-                # each series must contain a TiffPage used as keyframe
-                keyframes: dict[str, TiffPage] = {
-                    keyframe.parent.filehandle.name: keyframe
-                }
-                for i, page in enumerate(ifds):
-                    if page is None:
-                        continue
-                    fh = page.parent.filehandle
-                    if fh.name not in keyframes:
-                        if page.keyframe != page:
-                            # reload TiffPage from file
-                            isclosed = fh.closed
-                            if isclosed:
-                                fh.open()
-                            page.parent.pages.set_keyframe(page.index)
-                            page = page.parent.pages[  # noqa: PLW2901
-                                page.index
-                            ]
-                            ifds[i] = page
-                            if isclosed:
-                                fh.close()
-                        keyframes[fh.name] = cast(TiffPage, page)
-                    if page.keyframe != page:
-                        page.keyframe = keyframes[fh.name]
-
-                moduloref.append(annotationref)
-                series.append(
-                    TiffPageSeries(
-                        ifds,
-                        shape,
-                        keyframe.dtype,
-                        axes,
-                        parent=self,
-                        name=name,
-                        multifile=multifile,
-                        kind='ome',
-                    )
-                )
-                del ifds
-
-        if files_missing > 1:
-            logger().warning(
-                f'{self!r} OME series failed to read {files_missing} files'
-            )
-
-        # apply modulo according to AnnotationRef
-        for aseries, annotationref in zip(series, moduloref, strict=True):
-            if annotationref not in modulo:
-                continue
-            shape = list(aseries.get_shape(squeeze=False))
-            axes = aseries.get_axes(squeeze=False)
-            for axis, (newaxis, size) in modulo[annotationref].items():
-                i = axes.index(axis)
-                if shape[i] == size:
-                    axes = axes.replace(axis, newaxis, 1)
-                else:
-                    shape[i] //= size
-                    shape.insert(i + 1, size)
-                    axes = axes.replace(axis, axis + newaxis, 1)
-            aseries._set_dimensions(shape, axes, None)
-
-        # pyramids
-        if is_pyramidal:
-            filecache = FileCache(size=64)
-            for aseries in series:
-                keyframe = aseries.keyframe
-                if not keyframe.subifds:
-                    continue
-
-                num_levels = len(keyframe.subifds)
-                levels_pages: list[list[TiffPage | TiffFrame | None]] = [
-                    [] for _ in range(num_levels)
-                ]
-                levels_keyframes: list[TiffPage | None] = [None] * num_levels
-
-                # iterate over pages first, then levels
-                # to minimize file open/close
-                for page in aseries.pages:
-                    if page is None:
-                        # add None to all levels for this page
-                        for level_pages in levels_pages:
-                            level_pages.append(None)
-                        continue
-
-                    if page.subifds is None:
-                        # should not happen, add None to all levels
-                        for level_pages in levels_pages:
-                            level_pages.append(None)
-                        continue
-
-                    # open file handle once for this page
-                    fh = page.parent.filehandle
-                    filecache.open(fh)
-                    try:
-                        # process all levels for this page
-                        for level in range(num_levels):
-                            if page.subifds[level] < 8:
-                                levels_pages[level].append(None)
-                                continue
-
-                            fh.seek(page.subifds[level])
-                            if (
-                                page.keyframe == page
-                                and levels_keyframes[level] is None
-                            ):
-                                # first keyframe for this level
-                                ifd = TiffPage(
-                                    page.parent, (page.index, level + 1)
-                                )
-                                levels_keyframes[level] = ifd
-                            elif levels_keyframes[level] is None:
-                                msg = 'no keyframe found'
-                                raise RuntimeError(msg)
-                            else:
-                                ifd = TiffFrame(
-                                    page.parent,
-                                    (page.index, level + 1),
-                                    keyframe=levels_keyframes[level],
-                                )
-                            levels_pages[level].append(ifd)
-                    finally:
-                        filecache.close(fh)
-
-                # create TiffPageSeries for each level
-                for level, ifds in enumerate(levels_pages):
-                    if all(ifd is None for ifd in ifds):
-                        logger().warning(
-                            f'{self!r} OME series level {level + 1} is empty'
-                        )
-                        break
-
-                    level_keyframe = levels_keyframes[level]
-                    if level_keyframe is None:
-                        msg = f'no keyframe found for level {level + 1}'
-                        raise RuntimeError(msg)
-
-                    # fix shape
-                    shape = list(aseries.get_shape(squeeze=False))
-                    axes = aseries.get_axes(squeeze=False)
-                    for i, ax in enumerate(axes):
-                        if ax == 'X':
-                            shape[i] = level_keyframe.imagewidth
-                        elif ax == 'Y':
-                            shape[i] = level_keyframe.imagelength
-
-                    # add series
-                    aseries.levels.append(
-                        TiffPageSeries(
-                            ifds,
-                            tuple(shape),
-                            level_keyframe.dtype,
-                            axes,
-                            parent=self,
-                            name=f'Level {level + 1}',
-                            kind='ome',
-                        )
-                    )
-
-                if not aseries.name:
-                    aseries.name = 'Baseline'
-
-            filecache.clear()
-
-        self.is_uniform = len(series) == 1 and not is_pyramidal
-
-        return series
-
-    def _series_mmstack(self) -> list[TiffPageSeries] | None:
-        """Return series in Micro-Manager stack file(s)."""
-        settings = self.micromanager_metadata
-        if (
-            settings is None
-            or 'Summary' not in settings
-            or 'IndexMap' not in settings
-        ):
-            return None
-
-        pages: list[TiffPage | TiffFrame | None]
-        page_count: int
-
-        summary = settings['Summary']
-        indexmap = settings['IndexMap']
-        indexmap = indexmap[indexmap[:, 4].argsort()]
-
-        if 'MicroManagerVersion' not in summary or 'Frames' not in summary:
-            # TODO: handle MagellanStack?
-            return None
-
-        # determine CZTR shape from indexmap; TODO: is this necessary?
-        indexmap_shape = (numpy.max(indexmap[:, :4], axis=0) + 1).tolist()
-        indexmap_index = {'C': 0, 'Z': 1, 'T': 2, 'R': 3}
-
-        # TODO: activate this?
-        # if 'AxisOrder' in summary:
-        #     axesorder = summary['AxisOrder']
-        #     keys = {
-        #         'channel': 'C',
-        #         'z': 'Z',
-        #         'slice': 'Z',
-        #         'position': 'R',
-        #         'time': 'T',
-        #     }
-        #     axes = ''.join(keys[ax] for ax in reversed(axesorder))
-
-        axes = 'TR' if summary.get('TimeFirst', True) else 'RT'
-        axes += 'ZC' if summary.get('SlicesFirst', True) else 'CZ'
-
-        keys = {
-            'C': 'Channels',
-            'Z': 'Slices',
-            'R': 'Positions',
-            'T': 'Frames',
-        }
-        shape = tuple(
-            max(
-                indexmap_shape[indexmap_index[ax]],
-                int(summary.get(keys[ax], 1)),
-            )
-            for ax in axes
-        )
-        size = product(shape)
-
-        indexmap_order = tuple(indexmap_index[ax] for ax in axes)
-
-        def add_file(tif: TiffFile, indexmap: NDArray[Any]) -> int:
-            # add virtual TiffFrames to pages list
-            page_count = 0
-            offsets: list[int]
-            offsets = indexmap[:, 4].tolist()
-            indices = numpy.ravel_multi_index(
-                indexmap[:, indexmap_order].T, shape
-            ).tolist()
-            keyframe = tif.pages.first
-            filesize = tif.filehandle.size - keyframe.databytecounts[0] - 162
-            index: int
-            offset: int
-            for item in zip(indices, offsets, strict=True):
-                index, offset = item
-                if offset == keyframe.offset:
-                    pages[index] = keyframe
-                    page_count += 1
-                    continue
-                if 0 < offset <= filesize:
-                    dataoffsets = (offset + 162,)
-                    databytecounts = keyframe.databytecounts
-                    page_count += 1
-                else:
-                    # assume file is truncated
-                    dataoffsets = databytecounts = (0,)
-                    offset = 0
-                pages[index] = TiffFrame(
-                    tif,
-                    index=index,
-                    offset=offset,
-                    dataoffsets=dataoffsets,
-                    databytecounts=databytecounts,
-                    keyframe=keyframe,
-                )
-            return page_count
-
-        multifile = size > indexmap.shape[0]
-        if multifile:
-            # get multifile prefix
-            if not self.filehandle.is_file:
-                logger().warning(
-                    f'{self!r} MMStack multi-file series cannot be read from '
-                    f'{self.filehandle._fh!r}'
-                )
-                multifile = False
-            elif '_MMStack' not in self.filename:
-                logger().warning(f'{self!r} MMStack file name is invalid')
-                multifile = False
-            elif 'Prefix' in summary:
-                prefix = summary['Prefix']
-                if not self.filename.startswith(prefix):
-                    logger().warning(f'{self!r} MMStack file name is invalid')
-                    multifile = False
-            else:
-                prefix = self.filename.split('_MMStack')[0]
-
-        if multifile:
-            # read other files
-            pattern = os.path.join(
-                self.filehandle.dirname, prefix + '_MMStack*.tif'
-            )
-            filenames = glob.glob(pattern)
-            if len(filenames) == 1:
-                multifile = False
-            else:
-                pages = [None] * size
-                page_count = add_file(self, indexmap)
-                for filename in filenames:
-                    if self.filename == os.path.basename(filename):
-                        continue
-                    with TiffFile(filename) as tif:
-                        indexmap = read_micromanager_metadata(
-                            tif.filehandle, {'IndexMap'}
-                        )['IndexMap']
-                        indexmap = indexmap[indexmap[:, 4].argsort()]
-                        page_count += add_file(tif, indexmap)
-
-        if multifile:
-            pass
-        elif size > indexmap.shape[0]:
-            # other files missing: squeeze shape
-            old_shape = shape
-            min_index = numpy.min(indexmap[:, :4], axis=0)
-            max_index = numpy.max(indexmap[:, :4], axis=0)
-            indexmap = indexmap.copy()
-            indexmap[:, :4] -= min_index
-            shape = tuple(
-                j - i + 1
-                for i, j in zip(
-                    min_index.tolist(), max_index.tolist(), strict=True
-                )
-            )
-            shape = tuple(shape[i] for i in indexmap_order)
-            size = product(shape)
-            pages = [None] * size
-            page_count = add_file(self, indexmap)
-            logger().warning(
-                f'{self!r} MMStack series is missing files. '
-                f'Returning subset {shape!r} of {old_shape!r}'
-            )
-        else:
-            # single file
-            pages = [None] * size
-            page_count = add_file(self, indexmap)
-
-        if page_count != size:
-            logger().warning(
-                f'{self!r} MMStack is missing {size - page_count} pages.'
-                ' Missing data are zeroed'
-            )
-
-        keyframe = self.pages.first
-        return [
-            TiffPageSeries(
-                pages,
-                shape=shape + keyframe.shape,
-                dtype=keyframe.dtype,
-                axes=axes + keyframe.axes,
-                # axestiled=axestiled,
-                # axesoverlap=axesoverlap,
-                # coords=coords,
-                parent=self,
-                kind='mmstack',
-                multifile=multifile,
-                squeeze=True,
-            )
-        ]
-
-    def _series_ndtiff(self) -> list[TiffPageSeries] | None:
-        """Return series in NDTiff v2 and v3 files."""
-        # TODO: implement fallback for missing index file, versions 0 and 1
-        if not self.filehandle.is_file:
-            logger().warning(
-                f'{self!r} NDTiff.index not found for {self.filehandle._fh!r}'
-            )
-            return None
-
-        indexfile = os.path.join(self.filehandle.dirname, 'NDTiff.index')
-        if not os.path.exists(indexfile):
-            logger().warning(f'{self!r} NDTiff.index not found')
-            return None
-
-        keyframes: dict[str, TiffPage] = {}
-        shape: tuple[int, ...]
-        dims: tuple[str, ...]
-        page: TiffPage | TiffFrame
-        pageindex = 0
-        pixel_types = {
-            0: ('uint8', 8),  # 8bit monochrome
-            1: ('uint16', 16),  # 16bit monochrome
-            2: ('uint8', 8),  # 8bit RGB
-            3: ('uint16', 10),  # 10bit monochrome
-            4: ('uint16', 12),  # 12bit monochrome
-            5: ('uint16', 14),  # 14bit monochrome
-            6: ('uint16', 11),  # 11bit monochrome
-        }
-
-        indices: dict[tuple[int, ...], TiffPage | TiffFrame] = {}
-        categories: dict[str, dict[str, int]] = {}
-        first = True
-
-        for (
-            axes_dict,
-            filename,
-            dataoffset,
-            width,
-            height,
-            pixeltype,
-            compression,
-            _metaoffset,
-            _metabytecount,
-            _metacompression,
-        ) in read_ndtiff_index(indexfile):
-            if filename in keyframes:
-                # create virtual frame from index
-                pageindex += 1  # TODO
-                keyframe = keyframes[filename]
-                page = TiffFrame(
-                    keyframe.parent,
-                    pageindex,
-                    offset=None,  # virtual frame
-                    keyframe=keyframe,
-                    dataoffsets=(dataoffset,),
-                    databytecounts=keyframe.databytecounts,
-                )
-                if page.shape[:2] != (height, width):
-                    msg = (
-                        'NDTiff.index does not match TIFF shape '
-                        f'{page.shape[:2]} != {(height, width)}'
-                    )
-                    raise ValueError(msg)
-                if compression != 0:
-                    msg = f'NDTiff.index {compression=} not supported'
-                    raise ValueError(msg)
-                if page.compression != 1:
-                    msg = (
-                        'NDTiff.index does not match TIFF '
-                        f'{page.compression=!r}'
-                    )
-                    raise ValueError(msg)
-                if pixeltype not in pixel_types:
-                    msg = f'NDTiff.index unknown pixel type {pixeltype}'
-                    raise ValueError(msg)
-                dtype, _ = pixel_types[pixeltype]
-                if page.dtype != dtype:
-                    msg = (
-                        'NDTiff.index pixeltype does not match TIFF dtype '
-                        f'{page.dtype} != {dtype}'
-                    )
-                    raise ValueError(msg)
-            else:
-                # new keyframe
-                pageindex = 0
-                if filename == self.filename:
-                    page = self.pages.first
-                else:
-                    with TiffFile(
-                        os.path.join(self.filehandle.dirname, filename)
-                    ) as tif:
-                        page = tif.pages.first
-                keyframes[filename] = page
-
-            # replace string with integer indices
-            index: int | str
-            if first:
-                for axis, index in axes_dict.items():
-                    if isinstance(index, str):
-                        categories[axis] = {index: 0}
-                        axes_dict[axis] = 0
-                first = False
-                dims = tuple(axes_dict.keys())
-
-            elif categories:
-                for axis, values in categories.items():
-                    index = axes_dict[axis]
-                    assert isinstance(index, str)
-                    if index not in values:
-                        values[index] = max(values.values()) + 1
-                    axes_dict[axis] = values[index]
-
-            if tuple(axes_dict.keys()) != dims:
-                dims_ = tuple(axes_dict.keys())
-                logger().warning(
-                    f'{self!r} NDTiff.index axes_dict.keys={dims_} != {dims}'
-                )
-            indices[tuple(int(axes_dict[dim]) for dim in dims)] = page
-
-        # indices may be negative or missing
-        indices_array = numpy.array(list(indices.keys()), dtype=numpy.int32)
-        min_index = numpy.min(indices_array, axis=0).tolist()
-        max_index = numpy.max(indices_array, axis=0).tolist()
-        shape = tuple(
-            j - i + 1 for i, j in zip(min_index, max_index, strict=True)
-        )
-
-        # change axes to match storage order
-        order = order_axes(indices_array, squeeze=False)
-        shape = tuple(shape[i] for i in order)
-        dims = tuple(dims[i] for i in order)
-        indices = {
-            tuple(index[i] - min_index[i] for i in order): value
-            for index, value in indices.items()
-        }
-
-        pages: list[TiffPage | TiffFrame | None] = [
-            indices.get(idx) for idx in numpy.ndindex(shape)
-        ]
-
-        if not keyframes:
-            logger().error(f'{self!r} NDTiff.index has no keyframes')
-            return None
-        keyframe = next(iter(keyframes.values()))
-        shape += keyframe.shape
-        dims += keyframe.dims
-        axes = ''.join(TIFF.AXES_CODES.get(i.lower(), 'Q') for i in dims)
-
-        # TODO: support tiled axes and overlap
-        # meta: Any = self.micromanager_metadata
-        # if meta is None:
-        #     meta = {}
-        # elif 'Summary' in meta:
-        #     meta = meta['Summary']
-
-        # # map axes column->x, row->y
-        # axestiled: dict[int, int] = {}
-        # axesoverlap: dict[int, int] = {}
-        # if 'column' in dims:
-        #     key = dims.index('column')
-        #     axestiled[key] = keyframe.axes.index('X')
-        #     axesoverlap[key] = meta.get('GridPixelOverlapX', 0)
-        # if 'row' in dims:
-        #     key = dims.index('row')
-        #     axestiled[key] = keyframe.axes.index('Y')
-        #     axesoverlap[key] = meta.get('GridPixelOverlapY', 0)
-
-        # if all(i == 0 for i in axesoverlap.values()):
-        #     axesoverlap = {}
-
-        self.is_uniform = True
-        return [
-            TiffPageSeries(
-                pages,
-                shape=shape,
-                dtype=keyframe.dtype,
-                axes=axes,
-                # axestiled=axestiled,
-                # axesoverlap=axesoverlap,
-                # coords=coords,
-                parent=self,
-                kind='ndtiff',
-                multifile=len(keyframes) > 1,
-                squeeze=True,
-            )
-        ]
-
-    def _series_stk(self) -> list[TiffPageSeries] | None:
-        """Return series in STK file."""
-        meta = self.stk_metadata
-        if meta is None:
-            return None
-        page = self.pages.first
-        planes = meta['NumberPlanes']
-        name = meta.get('Name', '')
-        shape = (planes, *page.shape)
-        if planes > 1 and numpy.all(meta['ZDistance'] != 0):
-            axes = 'Z' + page.axes
-        elif planes > 1 and numpy.all(numpy.diff(meta['TimeCreated']) != 0):
-            axes = 'T' + page.axes
-        else:
-            # TODO: determine other/combinations of dimensions
-            axes = 'I' + page.axes
-        self.is_uniform = True
-        series = TiffPageSeries(
-            [page],
-            shape,
-            page.dtype,
-            axes,
-            name=name,
-            truncated=planes > 1,
-            kind='stk',
-        )
-        return [series]
-
-    def _series_lsm(self) -> list[TiffPageSeries] | None:
-        """Return main and thumbnail series in LSM file."""
-        lsmi = self.lsm_metadata
-        if lsmi is None:
-            return None
-        axes = TIFF.CZ_LSMINFO_SCANTYPE[lsmi['ScanType']]
-        page0 = self.pages.first
-        if page0.planarconfig == 1:
-            axes = axes.replace('C', '').replace('X', 'XC')
-        elif page0.planarconfig == 2:
-            # keep axis for `get_shape(False)`
-            pass
-        elif page0.samplesperpixel == 1:
-            axes = axes.replace('C', '')
-        if lsmi.get('DimensionP', 0) > 0:
-            axes = 'P' + axes
-        if lsmi.get('DimensionM', 0) > 0:
-            axes = 'M' + axes
-        shape = tuple(int(lsmi[TIFF.CZ_LSMINFO_DIMENSIONS[i]]) for i in axes)
-
-        name = lsmi.get('Name', '')
-        pages = self.pages._getlist(slice(0, None, 2), validate=False)
-        dtype = pages[0].dtype
-        series = [
-            TiffPageSeries(pages, shape, dtype, axes, name=name, kind='lsm')
-        ]
-
-        page = cast(TiffPage, self.pages[1])
-        if page.is_reduced:
-            pages = self.pages._getlist(slice(1, None, 2), validate=False)
-            dtype = page.dtype
-            cp = 1
-            i = 0
-            while cp < len(pages) and i < len(shape) - 2:
-                cp *= shape[i]
-                i += 1
-            shape = shape[:i] + page.shape
-            axes = axes[:i] + page.axes
-            series.append(
-                TiffPageSeries(
-                    pages, shape, dtype, axes, name=name, kind='lsm'
-                )
-            )
-
-        self.is_uniform = False
+        self._series[(kind, False)] = series
         return series
 
     def _lsm_load_pages(self) -> None:
@@ -7025,7 +5316,7 @@ class TiffFile:
                     page.shaped = (*page.shaped[:-1], 1)
 
     def __getattr__(self, name: str, /) -> Any:
-        """Return `is_flag` attributes from first page."""
+        """Return ``is_flag`` attributes from first page."""
         if name.startswith('is_') and name[3:] in TIFF.PAGE_FLAGS:
             if not self.pages:
                 return False
@@ -7055,7 +5346,7 @@ class TiffFile:
     def _str(self, detail: int = 0, width: int = 79) -> str:
         """Return string containing information about TiffFile.
 
-        The `detail` parameter specifies the level of detail returned:
+        The ``detail`` parameter specifies the level of detail returned:
 
         0: file info only.
         1: all series and keyframe of each series with tags.
@@ -7143,6 +5434,22 @@ class TiffFile:
                             f'{name.upper()}_METADATA\n'
                             f'{pformat(m, width=width, height=detail * 24)}'
                         )
+        if detail > 1 and self.series:
+            for s in self.series:
+                if s._coords:
+                    detail_list.append(
+                        indent(
+                            f'Series {s._index} coords',
+                            pformat(s.coords, width=width, height=detail * 12),
+                        )
+                    )
+                if s._attrs:
+                    detail_list.append(
+                        indent(
+                            f'Series {s._index} attrs',
+                            pformat(s._attrs, width=width, height=detail * 12),
+                        )
+                    )
         return '\n\n'.join(detail_list)
 
     @cached_property
@@ -7269,6 +5576,15 @@ class TiffFile:
             self.is_uniform = True
         return issis
 
+    @property
+    def is_svs(self) -> bool:
+        """File is Aperio SVS format."""
+        try:
+            page0 = self.pages.first
+        except IndexError:
+            return False
+        return page0.is_tiled and page0.is_svs
+
     @cached_property
     def is_c2pa(self) -> bool:
         """File contains embedded C2PA manifest in last page.
@@ -7329,6 +5645,23 @@ class TiffFile:
         if not self.is_indica:
             return None
         return self.pages.first.description
+
+    @property
+    def qpi_metadata(self) -> str | None:
+        """PerkinElmer QPI XML metadata from ImageDescription tag."""
+        if not self.is_qpi:
+            return None
+        return self.pages.first.description
+
+    @property
+    def bif_metadata(self) -> str | None:
+        """Ventana BIF XML metadata from XMP tag."""
+        if not self.is_bif:
+            return None
+        value = self.pages.first.tags.valueof(700)
+        if isinstance(value, bytes):
+            return value.rstrip(b'\x00').decode()
+        return value
 
     @property
     def avs_metadata(self) -> str | None:
@@ -7563,11 +5896,6 @@ class TiffFile:
         return read_micromanager_metadata(self._fh)
 
     @cached_property
-    def gdal_structural_metadata(self) -> dict[str, Any] | None:
-        """Non-TIFF GDAL structural metadata."""
-        return read_gdal_structural_metadata(self._fh)
-
-    @cached_property
     def scanimage_metadata(self) -> dict[str, Any] | None:
         """ScanImage non-varying frame and ROI metadata.
 
@@ -7602,6 +5930,11 @@ class TiffFile:
         if not self.is_gdal:
             return None
         return self.pages.first.tags.valueof(42112)
+
+    @cached_property
+    def gdal_structural_metadata(self) -> dict[str, Any] | None:
+        """Non-TIFF GDAL structural metadata."""
+        return read_gdal_structural_metadata(self._fh)
 
     @cached_property
     def astrotiff_metadata(self) -> dict[str, Any] | None:
@@ -8364,8 +6697,7 @@ class TiffPage:
 
         Parameters:
             data (Union[bytes, None]):
-                Encoded bytes of segment (strip or tile) or None for empty
-                segments.
+                Encoded bytes of segment or ``None`` for empty segments.
             index (int):
                 Index of segment in Offsets and Bytecount tag values.
             jpegtables (Optional[bytes]):
@@ -8373,7 +6705,7 @@ class TiffPage:
                 if any.
 
         Returns:
-            - Decoded segment or None for empty segments.
+            - Decoded segment or ``None`` for empty segments.
             - Position of segment in image array of normalized shape
               (separate sample, depth, length, width, contig sample).
             - Shape of segment (depth, length, width, contig samples).
@@ -8640,13 +6972,11 @@ class TiffPage:
                 datashape = data.shape
                 try:
                     # too many rows?
-                    # data = data.reshape(
-                    #     (shape[0], -1, shape[2], shape[3]), copy=False
-                    # )
-                    data.shape = (shape[0], -1, shape[2], shape[3])
+                    data = data.reshape(
+                        (shape[0], -1, shape[2], shape[3]), copy=False
+                    )
                     data = data[:, : shape[1]]
-                    # data = data.reshape(shape, copy=False)
-                    data.shape = shape
+                    data = data.reshape(shape, copy=False)
                 except ValueError:
                     pass
                 else:
@@ -8704,7 +7034,7 @@ class TiffPage:
             )
 
             def decode_jpeg(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -8748,7 +7078,7 @@ class TiffPage:
             superres = self.parent._superres
 
             def decode_eer(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -8779,7 +7109,7 @@ class TiffPage:
             assert decompress is not None
 
             def decode_jetraw(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -8819,7 +7149,7 @@ class TiffPage:
                 ccitt_decompress = imagecodecs.ccittfax4_decode
 
             def decode_ccitt(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -8860,7 +7190,7 @@ class TiffPage:
             assert decompress is not None
 
             def decode_image(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -8875,7 +7205,7 @@ class TiffPage:
                         shape = pad_none(shape)
                     return data, segmentindex, shape
                 data_array: NDArray[Any]
-                data_array = decompress(data)  # type: ignore[misc]
+                data_array = decompress(data)
                 # del data
                 data_array = reshape(data_array, segmentindex, shape)
                 if _fullsize:
@@ -8899,7 +7229,7 @@ class TiffPage:
                 f'{self.parent.byteorder}f{dtype.itemsize // 2}'
             )
 
-            def unpack(data: bytes, /) -> NDArray[Any]:
+            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
                 # return complex integer as numpy.complex
                 return numpy.frombuffer(data, itype).astype(ftype).view(dtype)
 
@@ -8916,7 +7246,7 @@ class TiffPage:
 
             bps = bitspersample // 8
 
-            def unpack(data: bytes, /) -> NDArray[Any]:
+            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
                 # return numpy array from buffer
                 try:
                     # read only numpy array
@@ -8929,7 +7259,7 @@ class TiffPage:
         elif isinstance(self.bitspersample, tuple):
             # TODO: type bitspersample as tuple[int, ...]?
             # for example, RGB 565
-            def unpack(data: bytes, /) -> NDArray[Any]:
+            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
                 # return numpy array from packed integers
                 return unpack_rgb(data, dtype, self.bitspersample)
 
@@ -8940,7 +7270,7 @@ class TiffPage:
                 msg = 'unpredicting float24 not supported'
                 raise NotImplementedError(msg)
 
-            def unpack(data: bytes, /) -> NDArray[Any]:
+            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
                 # return numpy.float32 array from float24
                 return imagecodecs.float24_decode(
                     data, byteorder=self.parent.byteorder
@@ -8950,7 +7280,7 @@ class TiffPage:
             # bilevel and packed integers
             runlen = stwidth * samples
 
-            def unpack(data: bytes, /) -> NDArray[Any]:
+            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
                 # return numpy array from packed integers
                 return imagecodecs.packints_decode(
                     data, dtype, bitspersample, runlen=runlen
@@ -8963,7 +7293,7 @@ class TiffPage:
         if decompress is None and unpredict is None:
 
             def decode_other(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -8989,7 +7319,7 @@ class TiffPage:
         elif decompress is not None and unpredict is None:
 
             def decode_other(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -9007,8 +7337,8 @@ class TiffPage:
                     data = imagecodecs.bitorder_decode(data)
                 # TODO: calculate correct size for packed integers
                 size = shape[0] * shape[1] * shape[2] * shape[3]
-                data = decompress(data, out=size * dtypeitemsize)  # type: ignore[misc]
-                data_array = unpack(data)  # type: ignore[arg-type]
+                data = decompress(data, out=size * dtypeitemsize)
+                data_array = unpack(data)
                 data_array = reshape(data_array, segmentindex, shape)
                 data_array = data_array.astype('=' + dtypechar, copy=False)
                 if _fullsize:
@@ -9018,7 +7348,7 @@ class TiffPage:
         elif decompress is None and unpredict is not None:
 
             def decode_other(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -9038,15 +7368,16 @@ class TiffPage:
                 data_array = reshape(data_array, segmentindex, shape)
                 data_array = data_array.astype('=' + dtypechar, copy=False)
                 # unpredict is faster with native byte order
-                data_array = unpredict(data_array, axis=-2, out=data_array)  # type: ignore[misc]
+                data_array = unpredict(data_array, axis=-2, out=data_array)
                 if _fullsize:
                     data_array, shape = pad(data_array, shape)
                 return data_array, segmentindex, shape
 
         else:  # decompress is not None and unpredict is not None
+            assert decompress is not None  # for mypy
 
             def decode_other(
-                data: bytes | None,
+                data: bytes | bytearray | None,
                 index: int,
                 /,
                 *,
@@ -9064,8 +7395,8 @@ class TiffPage:
                     data = imagecodecs.bitorder_decode(data)
                 # TODO: calculate correct size for packed integers
                 size = shape[0] * shape[1] * shape[2] * shape[3]
-                data = decompress(data, out=size * dtypeitemsize)  # type: ignore[misc]
-                data_array = unpack(data)  # type: ignore[arg-type]
+                data = decompress(data, out=size * dtypeitemsize)
+                data_array = unpack(data)
                 data_array = reshape(data_array, segmentindex, shape)
                 data_array = data_array.astype('=' + dtypechar, copy=False)
                 # unpredict is faster with native byte order
@@ -9130,7 +7461,7 @@ class TiffPage:
                 Internal use.
 
         Yields:
-            - Decoded segment or None for empty segments.
+            - Decoded segment or ``None`` for empty segments.
             - Position of segment in image array of normalized shape
               (separate sample, depth, length, width, contig sample).
             - Shape of segment (depth, length, width, contig samples).
@@ -9221,14 +7552,14 @@ class TiffPage:
                 memory-mapped array.
             squeeze:
                 Remove length-1 dimensions from image array, except X and Y.
-                If *False*, return the image array with normalized
+                If ``False``, return the image array with normalized
                 5-dimensional shape :py:attr:`TiffPage.shaped`.
             lock:
                 Reentrant lock to synchronize seeks and reads from file.
                 The default is the lock of the parent's file handle.
             maxworkers:
                 Maximum number of threads to concurrently decode segments.
-                If *None* or *0*, use up to :py:attr:`_TIFF.MAXWORKERS`
+                If ``None`` or *0*, use up to :py:attr:`_TIFF.MAXWORKERS`
                 threads. See remarks in :py:meth:`TiffFile.asarray`.
             buffersize:
                 Approximate number of bytes to read from file in one pass.
@@ -9407,12 +7738,10 @@ class TiffPage:
             ):
                 pass
 
-        # result = result.reshape(keyframe.shaped, copy=False)
-        result.shape = keyframe.shaped
+        result = result.reshape(keyframe.shaped, copy=False)
         if squeeze:
             try:
-                # result = result.reshape(keyframe.shape, copy=False)
-                result.shape = keyframe.shape
+                result = result.reshape(keyframe.shape, copy=False)
             except ValueError as exc:
                 logger().warning(
                     f'{self!r} <asarray> failed to reshape '
@@ -9423,6 +7752,27 @@ class TiffPage:
             # TODO: close file if an exception occurred above
             fh.close()
         return result
+
+    def asxarray(self, **kwargs: Any) -> DataArray:
+        """Return image data from page as xarray DataArray.
+
+        Parameters:
+            **kwargs: Passed to :py:meth:`asarray`.
+
+        Returns:
+            :py:class:`xarray.DataArray`
+                Image data with coordinates, dimensions, and attributes.
+
+        """
+        from xarray import DataArray
+
+        return DataArray(
+            self.asarray(**kwargs),
+            coords=self.coords,
+            dims=self.dims,
+            name=self.name,
+            attrs=self.attrs,
+        )
 
     def aszarr(self, **kwargs: Any) -> ZarrTiffStore:
         """Return image from page as Zarr store.
@@ -9550,59 +7900,80 @@ class TiffPage:
 
     @cached_property
     def dims(self) -> tuple[str, ...]:
-        """Names of dimensions in image array."""
-        names = TIFF.AXES_NAMES
-        return tuple(names[ax] for ax in self.axes)
+        """Character codes of dimensions in image array."""
+        return tuple(unique_strings(self.axes))
 
     @cached_property
     def sizes(self) -> dict[str, int]:
-        """Ordered map of dimension names to lengths."""
-        names = TIFF.AXES_NAMES
-        return {
-            names[ax]: size
-            for ax, size in zip(self.axes, self.shape, strict=True)
-        }
+        """Ordered map of dimension character codes to lengths."""
+        return dict(zip(self.dims, self.shape, strict=True))
 
     @cached_property
     def coords(self) -> dict[str, NDArray[Any]]:
-        """Ordered map of dimension names to coordinate arrays."""
-        resolution = self.get_resolution()
+        """Ordered map of dimension character codes to coordinate arrays.
+
+        Only axes with physical coordinate information are included.
+        Axes without resolution tags or sample names are omitted.
+
+        """
         coords: dict[str, NDArray[Any]] = {}
-
+        has_resolution = 282 in self.tags  # XResolution tag exists
+        if has_resolution:
+            resolution = self.get_resolution()
         for ax, size in zip(self.axes, self.shape, strict=True):
-            name = TIFF.AXES_NAMES[ax]
-            value = None
-            step: float = 1
-
-            if ax == 'X':
-                step = resolution[0]
-            elif ax == 'Y':
-                step = resolution[1]
-            elif ax == 'S':
-                value = self._sample_names()
-            elif ax == 'Z' and resolution[0] == resolution[1]:
-                # a ZResolution tag doesn't exist
-                # use XResolution if it agrees with YResolution
-                step = resolution[0]
-
-            if value is not None:
-                coords[name] = numpy.asarray(value)
-            elif step == 0 or step == 1 or size == 0:  # noqa: PLR1714
-                coords[name] = numpy.arange(size)
-            else:
-                coords[name] = numpy.linspace(
-                    0, size / step, size, endpoint=False, dtype=numpy.float32
-                )
-            if len(coords[name]) != size:
-                msg = f'{self!r} {len(coords[name])=} != {size}'
-                raise ValueError(msg)
+            if size == 0:
+                continue
+            if ax == 'S':
+                names = self._sample_names()
+                if names is not None:
+                    coords[ax] = numpy.asarray(names)
+            elif has_resolution:
+                if ax == 'X':
+                    step = resolution[0]
+                elif ax == 'Y':
+                    step = resolution[1]
+                # elif ax == 'Z' and resolution[0] == resolution[1]:
+                #     step = resolution[0]
+                else:
+                    continue
+                if step > 0:
+                    coords[ax] = numpy.linspace(
+                        0,
+                        size / step,
+                        size,
+                        endpoint=False,
+                        dtype=numpy.float32,
+                    )
         return coords
 
     @cached_property
-    def attr(self) -> dict[str, Any]:
-        """Arbitrary metadata associated with image array."""
-        # TODO: what to return?
-        return {}
+    def attrs(self) -> dict[str, Any]:
+        """Metadata dictionary for image array."""
+        attrs: dict[str, Any] = {}
+        attrs['photometric'] = enumarg(
+            PHOTOMETRIC, self.photometric
+        ).name.lower()
+        if self.dtype is None or self.bitspersample != self.dtype.itemsize * 8:
+            attrs['bitspersample'] = self.bitspersample
+        # if self.subfiletype:
+        #     attrs['subfiletype'] = self.subfiletype
+        resunit = self.tags.valueof(296)
+        if resunit is not None:
+            attrs['resolutionunit'] = enumarg(RESUNIT, resunit).name.lower()
+        if self.nodata:
+            attrs['nodata'] = self.nodata
+        dt = self.datetime
+        if dt is not None:
+            attrs['datetime'] = dt.isoformat()
+        desc = self.description
+        if (
+            desc
+            and desc[0] not in '{<'
+            and not desc.startswith(('ImageJ', 'shape'))
+            and len(desc) < 1024
+        ):
+            attrs['description'] = desc
+        return attrs
 
     @cached_property
     def size(self) -> int:
@@ -9651,13 +8022,13 @@ class TiffPage:
                 or a case-insensitive name string such as ``'inch'``.
             scale:
                 Multiplier applied to raw rational tag values.
-                If `unit` is also given, `scale` overrides reading the
+                If ``unit`` is also given, ``scale`` overrides reading the
                 ResolutionUnit tag and is used as the source scale
                 (pixels per meter for the stored unit), which is then
-                divided by the scale for `unit`.
-                If only `scale` is given (`unit=None`), it is applied
+                divided by the scale for ``unit``.
+                If only ``scale`` is given (``unit=None``), it is applied
                 directly to the raw tag values.
-                The default, when neither `unit` nor `scale` is given,
+                The default, when neither ``unit`` nor ``scale`` is given,
                 is 1 (no conversion).
 
         Returns:
@@ -10637,10 +9008,11 @@ class TiffFrame:
 
     The purpose of TiffFrame is to reduce resource usage and speed up reading
     image data from file compared to TiffPage.
-    Properties other than `offset`, `index`, `dataoffsets`, `databytecounts`,
-    `subifds`, and `jpegtables` are assumed to be identical with a specified
+    Properties other than ``offset``, ``index``, ``dataoffsets``,
+    ``databytecounts``, ``subifds``, and ``jpegtables`` are assumed to be
+    identical with a specified
     TiffPage instance, the keyframe.
-    TiffFrame instances have no `tags` property.
+    TiffFrame instances have no ``tags`` property.
     Virtual frames just reference the image data in the file. They may not
     have an IFD structure in the file.
 
@@ -10846,6 +9218,15 @@ class TiffFrame:
 
         """
         return TiffPage.asarray(self, **kwargs)  # type: ignore[arg-type]
+
+    def asxarray(self, **kwargs: Any) -> DataArray:
+        """Return image data from frame as xarray DataArray.
+
+        Parameters:
+            **kwargs: Arguments passed to :py:meth:`TiffPage.asarray`.
+
+        """
+        return TiffPage.asxarray(self, **kwargs)  # type: ignore[arg-type]
 
     def aszarr(self, **kwargs: Any) -> ZarrTiffStore:
         """Return image from frame as Zarr store.
@@ -11265,7 +9646,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
     def cache(self) -> bool:
         """Pages and frames are being cached.
 
-        When set to *False*, the cache is cleared.
+        When set to ``False``, the cache is cleared.
 
         """
         return self._cache
@@ -11292,10 +9673,10 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         return self._keyframe
 
     def set_keyframe(self, index: int, /) -> None:
-        """Set keyframe to TiffPage specified by `index`.
+        """Set keyframe to TiffPage specified by ``index``.
 
-        If not found in the cache, the TiffPage at `index` is loaded from file
-        and added to the cache.
+        If not found in the cache, the TiffPage at ``index`` is loaded from
+        file and added to the cache.
 
         """
         if not isinstance(index, (int, numpy.integer)):
@@ -11874,7 +10255,8 @@ class TiffTag:
 
         Raises:
             TiffFileError:
-                Data type or value offset are invalid and `validate` is *True*.
+                Data type or value offset are invalid and ``validate`` is
+                ``True``.
 
         """
         tiff = parent.tiff
@@ -12115,7 +10497,7 @@ class TiffTag:
 
     @property
     def dataformat(self) -> str:
-        """Data type as `struct.pack` format."""
+        """Data type as ``struct.pack`` format."""
         return TIFF.DATA_FORMATS[self.dtype]
 
     @property
@@ -12181,8 +10563,8 @@ class TiffTag:
         Parameters:
             value:
                 New tag value to write.
-                Must be compatible with the `struct.pack` formats corresponding
-                to the tag's data type.
+                Must be compatible with the ``struct.pack`` formats
+                corresponding to the tag's data type.
             dtype:
                 New tag data type. By default, the data type is not changed.
             erase:
@@ -12467,12 +10849,12 @@ class TiffTags:
     - values are instances of :py:class:`TiffTag`.
     - keys are :py:attr:`TiffTag.code` (int).
     - multiple values can be stored per key.
-    - can be indexed by :py:attr:`TiffTag.name` (`str`), slower than by key.
-    - `iter()` returns values instead of keys.
-    - `values()` and `items()` contain all values sorted by offset.
-    - `len()` returns number of all values.
-    - `get()` takes optional index argument.
-    - some functions are not implemented, such as, `update` and `pop`.
+    - can be indexed by :py:attr:`TiffTag.name`` (``str``), slower than by key.
+    - ``iter()`` returns values instead of keys.
+    - ``values()`` and ``items()`` contain all values sorted by offset.
+    - ``len()`` returns number of all values.
+    - ``get()`` takes optional index argument.
+    - some functions are not implemented, such as, ``update`` and ``pop``.
 
     """
 
@@ -12572,7 +10954,7 @@ class TiffTags:
         """
         if index is None:
             if key in self._dict:
-                return self._dict[cast(int, key)]
+                return self._dict[key]
             if not isinstance(key, str):
                 return default
             index = 0
@@ -12581,7 +10963,7 @@ class TiffTags:
         except IndexError:
             return default
         if key in tags:
-            return tags[cast(int, key)]
+            return tags[key]
         if not isinstance(key, str):
             return default
         for tag in tags.values():
@@ -12607,7 +10989,7 @@ class TiffTags:
         result: list[TiffTag] = []
         for tags in self._list:
             if key in tags:
-                result.append(tags[cast(int, key)])
+                result.append(tags[key])
             else:
                 break
         if result:
@@ -12626,7 +11008,7 @@ class TiffTags:
     def __getitem__(self, key: int | str, /) -> TiffTag:
         """Return first tag by code or name. Raise KeyError if not found."""
         if key in self._dict:
-            return self._dict[cast(int, key)]
+            return self._dict[key]
         if not isinstance(key, str):
             raise KeyError(key)
         for tag in self._dict.values():
@@ -12645,7 +11027,7 @@ class TiffTags:
         for tags in self._list:
             if key in tags:
                 found = True
-                del tags[cast(int, key)]
+                del tags[key]
                 self._count -= 1
             else:
                 break
@@ -12897,7 +11279,6 @@ class TiffTagRegistry:
         )
 
 
-@final
 class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
     """Sequence of TIFF pages making up multi-dimensional image.
 
@@ -12907,13 +11288,13 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
     defined in format-specific metadata.
     All pages in a series must have the same :py:meth:`TiffPage.hash`,
     that is, the same shape, data type, and storage properties.
-    Items of a series may be None (missing) or instances of
+    Items of a series may be ``None`` (missing) or instances of
     :py:class:`TiffPage` or :py:class:`TiffFrame`, possibly belonging to
     different files.
 
     Parameters:
         pages:
-            List of TiffPage, TiffFrame, or None.
+            List of TiffPage, TiffFrame, or ``None``.
             The file handles of TiffPages or TiffFrames may not be open.
         shape:
             Shape of image array in series.
@@ -12922,8 +11303,12 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         axes:
             Character codes for dimensions in shape.
             Length must match shape.
-        attr:
+        attrs:
             Arbitrary metadata associated with series.
+        coords:
+            Ordered map of dimension character codes to coordinate arrays.
+        units:
+            Map of dimension character codes to unit strings.
         index:
             Index of series in multi-series files.
         parent:
@@ -12936,9 +11321,6 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
             Series is truncated, for example, ImageJ hyperstack > 4 GB.
         multifile:
             Series contains pages from multiple files.
-        squeeze:
-            Remove length-1 dimensions (except X and Y) from shape and axes
-            by default.
         transform:
             Function to transform image data after decoding.
 
@@ -12971,18 +11353,18 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
     is_truncated: bool
     """Series contains single page describing multi-dimensional image."""
 
-    _pages: list[TiffPage | TiffFrame | None]
     # List of pages in series.
     # Might contain only first page of contiguous series
+    _pages: list[TiffPage | TiffFrame | None]
 
     _index: int  # index of series in multi-series files
-    _squeeze: bool
-    _axes: str
-    _axes_squeezed: str
-    _shape: tuple[int, ...]
-    _shape_squeezed: tuple[int, ...]
     _len: int
-    _attr: dict[str, Any]
+    _axes: str
+    _shape: tuple[int, ...]
+    _attrs: dict[str, Any]
+    _units: dict[str, str]
+    _coords: dict[str, Any]
+    _explicit_coords: set[str]
 
     def __init__(
         self,
@@ -12992,22 +11374,23 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         dtype: DTypeLike | None = None,
         axes: str | None = None,
         *,
-        attr: dict[str, Any] | None = None,
-        coords: Mapping[str, NDArray[Any] | None] | None = None,
+        attrs: Mapping[str, Any] | None = None,
+        coords: Mapping[str, NDArray[Any] | tuple[float, float]] | None = None,
+        units: Mapping[str, str] | None = None,
         index: int | None = None,
         parent: TiffFile | None = None,
         name: str | None = None,
         kind: str | None = None,
         truncated: bool = False,
         multifile: bool = False,
-        squeeze: bool = True,
         transform: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
     ) -> None:
-        self._shape = ()
-        self._shape_squeezed = ()
         self._axes = ''
-        self._axes_squeezed = ''
-        self._attr = {} if attr is None else dict(attr)
+        self._shape = ()
+        self._attrs = {} if attrs is None else dict(attrs)
+        self._units = {} if units is None else dict(units)
+        self._coords = {} if coords is None else dict(coords)
+        self._explicit_coords = set(self._coords)
 
         self._index = 0 if index is None else int(index)
         self._pages = list(pages)
@@ -13055,131 +11438,22 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         else:
             self.parent = None
 
-        self._set_dimensions(shape, axes, coords, squeeze)
+        self._shape = tuple(shape)
+        self._axes = axes
 
         if not truncated and npages == 1:
             s = product(keyframe.shape)
             if s > 0:
-                # use full (unsqueezed) shape to count total pages
                 self._len = int(product(self._shape) // s)
             else:
                 self._len = npages
         else:
             self._len = npages
 
-    def _set_dimensions(
-        self,
-        shape: Sequence[int],
-        axes: str,
-        coords: Mapping[str, NDArray[Any] | None] | None = None,
-        squeeze: bool = True,  # noqa: FBT001, FBT002
-        /,
-    ) -> None:
-        """Set shape, axes, and coords."""
-        self._squeeze = bool(squeeze)
-        self._shape = tuple(shape)
-        self._axes = axes
-        self._shape_squeezed, self._axes_squeezed, _ = squeeze_axes(
-            shape, axes
-        )
-
     @property
-    def shape(self) -> tuple[int, ...]:
-        """Shape of image array in series."""
-        return self._shape_squeezed if self._squeeze else self._shape
-
-    @property
-    def axes(self) -> str:
-        """Character codes for dimensions in image array."""
-        return self._axes_squeezed if self._squeeze else self._axes
-
-    @property
-    def coords(self) -> dict[str, NDArray[Any]]:
-        """Ordered map of dimension names to coordinate arrays."""
-        raise NotImplementedError
-        # return {
-        #     name: numpy.arange(size)
-        #     for name, size in zip(self.dims, self.shape)
-        # }
-
-    def get_shape(
-        self, squeeze: bool | None = None  # noqa: FBT001
-    ) -> tuple[int, ...]:
-        """Return default, squeezed, or expanded shape of series.
-
-        Parameters:
-            squeeze: Remove length-1 dimensions from shape.
-
-        """
-        if squeeze is None:
-            squeeze = self._squeeze
-        return self._shape_squeezed if squeeze else self._shape
-
-    def get_axes(self, squeeze: bool | None = None) -> str:  # noqa: FBT001
-        """Return default, squeezed, or expanded axes of series.
-
-        Parameters:
-            squeeze: Remove length-1 dimensions from axes.
-
-        """
-        if squeeze is None:
-            squeeze = self._squeeze
-        return self._axes_squeezed if squeeze else self._axes
-
-    def get_coords(
-        self, squeeze: bool | None = None  # noqa: FBT001
-    ) -> dict[str, NDArray[Any]]:
-        """Return default, squeezed, or expanded coords of series.
-
-        Parameters:
-            squeeze: Remove length-1 dimensions from coords.
-
-        """
-        raise NotImplementedError
-
-    def asarray(
-        self, *, level: int | None = None, **kwargs: Any
-    ) -> NDArray[Any]:
-        """Return images from series of pages as NumPy array.
-
-        Parameters:
-            level:
-                Pyramid level to return.
-                By default, the base level is returned.
-            **kwargs:
-                Additional arguments passed to :py:meth:`TiffFile.asarray`.
-
-        """
-        if self.parent is None:
-            msg = 'no parent'
-            raise ValueError(msg)
-        if level is not None:
-            return self.levels[level].asarray(**kwargs)
-        result = self.parent.asarray(series=self, **kwargs)
-        if self.transform is not None:
-            result = self.transform(result)
-        return result
-
-    def aszarr(
-        self, *, level: int | None = None, **kwargs: Any
-    ) -> ZarrTiffStore:
-        """Return images from series of pages as Zarr store.
-
-        Parameters:
-            level:
-                Pyramid level to return.
-                By default, a multi-resolution store is returned.
-            **kwargs:
-                Additional arguments passed to :py:class:`ZarrTiffStore`.
-
-        """
-        if self.parent is None:
-            msg = 'no parent'
-            raise ValueError(msg)
-
-        from .zarr import ZarrTiffStore
-
-        return ZarrTiffStore(self, level=level, **kwargs)
+    def is_pyramidal(self) -> bool:
+        """Series contains multiple resolutions."""
+        return len(self.levels) > 1
 
     @cached_property
     def dataoffset(self) -> int | None:
@@ -13216,14 +11490,14 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         return None
 
     @property
-    def is_pyramidal(self) -> bool:
-        """Series contains multiple resolutions."""
-        return len(self.levels) > 1
+    def axes(self) -> str:
+        """Character codes for dimensions in image array."""
+        return self._axes
 
-    @cached_property
-    def attr(self) -> dict[str, Any]:
-        """Arbitrary metadata associated with series."""
-        return self._attr
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Shape of image array in series."""
+        return self._shape
 
     @property
     def ndim(self) -> int:
@@ -13232,14 +11506,12 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
 
     @cached_property
     def dims(self) -> tuple[str, ...]:
-        """Names of dimensions in image array."""
-        return tuple(
-            unique_strings(TIFF.AXES_NAMES.get(ax, ax) for ax in self.axes)
-        )
+        """Character codes of dimensions in image array."""
+        return tuple(unique_strings(self.axes))
 
     @cached_property
     def sizes(self) -> dict[str, int]:
-        """Ordered map of dimension names to lengths."""
+        """Ordered map of dimension character codes to lengths."""
         return dict(zip(self.dims, self.shape, strict=True))
 
     @cached_property
@@ -13252,6 +11524,273 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         """Number of bytes in image array."""
         return self.size * self.dtype.itemsize
 
+    @cached_property
+    def mpp(self) -> tuple[float, float] | None:
+        """Pixel spacing in micrometer as (x, y), or None if unavailable."""
+        # derive from coord_scales where units are micrometer
+        scales = self.coord_scales
+        units = self.coord_units
+        if (
+            units.get('X') == 'micrometer'
+            and units.get('Y') == 'micrometer'
+            and 'X' in scales
+            and 'Y' in scales
+        ):
+            return (scales['X'], scales['Y'])
+        return None
+
+    @cached_property
+    def coords(self) -> dict[str, NDArray[Any]]:
+        """Ordered map of dimension character codes to coordinate arrays."""
+        result: dict[str, NDArray[Any]] = {}
+        for key, value in self._coords.items():
+            if isinstance(value, tuple):
+                start, stop = value
+                num = self._shape[self._axes.index(key)]
+                result[key] = numpy.linspace(start, stop, num, endpoint=False)
+            else:
+                result[key] = value
+        if not all(ax in result for ax in self._axes):
+            kf_coords = self.keyframe.coords
+            for ax, size in zip(self._axes, self._shape, strict=True):
+                if ax not in result and ax in kf_coords:
+                    kc = kf_coords[ax]
+                    if len(kc) == size:
+                        result[ax] = kc
+        return result
+
+    @cached_property
+    def coord_scales(self) -> dict[str, float]:
+        """Coordinate step sizes per axis.
+
+        Map dimension character codes to the spacing between consecutive
+        coordinate values. Only axes with numeric, approximately uniformly
+        spaced coordinates are included. The scale is the average step size
+        ``(last - first) / (n - 1)``, provided all individual steps are
+        within 5% of that average.
+
+        """
+        result: dict[str, float] = {}
+        for key, value in self._coords.items():
+            if isinstance(value, tuple) and len(value) == 2:
+                # for axes stored internally as (start, stop) tuples the
+                # scale is (stop - start) / num_pixels
+                start, stop = value
+                num = self._shape[self._axes.index(key)]
+                if num > 0:
+                    result[key] = (stop - start) / num
+            elif isinstance(value, numpy.ndarray) and value.dtype.kind == 'f':
+                # for axes already materialised as arrays the scale is the
+                # average step (last - first) / (n - 1), accepted when all
+                # individual steps are within 10% of that average
+                if len(value) > 1:
+                    avg = (value[-1] - value[0]) / (len(value) - 1)
+                    diffs = numpy.diff(value)
+                    if numpy.allclose(diffs, avg, rtol=0.05, atol=0):
+                        result[key] = float(avg)
+        # fall back to keyframe coords for missing axes
+        if not all(ax in result for ax in self._axes):
+            kf_coords = self.keyframe.coords
+            for ax in self._axes:
+                if ax not in result and ax in kf_coords:
+                    kc = kf_coords[ax]
+                    if kc.dtype.kind == 'f' and len(kc) > 1:
+                        avg = (kc[-1] - kc[0]) / (len(kc) - 1)
+                        diffs = numpy.diff(kc)
+                        if numpy.allclose(diffs, avg, rtol=0.1, atol=0):
+                            result[ax] = float(avg)
+        return result
+
+    @cached_property
+    def coord_offsets(self) -> dict[str, float]:
+        """Coordinate offsets (first pixel position) per axis.
+
+        Map dimension character codes to the coordinate value of the
+        first pixel. Only axes with numeric coordinates are included.
+
+        """
+        # For axes stored internally as ``(start, stop)`` tuples the
+        # offset is ``start``.
+        # For axes already materialised as arrays the offset is ``arr[0]``.
+        result: dict[str, float] = {}
+        for key, value in self._coords.items():
+            if (isinstance(value, tuple) and len(value) == 2) or (
+                isinstance(value, numpy.ndarray)
+                and value.dtype.kind == 'f'
+                and len(value) > 0
+            ):
+                result[key] = float(value[0])
+        # fall back to keyframe coords for missing axes
+        if not all(ax in result for ax in self._axes):
+            kf_coords = self.keyframe.coords
+            for ax in self._axes:
+                if ax not in result and ax in kf_coords:
+                    kc = kf_coords[ax]
+                    if kc.dtype.kind == 'f' and len(kc) > 0:
+                        result[ax] = float(kc[0])
+        return result
+
+    @cached_property
+    def coord_units(self) -> dict[str, str]:
+        """Coordinate unit strings per axis.
+
+        Map dimension character codes to their unit string.
+
+        """
+        result = dict(self._units)
+        # fall back to keyframe resolutionunit for spatial axes whose
+        # coords came from the resolution tag (not set by format code)
+        if not all(ax in result for ax in self._axes if ax in 'XYZ'):
+            resunit = self.keyframe.attrs.get('resolutionunit')
+            if isinstance(resunit, str) and resunit not in {
+                'none',
+                'undefined',
+            }:
+                kf_coords = self.keyframe.coords
+                for ax in ('X', 'Y', 'Z'):
+                    if (
+                        ax in self._axes
+                        and ax not in result
+                        and ax not in self._explicit_coords
+                        and ax in kf_coords
+                    ):
+                        result[ax] = resunit
+        return result
+
+    @cached_property
+    def attrs(self) -> dict[str, Any]:
+        """Metadata dictionary for series."""
+        result: dict[str, Any] = {
+            key: value
+            for key, value in self.keyframe.attrs.items()
+            if key != 'resolutionunit'
+        }
+        result.update(self._attrs)
+        if 'mpp' not in result:
+            mpp = self.mpp
+            if mpp is not None:
+                result['mpp'] = mpp
+        for key in ('coord_offsets', 'coord_scales', 'coord_units'):
+            if key not in result:
+                value = getattr(self, key)
+                if value:
+                    result[key] = dict(value)
+        return result
+
+    def asarray(
+        self, *, level: int | None = None, **kwargs: Any
+    ) -> NDArray[Any]:
+        """Return images from series of pages as NumPy array.
+
+        Parameters:
+            level:
+                Pyramid level to return.
+                By default, the base level is returned.
+            **kwargs:
+                Additional arguments passed to :py:meth:`TiffFile.asarray`.
+
+        """
+        if self.parent is None:
+            msg = 'no parent'
+            raise ValueError(msg)
+        if level is not None:
+            return self.levels[level].asarray(**kwargs)
+        result = self.parent.asarray(series=self, **kwargs)
+        if self.transform is not None:
+            result = self.transform(result)
+        return result
+
+    def asxarray(
+        self,
+        *,
+        level: int | None = None,
+        squeeze: bool | None = None,
+        **kwargs: Any,
+    ) -> DataArray:
+        """Return image data from series of pages as xarray DataArray.
+
+        Parameters:
+            level:
+                Pyramid level to return.
+                By default, the base level is returned.
+            squeeze:
+                Remove length-1 dimensions from image array, except X and Y.
+                If ``False``, preserve all dimensions.
+                If ``None`` (default), remove length-1 dimensions except
+                for ``'shaped'`` series.
+            **kwargs: Passed to :py:meth:`asarray`.
+
+        Returns:
+            :py:class:`xarray.DataArray`
+                Image data with coordinates, dimensions, and attributes.
+
+        """
+        from xarray import DataArray
+
+        if self.parent is None:
+            msg = 'no parent'
+            raise ValueError(msg)
+
+        series: TiffPageSeries = self
+        if squeeze or (squeeze is None and self.kind != 'shaped'):
+            squeezed = self.parent._get_series(squeeze=True)
+            if self._index < len(squeezed):
+                series = squeezed[self._index]
+        if level is not None:
+            series = series.levels[level]
+
+        # When squeeze=False, pass it through so asarray returns data
+        # matching the unsqueezed series dims.
+        if squeeze is False:
+            data = series.asarray(squeeze=False, **kwargs)
+        else:
+            data = series.asarray(**kwargs)
+
+        return DataArray(
+            data,
+            coords=series.coords,
+            dims=series.dims,
+            name=series.name,
+            attrs=series.attrs,
+        )
+
+    def aszarr(
+        self,
+        *,
+        level: int | None = None,
+        squeeze: bool | None = None,
+        **kwargs: Any,
+    ) -> ZarrTiffStore:
+        """Return images from series of pages as Zarr store.
+
+        Parameters:
+            level:
+                Pyramid level to return.
+                By default, a multi-resolution store is returned.
+            squeeze:
+                Remove length-1 dimensions from image array, except X and Y.
+                If ``False``, preserve all dimensions.
+                If ``None`` (default), remove length-1 dimensions except
+                for ``'shaped'`` series.
+            **kwargs:
+                Additional arguments passed to :py:class:`ZarrTiffStore`.
+
+        """
+        if self.parent is None:
+            msg = 'no parent'
+            raise ValueError(msg)
+
+        from .zarr import ZarrTiffStore
+
+        series: TiffPageSeries = self
+        if squeeze:
+            squeezed = self.parent._get_series(squeeze=True)
+            if self._index < len(squeezed):
+                series = squeezed[self._index]
+
+        return ZarrTiffStore(series, level=level, **kwargs)
+
+    # TODO: @deprecated('Use series directly')
     @property
     def pages(self) -> TiffPageSeries:
         """Return self for backwards compatibility.
@@ -13260,6 +11799,12 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
             Access the series directly instead of via ``series.pages``.
 
         """
+        # warnings.warn(
+        #     'Accessing pages via ``series.pages`` is deprecated. '
+        #     'Access the series directly instead.',
+        #     DeprecationWarning,
+        #     stacklevel=2,
+        # )
         return self
 
     def _getitem(self, key: int, /) -> TiffPage | TiffFrame | None:
@@ -13269,8 +11814,9 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
             key %= self._len
         if len(self._pages) == 1 and 0 < key < self._len:
             page = self._pages[0]
-            assert page is not None
-            assert self.parent is not None
+            if page is None or self.parent is None:
+                msg = 'series has no valid page or parent'
+                raise ValueError(msg)
             return self.parent.pages._getitem(page.index + key)
         return self._pages[key]
 
@@ -13304,8 +11850,9 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         if len(self._pages) == self._len:
             yield from self._pages
         else:
-            assert self.parent is not None
-            assert self._pages[0] is not None
+            if self.parent is None or self._pages[0] is None:
+                msg = 'series has no valid page or parent'
+                raise ValueError(msg)
             pages = self.parent.pages
             index = self._pages[0].index
             for i in range(self._len):
@@ -13338,6 +11885,125 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         return f'TiffPageSeries {self._index}  {s}'
 
 
+@final
+class TiffSeries(Sequence[TiffPageSeries]):
+    """Sequence of TiffPageSeries in TIFF file.
+
+    Returned by :py:attr:`TiffFile.series`.
+
+    Items can be accessed by index or iterated over.
+    A new ``TiffSeries`` with different kind and squeeze settings is returned
+    by calling the instance.
+
+    Parameters:
+        parent:
+            TiffFile instance series belongs to.
+        kind:
+            Filter series by kind, such as 'ome' or 'imagej'.
+            If ``None``, the default series are returned.
+        squeeze:
+            Remove length-1 dimensions from series shapes, except X and Y.
+            If ``False``, series shapes include all dimensions.
+
+    Examples:
+        >>> with TiffFile('temp.ome.tif') as tif:
+        ...     series = tif.series
+        ...     series[0].shape
+        ...     series(squeeze=False)[0].shape
+        ...     series(kind='generic')[0].shape
+        ...
+        (8, 2, 512, 512, 3)
+        (8, 2, 1, 512, 512, 3)
+        (16, 512, 512, 3)
+
+    """
+
+    _parent: TiffFile
+    _squeeze: bool
+    _kind: str | None
+
+    def __init__(
+        self,
+        parent: TiffFile,
+        /,
+        *,
+        kind: str | None = None,
+        squeeze: bool = True,
+    ) -> None:
+        self._parent = parent
+        self._kind = kind
+        self._squeeze = squeeze
+
+    def __call__(
+        self,
+        *,
+        kind: str | None = None,
+        squeeze: bool = True,
+    ) -> TiffSeries:
+        """Return new TiffSeries with specified kind and squeeze settings.
+
+        Parameters:
+            kind:
+                Filter series by kind, such as 'ome' or 'imagej'.
+                If ``None``, the default series are returned.
+            squeeze:
+                Remove length-1 dimensions from series shapes, except X and Y.
+                If ``False``, series shapes include all dimensions.
+
+        """
+        return TiffSeries(self._parent, squeeze=squeeze, kind=kind)
+
+    @property
+    def _series(self) -> list[TiffPageSeries]:
+        """Return list of TiffPageSeries, computing if necessary."""
+        return self._parent._get_series(self._kind, squeeze=self._squeeze)
+
+    @overload
+    def __getitem__(
+        self, key: int | numpy.integer[Any], /
+    ) -> TiffPageSeries: ...
+
+    @overload
+    def __getitem__(
+        self, key: slice | Sequence[int], /
+    ) -> list[TiffPageSeries]: ...
+
+    @override
+    def __getitem__(
+        self, key: int | numpy.integer[Any] | slice | Sequence[int], /
+    ) -> TiffPageSeries | list[TiffPageSeries]:
+        """Return specified series."""
+        series = self._series
+        if isinstance(key, (int, numpy.integer)):
+            return series[int(key)]
+        if isinstance(key, slice):
+            return series[key]
+        if isinstance(key, Sequence) and not isinstance(key, str):
+            return [series[k] for k in key]
+        msg = 'key must be an integer, slice, or sequence'
+        raise TypeError(msg)
+
+    @override
+    def __len__(self) -> int:
+        """Return number of series."""
+        return len(self._series)
+
+    @override
+    def __iter__(self) -> Iterator[TiffPageSeries]:
+        """Return iterator over series."""
+        return iter(self._series)
+
+    def __bool__(self) -> bool:
+        """Return True if any series exist."""
+        return len(self._series) > 0
+
+    def __repr__(self) -> str:
+        return f'<tifffile.TiffSeries [{len(self)}]>'
+
+    def __str__(self) -> str:
+        return '\n'.join(f'  {s}' for s in self)
+
+
 class FileSequence(Sequence[str]):
     r"""Sequence of files containing compatible array data.
 
@@ -13346,22 +12012,22 @@ class FileSequence(Sequence[str]):
             Function to read image array from single file.
         files:
             Glob file name pattern or sequence of file names.
-            If *None*, use '\*'.
+            If ``None``, use '\*'.
             All files must contain array data of same shape and dtype.
             Binary streams are not supported.
         container:
             Name or open instance of ZIP file in which files are stored.
         sort:
-            Function to sort file names if `files` is a pattern.
+            Function to sort file names if ``files`` is a pattern.
             The default is :py:func:`natural_sorted`.
-            If *False*, disable sorting.
+            If ``False``, disable sorting.
         parse:
             Function to parse sequence of sorted file names to dims, shape,
             chunk indices, and filtered file names.
-            The default is :py:func:`parse_filenames` if `kwargs`
-            contains `'pattern'`.
+            The default is :py:func:`parse_filenames`` if ``kwargs`
+            contains ``'pattern'``.
         **kwargs:
-            Additional arguments passed to `parse` function.
+            Additional arguments passed to ``parse`` function.
 
     Examples:
         >>> filenames = ['temp_C001T002.tif', 'temp_C001T001.tif']
@@ -13525,7 +12191,7 @@ class FileSequence(Sequence[str]):
                 If *0*, use up to :py:attr:`_TIFF.MAXIOWORKERS` threads.
                 Using threads can significantly improve runtime when reading
                 many small files from a network share.
-                If enabled, internal threading for the `imread` function
+                If enabled, internal threading for the ``imread`` function
                 should be disabled.
             out_inplace:
                 Decode directly into output array without intermediate copy.
@@ -13541,18 +12207,24 @@ class FileSequence(Sequence[str]):
                 If a *string* or *open file*, the file used to create a
                 memory-mapped array.
             **kwargs:
-                Arguments passed to :py:attr:`FileSequence.imread` in
-                addition to `imreadargs`.
+                Deprecated: Arguments passed to :py:attr:`FileSequence.imread`
+                in addition to ``imreadargs``.
 
         Raises:
             IndexError, ValueError: Array shapes do not match.
 
         """
-        # TODO: deprecate kwargs?
-        files = self._files
+        # if kwargs:
+        #     warnings.warn(
+        #         'Passing arguments via **kwargs is deprecated. '
+        #         'Use imreadargs.',
+        #         DeprecationWarning,
+        #         stacklevel=2,
+        #     )
         if imreadargs is not None:
             kwargs |= imreadargs
 
+        files = self._files
         if ioworkers is None or ioworkers < 1:
             ioworkers = TIFF.MAXIOWORKERS
         ioworkers = min(len(files), ioworkers)
@@ -13624,8 +12296,7 @@ class FileSequence(Sequence[str]):
                     for _ in executor.map(func, self.indices, files):
                         pass
 
-            # result = result.reshape(shape, copy=False)
-            result.shape = shape
+            result = result.reshape(shape, copy=False)
 
         return result
 
@@ -13712,7 +12383,7 @@ class TiffSequence(FileSequence):
     r"""Sequence of TIFF files containing compatible array data.
 
     Same as :py:class:`FileSequence` with the :py:func:`imread` function,
-    `'\*.tif'` glob pattern, and `out_inplace` enabled by default.
+    ``'\*.tif'`` glob pattern, and ``out_inplace`` enabled by default.
 
     """
 
@@ -13983,16 +12654,16 @@ class FileHandle:
             File name or seekable binary stream, such as open file,
             BytesIO, or fsspec OpenFile.
         mode:
-            File open mode if `file` is file name.
+            File open mode if ``file`` is file name.
             The default is 'rb'. Files are always opened in binary mode.
         name:
-            Name of file if `file` is binary stream.
+            Name of file if ``file`` is binary stream.
         offset:
             Start position of embedded file.
             The default is the current file position.
         size:
             Size of embedded file.
-            The default is the number of bytes from `offset` to
+            The default is the number of bytes from ``offset`` to
             the end of the file.
 
     """
@@ -14187,12 +12858,12 @@ class FileHandle:
         Parameters:
             offset:
                 Position of file handle relative to position indicated
-                by `whence`.
+                by ``whence``.
             whence:
-                Relative position of `offset`.
-                0 (`os.SEEK_SET`) beginning of file (default).
-                1 (`os.SEEK_CUR`) current position.
-                2 (`os.SEEK_END`) end of file.
+                Relative position of ``offset``.
+                0 (``os.SEEK_SET``) beginning of file (default).
+                1 (``os.SEEK_CUR``) current position.
+                2 (``os.SEEK_END``) end of file.
 
         """
         assert self._fh is not None
@@ -14257,7 +12928,7 @@ class FileHandle:
         mode: str = 'r',
         order: str = 'C',
     ) -> NDArray[Any]:
-        """Return `numpy.memmap` of array data stored in file.
+        """Return ``numpy.memmap`` of array data stored in file.
 
         Parameters:
             dtype:
@@ -14468,10 +13139,10 @@ class FileHandle:
                 Byte counts of segments to read from file.
             indices:
                 Indices of segments in image.
-                The default is `range(length)`.
+                The default is ``range(length)``.
             length:
                 Number of segments to read from file.
-                By default, `len(offsets)`.
+                By default, ``len(offsets)``.
             sort:
                 Read segments from file in order of their offsets.
             lock:
@@ -14481,11 +13152,11 @@ class FileHandle:
                 The default is :py:attr:`_TIFF.BUFFERSIZE`.
             flat:
                 Return iterator over individual (segment, index) tuples.
-                If *False*, return an iterator over a list of (segment, index)
-                tuples that are acquired in one pass.
+                If ``False``, return an iterator over a list of
+                (segment, index) tuples that are acquired in one pass.
 
         Yields:
-            Individual or lists of `(segment, index)` tuples.
+            Individual or lists of ``(segment, index)`` tuples.
 
         """
         # TODO: Cythonize this?
@@ -14790,14 +13461,14 @@ class FileCache:
                 File handle to read from.
             offset:
                 Position in file to start reading from relative to the
-                position indicated by `whence`.
+                position indicated by ``whence``.
             bytecount:
                 Number of bytes to read.
             whence:
                 Relative position of offset.
-                0 (`os.SEEK_SET`) beginning of file (default).
-                1 (`os.SEEK_CUR`) current position.
-                2 (`os.SEEK_END`) end of file.
+                0 (``os.SEEK_SET``) beginning of file (default).
+                1 (``os.SEEK_CUR``) current position.
+                2 (``os.SEEK_END``) end of file.
 
         """
         # this function is more efficient than
@@ -14837,14 +13508,14 @@ class FileCache:
                 File handle to write to.
             offset:
                 Position in file to start writing from relative to the
-                position indicated by `whence`.
+                position indicated by ``whence``.
             data:
                 Bytes to write.
             whence:
                 Relative position of offset.
-                0 (`os.SEEK_SET`) beginning of file (default).
-                1 (`os.SEEK_CUR`) current position.
-                2 (`os.SEEK_END`) end of file.
+                0 (``os.SEEK_SET``) beginning of file (default).
+                1 (``os.SEEK_CUR``) current position.
+                2 (``os.SEEK_END``) end of file.
 
         """
         with self.lock:
@@ -15174,7 +13845,7 @@ class Timer:
     """Value of performance counter when stopped."""
 
     duration: float
-    """Duration between `started` and `stopped` in seconds."""
+    """Duration between ``started`` and ``stopped`` in seconds."""
 
     def __init__(
         self,
@@ -15385,7 +14056,7 @@ class OmeXml:
         self,
         dtype: DTypeLike | None,
         shape: Sequence[int],
-        storedshape: tuple[int, int, int, int, int, int],
+        storedshape: tuple[int, int, int, int, int, int] | StoredShape,
         *,
         axes: str | None = None,
         **metadata: Any,
@@ -15407,10 +14078,10 @@ class OmeXml:
                 TIFF file as (pages, separate_samples, depth, length, width,
                 contig_samples).
             axes:
-                Character codes for dimensions in `shape`.
-                By default, `axes` is determined from the DimensionOrder
-                metadata attribute or matched to the `shape` in reverse order
-                of TZC(S)YX(S) based on `storedshape`.
+                Character codes for dimensions in ``shape``.
+                By default, ``axes`` is determined from the DimensionOrder
+                metadata attribute or matched to the ``shape`` in reverse order
+                of TZC(S)YX(S) based on ``storedshape``.
                 The following codes are supported: 'S' sample, 'X' width,
                 'Y' length, 'Z' depth, 'C' channel, 'T' time, 'A' angle,
                 'P' phase, 'R' tile, 'H' lifetime, 'E' lambda, 'Q' other.
@@ -15761,7 +14432,7 @@ class OmeXml:
     @staticmethod
     def _axes(
         shape: tuple[int, ...],
-        storedshape: tuple[int, int, int, int, int, int],
+        storedshape: tuple[int, int, int, int, int, int] | StoredShape,
         axes: str | None,
         metadata: dict[str, Any],
     ) -> tuple[str, int]:
@@ -16240,13 +14911,13 @@ class OmeXml:
                 Raise AssertionError if validation fails.
 
         Returns:
-            *True* if validation passed.
-            *False* if validation failed and `assert\_` is *False*.
-            *None* if the XMLSchema could not be loaded.
+            ``True`` if validation passed.
+            ``False`` if validation failed and ``assert\_`` is ``False``.
+            ``None`` if the XMLSchema could not be loaded.
 
         Raises:
             AssertionError:
-                Validation failed and `assert\_` is *True*.
+                Validation failed and ``assert\_`` is ``True``.
 
         """
         from lxml import etree
@@ -16305,7 +14976,7 @@ class CompressionCodec(Mapping[int, Callable[..., object]]):
     """Map :py:class:`COMPRESSION` value to encode or decode function.
 
     Parameters:
-        encode: Return encode functions if *True*, else decode functions.
+        encode: Return encode functions if ``True``, else decode functions.
 
     """
 
@@ -16503,7 +15174,7 @@ class PredictorCodec(Mapping[int, Callable[..., object]]):
     """Map :py:class:`PREDICTOR` value to encode or decode function.
 
     Parameters:
-        encode: Return encode functions if *True*, else decode functions.
+        encode: Return encode functions if ``True``, else decode functions.
 
     """
 
@@ -17314,7 +15985,7 @@ class _TIFF:
                 (33306, 'MatrixWorldToCamera'),
                 (33405, 'Model2'),
                 (33421, 'CFARepeatPatternDim'),
-                (33422, 'CFAPattern'),
+                (33422, 'CFAPattern'),  # DNG
                 (33423, 'BatteryLevel'),
                 (33424, 'KodakIFD'),
                 (33434, 'ExposureTime'),
@@ -17531,12 +16202,12 @@ class _TIFF:
                 (41490, 'SecurityClassification'),  # 37394
                 (41491, 'ImageHistory'),  # 37395
                 (41492, 'SubjectLocation'),  # 37395
-                (41493, 'ExposureIndex '),  # 37397
+                (41493, 'ExposureIndex'),  # 37397
                 (41494, 'TIFF-EPStandardID'),
                 (41495, 'SensingMethod'),  # 37399
                 (41728, 'FileSource'),
                 (41729, 'SceneType'),
-                (41730, 'CFAPattern'),  # 33422
+                (41730, 'CFAPattern'),  # EXIF, DNG uses 33422
                 (41985, 'CustomRendered'),
                 (41986, 'ExposureMode'),
                 (41987, 'WhiteBalance'),
@@ -17668,7 +16339,7 @@ class _TIFF:
                 (50909, 'GEO_METADATA'),  # DGIWG XML
                 (50931, 'CameraCalibrationSignature'),
                 (50932, 'ProfileCalibrationSignature'),
-                (50933, 'ProfileIFD'),  # EXTRACAMERAPROFILES
+                (50933, 'ExtraCameraProfiles'),  # ProfileIFD
                 (50934, 'AsShotProfileName'),
                 (50935, 'NoiseReductionApplied'),
                 (50936, 'ProfileName'),
@@ -17726,17 +16397,17 @@ class _TIFF:
                 (52525, 'ProfileGainTableMap'),  # DNG 1.6
                 (52526, 'SemanticName'),  # DNG 1.6
                 (52528, 'SemanticInstanceID'),  # DNG 1.6
-                (52536, 'MaskSubArea'),  # DNG 1.6
-                (52543, 'RGBTables'),  # DNG 1.6
                 (52529, 'CalibrationIlluminant3'),  # DNG 1.6
-                (52531, 'ColorMatrix3'),  # DNG 1.6
                 (52530, 'CameraCalibration3'),  # DNG 1.6
-                (52538, 'ReductionMatrix3'),  # DNG 1.6
-                (52537, 'ProfileHueSatMapData3'),  # DNG 1.6
+                (52531, 'ColorMatrix3'),  # DNG 1.6
                 (52532, 'ForwardMatrix3'),  # DNG 1.6
                 (52533, 'IlluminantData1'),  # DNG 1.6
                 (52534, 'IlluminantData2'),  # DNG 1.6
-                (53535, 'IlluminantData3'),  # DNG 1.6
+                (52535, 'IlluminantData3'),  # DNG 1.6
+                (52536, 'MaskSubArea'),  # DNG 1.6
+                (52537, 'ProfileHueSatMapData3'),  # DNG 1.6
+                (52538, 'ReductionMatrix3'),  # DNG 1.6
+                (52543, 'RGBTables'),  # DNG 1.6
                 (52544, 'ProfileGainTableMap2'),  # DNG 1.7
                 (52545, 'C2PAManifestStore'),
                 (52547, 'ColumnInterleaveFactor'),  # DNG 1.7
@@ -18312,6 +16983,43 @@ class _TIFF:
             65000,  # EER
             65001,  # EER
             65002,  # EER
+        }
+
+    @cached_property
+    def SERIES(
+        self,
+    ) -> dict[str, Callable[[TiffFile], list[TiffPageSeries] | None]]:
+        """Map series kind to series parser function.
+
+        The order determines dispatch priority in
+        :py:meth:`TiffFile._get_series`.
+
+        """
+        return {
+            'shaped': series_shaped,
+            'lsm': series_lsm,
+            'mmstack': series_mmstack,
+            'ome': series_ome,
+            'imagej': series_imagej,
+            'ndtiff': series_ndtiff,
+            'fluoview': series_fluoview,
+            'stk': series_stk,
+            'sis': series_sis,
+            'svs': series_svs,
+            'scn': series_scn,
+            'qpi': series_qpi,
+            'ndpi': series_ndpi,
+            'bif': series_bif,
+            'avs': series_avs,
+            'eer': series_eer,
+            'philips': series_philips,
+            'scanimage': series_scanimage,
+            'indica': series_indica,
+            'nih': series_nih,
+            'mdgel': series_mdgel,  # adds second page to cache
+            'geotiff': series_geotiff,
+            'uniform': series_uniform,
+            'generic': series_generic,
         }
 
     @cached_property
@@ -19326,6 +18034,3360 @@ class _TIFF:
 
 
 TIFF = _TIFF()
+
+SU2UM: dict[str, float] = {
+    'nm': 1e-3,
+    'nanometer': 1e-3,
+    'nanometers': 1e-3,
+    'µm': 1.0,
+    'um': 1.0,
+    'micron': 1.0,
+    'microns': 1.0,
+    'micrometer': 1.0,
+    'micrometers': 1.0,
+    'mm': 1e3,
+    'millimeter': 1e3,
+    'millimeters': 1e3,
+    'cm': 1e4,
+    'centimeter': 1e4,
+    'centimeters': 1e4,
+    'm': 1e6,
+    'meter': 1e6,
+    'meters': 1e6,
+}
+"""Scale factors to micrometer for recognized spatial unit strings."""
+
+
+def series_uniform(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return all images in TIFF file as single series."""
+    tif.pages.useframes = True
+    tif.pages.set_keyframe(0)
+    page = tif.pages.first
+    validate = not (page.is_scanimage or page.is_nih)
+    pages = tif.pages._getlist(validate=validate)
+    if len(pages) == 1:
+        shape = page.shape
+        axes = page.axes
+    else:
+        shape = (len(pages), *page.shape)
+        axes = 'I' + page.axes
+    return [TiffPageSeries(pages, shape, page.dtype, axes, kind='uniform')]
+
+
+def series_generic(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series grouped by page hash."""
+    pages = tif.pages
+    pages._clear(fully=False)
+    pages.useframes = False
+    if pages.cache:
+        pages._load()
+
+    series: list[TiffPageSeries] = []
+    seriesdict: dict[int, list[TiffPage | TiffFrame]] = {}
+
+    def addpage(page: TiffPage | TiffFrame, /) -> None:
+        if not page.shape:
+            return
+        key = page.hash
+        if key in seriesdict:
+            for p in seriesdict[key]:
+                if p.offset == page.offset:
+                    break
+            else:
+                seriesdict[key].append(page)
+        else:
+            seriesdict[key] = [page]
+
+    for page in pages:
+        addpage(page)
+        if page.subifds is not None:
+            for i, offset in enumerate(page.subifds):
+                if offset < 8:
+                    continue
+                try:
+                    tif._fh.seek(offset)
+                    subifd = TiffPage(tif, (page.index, i))
+                except Exception as exc:
+                    logger().warning(
+                        f'{tif!r} generic series raised {exc!r:.128}'
+                    )
+                else:
+                    addpage(subifd)
+
+    for pagelist in seriesdict.values():
+        page = pagelist[0]
+        shape = (len(pagelist), *page.shape)
+        axes = 'I' + page.axes
+        if 'S' not in axes:
+            shape += (1,)
+            axes += 'S'
+        series.append(
+            TiffPageSeries(pagelist, shape, page.dtype, axes, kind='generic')
+        )
+
+    tif.is_uniform = len(series) == 1
+    if not tif.is_agilent:
+        pyramidize_series(series)
+    return series or None
+
+
+def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in tifffile 'shaped' formatted file."""
+    # TODO: all series need to have JSON metadata for this to succeed
+
+    def append(
+        series: list[TiffPageSeries],
+        pages: list[TiffPage | TiffFrame | None],
+        axes: str | None,
+        shape: tuple[int, ...] | None,
+        reshape: tuple[int, ...],
+        name: str,
+        truncated: bool | None,  # noqa: FBT001
+        metadata: dict[str, Any] | None = None,
+        /,
+    ) -> None:
+        assert isinstance(pages[0], TiffPage)
+        page = pages[0]
+        failed = not check_shape(page.shape, reshape)
+        if failed:
+            logger().warning(
+                f'{tif!r} shaped series metadata does not match '
+                f'page shape {page.shape} != {tuple(reshape)}'
+            )
+        if failed or axes is None or shape is None:
+            shape = page.shape
+            axes = page.axes
+            if len(pages) > 1:
+                shape = (len(pages), *shape)
+                axes = 'Q' + axes
+            if failed:
+                reshape = shape
+        size = product(shape)
+        resize = product(reshape)
+        if page.is_contiguous and resize > size and resize % size == 0:
+            if truncated is None:
+                truncated = True
+            axes = 'Q' + axes
+            shape = (resize // size, *shape)
+        try:
+            axes = reshape_axes(axes, shape, reshape)
+            shape = reshape
+        except ValueError as exc:
+            logger().error(
+                f'{tif!r} shaped series failed to reshape, '
+                f'raised {exc!r:.128}'
+            )
+        attrs: dict[str, Any] | None = None
+        if metadata:
+            attrs = {
+                k: v
+                for k, v in metadata.items()
+                if k not in {'shape', 'axes', 'name', 'truncated'}
+            }
+        series.append(
+            TiffPageSeries(
+                pages,
+                shape,
+                page.dtype,
+                axes,
+                attrs=attrs,
+                name=name,
+                kind='shaped',
+                truncated=bool(truncated),
+            )
+        )
+
+    def detect_series(
+        pages: TiffPages | list[TiffPage | TiffFrame | None],
+        series: list[TiffPageSeries],
+        /,
+    ) -> list[TiffPageSeries] | None:
+        shape: tuple[int, ...] | None
+        reshape: tuple[int, ...]
+        page: TiffPage | TiffFrame | None
+        keyframe: TiffPage
+        subifds: list[TiffPage | TiffFrame | None] = []
+        subifd: TiffPage | TiffFrame
+        keysubifd: TiffPage
+        axes: str | None
+        name: str
+
+        lenpages = len(pages)
+        index = 0
+        while index < lenpages:
+            if isinstance(pages, TiffPages):
+                # new keyframe; start of new series
+                pages.set_keyframe(index)
+                keyframe = cast(TiffPage, pages.keyframe)
+            else:
+                # pages is list of SubIFDs
+                keyframe = cast(TiffPage, pages[0])
+
+            if keyframe.shaped_description is None:
+                logger().error(
+                    f'{tif!r} '
+                    'invalid shaped series metadata or corrupted file'
+                )
+                return None
+            # read metadata
+            axes = None
+            shape = None
+            try:
+                metadata = shaped_description_metadata(
+                    keyframe.shaped_description
+                )
+            except ValueError:
+                logger().error(
+                    f'{tif!r} invalid shaped series description metadata'
+                )
+                return None
+            name = metadata.get('name', '')
+            reshape = metadata['shape']
+            truncated = None if keyframe.subifds is None else False
+            truncated = metadata.get('truncated', truncated)
+            if 'axes' in metadata:
+                axes = cast(str, metadata['axes'])
+                if len(axes) == len(reshape):
+                    shape = reshape
+                else:
+                    axes = ''
+                    logger().error(
+                        f'{tif!r} shaped series axes do not match shape'
+                    )
+            # skip pages if possible
+            spages: list[TiffPage | TiffFrame | None] = [keyframe]
+            size = product(reshape)
+            if size > 0:
+                npages, mod = divmod(size, product(keyframe.shape))
+            else:
+                npages = 1
+                mod = 0
+            if mod:
+                logger().error(
+                    f'{tif!r} shaped series shape does not match page shape'
+                )
+                return None
+
+            if 1 < npages <= lenpages - index:
+                assert keyframe._dtype is not None
+                size *= keyframe._dtype.itemsize
+                if truncated:
+                    npages = 1
+                else:
+                    page = pages[index + 1]
+                    if (
+                        keyframe.is_final
+                        and page is not None
+                        and keyframe.offset + size < page.offset
+                        and keyframe.subifds is None
+                    ):
+                        truncated = False
+                    else:
+                        # must read all pages for series
+                        truncated = False
+                        for j in range(index + 1, index + npages):
+                            page = pages[j]
+                            assert page is not None
+                            page.keyframe = keyframe
+                            spages.append(page)
+            append(
+                series,
+                spages,
+                axes,
+                shape,
+                reshape,
+                name,
+                truncated,
+                metadata,
+            )
+            index += npages
+
+            # create series from SubIFDs
+            if keyframe.subifds:
+                subifds_size = len(keyframe.subifds)
+                for i, offset in enumerate(keyframe.subifds):
+                    if offset < 8:
+                        continue
+                    subifds = []
+                    for j, page in enumerate(spages):
+                        try:
+                            if (
+                                page is None
+                                or page.subifds is None
+                                or len(page.subifds) < subifds_size
+                            ):
+                                msg = f'{page!r} contains invalid subifds'
+                                raise ValueError(msg)
+                            tif._fh.seek(page.subifds[i])
+                            if j == 0:
+                                subifd = TiffPage(tif, (page.index, i))
+                                keysubifd = subifd
+                            else:
+                                subifd = TiffFrame(
+                                    tif,
+                                    (page.index, i),
+                                    keyframe=keysubifd,
+                                )
+                        except Exception as exc:
+                            logger().error(
+                                f'{tif!r} shaped series '
+                                f'raised {exc!r:.128}'
+                            )
+                            return None
+                        subifds.append(subifd)
+                    if subifds:
+                        result = detect_series(subifds, series)
+                        if result is None:
+                            return None
+                        series = result
+        return series
+
+    tif.pages.useframes = True
+    series = detect_series(tif.pages, [])
+    if series is None:
+        return None
+    tif.is_uniform = len(series) == 1
+    pyramidize_series(series, reduced=True)
+    return series
+
+
+def series_geotiff(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in GeoTIFF or Cloud Optimized GeoTIFF file."""
+    page0 = tif.pages.first
+    geo = page0.geotiff_tags
+    if geo is None:
+        return None
+
+    pages = tif.pages
+    pages._clear(fully=False)
+    pages.useframes = False
+    if pages.cache:
+        pages._load()
+
+    series: list[TiffPageSeries] = []
+    seriesdict: dict[int, list[TiffPage | TiffFrame]] = {}
+
+    def addpage(page: TiffPage | TiffFrame, /) -> None:
+        if not page.shape:
+            return
+        key = page.hash
+        if key in seriesdict:
+            for p in seriesdict[key]:
+                if p.offset == page.offset:
+                    break
+            else:
+                seriesdict[key].append(page)
+        else:
+            seriesdict[key] = [page]
+
+    for page in pages:
+        addpage(page)
+        if page.subifds is not None:
+            for i, offset in enumerate(page.subifds):
+                if offset < 8:
+                    continue
+                try:
+                    tif._fh.seek(offset)
+                    subifd = TiffPage(tif, (page.index, i))
+                except Exception as exc:
+                    logger().warning(
+                        f'{tif!r} GeoTIFF series raised {exc!r:.128}'
+                    )
+                else:
+                    addpage(subifd)
+
+    # determine pixel scale and origin from GeoTIFF tags
+    pixel_scale = geo.get('ModelPixelScale')  # [sx, sy, sz]
+    tiepoint = geo.get('ModelTiepoint')  # [i, j, k, x, y, z]
+    transformation = geo.get('ModelTransformation')  # 4x4 matrix
+
+    sx = 0.0
+    sy = 0.0
+    origin_x = 0.0
+    origin_y = 0.0
+
+    geotransform: tuple[float, ...] | None = None
+
+    if pixel_scale is not None and tiepoint is not None:
+        sx = float(pixel_scale[0])
+        sy = float(pixel_scale[1])
+        # multiple tiepoints: use first
+        tp = tiepoint[0] if isinstance(tiepoint[0], list) else tiepoint
+        # origin = map_coord - pixel_coord * scale
+        origin_x = float(tp[3]) - float(tp[0]) * sx
+        origin_y = float(tp[4]) + float(tp[1]) * sy  # Y increases downward
+        geotransform = (origin_x, sx, 0.0, origin_y, 0.0, -sy)
+    elif transformation is not None:
+        sx = abs(float(transformation[0][0]))
+        sy = abs(float(transformation[1][1]))
+        origin_x = float(transformation[0][3])
+        origin_y = float(transformation[1][3])
+        geotransform = (
+            float(transformation[0][3]),
+            float(transformation[0][0]),
+            float(transformation[0][1]),
+            float(transformation[1][3]),
+            float(transformation[1][0]),
+            float(transformation[1][1]),
+        )
+
+    # determine linear unit
+    # prefer projected CRS units over geographic CRS units
+    linear_unit: int = 0
+    model_type = geo.get('GTModelTypeGeoKey')
+    model_type_val = int(model_type) if model_type is not None else 0
+
+    if model_type_val == 1:  # Projected
+        lu = geo.get('ProjLinearUnitsGeoKey')
+        if lu is not None:
+            linear_unit = int(lu)
+    else:
+        lu = geo.get('GeogLinearUnitsGeoKey')
+        if lu is not None:
+            linear_unit = int(lu)
+
+    # build coords, units, attrs for the baseline
+    coords: dict[str, Any] = {}
+    units: dict[str, str] | None = None
+    attrs: dict[str, Any] = {}
+
+    # CRS info in attrs
+    epsg = geo.get('ProjectedCSTypeGeoKey')
+    if epsg is not None:
+        attrs['ProjectedCSType'] = int(epsg)
+    geog = geo.get('GeographicTypeGeoKey')
+    if geog is not None:
+        attrs['GeographicType'] = int(geog)
+    citation = geo.get('GTCitationGeoKey')
+    if citation is not None:
+        attrs['citation'] = str(citation)
+    raster_type = geo.get('GTRasterTypeGeoKey')
+    if raster_type is not None:
+        attrs['RasterType'] = int(raster_type)
+    if geotransform is not None:
+        attrs['geotransform'] = geotransform
+
+    gdal_meta = tif.gdal_structural_metadata
+    if gdal_meta is not None:
+        attrs['gdal_structural_metadata'] = gdal_meta
+    is_cog = (
+        gdal_meta is not None and gdal_meta.get('LAYOUT') == 'IFDS_BEFORE_DATA'
+    )
+
+    if sx > 0 and sy > 0:
+        sizex = page0.imagewidth
+        sizey = page0.imagelength
+        if sizex > 1:
+            coords['X'] = (origin_x, origin_x + sizex * sx)
+        if sizey > 1:
+            coords['Y'] = (origin_y, origin_y - sizey * sy)
+
+        from .geodb import LINEAR_UNIT_NAMES
+
+        unit_name = LINEAR_UNIT_NAMES.get(linear_unit)
+        if unit_name is not None:
+            units = {'X': unit_name, 'Y': unit_name}
+
+    for pagelist in seriesdict.values():
+        page = pagelist[0]
+        shape = (len(pagelist), *page.shape)
+        axes = 'I' + page.axes
+        if 'S' not in axes:
+            shape += (1,)
+            axes += 'S'
+        series.append(
+            TiffPageSeries(
+                pagelist,
+                shape,
+                page.dtype,
+                axes,
+                kind='geotiff',
+                coords=coords if page == page0 else None,
+                attrs=attrs if page == page0 else None,
+                units=units if page == page0 else None,
+            )
+        )
+
+    tif.is_uniform = len(series) == 1
+    pyramidize_series(series, reduced=is_cog)
+
+    # scale coords for pyramid levels
+    if series and coords:
+        baseline = series[0]
+        base_width = page0.imagewidth
+        base_length = page0.imagelength
+        for level in baseline.levels[1:]:
+            level_kf = level.keyframe
+            if base_width > 0 and base_length > 0:
+                rx = base_width / level_kf.imagewidth
+                ry = base_length / level_kf.imagelength
+                if units is not None:
+                    level._units = dict(units)
+                level._coords['X'] = (
+                    origin_x,
+                    origin_x + level_kf.imagewidth * sx * rx,
+                )
+                level._coords['Y'] = (
+                    origin_y,
+                    origin_y - level_kf.imagelength * sy * ry,
+                )
+                level._explicit_coords.update(level._coords)
+
+    return series or None
+
+
+def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in OME-TIFF file(s)."""
+    # xml.etree found to be faster than lxml
+    from xml.etree import ElementTree
+
+    omexml = tif.ome_metadata
+    if omexml is None:
+        return None
+    try:
+        root = ElementTree.fromstring(omexml)
+    except ElementTree.ParseError as exc:
+        # TODO: test badly encoded OME-XML
+        logger().error(f'{tif!r} OME series raised {exc!r:.128}')
+        return None
+
+    keyframe: TiffPage
+    ifds: list[TiffPage | TiffFrame | None]
+    size: int = -1
+
+    def load_pages(atif: TiffFile, /) -> None:
+        atif.pages.cache = True
+        atif.pages.useframes = True
+        atif.pages.set_keyframe(0)
+        atif.pages._load(None)
+
+    load_pages(tif)
+
+    root_uuid = root.attrib.get('UUID')
+    tif._files = {root_uuid: tif}
+    dirname = tif._fh.dirname
+    files_missing = 0
+    is_pyramidal = False
+    moduloref = []
+    modulo: dict[str, dict[str, tuple[str, int]]] = {}
+    series: list[TiffPageSeries] = []
+    # collect Objective ID -> NominalMagnification from Instrument elements
+    objectives: dict[str, float] = {}
+    for element in root:
+        if element.tag.endswith('Instrument'):
+            for obj in element:
+                if obj.tag.endswith('Objective'):
+                    obj_id = obj.attrib.get('ID')
+                    mag = obj.attrib.get('NominalMagnification')
+                    if obj_id and mag is not None:
+                        with contextlib.suppress(ValueError, TypeError):
+                            objectives[obj_id] = float(mag)
+    for element in root:
+        if element.tag.endswith('BinaryOnly'):
+            # TODO: load OME-XML from root or companion file
+            logger().debug(
+                f'{tif!r} OME series is BinaryOnly, not an OME-TIFF root file'
+            )
+            break
+        if element.tag.endswith('StructuredAnnotations'):
+            for annot in element:
+                if not annot.attrib.get('Namespace', '').endswith('modulo'):
+                    continue
+                modulo[annot.attrib['ID']] = mod = {}
+                for value in annot:
+                    for modulo_ns in value:
+                        for along in modulo_ns:
+                            if not along.tag[:-1].endswith('Along'):
+                                continue
+                            axis = along.tag[-1]
+                            newaxis = along.attrib.get('Type', 'other')
+                            newaxis = TIFF.AXES_CODES[newaxis]
+                            if 'Start' in along.attrib:
+                                step = float(along.attrib.get('Step', 1))
+                                start = float(along.attrib['Start'])
+                                stop = float(along.attrib['End']) + step
+                                labels = len(numpy.arange(start, stop, step))
+                            else:
+                                labels = len(
+                                    [
+                                        label
+                                        for label in along
+                                        if label.tag.endswith('Label')
+                                    ]
+                                )
+                            mod[axis] = (newaxis, labels)
+
+        if not element.tag.endswith('Image'):
+            continue
+
+        for annot in element:
+            if annot.tag.endswith('AnnotationRef'):
+                annotationref = annot.attrib['ID']
+                break
+        else:
+            annotationref = None
+
+        # extract magnification from ObjectiveSettings reference
+        image_magnification: float | None = None
+        for child in element:
+            if child.tag.endswith('ObjectiveSettings'):
+                obj_ref = child.attrib.get('ID')
+                if obj_ref and obj_ref in objectives:
+                    image_magnification = objectives[obj_ref]
+                break
+
+        attr = element.attrib
+        name = attr.get('Name')
+
+        for pixels in element:
+            if not pixels.tag.endswith('Pixels'):
+                continue
+            attr = pixels.attrib
+            pixels_attrib = attr  # save for coords/attrs
+            # dtype = attr.get('PixelType')
+            axes = ''.join(reversed(attr['DimensionOrder']))
+            shape = [int(attr['Size' + ax]) for ax in axes]
+            ifds = []
+            spp = 1  # samples per pixel
+            first = True
+            channel_names: list[str] = []
+            excitation_wavelengths: list[float] = []
+            emission_wavelengths: list[float] = []
+            plane_deltas: dict[int, float] = {}
+
+            for data in pixels:
+                if data.tag.endswith('Channel'):
+                    attr = data.attrib
+                    if first:
+                        first = False
+                        spp = int(attr.get('SamplesPerPixel', spp))
+                        if spp > 1:
+                            # correct channel dimension for spp
+                            shape = [
+                                shape[i] // spp if ax == 'C' else shape[i]
+                                for i, ax in enumerate(axes)
+                            ]
+                    elif int(attr.get('SamplesPerPixel', 1)) != spp:
+                        msg = (
+                            'OME series cannot handle differing '
+                            'SamplesPerPixel'
+                        )
+                        raise ValueError(msg)
+                    ch_name = attr.get('Name') or attr.get('ID')
+                    if ch_name:
+                        channel_names.append(ch_name)
+                    ew = attr.get('EmissionWavelength')
+                    if ew is not None:
+                        with contextlib.suppress(ValueError, TypeError):
+                            emission_wavelengths.append(float(ew))
+                    xw = attr.get('ExcitationWavelength')
+                    if xw is not None:
+                        with contextlib.suppress(ValueError, TypeError):
+                            excitation_wavelengths.append(float(xw))
+                    continue
+
+                if data.tag.endswith('Plane'):
+                    attr = data.attrib
+                    delta_t = attr.get('DeltaT')
+                    if delta_t is not None:
+                        the_t = int(attr.get('TheT', 0))
+                        if the_t not in plane_deltas:
+                            with contextlib.suppress(ValueError, TypeError):
+                                plane_deltas[the_t] = float(delta_t)
+                    continue
+
+                if not data.tag.endswith('TiffData'):
+                    continue
+
+                attr = data.attrib
+                ifd_index = int(attr.get('IFD', 0))
+                num = int(attr.get('NumPlanes', 1 if 'IFD' in attr else 0))
+                num = int(attr.get('PlaneCount', num))
+                idxs = [int(attr.get('First' + ax, 0)) for ax in axes[:-2]]
+                try:
+                    idx = int(numpy.ravel_multi_index(idxs, shape[:-2]))
+                except ValueError as exc:
+                    # ImageJ produces invalid ome-xml when cropping
+                    logger().warning(
+                        f'{tif!r} OME series contains invalid TiffData '
+                        f'index, raised {exc!r:.128}',
+                    )
+                    continue
+                for uuid in data:
+                    if not uuid.tag.endswith('UUID'):
+                        continue
+                    if (
+                        root_uuid is None
+                        and uuid.text is not None
+                        and (
+                            uuid.attrib.get('FileName', '').lower()
+                            == tif.filename.lower()
+                        )
+                    ):
+                        # no global UUID, use this file
+                        root_uuid = uuid.text
+                        tif._files[root_uuid] = tif._files[None]
+                        del tif._files[None]
+                    elif uuid.text not in tif._files:
+                        if not tif._multifile:
+                            # abort reading multifile OME series
+                            # and fall back to generic series
+                            return []
+                        filename = uuid.attrib['FileName']
+                        try:
+                            if not tif.filehandle.is_file:
+                                raise ValueError
+                            ftif = TiffFile(
+                                os.path.join(dirname, filename),
+                                _root=tif,
+                            )
+                            load_pages(ftif)
+                        except (
+                            OSError,
+                            FileNotFoundError,
+                            ValueError,
+                        ) as exc:
+                            if files_missing == 0:
+                                logger().warning(
+                                    f'{tif!r} OME series failed to read '
+                                    f'{filename!r}, raised {exc!r:.128}. '
+                                    'Missing data are zeroed'
+                                )
+                            files_missing += 1
+                            # assume size is same as previous file
+                            # if no NumPlanes or PlaneCount given
+                            if num:
+                                size = num
+                            elif size == -1:
+                                msg = (
+                                    'OME series missing '
+                                    'NumPlanes or PlaneCount'
+                                )
+                                raise ValueError(msg) from exc
+                            ifds.extend([None] * (size + idx - len(ifds)))
+                            break
+                        tif._files[uuid.text] = ftif
+                        ftif.close()
+                    pages = tif._files[uuid.text].pages
+                    try:
+                        size = num or len(pages)
+                        ifds.extend([None] * (size + idx - len(ifds)))
+                        for i in range(size):
+                            ifds[idx + i] = pages[ifd_index + i]
+                    except IndexError as exc:
+                        logger().warning(
+                            f'{tif!r} OME series contains index out of range, '
+                            f'raised {exc!r:.128}'
+                        )
+                    # only process first UUID
+                    break
+                else:
+                    # no uuid found
+                    pages = tif.pages
+                    try:
+                        size = num or len(pages)
+                        ifds.extend([None] * (size + idx - len(ifds)))
+                        for i in range(size):
+                            ifds[idx + i] = pages[ifd_index + i]
+                    except IndexError as exc:
+                        logger().warning(
+                            f'{tif!r} OME series contains index out of range, '
+                            f'raised {exc!r:.128}'
+                        )
+
+            if not ifds or all(i is None for i in ifds):
+                # skip images without data
+                continue
+
+            # find a keyframe
+            for ifd in ifds:
+                # try find a TiffPage
+                if ifd is not None and ifd == ifd.keyframe:
+                    keyframe = ifd
+                    break
+            else:
+                # reload a TiffPage from file
+                for i, ifd in enumerate(ifds):
+                    if ifd is not None:
+                        isclosed = ifd.parent.filehandle.closed
+                        if isclosed:
+                            ifd.parent.filehandle.open()
+                        ifd.parent.pages.set_keyframe(ifd.index)
+                        keyframe = cast(
+                            TiffPage,
+                            ifd.parent.pages[ifd.index],
+                        )
+                        ifds[i] = keyframe
+                        if isclosed:
+                            keyframe.parent.filehandle.close()
+                        break
+
+            # is the series pyramidal?
+            if keyframe.subifds:
+                is_pyramidal = True
+
+            # does the series spawn multiple files?
+            multifile = False
+            for ifd in ifds:
+                if ifd and ifd.parent != keyframe.parent:
+                    multifile = True
+                    break
+
+            if spp > 1:
+                if keyframe.planarconfig == 1:
+                    shape.append(spp)
+                    axes += 'S'
+                else:
+                    shape = [*shape[:-2], spp, *shape[-2:]]
+                    axes = axes[:-2] + 'S' + axes[-2:]
+            if 'S' not in axes:
+                shape.append(1)
+                axes += 'S'
+
+            # number of pages in the file might mismatch XML metadata
+            size = max(product(shape) // keyframe.size, 1)
+            if size < len(ifds):
+                logger().warning(
+                    f'{tif!r} OME series expected {size} frames, '
+                    f'got {len(ifds)}'
+                )
+                ifds = ifds[:size]
+            elif size > len(ifds):
+                logger().warning(
+                    f'{tif!r} OME series is missing '
+                    f'{size - len(ifds)} frames. Missing data are zeroed'
+                )
+                ifds.extend([None] * (size - len(ifds)))
+
+            squeezed = squeeze_axes(shape, axes)[0]
+            if keyframe.shape != tuple(squeezed[-len(keyframe.shape) :]):
+                logger().warning(
+                    f'{tif!r} OME series cannot handle discontiguous storage '
+                    f'({keyframe.shape} != '
+                    f'{tuple(squeezed[-len(keyframe.shape) :])})',
+                )
+                del ifds
+                continue
+
+            # set keyframe on all IFDs
+            keyframes: dict[str, TiffPage] = {
+                keyframe.parent.filehandle.name: keyframe
+            }
+            for i, page in enumerate(ifds):
+                if page is None:
+                    continue
+                fh = page.parent.filehandle
+                if fh.name not in keyframes:
+                    if page.keyframe != page:
+                        # reload TiffPage from file
+                        isclosed = fh.closed
+                        if isclosed:
+                            fh.open()
+                        page.parent.pages.set_keyframe(page.index)
+                        page = page.parent.pages[page.index]  # noqa: PLW2901
+                        ifds[i] = page
+                        if isclosed:
+                            fh.close()
+                    keyframes[fh.name] = cast(TiffPage, page)
+                if page.keyframe != page:
+                    page.keyframe = keyframes[fh.name]
+
+            # build coords from OME-XML Pixels attributes
+            coords: dict[str, Any] = {}
+            sizez = shape[axes.index('Z')] if 'Z' in axes else 1
+            sizet = shape[axes.index('T')] if 'T' in axes else 1
+            sizec = shape[axes.index('C')] if 'C' in axes else 1
+            psz = pixels_attrib.get('PhysicalSizeZ')
+            if psz is not None and sizez > 1:
+                try:
+                    psz_f = float(psz)
+                    if psz_f > 0:
+                        coords['Z'] = (0.0, sizez * psz_f)
+                except (ValueError, TypeError):
+                    pass
+            if (
+                sizet > 1
+                and len(plane_deltas) == sizet
+                and all(t in plane_deltas for t in range(sizet))
+            ):
+                coords['T'] = numpy.array(
+                    [plane_deltas[t] for t in range(sizet)]
+                )
+            else:
+                ti = pixels_attrib.get('TimeIncrement')
+                if ti is not None and sizet > 1:
+                    try:
+                        ti_f = float(ti)
+                        if ti_f > 0:
+                            coords['T'] = (0.0, sizet * ti_f)
+                    except (ValueError, TypeError):
+                        pass
+            if (
+                len(emission_wavelengths) == sizec
+                and len(set(emission_wavelengths)) == sizec
+            ):
+                coords['C'] = numpy.array(emission_wavelengths)
+            elif (
+                len(excitation_wavelengths) == sizec
+                and len(set(excitation_wavelengths)) == sizec
+            ):
+                coords['C'] = numpy.array(excitation_wavelengths)
+            elif len(channel_names) == sizec:
+                coords['C'] = numpy.array(channel_names)
+            psx = pixels_attrib.get('PhysicalSizeX')
+            if psx is not None:
+                try:
+                    psx_f = float(psx)
+                    sizex = shape[axes.index('X')]
+                    if psx_f > 0 and sizex > 1:
+                        coords['X'] = (0.0, sizex * psx_f)
+                except (ValueError, TypeError):
+                    pass
+            psy = pixels_attrib.get('PhysicalSizeY')
+            if psy is not None:
+                try:
+                    psy_f = float(psy)
+                    sizey = shape[axes.index('Y')]
+                    if psy_f > 0 and sizey > 1:
+                        coords['Y'] = (0.0, sizey * psy_f)
+                except (ValueError, TypeError):
+                    pass
+
+            # build attrs from OME-XML Pixels attributes
+            attrs: dict[str, Any] = {}
+            sbits = pixels_attrib.get('SignificantBits')
+            if sbits is not None and keyframe.dtype is not None:
+                with contextlib.suppress(ValueError, TypeError):
+                    if int(sbits) != keyframe.dtype.itemsize * 8:
+                        attrs['bitspersample'] = int(sbits)
+            if image_magnification is not None and image_magnification > 0:
+                attrs['magnification'] = image_magnification
+            # if emission_wavelengths:
+            #     attrs['EmissionWavelengths'] = tuple(
+            #         emission_wavelengths
+            #     )
+            # if excitation_wavelengths:
+            #     attrs['ExcitationWavelengths'] = tuple(
+            #         excitation_wavelengths
+            #     )
+
+            # compute mpp (micrometer/pixel) from PhysicalSizeX/Y
+            units: dict[str, str] | None = None
+            psx_val = pixels_attrib.get('PhysicalSizeX')
+            psy_val = pixels_attrib.get('PhysicalSizeY')
+            if psx_val is not None and psy_val is not None:
+                try:
+                    psx_f = float(psx_val)
+                    psy_f = float(psy_val)
+                except (ValueError, TypeError):
+                    psx_f = psy_f = 0.0
+                xu = SU2UM.get(
+                    pixels_attrib.get('PhysicalSizeXUnit', 'µm').lower(), 1.0
+                )
+                yu = SU2UM.get(
+                    pixels_attrib.get('PhysicalSizeYUnit', 'µm').lower(), 1.0
+                )
+                mpp_x = psx_f * xu
+                mpp_y = psy_f * yu
+                if mpp_x > 0 and mpp_y > 0:
+                    units = {'X': 'micrometer', 'Y': 'micrometer'}
+                    if xu != 1.0 and 'X' in coords:
+                        coords['X'] = (0.0, float(coords['X'][1]) * xu)
+                    if yu != 1.0 and 'Y' in coords:
+                        coords['Y'] = (0.0, float(coords['Y'][1]) * yu)
+            psz_unit = pixels_attrib.get('PhysicalSizeZUnit', 'µm')
+            if 'Z' in coords:
+                zu = SU2UM.get(psz_unit.lower(), 1.0)
+                if units is None:
+                    units = {}
+                units['Z'] = 'micrometer'
+                if zu != 1.0:
+                    coords['Z'] = (0.0, float(coords['Z'][1]) * zu)
+            ti_unit = pixels_attrib.get('TimeIncrementUnit', 'second')
+            if 'T' in coords and ti_unit:
+                if units is None:
+                    units = {}
+                units['T'] = {
+                    's': 'second',
+                    'ms': 'millisecond',
+                    'µs': 'microsecond',
+                    'ns': 'nanosecond',
+                    'min': 'minute',
+                    'h': 'hour',
+                    'd': 'day',
+                }.get(ti_unit, ti_unit)
+
+            moduloref.append(annotationref)
+            series.append(
+                TiffPageSeries(
+                    ifds,
+                    shape,
+                    keyframe.dtype,
+                    axes,
+                    parent=tif,
+                    name=name,
+                    multifile=multifile,
+                    kind='ome',
+                    coords=coords,
+                    attrs=attrs,
+                    units=units,
+                )
+            )
+            del ifds
+
+    if files_missing > 1:
+        logger().warning(
+            f'{tif!r} OME series failed to read {files_missing} files'
+        )
+
+    # apply modulo according to AnnotationRef
+    for aseries, annotationref in zip(series, moduloref, strict=True):
+        if annotationref not in modulo:
+            continue
+        shape = list(aseries.shape)
+        axes = aseries.axes
+        for axis, (newaxis, size) in modulo[annotationref].items():
+            i = axes.index(axis)
+            if shape[i] == size:
+                axes = axes.replace(axis, newaxis, 1)
+            elif shape[i] % size == 0:
+                shape[i] //= size
+                shape.insert(i + 1, size)
+                axes = axes.replace(axis, axis + newaxis, 1)
+            else:
+                logger().warning(
+                    f'{tif!r} OME series modulo {axis} '
+                    f'size {size} does not divide {shape[i]}'
+                )
+        aseries._shape = tuple(shape)
+        aseries._axes = axes
+
+    # pyramids
+    if is_pyramidal:
+        filecache = FileCache(size=64)
+        for aseries in series:
+            keyframe = aseries.keyframe
+            if not keyframe.subifds:
+                continue
+
+            num_levels = len(keyframe.subifds)
+            levels_pages: list[list[TiffPage | TiffFrame | None]] = [
+                [] for _ in range(num_levels)
+            ]
+            levels_keyframes: list[TiffPage | None] = [None] * num_levels
+
+            # iterate over pages first, then levels
+            # to minimize file open/close
+            for page in aseries:
+                if page is None:
+                    # add None to all levels for this page
+                    for level_pages in levels_pages:
+                        level_pages.append(None)
+                    continue
+
+                if page.subifds is None:
+                    # should not happen
+                    for level_pages in levels_pages:
+                        level_pages.append(None)
+                    continue
+
+                # open file handle once for this page
+                fh = page.parent.filehandle
+                filecache.open(fh)
+                try:
+                    # process all levels for this page
+                    for level in range(num_levels):
+                        if page.subifds[level] < 8:
+                            levels_pages[level].append(None)
+                            continue
+
+                        fh.seek(page.subifds[level])
+                        if (
+                            page.keyframe == page
+                            and levels_keyframes[level] is None
+                        ):
+                            # first keyframe for this level
+                            ifd = TiffPage(
+                                page.parent,
+                                (page.index, level + 1),
+                            )
+                            levels_keyframes[level] = ifd
+                        elif levels_keyframes[level] is None:
+                            msg = 'no keyframe found'
+                            raise RuntimeError(msg)
+                        else:
+                            ifd = TiffFrame(
+                                page.parent,
+                                (page.index, level + 1),
+                                keyframe=levels_keyframes[level],
+                            )
+                        levels_pages[level].append(ifd)
+                finally:
+                    filecache.close(fh)
+
+            # create TiffPageSeries for each level
+            base_mpp = aseries.mpp
+            base_width = aseries.keyframe.imagewidth
+            base_length = aseries.keyframe.imagelength
+            for level, ifds in enumerate(levels_pages):
+                if all(ifd is None for ifd in ifds):
+                    logger().warning(
+                        f'{tif!r} OME series level {level + 1} is empty'
+                    )
+                    break
+
+                level_keyframe = levels_keyframes[level]
+                if level_keyframe is None:
+                    msg = f'no keyframe found for level {level + 1}'
+                    raise RuntimeError(msg)
+
+                # fix shape
+                shape = list(aseries.shape)
+                axes = aseries.axes
+                for i, ax in enumerate(axes):
+                    if ax == 'X':
+                        shape[i] = level_keyframe.imagewidth
+                    elif ax == 'Y':
+                        shape[i] = level_keyframe.imagelength
+
+                # scale mpp and coords by downsample ratio
+                level_attrs: dict[str, Any] = {}
+                level_units: dict[str, str] | None = None
+                level_coords: dict[str, Any] = {}
+                if base_mpp is not None and base_width > 0 and base_length > 0:
+                    sx = base_width / level_keyframe.imagewidth
+                    sy = base_length / level_keyframe.imagelength
+                    level_units = {'X': 'micrometer', 'Y': 'micrometer'}
+                    level_coords['X'] = (
+                        0.0,
+                        level_keyframe.imagewidth * base_mpp[0] * sx,
+                    )
+                    level_coords['Y'] = (
+                        0.0,
+                        level_keyframe.imagelength * base_mpp[1] * sy,
+                    )
+                    base_mag = aseries._attrs.get('magnification')
+                    if base_mag is not None:
+                        level_attrs['magnification'] = base_mag / sx
+
+                # add series
+                aseries.levels.append(
+                    TiffPageSeries(
+                        ifds,
+                        tuple(shape),
+                        level_keyframe.dtype,
+                        axes,
+                        parent=tif,
+                        name=f'Level {level + 1}',
+                        kind='ome',
+                        attrs=level_attrs or None,
+                        coords=level_coords or None,
+                        units=level_units,
+                    )
+                )
+
+            if not aseries.name:
+                aseries.name = 'Baseline'
+
+        filecache.clear()
+
+    tif.is_uniform = len(series) == 1 and not is_pyramidal
+
+    return series
+
+
+def series_imagej(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in ImageJ file."""
+    # ImageJ's dimension order is TZCYXS
+    # TODO: fix loading of color, composite, or palette images
+    meta = tif.imagej_metadata
+    if meta is None:
+        return None
+
+    pages = tif.pages
+    pages.useframes = True
+    pages.set_keyframe(0)
+    page = tif.pages.first
+
+    order = meta.get('order', 'czt').lower()
+    frames = meta.get('frames', 1)
+    slices = meta.get('slices', 1)
+    channels = meta.get('channels', 1)
+    images = meta.get('images', 1)  # not reliable
+
+    if images < 1 or frames < 1 or slices < 1 or channels < 1:
+        logger().warning(
+            f'{tif!r} ImageJ series metadata invalid or corrupted file'
+        )
+        return None
+
+    if channels == 1 or (page.shaped[0] > 1 and page.shaped[0] == channels):
+        # Bio-Formats may declare separate samples as channels
+        images = frames * slices
+    elif images == frames * slices and page.shaped[4] == channels:
+        # RGB contig samples declared as channel
+        channels = 1
+    else:
+        images = frames * slices * channels
+
+    if images == 1 and pages.is_multipage:
+        images = len(pages)
+
+    nbytes = images * page.nbytes
+
+    # ImageJ virtual hyperstacks store all image metadata in the first
+    # page and image data are stored contiguously before the second
+    # page, if any
+    if not page.is_final:
+        isvirtual = False
+    elif page.dataoffsets[0] + nbytes > tif.filehandle.size:
+        logger().error(
+            f'{tif!r} ImageJ series metadata invalid or corrupted file'
+        )
+        return None
+    elif images <= 1:
+        isvirtual = True
+    elif pages.is_multipage and page.dataoffsets[0] + nbytes > pages[1].offset:
+        # next page is not stored after data
+        isvirtual = False
+    else:
+        isvirtual = True
+
+    # no need to read other pages if virtual
+    page_list: list[TiffPage | TiffFrame] = [page] if isvirtual else pages[:]
+
+    shape: tuple[int, ...]
+    axes: str
+
+    match order:
+        case 'czt' | 'default':
+            axes = 'TZC'
+            shape = (frames, slices, channels)
+        case 'ctz':
+            axes = 'ZTC'
+            shape = (slices, frames, channels)
+        case 'zct':
+            axes = 'TCZ'
+            shape = (frames, channels, slices)
+        case 'ztc':
+            axes = 'CTZ'
+            shape = (channels, frames, slices)
+        case 'tcz':
+            axes = 'ZCT'
+            shape = (slices, channels, frames)
+        case 'tzc':
+            axes = 'CZT'
+            shape = (channels, slices, frames)
+        case _:
+            axes = 'TZC'
+            shape = (frames, slices, channels)
+            logger().warning(
+                f'{tif!r} ImageJ series of unknown order {order!r}'
+            )
+
+    remain = images // product(shape)
+    if remain > 1:
+        logger().debug(
+            f'{tif!r} ImageJ series contains unidentified dimension'
+        )
+        shape = (remain, *shape)
+        axes = 'I' + axes
+
+    if page.shaped[0] > 1:
+        # Bio-Formats declares separate samples as channels
+        assert axes[-1] == 'C'
+        shape = shape[:-1] + page.shape
+        axes += page.axes[1:]
+    else:
+        shape += page.shape
+        axes += page.axes
+
+    if 'S' not in axes:
+        shape += (1,)
+        axes += 'S'
+    # assert axes.endswith('TZCYXS'), axes
+
+    truncated = isvirtual and not pages.is_multipage and page.nbytes != nbytes
+
+    # build coords from ImageJ metadata
+    coords: dict[str, Any] = {}
+    xorigin = meta.get('xorigin', 0)
+    yorigin = meta.get('yorigin', 0)
+    zorigin = meta.get('zorigin', 0)
+    spacing = meta.get('spacing')
+    if isinstance(spacing, (int, float)) and spacing > 0 and slices > 1:
+        # zorigin is in pixels; physical(z) = (z - zOrigin) * spacing
+        z0 = (
+            -float(zorigin) * spacing
+            if isinstance(zorigin, (int, float))
+            else 0.0
+        )
+        coords['Z'] = (z0, z0 + slices * spacing)
+    finterval = meta.get('finterval')
+    if not isinstance(finterval, (int, float)) or finterval <= 0:
+        fps_val = meta.get('fps')
+        if isinstance(fps_val, (int, float)) and fps_val > 0:
+            finterval = 1.0 / fps_val
+    if isinstance(finterval, (int, float)) and finterval > 0 and frames > 1:
+        coords['T'] = (0.0, frames * finterval)
+    labels = meta.get('Labels')
+    if isinstance(labels, list) and len(labels) == channels:
+        coords['C'] = numpy.array(labels)
+    # xorigin/yorigin are in pixels; physical(x) = (x-xOrigin) * pixelWidth
+    if (
+        (isinstance(xorigin, (int, float)) and xorigin)
+        or (isinstance(yorigin, (int, float)) and yorigin)
+    ) and 282 in page.tags:
+        xres, yres = page.get_resolution()
+        if xorigin and xres > 0:
+            width = page.shape[page.axes.index('X')]
+            if width > 1:
+                pixel_width = 1.0 / xres
+                x0 = -float(xorigin) * pixel_width
+                coords['X'] = (x0, x0 + width * pixel_width)
+        if yorigin and yres > 0:
+            height = page.shape[page.axes.index('Y')]
+            if height > 1:
+                pixel_height = 1.0 / yres
+                y0 = -float(yorigin) * pixel_height
+                coords['Y'] = (y0, y0 + height * pixel_height)
+
+    attrs: dict[str, Any] = {}
+    units: dict[str, str] | None = None
+    unit = meta.get('unit', 'pixel')
+    if isinstance(unit, str) and unit:
+        scale = SU2UM.get(unit.lower())
+        unit_out = 'micrometer' if scale is not None else unit
+        if scale is not None and scale != 1.0:
+            for ax in ('X', 'Y', 'Z'):
+                val = coords.get(ax)
+                if val is not None:
+                    if isinstance(val, tuple) and len(val) == 2:
+                        coords[ax] = (val[0] * scale, val[1] * scale)
+                    else:
+                        coords[ax] = numpy.asarray(val) * scale
+        units = {'X': unit_out, 'Y': unit_out}
+        if 'Z' in coords:
+            units['Z'] = unit_out
+    mode = meta.get('mode')
+    if isinstance(mode, str) and mode:
+        attrs['mode'] = mode
+
+    tif.is_uniform = True
+    return [
+        TiffPageSeries(
+            page_list,
+            shape,
+            page.dtype,
+            axes,
+            kind='imagej',
+            truncated=truncated,
+            coords=coords,
+            attrs=attrs,
+            units=units,
+        )
+    ]
+
+
+def series_nih(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in NIH Image file."""
+    series = series_uniform(tif)
+    if series is None:
+        return None
+
+    meta = tif.nih_metadata
+    if meta is None:
+        return series
+    page = tif.pages.first
+    coords: dict[str, Any] = {}
+    attrs: dict[str, Any] = {}
+    units: dict[str, str] = {}
+    nih_units: dict[int, str] = {
+        0: 'nanometer',
+        1: 'micrometer',
+        2: 'millimeter',
+        3: 'centimeter',
+        4: 'meter',
+        5: 'kilometer',
+        6: 'inch',
+        7: 'foot',
+        8: 'mile',
+    }
+
+    xscale = float(meta.get('XScale', 0.0))
+    units_id = int(meta.get('UnitsID', 9))
+    if units_id == 10:  # OtherUnits - use XUnit string
+        unit_str: str | None = meta.get('XUnit', '').strip() or None
+    else:
+        unit_str = nih_units.get(units_id)
+    if xscale and unit_str:
+        # xscale = pixels per physical unit; coord[i] = i / xscale
+        aspect = float(meta.get('PixelAspectRatio', 1.0)) or 1.0
+        # yScale = xScale / PixelAspectRatio,
+        # so y_physical = y * aspect / xscale
+        scale = SU2UM.get(unit_str.lower())
+        unit_out = 'micrometer' if scale is not None else unit_str
+        coords['X'] = numpy.linspace(
+            0,
+            page.imagewidth / xscale * (scale or 1.0),
+            page.imagewidth,
+            endpoint=False,
+        )
+        coords['Y'] = numpy.linspace(
+            0,
+            page.imagelength * aspect / xscale * (scale or 1.0),
+            page.imagelength,
+            endpoint=False,
+        )
+        units['X'] = unit_out
+        units['Y'] = unit_out
+
+    slice_spacing = float(meta.get('SliceSpacing', 0.0))
+    if slice_spacing:
+        if xscale and unit_str:
+            # SliceSpacing is stored in pixels; convert to physical units
+            scale = SU2UM.get(unit_str.lower())
+            attrs['slice_spacing'] = slice_spacing / xscale * (scale or 1.0)
+            units['Z'] = 'micrometer' if scale is not None else unit_str
+        else:
+            attrs['slice_spacing'] = slice_spacing  # in pixels
+
+    frame_interval = float(meta.get('FrameInterval', 0.0))
+    if frame_interval:
+        attrs['frame_interval'] = frame_interval
+        units['T'] = 'second'
+
+    if units:
+        series[0]._units.update(units)
+
+    series[0].kind = 'nih'
+    series[0]._coords.update(coords)
+    series[0]._explicit_coords.update(coords)
+    series[0]._attrs.update(attrs)
+    return series
+
+
+def series_fluoview(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in FluoView file."""
+    meta = tif.fluoview_metadata
+    if meta is None:
+        return None
+    pages = tif.pages._getlist(validate=False)
+    mmhd = meta['Dimensions'][::-1]
+    axes = ''.join(TIFF.MM_DIMENSIONS.get(i[0].upper(), 'Q') for i in mmhd)
+    shape = tuple(int(i[1]) for i in mmhd)
+
+    # build coords and attrs from dimension step sizes and units
+    coords: dict[str, Any] = {}
+    units: dict[str, str] = {}
+    for dim in mmhd:
+        name, size, origin, step, unit = dim
+        axis = TIFF.MM_DIMENSIONS.get(name.upper(), 'Q')
+        if axis in {'X', 'Y', 'Z', 'T'} and step > 0 and axis in axes:
+            if isinstance(unit, str) and unit:
+                scale = SU2UM.get(unit.lower())
+                coords[axis] = (
+                    float(origin) * (scale or 1.0),
+                    (float(origin) + float(size) * float(step))
+                    * (scale or 1.0),
+                )
+                if scale is not None:
+                    units[axis] = 'micrometer'
+                elif axis == 'T':
+                    units[axis] = {
+                        's': 'second',
+                        'ms': 'millisecond',
+                        'µs': 'microsecond',
+                        'ns': 'nanosecond',
+                        'min': 'minute',
+                        'h': 'hour',
+                        'd': 'day',
+                    }.get(unit, unit)
+                else:
+                    units[axis] = unit
+            else:
+                coords[axis] = (
+                    float(origin),
+                    float(origin) + float(size) * float(step),
+                )
+    attrs: dict[str, Any] = {}
+
+    tif.is_uniform = True
+    return [
+        TiffPageSeries(
+            pages,
+            shape,
+            pages[0].dtype,
+            axes,
+            coords=coords or None,
+            attrs=attrs or None,
+            units=units or None,
+            name=meta['ImageName'],
+            kind='fluoview',
+        )
+    ]
+
+
+def series_stk(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in STK file."""
+    meta = tif.stk_metadata
+    if meta is None:
+        return None
+    page = tif.pages.first
+    planes = meta['NumberPlanes']
+    name = meta.get('Name', '')
+    shape = (planes, *page.shape)
+    coords: dict[str, Any] = {}
+    attrs: dict[str, Any] = {}
+    units: dict[str, str] = {}
+
+    zdist = meta.get('ZDistance')
+    if planes > 1 and zdist is not None and numpy.all(zdist != 0):
+        axes = 'Z' + page.axes
+        cal_units = meta.get('CalibrationUnits')
+        if isinstance(cal_units, str) and cal_units.lower() not in {
+            '',
+            'pixel',
+            'pixels',
+        }:
+            scale = SU2UM.get(cal_units.lower())
+            coords['Z'] = numpy.concatenate(
+                [[0.0], numpy.cumsum(zdist[:-1])]
+            ).astype(numpy.float64) * (scale or 1.0)
+            units['Z'] = 'micrometer' if scale is not None else cal_units
+        else:
+            coords['Z'] = numpy.concatenate(
+                [[0.0], numpy.cumsum(zdist[:-1])]
+            ).astype(numpy.float64)
+    elif planes > 1 and numpy.all(numpy.diff(meta['TimeCreated']) != 0):
+        axes = 'T' + page.axes
+        datetime_created = meta.get('DatetimeCreated')
+        if datetime_created is not None:
+            coords['T'] = (
+                (datetime_created - datetime_created[0])
+                / numpy.timedelta64(1, 's')
+            ).astype(numpy.float64)
+            units['T'] = 'second'
+    else:
+        axes = 'I' + page.axes
+
+    wavelengths = meta.get('Wavelengths')
+    if wavelengths is not None and len(wavelengths) == planes:
+        wl = numpy.asarray(wavelengths, dtype=numpy.float64)
+        if wl[0] != 0.0 and numpy.all(wl == wl[0]):
+            attrs['wavelength'] = float(wl[0])
+        elif not numpy.all(wl == 0.0):
+            attrs['wavelengths'] = wl
+
+    cal_units = meta.get('CalibrationUnits')
+    is_physical = isinstance(cal_units, str) and cal_units.lower() not in {
+        '',
+        'pixel',
+        'pixels',
+    }
+    scale = SU2UM.get(cal_units.lower()) if is_physical else None  # type: ignore[union-attr]
+    xcal = meta.get('XCalibration')
+    ycal = meta.get('YCalibration')
+    if meta.get('SpatialCalibration', 0) and xcal and float(xcal) != 0:
+        coords['X'] = numpy.linspace(
+            0,
+            float(xcal) * page.imagewidth * (scale or 1.0),
+            page.imagewidth,
+            endpoint=False,
+        )
+        if is_physical:
+            units['X'] = 'micrometer' if scale is not None else cal_units  # type: ignore[assignment]
+    if meta.get('SpatialCalibration', 0) and ycal and float(ycal) != 0:
+        coords['Y'] = numpy.linspace(
+            0,
+            float(ycal) * page.imagelength * (scale or 1.0),
+            page.imagelength,
+            endpoint=False,
+        )
+        if is_physical:
+            units['Y'] = 'micrometer' if scale is not None else cal_units  # type: ignore[assignment]
+
+    tif.is_uniform = True
+    return [
+        TiffPageSeries(
+            [page],
+            shape,
+            page.dtype,
+            axes,
+            coords=coords or None,
+            attrs=attrs or None,
+            units=units or None,
+            name=name,
+            truncated=planes > 1,
+            kind='stk',
+        )
+    ]
+
+
+def series_mdgel(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in MD Gel file."""
+    meta = tif.mdgel_metadata
+    if meta is None:
+        return None
+    transform: Callable[[NDArray[Any]], NDArray[Any]] | None
+    tif.pages.useframes = False
+    tif.pages.set_keyframe(0)
+    page = tif.pages.first
+
+    if meta['FileTag'] in {2, 128}:
+        dtype = numpy.dtype(numpy.float32)
+        scale = meta['ScalePixel'][0] / meta['ScalePixel'][1]
+        if meta['FileTag'] == 2:
+
+            def transform(a: NDArray[Any], /) -> NDArray[Any]:
+                return a.astype(numpy.float32) ** 2 * scale
+
+        else:
+
+            def transform(a: NDArray[Any], /) -> NDArray[Any]:
+                return a.astype(numpy.float32) * scale
+
+    else:
+        assert page.dtype is not None
+        dtype = page.dtype
+        transform = None
+    attrs: dict[str, Any] = {}
+    file_units = meta.get('FileUnits')
+    if file_units:
+        attrs['file_units'] = file_units
+    tif.is_uniform = False
+    return [
+        TiffPageSeries(
+            [page],
+            page.shape,
+            dtype,
+            page.axes,
+            attrs=attrs or None,
+            transform=transform,
+            kind='mdgel',
+        )
+    ]
+
+
+def series_eer(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in EER file."""
+    series: list[TiffPageSeries] = []
+    page = tif.pages.first
+    if page.compression == 1:
+        if len(tif.pages) < 2:
+            return None
+        series.append(
+            TiffPageSeries(
+                [page],
+                page.shape,
+                page.dtype,
+                page.axes,
+                name='integrated',
+                kind='eer',
+            )
+        )
+        tif.is_uniform = False
+        page = tif.pages[1].aspage()
+
+    if page.compression not in {65000, 65001, 65002}:
+        logger().warning(
+            f'{tif!r} '
+            f'EER series with unsupported compression {page.compression}'
+        )
+        return series
+
+    tif.pages.useframes = True
+    tif.pages.set_keyframe(page.index)
+    pages = tif.pages._getlist(slice(page.index, None), validate=False)
+    if len(pages) == 1:
+        shape = page.shape
+        axes = page.axes
+    else:
+        shape = (len(pages), *page.shape)
+        axes = 'I' + page.axes
+    if not series:
+        tif.is_uniform = True
+
+    attrs: dict[str, Any] = {}
+    meta = tif.eer_metadata
+    if meta is not None:
+        for key in ('exposureTime', 'meanDoseRate', 'totalDose'):
+            if key in meta and isinstance(meta[key], (int, float)):
+                attrs[key] = meta[key]
+
+    frames = TiffPageSeries(
+        pages,
+        shape,
+        page.dtype,
+        axes,
+        name='frames',
+        kind='eer',
+        attrs=attrs or None,
+    )
+    return [frames, *series]
+
+
+def series_scanimage(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in ScanImage file."""
+    pages = tif.pages._getlist(validate=False)
+    page = tif.pages.first
+    shape = None
+
+    meta = tif.scanimage_metadata
+    framedata = {} if meta is None else meta.get('FrameData', {})
+    if 'SI.hChannels.channelSave' in framedata:
+        try:
+            channels = framedata['SI.hChannels.channelSave']
+            try:
+                channels = len(channels)
+            except TypeError:
+                channels = 1
+            slices = None
+            try:
+                frames = int(framedata['SI.hStackManager.framesPerSlice'])
+            except (KeyError, OverflowError, ValueError) as exc:
+                slices = 1
+                if len(pages) % channels:
+                    msg = 'unable to determine framesPerSlice'
+                    raise ValueError(msg) from exc
+                frames = len(pages) // channels
+            if slices is None:
+                slices = max(len(pages) // (frames * channels), 1)
+            shape = (slices, frames, channels, *page.shape)
+            axes = 'ZTC' + page.axes
+        except Exception as exc:
+            logger().warning(f'{tif!r} ScanImage series raised {exc!r:.128}')
+
+    if shape is None:
+        shape = (len(pages), *page.shape)
+        axes = 'I' + page.axes
+
+    # build coords and attrs from ScanImage FrameData metadata
+    coords: dict[str, Any] = {}
+    attrs: dict[str, Any] = {}
+
+    if framedata:
+        period = framedata.get('SI.hRoiManager.scanFramePeriod', 0.0)
+        if period > 0 and 'T' in axes:
+            sizet = shape[axes.index('T')]
+            coords['T'] = (0.0, sizet * period)
+
+        zstep = framedata.get('SI.hStackManager.actualStackZStepSize')
+        if not isinstance(zstep, (int, float)) or zstep <= 0:
+            zstep = framedata.get('SI.hStackManager.stackZStepSize', 0.0)
+        if zstep > 0 and 'Z' in axes:
+            sizez = shape[axes.index('Z')]
+            coords['Z'] = (0.0, sizez * zstep)
+
+        ores = framedata.get('SI.objectiveResolution')
+        if isinstance(ores, (int, float)) and ores > 0:
+            attrs['objectiveResolution'] = ores
+
+        fov = framedata.get('SI.hRoiManager.imagingFovUm')
+        if (
+            isinstance(fov, list)
+            and len(fov) == 4
+            and all(isinstance(c, list) and len(c) == 2 for c in fov)
+        ):
+            try:
+                x_extent = abs(fov[1][0] - fov[0][0])
+                y_extent = abs(fov[3][1] - fov[0][1])
+                if x_extent > 0 and 'X' in axes:
+                    coords['X'] = (0.0, x_extent)
+                if y_extent > 0 and 'Y' in axes:
+                    coords['Y'] = (0.0, y_extent)
+            except (TypeError, IndexError):
+                pass
+
+    tif.is_uniform = True
+    return [
+        TiffPageSeries(
+            pages,
+            shape,
+            page.dtype,
+            axes,
+            kind='scanimage',
+            coords=coords or None,
+            attrs=attrs or None,
+        )
+    ]
+
+
+def series_lsm(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in LSM file."""
+    lsmi = tif.lsm_metadata
+    if lsmi is None:
+        return None
+    axes = TIFF.CZ_LSMINFO_SCANTYPE.get(lsmi['ScanType'])
+    if axes is None:
+        logger().warning(f'{tif!r} LSM unknown ScanType {lsmi["ScanType"]!r}')
+        return None
+    page0 = tif.pages.first
+    if page0.planarconfig == 1:
+        axes = axes.replace('C', '').replace('X', 'XC')
+    elif page0.planarconfig == 2:
+        # keep C axis for unsqueezed shape
+        pass
+    elif page0.samplesperpixel == 1:
+        axes = axes.replace('C', '')
+    if lsmi.get('DimensionP', 0) > 0:
+        axes = 'P' + axes
+    if lsmi.get('DimensionM', 0) > 0:
+        axes = 'M' + axes
+    shape = tuple(int(lsmi[TIFF.CZ_LSMINFO_DIMENSIONS[i]]) for i in axes)
+
+    name = lsmi.get('Name', '')
+    pages = tif.pages._getlist(slice(0, None, 2), validate=False)
+    dtype = pages[0].dtype
+
+    # build coords from LSM metadata
+    coords: dict[str, Any] = {}
+    attrs: dict[str, Any] = {}
+    units: dict[str, str] = {}
+
+    vsx = lsmi.get('VoxelSizeX', 0.0)
+    vsy = lsmi.get('VoxelSizeY', 0.0)
+    vsz = lsmi.get('VoxelSizeZ', 0.0)
+    if vsx > 0:
+        attrs['VoxelSizeX'] = vsx
+        if 'X' in axes:
+            coords['X'] = (0.0, shape[axes.index('X')] * vsx * SU2UM['m'])
+            units['X'] = 'micrometer'
+    if vsy > 0:
+        attrs['VoxelSizeY'] = vsy
+        if 'Y' in axes:
+            coords['Y'] = (0.0, shape[axes.index('Y')] * vsy * SU2UM['m'])
+            units['Y'] = 'micrometer'
+    if vsz > 0:
+        attrs['VoxelSizeZ'] = vsz
+        if 'Z' in axes:
+            sizez = shape[axes.index('Z')]
+            if sizez > 1:
+                coords['Z'] = (0.0, sizez * vsz * SU2UM['m'])
+                units['Z'] = 'micrometer'
+
+    if 'T' in axes:
+        sizet = shape[axes.index('T')]
+        timestamps = lsmi.get('TimeStamps')
+        if (
+            isinstance(timestamps, numpy.ndarray)
+            and len(timestamps) == sizet
+            and sizet > 1
+        ):
+            coords['T'] = timestamps - timestamps[0]
+        else:
+            ti = lsmi.get('TimeIntervall', 0.0)
+            if ti > 0 and sizet > 1:
+                coords['T'] = (0.0, sizet * ti)
+
+    cc = lsmi.get('ChannelColors')
+    if 'C' in axes:
+        sizec = shape[axes.index('C')]
+        cw = lsmi.get('ChannelWavelength')
+        if (
+            lsmi.get('SpectralScan')
+            and isinstance(cw, numpy.ndarray)
+            and cw.shape == (sizec, 2)
+            and numpy.all(cw > 0)
+        ):
+            coords['C'] = (cw[:, 0] + cw[:, 1]) / 2.0
+        elif cc is not None:
+            names = cc.get('ColorNames')
+            if isinstance(names, list) and len(names) == sizec:
+                try:
+                    coords['C'] = numpy.array([float(n) for n in names])
+                except (ValueError, TypeError):
+                    coords['C'] = numpy.array(names)
+
+    series = [
+        TiffPageSeries(
+            pages,
+            shape,
+            dtype,
+            axes,
+            name=name,
+            kind='lsm',
+            coords=coords,
+            attrs=attrs,
+            units=units or None,
+        )
+    ]
+
+    page = cast(TiffPage, tif.pages[1])
+    if page.is_reduced:
+        pages = tif.pages._getlist(slice(1, None, 2), validate=False)
+        dtype = page.dtype
+        cp = 1
+        i = 0
+        while cp < len(pages) and i < len(shape) - 2:
+            cp *= shape[i]
+            i += 1
+        shape = shape[:i] + page.shape
+        axes = axes[:i] + page.axes
+        series.append(
+            TiffPageSeries(pages, shape, dtype, axes, name=name, kind='lsm')
+        )
+
+    tif.is_uniform = False
+    return series
+
+
+def series_mmstack(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in Micro-Manager stack file(s)."""
+    settings = tif.micromanager_metadata
+    if (
+        settings is None
+        or 'Summary' not in settings
+        or 'IndexMap' not in settings
+    ):
+        return None
+
+    pages: list[TiffPage | TiffFrame | None]
+    page_count: int
+
+    summary = settings['Summary']
+    indexmap = settings['IndexMap']
+    indexmap = indexmap[indexmap[:, 4].argsort()]
+
+    if 'MicroManagerVersion' not in summary or 'Frames' not in summary:
+        # TODO: handle MagellanStack?
+        return None
+
+    # determine CZTR shape from indexmap
+    indexmap_shape = (numpy.max(indexmap[:, :4], axis=0) + 1).tolist()
+    indexmap_index = {'C': 0, 'Z': 1, 'T': 2, 'R': 3}
+
+    axes = 'TR' if summary.get('TimeFirst', True) else 'RT'
+    axes += 'ZC' if summary.get('SlicesFirst', True) else 'CZ'
+
+    keys = {
+        'C': 'Channels',
+        'Z': 'Slices',
+        'R': 'Positions',
+        'T': 'Frames',
+    }
+    shape = tuple(
+        max(
+            indexmap_shape[indexmap_index[ax]],
+            int(summary.get(keys[ax], 1)),
+        )
+        for ax in axes
+    )
+    size = product(shape)
+
+    indexmap_order = tuple(indexmap_index[ax] for ax in axes)
+
+    def add_file(atif: TiffFile, indexmap: NDArray[Any]) -> int:
+        # add virtual TiffFrames to pages list
+        page_count = 0
+        offsets: list[int]
+        offsets = indexmap[:, 4].tolist()
+        indices = numpy.ravel_multi_index(
+            indexmap[:, indexmap_order].T, shape
+        ).tolist()
+        keyframe = atif.pages.first
+        filesize = atif.filehandle.size - keyframe.databytecounts[0] - 162
+        index: int
+        offset: int
+        for item in zip(indices, offsets, strict=True):
+            index, offset = item
+            if offset == keyframe.offset:
+                pages[index] = keyframe
+                page_count += 1
+                continue
+            if 0 < offset <= filesize:
+                dataoffsets = (offset + 162,)
+                databytecounts = keyframe.databytecounts
+                page_count += 1
+            else:
+                # assume file is truncated
+                dataoffsets = databytecounts = (0,)
+                offset = 0
+            pages[index] = TiffFrame(
+                atif,
+                index=index,
+                offset=offset,
+                dataoffsets=dataoffsets,
+                databytecounts=databytecounts,
+                keyframe=keyframe,
+            )
+        return page_count
+
+    multifile = size > indexmap.shape[0]
+    if multifile:
+        # get multifile prefix
+        if not tif.filehandle.is_file:
+            logger().warning(
+                f'{tif!r} MMStack multi-file series cannot be read from '
+                f'{tif.filehandle._fh!r}'
+            )
+            multifile = False
+        elif '_MMStack' not in tif.filename:
+            logger().warning(f'{tif!r} MMStack file name is invalid')
+            multifile = False
+        elif 'Prefix' in summary:
+            prefix = summary['Prefix']
+            if not tif.filename.startswith(prefix):
+                logger().warning(f'{tif!r} MMStack file name is invalid')
+                multifile = False
+        else:
+            prefix = tif.filename.split('_MMStack')[0]
+
+    if multifile:
+        # read other files
+        pattern = os.path.join(
+            tif.filehandle.dirname, prefix + '_MMStack*.tif'
+        )
+        filenames = glob.glob(pattern)
+        if len(filenames) == 1:
+            multifile = False
+        else:
+            pages = [None] * size
+            page_count = add_file(tif, indexmap)
+            for filename in filenames:
+                if tif.filename == os.path.basename(filename):
+                    continue
+                with TiffFile(filename) as ftif:
+                    indexmap = read_micromanager_metadata(
+                        ftif.filehandle, {'IndexMap'}
+                    )['IndexMap']
+                    indexmap = indexmap[indexmap[:, 4].argsort()]
+                    page_count += add_file(ftif, indexmap)
+
+    if multifile:
+        pass
+    elif size > indexmap.shape[0]:
+        # other files missing: squeeze shape
+        old_shape = shape
+        min_index = numpy.min(indexmap[:, :4], axis=0)
+        max_index = numpy.max(indexmap[:, :4], axis=0)
+        indexmap = indexmap.copy()
+        indexmap[:, :4] -= min_index
+        shape = tuple(
+            j - i + 1
+            for i, j in zip(
+                min_index.tolist(), max_index.tolist(), strict=True
+            )
+        )
+        shape = tuple(shape[i] for i in indexmap_order)
+        size = product(shape)
+        pages = [None] * size
+        page_count = add_file(tif, indexmap)
+        logger().warning(
+            f'{tif!r} MMStack series is missing files. '
+            f'Returning subset {shape!r} of {old_shape!r}'
+        )
+    else:
+        # single file
+        pages = [None] * size
+        page_count = add_file(tif, indexmap)
+
+    if page_count != size:
+        logger().warning(
+            f'{tif!r} MMStack is missing {size - page_count} pages.'
+            ' Missing data are zeroed'
+        )
+
+    keyframe = tif.pages.first
+    full_axes = axes + keyframe.axes
+    full_shape = shape + keyframe.shape
+
+    # build coords and attrs from Summary metadata
+    coords: dict[str, Any] = {}
+    attrs: dict[str, Any] = {}
+
+    units: dict[str, str] | None = None
+    pxsize = summary.get('PixelSize_um', 0.0)
+    if pxsize > 0:
+        attrs['PixelSize_um'] = pxsize
+        units = {'X': 'micrometer', 'Y': 'micrometer'}
+        if 'X' in full_axes:
+            sizex = full_shape[full_axes.index('X')]
+            coords['X'] = (0.0, sizex * pxsize)
+        if 'Y' in full_axes:
+            sizey = full_shape[full_axes.index('Y')]
+            coords['Y'] = (0.0, sizey * pxsize)
+
+    if 'Z' in full_axes:
+        zstep = summary.get('z-step_um', 0.0)
+        if zstep != 0:
+            sizez = full_shape[full_axes.index('Z')]
+            coords['Z'] = (0.0, sizez * abs(zstep))
+
+    if 'T' in full_axes:
+        interval = summary.get('Interval_ms', 0.0)
+        if interval > 0:
+            sizet = full_shape[full_axes.index('T')]
+            coords['T'] = (0.0, sizet * interval)
+
+    if 'C' in full_axes:
+        ch_names = summary.get('ChNames')
+        sizec = full_shape[full_axes.index('C')]
+        if isinstance(ch_names, list) and len(ch_names) == sizec:
+            coords['C'] = numpy.array(ch_names)
+
+    return [
+        TiffPageSeries(
+            pages,
+            shape=full_shape,
+            dtype=keyframe.dtype,
+            axes=full_axes,
+            parent=tif,
+            kind='mmstack',
+            coords=coords or None,
+            attrs=attrs or None,
+            units=units,
+            multifile=multifile,
+        )
+    ]
+
+
+def series_ndtiff(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in NDTiff v2/v3 file(s)."""
+    # TODO: implement fallback for missing index file, versions 0 and 1
+    if not tif.filehandle.is_file:
+        logger().warning(
+            f'{tif!r} NDTiff.index not found for {tif.filehandle._fh!r}'
+        )
+        return None
+
+    indexfile = os.path.join(tif.filehandle.dirname, 'NDTiff.index')
+    if not os.path.exists(indexfile):
+        logger().warning(f'{tif!r} NDTiff.index not found')
+        return None
+
+    keyframes: dict[str, TiffPage] = {}
+    shape: tuple[int, ...]
+    dims: tuple[str, ...]
+    page: TiffPage | TiffFrame
+    pageindex = 0
+    pixel_types = {
+        0: ('uint8', 8),  # 8bit monochrome
+        1: ('uint16', 16),  # 16bit monochrome
+        2: ('uint8', 8),  # 8bit RGB
+        3: ('uint16', 10),  # 10bit monochrome
+        4: ('uint16', 12),  # 12bit monochrome
+        5: ('uint16', 14),  # 14bit monochrome
+        6: ('uint16', 11),  # 11bit monochrome
+    }
+
+    indices: dict[tuple[int, ...], TiffPage | TiffFrame] = {}
+    categories: dict[str, dict[str, int]] = {}
+    first = True
+
+    for (
+        axes_dict,
+        filename,
+        dataoffset,
+        width,
+        height,
+        pixeltype,
+        compression,
+        _metaoffset,
+        _metabytecount,
+        _metacompression,
+    ) in read_ndtiff_index(indexfile):
+        if filename in keyframes:
+            # create virtual frame from index
+            pageindex += 1  # TODO
+            keyframe = keyframes[filename]
+            page = TiffFrame(
+                keyframe.parent,
+                pageindex,
+                offset=None,  # virtual frame
+                keyframe=keyframe,
+                dataoffsets=(dataoffset,),
+                databytecounts=keyframe.databytecounts,
+            )
+            if page.shape[:2] != (height, width):
+                msg = (
+                    'NDTiff.index does not match TIFF shape '
+                    f'{page.shape[:2]} != {(height, width)}'
+                )
+                raise ValueError(msg)
+            if compression != 0:
+                msg = f'NDTiff.index {compression=} not supported'
+                raise ValueError(msg)
+            if page.compression != 1:
+                msg = f'NDTiff.index does not match TIFF {page.compression=!r}'
+                raise ValueError(msg)
+            if pixeltype not in pixel_types:
+                msg = f'NDTiff.index unknown pixel type {pixeltype}'
+                raise ValueError(msg)
+            dtype, _ = pixel_types[pixeltype]
+            if page.dtype != dtype:
+                msg = (
+                    'NDTiff.index pixeltype does not match TIFF dtype '
+                    f'{page.dtype} != {dtype}'
+                )
+                raise ValueError(msg)
+        else:
+            # new keyframe
+            pageindex = 0
+            if filename == tif.filename:
+                page = tif.pages.first
+            else:
+                with TiffFile(
+                    os.path.join(tif.filehandle.dirname, filename)
+                ) as ftif:
+                    page = ftif.pages.first
+            keyframes[filename] = page
+
+        # replace string with integer indices
+        index: int | str
+        if first:
+            for axis, index in axes_dict.items():
+                if isinstance(index, str):
+                    categories[axis] = {index: 0}
+                    axes_dict[axis] = 0
+            first = False
+            dims = tuple(axes_dict.keys())
+
+        elif categories:
+            for axis, values in categories.items():
+                index = axes_dict[axis]
+                assert isinstance(index, str)
+                if index not in values:
+                    values[index] = max(values.values()) + 1
+                axes_dict[axis] = values[index]
+
+        if tuple(axes_dict.keys()) != dims:
+            dims_ = tuple(axes_dict.keys())
+            logger().warning(
+                f'{tif!r} NDTiff.index axes_dict.keys={dims_} != {dims}'
+            )
+            if set(dims_) != set(dims):
+                continue
+        indices[tuple(int(axes_dict[dim]) for dim in dims)] = page
+
+    # indices may be negative or missing
+    indices_array = numpy.array(list(indices.keys()), dtype=numpy.int32)
+    min_index = numpy.min(indices_array, axis=0).tolist()
+    max_index = numpy.max(indices_array, axis=0).tolist()
+    shape = tuple(j - i + 1 for i, j in zip(min_index, max_index, strict=True))
+
+    # change axes to match storage order
+    order = order_axes(indices_array, squeeze=False)
+    shape = tuple(shape[i] for i in order)
+    dims = tuple(dims[i] for i in order)
+    indices = {
+        tuple(idx[i] - min_index[i] for i in order): value
+        for idx, value in indices.items()
+    }
+
+    pages: list[TiffPage | TiffFrame | None] = [
+        indices.get(idx) for idx in numpy.ndindex(shape)
+    ]
+
+    if not keyframes:
+        logger().error(f'{tif!r} NDTiff.index has no keyframes')
+        return None
+    keyframe = next(iter(keyframes.values()))
+    shape += keyframe.shape
+    axes = ''.join(TIFF.AXES_CODES.get(i.lower(), 'Q') for i in dims)
+    axes += keyframe.axes
+
+    # build coords from categorical axes (string labels -> string arrays)
+    # axes = dim_axes + keyframe.axes; only zip over dim portion
+    dim_axes = axes[: len(dims)]
+    coords: dict[str, Any] = {}
+    for dim, ax in zip(dims, dim_axes, strict=True):
+        if dim in categories:
+            mapping = categories[dim]  # str -> int
+            size = max(mapping.values()) + 1
+            labels: list[str] = [''] * size
+            for label, idx in mapping.items():
+                labels[idx] = label
+            coords[ax] = numpy.array(labels)
+
+    # supplement coords and attrs from MicroManager Summary metadata
+    attrs: dict[str, Any] = {}
+    units: dict[str, str] | None = None
+    mm = tif.micromanager_metadata
+    if mm is not None:
+        summ = mm.get('Summary', {})
+
+        # pixel size for X/Y coords and as attr
+        pxsize = summ.get('PixelSize_um', 0.0)
+        if pxsize > 0:
+            attrs['PixelSize_um'] = pxsize
+            units = {'X': 'micrometer', 'Y': 'micrometer'}
+            if 'X' in axes:
+                sizex = shape[axes.index('X')]
+                coords['X'] = (0.0, sizex * pxsize)
+            if 'Y' in axes:
+                sizey = shape[axes.index('Y')]
+                coords['Y'] = (0.0, sizey * pxsize)
+
+        # Z coord from z-step_um
+        if 'Z' in axes:
+            zstep = summ.get('z-step_um', 0.0)
+            if zstep > 0:
+                sizez = shape[axes.index('Z')]
+                coords['Z'] = (0.0, sizez * zstep)
+
+        # T coord from Interval_ms
+        if 'T' in axes:
+            interval = summ.get('Interval_ms', 0.0)
+            if interval > 0:
+                sizet = shape[axes.index('T')]
+                coords['T'] = (0.0, sizet * interval)
+
+        # channel names for integer-indexed channel axis
+        if 'C' in axes and 'C' not in coords:
+            ch_names = summ.get('ChNames')
+            sizec = shape[axes.index('C')]
+            if isinstance(ch_names, list) and len(ch_names) == sizec:
+                coords['C'] = numpy.array(ch_names)
+
+    tif.is_uniform = True
+    return [
+        TiffPageSeries(
+            pages,
+            shape=shape,
+            dtype=keyframe.dtype,
+            axes=axes,
+            coords=coords or None,
+            attrs=attrs or None,
+            units=units,
+            parent=tif,
+            kind='ndtiff',
+            multifile=len(keyframes) > 1,
+        )
+    ]
+
+
+def series_sis(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in Olympus SIS file."""
+    meta = tif.sis_metadata
+    if meta is None:
+        return None
+    pages = tif.pages._getlist(validate=False)  # TODO: this fails for VSI
+    page = tif.pages.first
+    if 'shape' in meta and 'axes' in meta:
+        shape = meta['shape'] + page.shape
+        axes = meta['axes'] + page.axes
+    else:
+        shape = (len(pages), *page.shape)
+        axes = 'I' + page.axes
+    tif.is_uniform = True
+
+    coords: dict[str, Any] = {}
+    attrs: dict[str, Any] = {}
+    units: dict[str, str] = {}
+
+    # X/Y pixel size in meters (physical pixel size from OlympusSIS tag)
+    pixelsizex = float(meta.get('pixelsizex', 0.0))
+    pixelsizey = float(meta.get('pixelsizey', 0.0))
+    if pixelsizex and 'X' in axes:
+        mppx = pixelsizex * SU2UM['m']
+        coords['X'] = (0.0, page.imagewidth * mppx)
+        units['X'] = 'micrometer'
+    if pixelsizey and 'Y' in axes:
+        mppy = pixelsizey * SU2UM['m']
+        coords['Y'] = (0.0, page.imagelength * mppy)
+        units['Y'] = 'micrometer'
+
+    # Z positions
+    if 'Z' in axes:
+        info = meta.get('Info', {})
+        unit_z = info.get('UnitZ', '')
+        z_pos = meta.get('Z', {}).get('ZPos')
+        nz = shape[axes.index('Z')]
+        if z_pos is not None and len(z_pos) == nz:
+            coords['Z'] = z_pos.astype(float)
+            if unit_z:
+                units['Z'] = unit_z
+        else:
+            step_z = float(info.get('StepZ', 0.0))
+            start_z = float(info.get('StartPosZ', 0.0))
+            if step_z:
+                coords['Z'] = start_z + numpy.arange(nz) * step_z
+                if unit_z:
+                    units['Z'] = unit_z
+
+    # T coords from TimePos array (milliseconds since acquisition start)
+    if 'T' in axes:
+        time_pos = meta.get('Time', {}).get('TimePos')
+        nt = shape[axes.index('T')]
+        if time_pos is not None and len(time_pos) == nt:
+            coords['T'] = time_pos.astype(float)
+            units['T'] = 'millisecond'
+
+    # C coords from band names
+    if 'C' in axes:
+        bands = meta.get('Band')
+        nc = shape[axes.index('C')]
+        if bands and len(bands) == nc:
+            band_names = [b.get('BandName', '') for b in bands]
+            if any(band_names):
+                coords['C'] = numpy.array(band_names)
+
+    magnification = meta.get('magnification')
+    if magnification:
+        attrs['magnification'] = float(magnification)
+    dt = meta.get('datetime')
+    if dt is not None:
+        attrs['datetime'] = dt.isoformat()
+
+    name = meta.get('name', '') or None
+
+    return [
+        TiffPageSeries(
+            pages,
+            shape,
+            page.dtype,
+            axes,
+            name=name,
+            kind='sis',
+            coords=coords or None,
+            attrs=attrs or None,
+            units=units or None,
+        )
+    ]
+
+
+def series_ndpi(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return pyramidal image series in NDPI file."""
+    series = series_generic(tif)
+    if not series:
+        return None
+
+    for s in series:
+        s.kind = 'ndpi'
+        if s.axes[0] == 'I':
+            s._axes = 'Z' + s._axes[1:]
+        if s.is_pyramidal:
+            s.name = s.keyframe.tags.valueof(65427) or 'Baseline'
+            # Z coords from ZOffsetFromSlideCenter (tag 65424, in nm)
+            if 'Z' in s._axes:
+                z_size = s.shape[0]
+                z_vals = []
+                for pg in s._pages[:z_size]:
+                    if isinstance(pg, TiffPage):
+                        z_v = pg.tags.valueof(65424)
+                        if isinstance(z_v, (int, float)):
+                            z_vals.append(float(z_v) * 1e-3)
+                if len(z_vals) == z_size and len(set(z_vals)) > 1:
+                    s._coords['Z'] = numpy.array(z_vals)
+                    s._explicit_coords.add('Z')
+
+            for level in s.levels:
+                page = level.keyframe
+                mag = page.tags.valueof(65421)
+                if isinstance(mag, (int, float)) and mag > 0:
+                    level._attrs['magnification'] = mag
+                rx, ry = page.get_resolution(unit='micrometer')
+                if rx > 0 and ry > 0:
+                    mpp_x = 1.0 / rx
+                    mpp_y = 1.0 / ry
+                    level._coords['X'] = (0.0, page.imagewidth * mpp_x)
+                    level._coords['Y'] = (0.0, page.imagelength * mpp_y)
+                    units = {'X': 'micrometer', 'Y': 'micrometer'}
+                    if 'Z' in s._coords and level is s:
+                        units['Z'] = 'micrometer'
+                    level._units = units
+                    level._explicit_coords.update(('X', 'Y'))
+            continue
+
+        mag = s.keyframe.tags.valueof(65421)
+        if mag is not None:
+            if mag == -1.0:
+                s.name = 'Macro'
+            elif mag == -2.0:
+                s.name = 'Map'
+
+    tif.is_uniform = False
+    return series
+
+
+def series_avs(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return pyramidal image series in AVS file."""
+    series = series_generic(tif)
+    if not series:
+        return None
+    if len(series) != 3:
+        logger().warning(
+            f'{tif!r} AVS series expected 3 series, got {len(series)}'
+        )
+    s = series[0]
+    s.kind = 'avs'
+    if s.axes[0] == 'I':
+        s._axes = 'Z' + s._axes[1:]
+    if s.is_pyramidal:
+        s.name = 'Baseline'
+    if len(series) == 3:
+        for s2, name in zip(series[1:], ('Map', 'Macro'), strict=True):
+            s2.name = name
+            s2.kind = 'avs'
+
+    xml = tif.avs_metadata
+    if xml:
+        from xml.etree import ElementTree
+
+        base_mag: float | None = None
+        mpp_val: float | None = None
+        mpp_y: float | None = None
+        with contextlib.suppress(Exception):
+            root = ElementTree.fromstring(xml)
+
+            mag_text = root.findtext('ObjectiveMagnification')
+            if mag_text is not None:
+                with contextlib.suppress(ValueError):
+                    base_mag = float(mag_text)
+                    s._attrs['magnification'] = base_mag
+            date_str = root.findtext('AcquisitionDate')
+            time_str = root.findtext('AcquisitionTime')
+            if date_str and time_str:
+                with contextlib.suppress(ValueError):
+                    s._attrs['datetime'] = DateTime.strptime(
+                        f'{date_str} {time_str}', '%m.%d.%Y %H:%M:%S'
+                    ).isoformat()
+            xres, yres = s.keyframe.get_resolution(unit='centimeter')
+            if xres > 0 and yres > 0:
+                mpp_val = 1e4 / xres
+                mpp_y = 1e4 / yres
+                s._units = {'X': 'micrometer', 'Y': 'micrometer'}
+            zrange_text = root.findtext('ZRange')
+            if zrange_text and 'Z' in s.axes:
+                with contextlib.suppress(ValueError):
+                    zrange = float(zrange_text)
+                    # ZRange: distance from lowest to highest focal plane
+                    # in micrometer
+                    nz = s.shape[s.axes.index('Z')]
+                    if zrange > 0 and nz > 1:
+                        # stop is exclusive:
+                        # step=zrange/(nz-1), stop=nz*step
+                        s._coords['Z'] = (0.0, zrange * nz / (nz - 1))
+                        s._units['Z'] = 'micrometer'
+
+        if mpp_val is not None:
+            assert mpp_y is not None
+            s._coords['X'] = (0.0, s.keyframe.imagewidth * mpp_val)
+            s._coords['Y'] = (0.0, s.keyframe.imagelength * mpp_y)
+            s._explicit_coords.update(('X', 'Y'))
+        if s.is_pyramidal and (mpp_val is not None or base_mag is not None):
+            base_width = s.keyframe.imagewidth
+            base_length = s.keyframe.imagelength
+            for level in s.levels[1:]:
+                ratio_x = base_width / level.keyframe.imagewidth
+                ratio_y = base_length / level.keyframe.imagelength
+                if mpp_val is not None:
+                    assert mpp_y is not None
+                    level_mpp_x = mpp_val * ratio_x
+                    level_mpp_y = mpp_y * ratio_y
+                    level._units = {'X': 'micrometer', 'Y': 'micrometer'}
+                    level._coords['X'] = (
+                        0.0,
+                        level.keyframe.imagewidth * level_mpp_x,
+                    )
+                    level._coords['Y'] = (
+                        0.0,
+                        level.keyframe.imagelength * level_mpp_y,
+                    )
+                    level._explicit_coords.update(('X', 'Y'))
+                if base_mag is not None:
+                    level._attrs['magnification'] = base_mag / ratio_x
+
+    tif.is_uniform = False
+    return series
+
+
+def series_svs(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in Aperio SVS file."""
+    series = []
+    pages = tif.pages
+    pages.cache = True
+    pages.useframes = False
+    pages.set_keyframe(0)
+    pages._load()
+
+    # baseline
+    page0 = pages.first
+
+    # parse Aperio description for MPP (micrometer/pixel) and magnification
+    attrs: dict[str, Any] = {}
+    coords: dict[str, Any] = {}
+    mpp_val: float | None = None
+    units: dict[str, str] | None = None
+    try:
+        meta = svs_description_metadata(page0.description)
+        mpp = meta.get('MPP')
+        if isinstance(mpp, (int, float)) and mpp > 0:
+            mpp_val = float(mpp)
+            units = {'X': 'micrometer', 'Y': 'micrometer'}
+            coords['X'] = (0.0, page0.imagewidth * mpp_val)
+            coords['Y'] = (0.0, page0.imagelength * mpp_val)
+        mag = meta.get('AppMag')
+        if mag is not None:
+            attrs['magnification'] = mag
+    except Exception as exc:
+        logger().warning(
+            f'{tif!r} SVS description metadata failed: {exc!r:.128}'
+        )
+
+    if len(pages) == 1:
+        tif.is_uniform = False
+        return [
+            TiffPageSeries(
+                [page0],
+                page0.shape,
+                page0.dtype,
+                page0.axes,
+                name='Baseline',
+                kind='svs',
+                attrs=attrs or None,
+                coords=coords or None,
+                units=units,
+            )
+        ]
+
+    # thumbnail
+    page = pages[1]
+    thumbnail = TiffPageSeries(
+        [page],
+        page.shape,
+        page.dtype,
+        page.axes,
+        name='Thumbnail',
+        kind='svs',
+    )
+
+    # resolutions and focal planes
+    levels = {page0.shape: [page0]}
+    index = 2
+    while index < len(pages):
+        page = cast(TiffPage, pages[index])
+        if not page.is_tiled or page.is_reduced:
+            break
+        if page.shape in levels:
+            levels[page.shape].append(page)
+        else:
+            levels[page.shape] = [page]
+        index += 1
+
+    zsize = len(levels[page0.shape])
+    if not all(len(level) == zsize for level in levels.values()):
+        logger().warning(f'{tif!r} SVS series focal planes do not match')
+        zsize = 1
+        for shape in levels:
+            levels[shape] = levels[shape][:1]
+    baseline = TiffPageSeries(
+        levels[page0.shape],
+        (zsize, *page0.shape),
+        page0.dtype,
+        'Z' + page0.axes,
+        name='Baseline',
+        kind='svs',
+        attrs=attrs or None,
+        coords=coords or None,
+        units=units,
+    )
+    base_mag = attrs.get('magnification')
+    for shape, level in levels.items():
+        if shape == page0.shape:
+            continue
+        page = level[0]
+        # scale mpp and magnification by the downsampling ratio
+        ratio = page0.imagewidth / page.imagewidth
+        level_attrs: dict[str, Any] = {}
+        coords = {}
+        units = None
+        if mpp_val is not None:
+            lmpp = mpp_val * ratio
+            units = {'X': 'micrometer', 'Y': 'micrometer'}
+            coords['X'] = (0.0, page.imagewidth * lmpp)
+            coords['Y'] = (0.0, page.imagelength * lmpp)
+        if base_mag is not None:
+            level_attrs['magnification'] = base_mag / ratio
+        baseline.levels.append(
+            TiffPageSeries(
+                level,
+                (zsize, *page.shape),
+                page.dtype,
+                'Z' + page.axes,
+                name='Resolution',
+                kind='svs',
+                attrs=level_attrs or None,
+                coords=coords or None,
+                units=units,
+            )
+        )
+    series.append(baseline)
+    series.append(thumbnail)
+
+    # Label, Macro; subfiletype 1, 9
+    for _ in range(2):
+        if index == len(pages):
+            break
+        page = pages[index]
+        assert isinstance(page, TiffPage)
+        name = 'Macro' if page.subfiletype == 9 else 'Label'
+        series.append(
+            TiffPageSeries(
+                [page],
+                page.shape,
+                page.dtype,
+                page.axes,
+                name=name,
+                kind='svs',
+            )
+        )
+        index += 1
+    tif.is_uniform = False
+    return series
+
+
+def series_scn(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return pyramidal image series in Leica SCN file."""
+    # TODO: support collections
+    from xml.etree import ElementTree
+
+    pages = tif.pages
+    scnxml = tif.scn_metadata
+    if not scnxml:
+        return None
+    root = ElementTree.fromstring(scnxml)
+
+    series = []
+    pages.cache = True
+    pages.useframes = False
+    pages.set_keyframe(0)
+    pages._load()
+
+    for collection in root:
+        if not collection.tag.endswith('collection'):
+            continue
+        for image in collection:
+            if not image.tag.endswith('image'):
+                continue
+            name = image.attrib.get('name', 'Unknown')
+            if int(image.attrib.get('sizeZ', 1)) > 1:
+                msg = (
+                    'SCN series: Z-Stacks not supported. '
+                    'Please submit a sample file.'
+                )
+                raise NotImplementedError(msg)
+            for pixels in image:
+                if not pixels.tag.endswith('pixels'):
+                    continue
+                resolutions: dict[int, dict[str, Any]] = {}
+                for dimension in pixels:
+                    if not dimension.tag.endswith('dimension'):
+                        continue
+                    c = int(dimension.attrib.get('c', 0))
+                    z = int(dimension.attrib.get('z', 0))
+                    r = int(dimension.attrib.get('r', 0))
+                    ifd = int(dimension.attrib['ifd'])
+                    if r in resolutions:
+                        level = resolutions[r]
+                        level['channels'] = max(level['channels'], c)
+                        level['sizez'] = max(level['sizez'], z)
+                        level['ifds'][(c, z)] = ifd
+                    else:
+                        resolutions[r] = {
+                            'channels': c,
+                            'sizez': z,
+                            'ifds': {(c, z): ifd},
+                        }
+                if not resolutions:
+                    continue
+                levels = []
+                for _r, level in sorted(resolutions.items()):
+                    shape: tuple[int, ...] = (
+                        level['channels'] + 1,
+                        level['sizez'] + 1,
+                    )
+                    axes = 'CZ'
+
+                    ifds: list[TiffPage | TiffFrame | None] = [None] * product(
+                        shape
+                    )
+                    for (c, z), ifd in sorted(level['ifds'].items()):
+                        ifds[c * shape[1] + z] = pages[ifd]
+
+                    assert ifds[0] is not None
+                    axes += ifds[0].axes
+                    shape += ifds[0].shape
+                    dtype = ifds[0].dtype
+
+                    levels.append(
+                        TiffPageSeries(
+                            ifds,
+                            shape,
+                            dtype,
+                            axes,
+                            parent=tif,
+                            name=name,
+                            kind='scn',
+                        )
+                    )
+                levels[0].levels.extend(levels[1:])
+                series.append(levels[0])
+
+    tif.is_uniform = False
+    return series
+
+
+def series_qpi(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in PerkinElmer QPI file."""
+    series = []
+    pages = tif.pages
+    pages.cache = True
+    pages.useframes = False
+    pages.set_keyframe(0)
+    pages._load()
+    page0 = pages.first
+
+    # Baseline
+    ifds = []
+    index = 0
+    axes = 'C' + page0.axes
+    dtype = page0.dtype
+    pshape = page0.shape
+    while index < len(pages):
+        page = pages[index]
+        if page.shape != pshape:
+            break
+        ifds.append(page)
+        index += 1
+    shape = (len(ifds), *pshape)
+    series.append(
+        TiffPageSeries(ifds, shape, dtype, axes, name='Baseline', kind='qpi')
+    )
+
+    if index < len(pages):
+        # Thumbnail
+        page = pages[index]
+        series.append(
+            TiffPageSeries(
+                [page],
+                page.shape,
+                page.dtype,
+                page.axes,
+                name='Thumbnail',
+                kind='qpi',
+            )
+        )
+        index += 1
+
+    if page0.is_tiled:
+        # Resolutions
+        while index < len(pages):
+            pshape = (pshape[0] // 2, pshape[1] // 2, *pshape[2:])
+            ifds = []
+            while index < len(pages):
+                page = pages[index]
+                if page.shape != pshape:
+                    break
+                ifds.append(page)
+                index += 1
+            if len(ifds) != len(series[0]):
+                break
+            shape = (len(ifds), *pshape)
+            series[0].levels.append(
+                TiffPageSeries(
+                    ifds,
+                    shape,
+                    dtype,
+                    axes,
+                    name='Resolution',
+                    kind='qpi',
+                )
+            )
+
+    if series[0].is_pyramidal and index < len(pages):
+        # Macro
+        page = pages[index]
+        series.append(
+            TiffPageSeries(
+                [page],
+                page.shape,
+                page.dtype,
+                page.axes,
+                name='Macro',
+                kind='qpi',
+            )
+        )
+        index += 1
+        # Label
+        if index < len(pages):
+            page = pages[index]
+            series.append(
+                TiffPageSeries(
+                    [page],
+                    page.shape,
+                    page.dtype,
+                    page.axes,
+                    name='Label',
+                    kind='qpi',
+                )
+            )
+
+    # Metadata: mpp, magnification
+    s = series[0]
+    base_mag: float | None = None
+    mpp_val: float | None = None
+    xml = tif.qpi_metadata
+    if xml:
+        with contextlib.suppress(Exception):
+            from xml.etree import ElementTree
+
+            root = ElementTree.fromstring(xml)
+            mag_text = root.findtext('.//Magnification')
+            if mag_text is not None:
+                with contextlib.suppress(ValueError):
+                    base_mag = float(mag_text)
+            mpp_text = root.findtext('.//PixelSizeMicrons')
+            if mpp_text is not None:
+                with contextlib.suppress(ValueError):
+                    mpp_val = float(mpp_text)
+    if mpp_val is None:
+        with contextlib.suppress(Exception):
+            xres, yres = page0.get_resolution(unit='centimeter')
+            if xres > 0 and yres > 0:
+                mpp_val = 1e4 / xres
+    if mpp_val is not None:
+        s._units = {'X': 'micrometer', 'Y': 'micrometer'}
+        s._coords['X'] = (0.0, page0.imagewidth * mpp_val)
+        s._coords['Y'] = (0.0, page0.imagelength * mpp_val)
+        s._explicit_coords.update(('X', 'Y'))
+    if base_mag is not None:
+        s._attrs['magnification'] = base_mag
+    if s.is_pyramidal and (mpp_val is not None or base_mag is not None):
+        base_width = page0.imagewidth
+        for level in s.levels[1:]:
+            ratio = base_width / level.keyframe.imagewidth
+            if mpp_val is not None:
+                level_mpp = mpp_val * ratio
+                level._units = {'X': 'micrometer', 'Y': 'micrometer'}
+                level._coords['X'] = (
+                    0.0,
+                    level.keyframe.imagewidth * level_mpp,
+                )
+                level._coords['Y'] = (
+                    0.0,
+                    level.keyframe.imagelength * level_mpp,
+                )
+                level._explicit_coords.update(('X', 'Y'))
+            if base_mag is not None:
+                level._attrs['magnification'] = base_mag / ratio
+
+    tif.is_uniform = False
+    return series
+
+
+def series_bif(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in Ventana/Roche BIF file."""
+    series = []
+    baseline: TiffPageSeries | None = None
+    pages = tif.pages
+    pages.cache = True
+    pages.useframes = False
+    pages.set_keyframe(0)
+    pages._load()
+
+    for page in pages:
+        page = cast(TiffPage, page)
+        if page.description.startswith('Label'):
+            series.append(
+                TiffPageSeries(
+                    [page],
+                    page.shape,
+                    page.dtype,
+                    page.axes,
+                    name='Overview',
+                    kind='bif',
+                )
+            )
+        elif page.description == 'Thumbnail' or page.description.startswith(
+            'Probability'
+        ):
+            series.append(
+                TiffPageSeries(
+                    [page],
+                    page.shape,
+                    page.dtype,
+                    page.axes,
+                    name='Probability',
+                    kind='bif',
+                )
+            )
+        elif 'level' not in page.description:
+            # TODO: is this necessary?
+            series.append(
+                TiffPageSeries(
+                    [page],
+                    page.shape,
+                    page.dtype,
+                    page.axes,
+                    name='Unknown',
+                    kind='bif',
+                )
+            )
+        elif baseline is None:
+            baseline = TiffPageSeries(
+                [page],
+                page.shape,
+                page.dtype,
+                page.axes,
+                name='Baseline',
+                kind='bif',
+            )
+            series = [baseline, *series]
+        else:
+            baseline.levels.append(
+                TiffPageSeries(
+                    [page],
+                    page.shape,
+                    page.dtype,
+                    page.axes,
+                    name='Resolution',
+                    kind='bif',
+                )
+            )
+
+    logger().warning(f'{tif!r} BIF series tiles are not stitched')
+
+    # Metadata: mpp, magnification from iScan tag 700
+    if baseline is not None:
+        from xml.etree import ElementTree
+
+        s = baseline
+        base_mag: float | None = None
+        mpp_val: float | None = None
+        zspacing: float | None = None
+        xml = tif.bif_metadata
+        if xml:
+            with contextlib.suppress(Exception):
+                root = ElementTree.fromstring(xml)
+                iscan = root if root.tag == 'iScan' else root.find('iScan')
+                if iscan is not None:
+                    mag = iscan.get('Magnification')
+                    if mag is not None:
+                        base_mag = float(mag)
+                    scanres = iscan.get('ScanRes')
+                    if scanres is not None:
+                        mpp_val = float(scanres)
+                    zsp = iscan.get('Z-spacing')
+                    zlayers = iscan.get('Z-layers')
+                    if (
+                        zsp is not None
+                        and zlayers is not None
+                        and int(zlayers) > 1
+                    ):
+                        zspacing = float(zsp)
+        if mpp_val is not None:
+            s._units = {'X': 'micrometer', 'Y': 'micrometer'}
+            s._coords['X'] = (0.0, s.keyframe.imagewidth * mpp_val)
+            s._coords['Y'] = (0.0, s.keyframe.imagelength * mpp_val)
+            s._explicit_coords.update(('X', 'Y'))
+        if zspacing is not None and 'Z' in s.axes:
+            zsize = s.shape[s.axes.index('Z')]
+            s._coords['Z'] = (0.0, zsize * zspacing)
+            s._explicit_coords.add('Z')
+            s._units['Z'] = 'micrometer'
+        if base_mag is not None:
+            s._attrs['magnification'] = base_mag
+        if s.is_pyramidal and (mpp_val is not None or base_mag is not None):
+
+            def parse_mag(description: str) -> float | None:
+                # parse magnification from BIF page ImageDescription
+                # description format: 'level=0 mag=40 quality=90'
+                for token in description.split():
+                    if token.startswith('mag='):
+                        try:
+                            return float(token[4:])
+                        except (ValueError, IndexError):
+                            return None
+                return None
+
+            for level in s.levels[1:]:
+                level_mag = parse_mag(level.keyframe.description)
+                if level_mag is not None:
+                    level._attrs['magnification'] = level_mag
+                    if mpp_val is not None and base_mag:
+                        level_mpp = mpp_val * base_mag / level_mag
+                        level._units = {'X': 'micrometer', 'Y': 'micrometer'}
+                        level._coords['X'] = (
+                            0.0,
+                            level.keyframe.imagewidth * level_mpp,
+                        )
+                        level._coords['Y'] = (
+                            0.0,
+                            level.keyframe.imagelength * level_mpp,
+                        )
+                        level._explicit_coords.update(('X', 'Y'))
+                elif base_mag is not None:
+                    ratio = s.keyframe.imagewidth / level.keyframe.imagewidth
+                    level._attrs['magnification'] = base_mag / ratio
+                    if mpp_val is not None:
+                        level_mpp = mpp_val * ratio
+                        level._units = {'X': 'micrometer', 'Y': 'micrometer'}
+                        level._coords['X'] = (
+                            0.0,
+                            level.keyframe.imagewidth * level_mpp,
+                        )
+                        level._coords['Y'] = (
+                            0.0,
+                            level.keyframe.imagelength * level_mpp,
+                        )
+                        level._explicit_coords.update(('X', 'Y'))
+                if zspacing is not None and 'Z' in level.axes:
+                    zsize = level.shape[level.axes.index('Z')]
+                    level._coords['Z'] = (0.0, zsize * zspacing)
+                    level._explicit_coords.add('Z')
+                    level._units['Z'] = 'micrometer'
+
+    tif.is_uniform = False
+    return series
+
+
+def series_philips(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return pyramidal image series in Philips DP file."""
+    from xml.etree import ElementTree
+
+    series = []
+    pages = tif.pages
+    pages.cache = True
+    pages.useframes = False
+    pages.set_keyframe(0)
+    pages._load()
+
+    meta = tif.philips_metadata
+    if not meta:
+        return None
+
+    try:
+        tree = ElementTree.fromstring(meta)
+    except ElementTree.ParseError as exc:
+        logger().error(f'{tif!r} Philips series raised {exc!r:.128}')
+        return None
+
+    pixel_spacing = [
+        tuple(float(v) for v in elem.text.replace('"', '').split())
+        for elem in tree.findall(
+            './/*'
+            '/DataObject[@ObjectType="PixelDataRepresentation"]'
+            '/Attribute[@Name="DICOM_PIXEL_SPACING"]'
+        )
+        if elem.text is not None
+    ]
+    if len(pixel_spacing) < 2:
+        logger().error(f'{tif!r} Philips series {len(pixel_spacing)=} < 2')
+        return None
+
+    series_dict: dict[str, list[TiffPage]] = {}
+    series_dict['Level'] = []
+    series_dict['Other'] = []
+    for page in pages:
+        assert isinstance(page, TiffPage)
+        if page.description.startswith('Macro'):
+            series_dict['Macro'] = [page]
+        elif page.description.startswith('Label'):
+            series_dict['Label'] = [page]
+        elif not page.is_tiled:
+            series_dict['Other'].append(page)
+        else:
+            series_dict['Level'].append(page)
+
+    levels = series_dict.pop('Level')
+    if len(levels) != len(pixel_spacing):
+        logger().error(
+            f'{tif!r} Philips series '
+            f'{len(levels)=} != {len(pixel_spacing)=}'
+        )
+        return None
+
+    # fix padding of sublevels
+    imagewidth0 = levels[0].imagewidth
+    imagelength0 = levels[0].imagelength
+    h0, w0 = pixel_spacing[0]
+    for page, (h, w) in zip(levels[1:], pixel_spacing[1:], strict=True):
+        imagewidth = imagewidth0 // round(w / w0)
+        imagelength = imagelength0 // round(h / h0)
+
+        if page.imagewidth - page.tilewidth >= imagewidth:
+            logger().warning(
+                f'{tif!r} Philips series {page.index=} '
+                f'{page.imagewidth=}-{page.tilewidth=} >= '
+                f'{imagewidth=}'
+            )
+            page.imagewidth -= page.tilewidth - 1
+        elif page.imagewidth < imagewidth:
+            logger().warning(
+                f'{tif!r} Philips series {page.index=} '
+                f'{page.imagewidth=} < {imagewidth=}'
+            )
+        else:
+            page.imagewidth = imagewidth
+        imagewidth = page.imagewidth
+
+        if page.imagelength - page.tilelength >= imagelength:
+            logger().warning(
+                f'{tif!r} Philips series {page.index=} '
+                f'{page.imagelength=}-{page.tilelength=} >= '
+                f'{imagelength=}'
+            )
+            page.imagelength -= page.tilelength - 1
+        else:
+            page.imagelength = imagelength
+        imagelength = page.imagelength
+
+        if page.shaped[-1] > 1:
+            page.shape = (imagelength, imagewidth, page.shape[-1])
+        elif page.shaped[0] > 1:
+            page.shape = (page.shape[0], imagelength, imagewidth)
+        else:
+            page.shape = (imagelength, imagewidth)
+        page.shaped = (
+            *page.shaped[:2],
+            imagelength,
+            imagewidth,
+            *page.shaped[-1:],
+        )
+
+    series = [TiffPageSeries([levels[0]], name='Baseline', kind='philips')]
+    for i, page in enumerate(levels[1:]):
+        series[0].levels.append(
+            TiffPageSeries([page], name=f'Level{i + 1}', kind='philips')
+        )
+    for key, value in series_dict.items():
+        for page in value:
+            series.append(TiffPageSeries([page], name=key, kind='philips'))
+
+    # mpp from DICOM_PIXEL_SPACING
+    s = series[0]
+    for level, (h, w) in zip(s.levels, pixel_spacing, strict=True):
+        mpp_x = w * 1000  # column spacing mm -> micrometer
+        mpp_y = h * 1000  # row spacing mm -> micrometer
+        level._units = {'X': 'micrometer', 'Y': 'micrometer'}
+        level._coords['X'] = (0.0, level.keyframe.imagewidth * mpp_x)
+        level._coords['Y'] = (0.0, level.keyframe.imagelength * mpp_y)
+        level._explicit_coords.update(('X', 'Y'))
+
+    tif.is_uniform = False
+    return series
+
+
+def series_indica(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return pyramidal image series in IndicaLabs file."""
+    from xml.etree import ElementTree
+
+    meta = tif.indica_metadata
+    if not meta:
+        return None
+    try:
+        tree = ElementTree.fromstring(meta)
+    except ElementTree.ParseError as exc:
+        logger().error(f'{tif!r} Indica series raised {exc!r:.128}')
+        return None
+
+    # Parse channel names from XML
+    channel_names = [
+        channel.attrib.get('name', str(i))
+        for i, channel in enumerate(tree.iter('channel'))
+    ]
+
+    # Parse pixel dimensions from XML: level -> {channel: ifd}
+    levels_ifds: dict[int, dict[int, int]] = {}
+    for dim in tree.findall('./image/pixels/dimension'):
+        with contextlib.suppress(KeyError, ValueError):
+            lv = int(dim.attrib['level'])
+            ch = int(dim.attrib['channel'])
+            ifd = int(dim.attrib['ifd'])
+            if lv not in levels_ifds:
+                levels_ifds[lv] = {}
+            levels_ifds[lv][ch] = ifd
+
+    pages = tif.pages
+    pages.cache = True
+    pages.useframes = False
+    pages.set_keyframe(0)
+    pages._load()
+
+    if not levels_ifds:
+        return None
+
+    # Build series levels from XML dimensions
+    all_levels: list[TiffPageSeries] = []
+    c_coords = numpy.array(channel_names) if channel_names else None
+    for i, lv_num in enumerate(sorted(levels_ifds.keys())):
+        channel_ifds = levels_ifds[lv_num]
+        lv_pages = [pages[channel_ifds[ch]] for ch in sorted(channel_ifds)]
+        first_page = next(
+            (p for p in lv_pages if isinstance(p, TiffPage)), None
+        )
+        if first_page is None:
+            continue
+        nch = len(lv_pages)
+        if nch > 1:
+            shape: tuple[int, ...] = (
+                nch,
+                first_page.imagelength,
+                first_page.imagewidth,
+            )
+            axes = 'CYX'
+        else:
+            shape = (first_page.imagelength, first_page.imagewidth)
+            axes = 'YX'
+        name = 'Baseline' if i == 0 else f'Level {lv_num}'
+        lv_series = TiffPageSeries(
+            lv_pages,
+            shape,
+            first_page.dtype,
+            axes,
+            name=name,
+            kind='indica',
+        )
+        if c_coords is not None and nch > 1:
+            lv_series._coords['C'] = c_coords[:nch]
+            lv_series._explicit_coords.add('C')
+        all_levels.append(lv_series)
+
+    if not all_levels:
+        tif.is_uniform = False
+        return None
+
+    baseline = all_levels[0]
+    baseline.levels = all_levels
+
+    # Metadata: mpp from resolution tags, magnification from objective
+    mpp_val: float | None = None
+    base_mag: float | None = None
+    with contextlib.suppress(Exception):
+        kf = baseline.keyframe
+        res = kf.resolution
+        ru = int(kf.resolutionunit)
+        if ru == 3 and res[0] > 0:  # centimeter
+            mpp_val = 10000.0 / res[0]
+        elif ru == 2 and res[0] > 0:  # inch
+            mpp_val = 25400.0 / res[0]
+    with contextlib.suppress(Exception):
+        obj = tree.find('.//objective')
+        if obj is not None:
+            base_mag = float(obj.attrib['value'])
+    if mpp_val is not None or base_mag is not None:
+        base_width = baseline.keyframe.imagewidth
+        for level in all_levels:
+            ratio = base_width / level.keyframe.imagewidth
+            if mpp_val is not None:
+                level_mpp = mpp_val * ratio
+                level._units = {'X': 'micrometer', 'Y': 'micrometer'}
+                level._coords['X'] = (
+                    0.0,
+                    level.keyframe.imagewidth * level_mpp,
+                )
+                level._coords['Y'] = (
+                    0.0,
+                    level.keyframe.imagelength * level_mpp,
+                )
+                level._explicit_coords.update(('X', 'Y'))
+            if base_mag is not None:
+                level._attrs['magnification'] = base_mag / ratio
+
+    tif.is_uniform = False
+    return [baseline]
 
 
 def read_tags(
@@ -20720,8 +22782,9 @@ def read_gdal_structural_metadata(
 ) -> dict[str, str] | None:
     """Read non-TIFF GDAL structural metadata from file.
 
-    Return None if the file does not contain valid GDAL structural metadata.
-    The metadata can be used to optimize reading image data from a COG file.
+    Return ``None`` if the file does not contain valid GDAL structural
+    metadata. The metadata can be used to optimize reading image data from
+    a COG file.
 
     """
     fh.seek(0)
@@ -20792,7 +22855,7 @@ def imagej_metadata_tag(
 
     Returns:
         IJMetadata and IJMetadataByteCounts tags in :py:meth:`TiffWriter.write`
-        `extratags` format.
+        ``extratags`` format.
 
     """
     if not metadata:
@@ -20888,7 +22951,7 @@ def imagej_metadata(
                 Human-readable information as string.
                 Some formats, such as OIF or ScanImage, can be parsed into
                 dicts with :py:func:`matlabstr2py` or the
-                `oiffile.SettingsFile()` function of the
+                ``oiffile.SettingsFile()`` function of the
                 `oiffile <https://pypi.org/project/oiffile/>`_  package.
             'Labels' (Sequence[str]):
                 Human-readable labels for each channel.
@@ -21021,9 +23084,9 @@ def imagej_description(
         shape:
             Shape of image array.
         axes:
-            Character codes for dimensions in `shape`.
+            Character codes for dimensions in ``shape``.
             ImageJ can handle up to 6 dimensions in order TZCYXS.
-            `Axes` and `shape` are used to determine the images, channels,
+            ``Axes`` and ``shape`` are used to determine the images, channels,
             slices, and frames entries of the image description.
         rgb:
             Image is RGB type.
@@ -21036,21 +23099,21 @@ def imagej_description(
                 ImageJ version string. The default is '1.11a'.
             hyperstack (bool):
                 Image is a hyperstack.
-                The default is True unless `colormapped` is true.
+                The default is ``True`` unless ``colormapped`` is ``True``.
             mode (str):
                 Display mode: 'grayscale', 'composite', or 'color'.
-                The default is 'grayscale' unless `rgb` or `colormapped` are
-                true. Ignored if `hyperstack` is false.
+                The default is 'grayscale' unless ``rgb`` or ``colormapped``
+                are ``True``. Ignored if ``hyperstack`` is ``False``.
             loop (bool):
-                Loop frames back and forth. The default is False.
+                Loop frames back and forth. The default is ``False``.
             finterval (float):
                 Frame interval in seconds.
             fps (float):
-                Frames per seconds. The inverse of `finterval`.
+                Frames per seconds. The inverse of ``finterval``.
             spacing (float):
-                Voxel spacing in `unit` units.
+                Voxel spacing in ``unit`` units.
             unit (str):
-                Unit for `spacing` and X/YResolution tags.
+                Unit for ``spacing`` and X/YResolution tags.
                 Usually 'um' (micrometer) or 'pixel'.
             xorigin, yorigin, zorigin (float):
                 X, Y, and Z origins in pixel units.
@@ -21188,7 +23251,7 @@ def jpeg_decode_colorspace(
     jfif: bool,  # noqa: FBT001
     /,
 ) -> tuple[int | None, int | str | None]:
-    """Return JPEG and output color space for `jpeg_decode` function.
+    """Return JPEG and output color space for ``jpeg_decode`` function.
 
     Parameters:
         photometric: Photometric interpretation tag value.
@@ -21197,8 +23260,8 @@ def jpeg_decode_colorspace(
         jfif: Whether the JPEG data has a JFIF marker.
 
     Returns:
-        Tuple of JPEG colorspace and output colorspace for `jpeg_decode`.
-        A value of None leaves the colorspace at its default.
+        Tuple of JPEG colorspace and output colorspace for ``jpeg_decode``.
+        A value of ``None`` leaves the colorspace at its default.
 
     """
     colorspace: int | None = None
@@ -21365,7 +23428,7 @@ def shaped_description(shape: Sequence[int], /, **metadata: Any) -> str:
 def shaped_description_metadata(description: str, /) -> dict[str, Any]:
     """Return metadata from JSON formatted image description.
 
-    Raise ValueError if `description` is of unknown format.
+    Raise ValueError if ``description`` is of unknown format.
 
     >>> description = '{"shape": [256, 256, 3], "axes": "YXS"}'
     >>> shaped_description_metadata(description)
@@ -21847,7 +23910,7 @@ def streak_description_metadata(
 ) -> dict[str, Any]:
     """Return metadata from Hamamatsu streak image description.
 
-    Read scaling arrays from `fh` if the file handle is open.
+    Read scaling arrays from ``fh`` if the file handle is open.
 
     """
     section_pattern = re.compile(
@@ -22007,14 +24070,14 @@ def apply_colormap(
     """Return palette-colored image.
 
     The colormap is indexed along its second axis (palette dimension).
-    The returned image array is of shape `image.shape + (colormap.shape[0],)`
-    and dtype `colormap.dtype`.
+    The returned image array is of shape ``image.shape + (colormap.shape[0],)``
+    and dtype ``colormap.dtype``.
 
     Parameters:
         image:
             Array of indices into colormap.
         colormap:
-            RGB lookup table aka palette of shape `(3, 2**bitspersample)`.
+            RGB lookup table aka palette of shape ``(3, 2**bitspersample)``.
         contig:
             Return contiguous array.
 
@@ -22063,10 +24126,10 @@ def parse_filenames(
             order they appear in pattern.
         categories:
             Map of index group matches to integer indices.
-            `{'axislabel': {'category': index}}`
+            ``{'axislabel': {'category': index}}``
         _shape:
             Shape of file sequence. The default is
-            `maximum - minimum + 1` of the parsed indices for each dimension.
+            ``maximum - minimum + 1`` of the parsed indices for each dimension.
 
     Returns:
         - Axes names for each dimension.
@@ -22216,17 +24279,17 @@ def iter_strips(
 
     Parameters:
         pageiter:
-            Iterator of pages, each of shape `shape`, or None for missing
+            Iterator of pages, each of shape ``shape``, or ``None`` for missing
             pages. Missing pages are replaced with zero-filled arrays.
         shape:
-            Normalized page shape `(pages, depth, rows, cols, samples)`.
+            Normalized page shape ``(pages, depth, rows, cols, samples)``.
         dtype:
             Data type of page arrays.
         rowsperstrip:
             Number of rows per strip.
 
     Yields:
-        Strips of shape `(rows, cols, samples)` where rows <= rowsperstrip.
+        Strips of shape ``(rows, cols, samples)`` where rows <= rowsperstrip.
 
     """
     numstrips = math.ceil(shape[-3] / rowsperstrip)
@@ -22257,14 +24320,14 @@ def iter_tiles(
 
     Parameters:
         data:
-            Normalized array of shape `(pages, depth, rows, cols, samples)`.
+            Normalized array of shape ``(pages, depth, rows, cols, samples)``.
         tile:
-            Tile shape as `(rows, cols)` or `(depth, rows, cols)`.
+            Tile shape as ``(rows, cols)`` or ``(depth, rows, cols)``.
         tiles:
             Number of tiles along each tiled dimension.
 
     Yields:
-        Tiles of shape `(*tile, samples)`, zero-padded at image boundaries.
+        Tiles of shape ``(*tile, samples)``, zero-padded at image boundaries.
 
     """
     if not 1 < len(tile) < 4 or len(tile) != len(tiles):
@@ -22328,7 +24391,7 @@ def encode_chunks(
 ) -> Iterator[bytes]:
     """Return iterator over encoded chunks.
 
-    Chunks that are None yield b'' without calling encode.
+    Chunks that are ``None`` yield b'' without calling encode.
 
     """
     if numchunks <= 0:
@@ -22414,7 +24477,7 @@ def reorient(
 
     Parameters:
         image:
-            Non-squeezed output of `asarray` functions.
+            Non-squeezed output of ``asarray`` functions.
             Axes -3 and -2 must be image length and width respectively.
         orientation:
             Value of Orientation tag.
@@ -22454,11 +24517,11 @@ def repeat_nd(a: ArrayLike, repeats: Sequence[int], /) -> NDArray[Any]:
         a: Input array.
         repeats:
             Number of repetitions to apply along each dimension of input.
-            Length must equal the number of dimensions in `a`.
+            Length must equal the number of dimensions in ``a``.
             All values must be positive integers.
 
     Returns:
-        Read-only view of `a` with each element repeated along each axis.
+        Read-only view of ``a`` with each element repeated along each axis.
 
     Examples:
         >>> repeat_nd([[1, 2], [3, 4]], (2, 2))
@@ -22494,7 +24557,7 @@ def reshape_nd(data_or_shape: NDArray[Any], ndim: int, /) -> NDArray[Any]: ...
 def reshape_nd(
     data_or_shape: tuple[int, ...] | NDArray[Any], ndim: int, /
 ) -> tuple[int, ...] | NDArray[Any]:
-    """Return image array or shape with at least `ndim` dimensions.
+    """Return image array or shape with at least ``ndim`` dimensions.
 
     Prepend 1s to image shape as necessary.
 
@@ -22503,11 +24566,11 @@ def reshape_nd(
             Image array or shape tuple to expand.
         ndim:
             Minimum number of dimensions required.
-            If the input already has at least `ndim` dimensions, it is
+            If the input already has at least ``ndim`` dimensions, it is
             returned unchanged.
 
     Returns:
-        Array or shape tuple with at least `ndim` dimensions.
+        Array or shape tuple with at least ``ndim`` dimensions.
         Ones are prepended as needed.
 
     >>> import numpy
@@ -22562,13 +24625,13 @@ def squeeze_axes(
 ) -> tuple[tuple[int, ...], str | Sequence[str], tuple[bool, ...]]:
     """Return shape and axes with length-1 dimensions removed.
 
-    Remove unused dimensions unless their axes are listed in `skip`.
+    Remove unused dimensions unless their axes are listed in ``skip``.
 
     Parameters:
         shape:
             Sequence of dimension sizes.
         axes:
-            Character codes for dimensions in `shape`.
+            Character codes for dimensions in ``shape``.
         skip:
             Character codes for dimensions whose length-1 dimensions are
             not removed. The default is 'XY'.
@@ -22577,7 +24640,7 @@ def squeeze_axes(
         shape:
             Sequence of dimension sizes with length-1 dimensions removed.
         axes:
-            Character codes for dimensions in output `shape`.
+            Character codes for dimensions in output ``shape``.
         kept:
             Dimensions were kept (True) or removed (False).
 
@@ -22629,7 +24692,7 @@ def transpose_axes(
             Image array to permute.
         axes:
             Character codes for dimensions in image array.
-            Length must equal the number of dimensions in `image`.
+            Length must equal the number of dimensions in ``image``.
         asaxes:
             Character codes for dimensions in output image array.
             The default is 'CTZYX'.
@@ -22697,17 +24760,17 @@ def reshape_axes(
 
     Parameters:
         axes:
-            Character codes for dimensions in `shape`.
+            Character codes for dimensions in ``shape``.
         shape:
-            Input shape matching `axes`.
+            Input shape matching ``axes``.
         newshape:
             Output shape matching output axes.
-            Size must match size of `shape`.
+            Size must match size of ``shape``.
         unknown:
             Character used for new axes in output. The default is 'Q'.
 
     Returns:
-        Character codes for dimensions in `newshape`.
+        Character codes for dimensions in ``newshape``.
 
     Examples:
         >>> reshape_axes('YXS', (219, 301, 1), (219, 301))
@@ -22812,7 +24875,7 @@ def check_shape(
         series_shape: Shape of the full series.
 
     Returns:
-        True if the page can tile exactly into the series, False otherwise.
+        ``True`` if the page can tile exactly into the series, else ``False``.
 
     """
     page_size = product(page_shape)
@@ -22866,13 +24929,13 @@ def subresolution(
 
     Parameters:
         a: Reference page or series.
-        b: Candidate page or series to test against `a`.
+        b: Candidate page or series to test against ``a``.
         p: Downsampling factor per pyramid level.
         n: Maximum number of pyramid levels to test.
 
     Returns:
-        Pyramid level of `b` relative to `a`, or None if `b` is not a
-        subresolution of `a`. Level 0 means same resolution as `a`.
+        Pyramid level of ``b`` relative to ``a``, or ``None`` if ``b`` is not a
+        subresolution of ``a``. Level 0 means same resolution as ``a``.
 
     """
     if a.axes != b.axes or a.dtype != b.dtype:
@@ -23135,41 +25198,42 @@ def create_output(
 
     Parameters:
         out:
-            Specifies kind of array of `shape` and `dtype` to return:
+            Specifies kind of array of ``shape`` and ``dtype`` to return:
 
-                `None`:
+                ``None``:
                     Return new array.
-                `numpy.ndarray`:
+                ``numpy.ndarray``:
                     Return view of existing array.
-                `'memmap'` or `'memmap:tempdir'`:
+                ``'memmap'`` or ``'memmap:tempdir'``:
                     Return memory-map to array stored in temporary binary file.
-                `str` or open file:
+                ``str`` or open file:
                     Return memory-map to array stored in specified binary file.
         shape:
             Shape of array to return.
         dtype:
             Data type of array to return.
-            If `out` is an existing array, `dtype` must be castable to its
+            If ``out`` is an existing array, ``dtype`` must be castable to its
             data type.
         mode:
             File mode to create memory-mapped array.
-            Only used when `out` is a file path or `'memmap'`.
+            Only used when ``out`` is a file path or ``'memmap'``.
             The default is 'w+' to create new, or overwrite existing file for
             reading and writing.
         suffix:
-            Suffix of `NamedTemporaryFile` if `out` is `'memmap'`.
-            Only used when `out` is `'memmap'`.
+            Suffix of ``NamedTemporaryFile`` if ``out`` is ``'memmap'``.
+            Only used when ``out`` is ``'memmap'``.
             The default is '.memmap'.
         fillvalue:
             Value to initialize output array.
             By default, return uninitialized array.
 
     Returns:
-        NumPy array or memory-mapped array of `shape` and `dtype`.
+        NumPy array or memory-mapped array of ``shape`` and ``dtype``.
 
     Raises:
         ValueError:
-            Existing array cannot be reshaped to `shape` or cast to `dtype`.
+            Existing array cannot be reshaped to ``shape``
+            or cast to ``dtype``.
 
     """
     shape = tuple(shape)
@@ -23187,8 +25251,8 @@ def create_output(
         if not numpy.can_cast(dtype, out.dtype):
             msg = f'cannot cast {dtype} to {out.dtype}'
             raise ValueError(msg)
-        # out = out.reshape(shape, copy=False)
-        out.shape = shape
+        if out.shape != shape:
+            out = out.reshape(shape, copy=False)
         if fillvalue is not None:
             out.fill(fillvalue)
         return out
@@ -23218,9 +25282,10 @@ def matlabstr2py(matlabstr: str, /) -> Any:
         matlabstr: String representation of Matlab objects.
 
     Returns:
-        Matlab structures are returned as `dict`.
-        Matlab arrays or cells are returned as `lists`.
-        Other Matlab objects are returned as `str`, `bool`, `int`, or `float`.
+        Matlab structures are returned as ``dict``.
+        Matlab arrays or cells are returned as ``lists``.
+        Other Matlab objects are returned as ``str``, ``bool``, ``int``,
+        or ``float``.
 
     Examples:
         >>> matlabstr2py('1')
@@ -23377,12 +25442,12 @@ def strptime(datetime_string: str, fmt: str | None = None, /) -> DateTime:
         datetime_string:
             String representation of date and time.
         fmt:
-            Format of `datetime_string`.
+            Format of ``datetime_string``.
             By default, several datetime formats commonly found in TIFF files
             are parsed.
 
     Raises:
-        ValueError: `datetime_string` does not match any known format.
+        ValueError: ``datetime_string`` does not match any known format.
 
     Examples:
         >>> strptime('2022:08:01 22:23:24')
@@ -23441,7 +25506,7 @@ def asbool(
 ) -> bool:
     """Return string as bool if possible, else raise TypeError.
 
-    Custom `true` and `false` sequences must contain lowercase strings.
+    Custom ``true`` and ``false`` sequences must contain lowercase strings.
 
     >>> asbool(b' False ')
     False
@@ -23475,8 +25540,8 @@ def astype(
 ) -> Any:
     """Return argument converted to first matching type.
 
-    By default, tries to convert to `int`, `float`, `bool` (via `asbool`),
-    and `str` (via `bytes2str`), in that order.
+    By default, tries to convert to ``int``, ``float``, ``bool``
+    (via ``asbool``), and ``str`` (via ``bytes2str``), in that order.
 
     >>> astype('42')
     42
@@ -23776,14 +25841,14 @@ def bytes2str(
         b:
             Bytes to decode.
         encoding:
-            Character encoding of `b`.
+            Character encoding of ``b``.
             The default is to try UTF-8, falling back to cp1252 on failure.
         errors:
             Error handling for :py:meth:`bytes.decode`.
 
     Raises:
         UnicodeDecodeError:
-            Decoding with the specified `encoding` failed.
+            Decoding with the specified ``encoding`` failed.
 
     """
     if encoding is not None and encoding.lower().replace('-', '_').startswith(
@@ -24348,10 +26413,10 @@ def parse_kwargs(
 ) -> dict[str, Any]:
     """Extract keys from kwargs into a new dict, removing them from kwargs.
 
-    Keys listed in `keys` are extracted by name only.
-    Keys listed in `keyvalues` are extracted by name if present in `kwargs`,
-    otherwise their default value is used.
-    Extracted keys are deleted from `kwargs`.
+    Keys listed in ``keys`` are extracted by name only.
+    Keys listed in ``keyvalues`` are extracted by name if present
+    in ``kwargs``, otherwise their default value is used.
+    Extracted keys are deleted from ``kwargs``.
 
     >>> kwargs = {'one': 1, 'two': 2, 'four': 4}
     >>> parse_kwargs(kwargs, 'two', 'three', four=None, five=5)
@@ -24424,7 +26489,7 @@ def validate_jhove(
     Raises:
         ValueError:
             Jhove printed error message and did not contain one of strings
-            in `ignore`.
+            in ``ignore``.
 
     References:
         - `JHOVE TIFF-hul Module <http://jhove.sourceforge.net/tiff-hul.html>`_
@@ -24478,11 +26543,11 @@ def tiffcomment(
             The default is 270 (ImageDescription).
 
     Returns:
-        None, if `comment` is specified. Else, the current value of the
+        ``None``, if ``comment`` is specified. Else, the current value of the
         specified tag in the specified page.
 
     Raises:
-        IndexError: If `pageindex` is not found.
+        IndexError: If ``pageindex`` is not found.
         ValueError: If the specified tag is not found in the page.
 
     """
@@ -24536,7 +26601,7 @@ def tiff2fsspec(
             Base URL of the remote TIFF file, without filename.
         out:
             Name of output JSON file.
-            The default is `filename` with a '.json' extension appended.
+            The default is ``filename`` with a '.json' extension appended.
         key, series, level, chunkmode, fillvalue, zattrs, squeeze:
             Passed to :py:meth:`TiffFile.aszarr`.
         groupname, version, zarr_format:
@@ -24619,8 +26684,8 @@ def lsm2bin(
             msg = 'not a LSM file'
             raise ValueError(msg)
         series = lsm.series[0]  # first series contains the image
-        shape = series.get_shape(squeeze=False)
-        axes = series.get_axes(squeeze=False)
+        shape = series.shape
+        axes = series.axes
         dtype = series.dtype
         size = product(shape) * dtype.itemsize
 
@@ -24659,7 +26724,7 @@ def lsm2bin(
             (shape[-4], shape[-3], tile[0], tile[1]), dtype=dtype
         )
         # iterate over Tiff pages containing data
-        pages = iter(series.pages)
+        pages = iter(series)
         for m in range(shape[0]):  # mosaic axis
             for p in range(shape[1]):  # position axis
                 for t in range(shape[2]):  # time axis
@@ -24702,7 +26767,7 @@ def imshow(
     show: bool = False,
     **kwargs: Any,
 ) -> tuple[Any, Any, Any]:
-    """Plot n-dimensional images with `matplotlib.pyplot`.
+    """Plot n-dimensional images with ``matplotlib.pyplot``.
 
     Parameters:
         data:
@@ -24714,12 +26779,12 @@ def imshow(
         bitspersample:
             Number of bits per channel in integer RGB images.
         interpolation:
-           Image interpolation method used in `matplotlib.imshow`.
+           Image interpolation method used in ``matplotlib.imshow``.
            The default is 'bilinear' for image dimensions > 512,
            else 'nearest'.
         cmap:
             Colormap mapping non-RGBA scalar data to colors.
-            See `matplotlib.colors.Colormap`.
+            See ``matplotlib.colors.Colormap``.
         vmin:
             Minimum of data range covered by colormap.
             By default, the complete range of the data is covered.
@@ -24728,9 +26793,9 @@ def imshow(
             By default, the complete range of the data is covered.
         figure:
             Matplotlib figure to use for plotting.
-            See `matplotlib.figure.Figure`.
+            See ``matplotlib.figure.Figure``.
         subplot:
-            A `matplotlib.pyplot.subplot` axis.
+            A ``matplotlib.pyplot.subplot`` axis.
         title:
             Subplot title.
         window_title:
