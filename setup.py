@@ -102,15 +102,15 @@ setup(
     python_requires='>=3.12',
     install_requires=[
         'numpy>=2.1',
-        # 'imagecodecs>=2026.3.6',
+        # 'imagecodecs>=2026.5.10',
     ],
     extras_require={
-        'codecs': ['imagecodecs>=2026.3.6'],
+        'codecs': ['imagecodecs>=2026.5.10'],
         'xml': ['lxml'],
         'zarr': ['zarr>=3.2.0', 'fsspec', 'kerchunk'],
         'plot': ['matplotlib'],
         'all': [
-            'imagecodecs>=2026.3.6',
+            'imagecodecs>=2026.5.10',
             'matplotlib',
             'lxml',
             'zarr>=3.2.0',
@@ -156,5 +156,6 @@ setup(
         'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: 3.13',
         'Programming Language :: Python :: 3.14',
+        'Programming Language :: Python :: 3.15',
     ],
 )
