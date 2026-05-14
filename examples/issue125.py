@@ -38,6 +38,7 @@ with open('issue125.json', 'w', encoding='utf-8', newline='\n') as jsonfile:
                 store.write_fsspec(
                     jsonfile,
                     url=url,
+                    zarr_format=2,
                     # using an experimental API:
                     _shape=[len(files)],  # shape of file sequence
                     _axes=['T'],  # axes of file sequence
