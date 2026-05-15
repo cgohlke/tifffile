@@ -38,10 +38,11 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Published October 9, 2021. Last updated February 24, 2026.
+Published October 9, 2021. Last updated May 15, 2026.
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
+Zarr format 3
 [fsspec ReferenceFileSystem](https://github.com/fsspec/kerchunk) file in
 JSON format for the [Earthbigdata](
 http://sentinel-1-global-coherence-earthbigdata.s3-website-us-west-2.amazonaws.com
@@ -59,7 +60,7 @@ https://github.com/cgohlke/tifffile/blob/master/examples/earthbigdata.py).
 import base64
 import os
 
-import imagecodecs.numcodecs
+import imagecodecs.zarr
 import kerchunk.utils
 import matplotlib.pyplot
 import xarray
@@ -195,66 +196,68 @@ ReferenceFileSystem JSON string, and write it to the open file.
 
 # %%
 coordinates = {}  # type: ignore[var-annotated]
-zarrgroup = zarr.open_group(coordinates, use_consolidated=False, zarr_format=2)
+zarrgroup = zarr.open_group(coordinates, use_consolidated=False, zarr_format=3)
 zararray = zarrgroup.create_array(
     longitude_label,
     shape=[len(longitude_coordinates)],
     dtype='float32',
-    # compressor='zlib',
+    dimension_names=[longitude_label],
+    # compressors=['zlib'],
 )
 zararray[:] = longitude_coordinates
-zararray.attrs['_ARRAY_DIMENSIONS'] = [longitude_label]
 
 zararray = zarrgroup.create_array(
     latitude_label,
     shape=[len(latitude_coordinates)],
     dtype='float32',
-    # compressor='zlib',
+    dimension_names=[latitude_label],
+    # compressors=['zlib'],
 )
 zararray[:] = latitude_coordinates
-zararray.attrs['_ARRAY_DIMENSIONS'] = [latitude_label]
 
 zararray = zarrgroup.create_array(
     season_label,
     shape=[len(season_coordinates)],
-    dtype='|U6',
-    compressor=None,
+    dtype=str,
+    compressors=None,
+    dimension_names=[season_label],
 )
 zararray[:] = season_coordinates
-zararray.attrs['_ARRAY_DIMENSIONS'] = [season_label]
 
 zararray = zarrgroup.create_array(
     polarization_label,
     shape=[len(polarization_coordinates)],
-    dtype='|U2',
-    compressor=None,
+    dtype=str,
+    compressors=None,
+    dimension_names=[polarization_label],
 )
 zararray[:] = polarization_coordinates
-zararray.attrs['_ARRAY_DIMENSIONS'] = [polarization_label]
 
 zararray = zarrgroup.create_array(
     coherence_label,
     shape=[len(coherence_coordinates)],
     dtype='uint8',
-    compressor=None,
+    compressors=None,
+    dimension_names=[coherence_label],
 )
 zararray[:] = coherence_coordinates
-zararray.attrs['_ARRAY_DIMENSIONS'] = [coherence_label]
 
 zararray = zarrgroup.create_array(
-    orbit_label, shape=[len(orbit_coordinates)], dtype='int32'
+    orbit_label,
+    shape=[len(orbit_coordinates)],
+    dtype='int32',
+    dimension_names=[orbit_label],
 )
 zararray[:] = orbit_coordinates
-zararray.attrs['_ARRAY_DIMENSIONS'] = [orbit_label]
 
 zararray = zarrgroup.create_array(
     flightdirection_label,
     shape=[len(flightdirection_coordinates)],
-    dtype='|U1',
-    compressor=None,
+    dtype=str,
+    compressors=None,
+    dimension_names=[flightdirection_label],
 )
 zararray[:] = flightdirection_coordinates
-zararray.attrs['_ARRAY_DIMENSIONS'] = [flightdirection_label]
 
 # base64 encode any values containing non-ascii characters
 for key, value in coordinates.items():
@@ -319,7 +322,6 @@ print(fileseq)
 
 Define `axestiled` to tile the latitude and longitude dimensions of the
 TiffSequence with the first and second image/chunk dimensions.
-Define extra `zattrs` to create an Xarray compatible store.
 """
 
 # %%
@@ -328,15 +330,6 @@ store = fileseq.aszarr(
     chunkshape=chunkshape,
     fillvalue=fillvalue,
     axestiled={0: 0, 1: 1},
-    zattrs={
-        '_ARRAY_DIMENSIONS': [
-            season_label,
-            polarization_label,
-            coherence_label,
-            latitude_label,
-            longitude_label,
-        ]
-    },
 )
 print(store)
 
@@ -345,7 +338,7 @@ print(store)
 ## Append the ZarrTiffStore to the open ReferenceFileSystem file
 
 Use the mode name to create a Zarr subgroup.
-Use the `imagecodecs_tiff` Numcodecs compatible codec for decoding TIFF files.
+Use the `imagecodecs_tiff` Zarr 3 compatible codec for decoding TIFF files.
 """
 
 # %%
@@ -354,6 +347,7 @@ store.write_fsspec(
     baseurl,
     groupname=mode,
     codec_id='imagecodecs_tiff',
+    zarr_format=3,
     _append=True,
     _close=False,
 )
@@ -394,14 +388,6 @@ for mode in (
         chunkshape=chunkshape,
         fillvalue=fillvalue,
         axestiled={0: 0, 1: 1},
-        zattrs={
-            '_ARRAY_DIMENSIONS': [
-                season_label,
-                polarization_label,
-                latitude_label,
-                longitude_label,
-            ]
-        },
     ) as store:
         print(store)
         store.write_fsspec(
@@ -409,6 +395,7 @@ for mode in (
             baseurl,
             groupname=mode,
             codec_id='imagecodecs_tiff',
+            zarr_format=3,
             _append=True,
             _close=False,
         )
@@ -436,14 +423,6 @@ for mode in modes:
         chunkshape=chunkshape,
         fillvalue=fillvalue,
         axestiled={0: 0, 1: 1},
-        zattrs={
-            '_ARRAY_DIMENSIONS': [
-                orbit_label,
-                flightdirection_label,
-                latitude_label,
-                longitude_label,
-            ]
-        },
     ) as store:
         print(store)
         store.write_fsspec(
@@ -451,6 +430,7 @@ for mode in modes:
             baseurl,
             groupname=mode,
             codec_id='imagecodecs_tiff',
+            zarr_format=3,
             _append=True,
             _close=mode == modes[-1],
         )
@@ -467,11 +447,11 @@ jsonfile.close()
 """
 ## Use the fsspec ReferenceFileSystem file to create an Xarray dataset
 
-Register `imagecodecs.numcodecs` before using the ReferenceFileSystem.
+Register `imagecodecs.zarr` codecs before using the ReferenceFileSystem.
 """
 
 # %%
-imagecodecs.numcodecs.register_codecs()
+imagecodecs.zarr.register_codecs()
 
 # %% [markdown]
 """
@@ -526,7 +506,6 @@ def system_info() -> str:
     import imagecodecs
     import kerchunk
     import matplotlib
-    import numcodecs
     import numpy
     import xarray
     import zarr
@@ -542,7 +521,6 @@ def system_info() -> str:
             f'matplotlib {matplotlib.__version__}',
             f'tifffile {tifffile.__version__}',
             f'imagecodecs {imagecodecs.__version__}',
-            f'numcodecs {numcodecs.__version__}',
             f'fsspec {fsspec.__version__}',
             f'kerchunk {kerchunk.__version__}',
             f'xarray {xarray.__version__}',
