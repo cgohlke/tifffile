@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.5.2
+:Version: 2026.5.15
 
 """
 
@@ -230,7 +230,6 @@ SKIP_FILE = skip('SKIP_FILE', default=not os.path.exists(DATA_DIR))
 SKIP_VALIDATE = skip('SKIP_VALIDATE', default=True)
 SKIP_CODECS = skip('SKIP_CODECS', default=False)
 SKIP_ZARR = skip('SKIP_ZARR', default=False)
-SKIP_ZARR3 = skip('SKIP_ZARR3', default=False)
 SKIP_DASK = skip('SKIP_DASK', default=False)
 SKIP_NDTIFF = skip('SKIP_NDTIFF', default=False)
 SKIP_HTTP = skip('SKIP_HTTP', default=not IS_CG)
@@ -267,6 +266,8 @@ if SKIP_ZARR:
 else:
     try:
         import fsspec
+        import imagecodecs.numcodecs
+        import imagecodecs.zarr
         import zarr
         from kerchunk.utils import refs_as_store
 
@@ -279,14 +280,10 @@ else:
         zarr = None
         fsspec = None
         SKIP_ZARR = True
+    else:
 
-if not SKIP_ZARR3:
-    try:
-        from imagecodecs.zarr import register_codecs
-
-        register_codecs(verbose=False)
-    except ImportError:
-        SKIP_ZARR3 = True
+        imagecodecs.numcodecs.register_codecs(verbose=False)
+        imagecodecs.zarr.register_codecs(verbose=False)
 
 dask: ModuleType | None
 if SKIP_DASK:
@@ -352,7 +349,7 @@ def random_data(dtype: DTypeLike, shape: tuple[int, ...]) -> NDArray[Any]:
     return data.astype(dtype)
 
 
-def assert_fsspec(url: str, data: NDArray[Any], zarr_format: int = 2) -> None:
+def assert_fsspec(url: str, data: NDArray[Any], zarr_format: int) -> None:
     """Assert fsspec ReferenceFileSystem from local http server."""
     assert zarr is not None
     zobj = zarr.open(refs_as_store(url), zarr_format=zarr_format)
@@ -1900,13 +1897,6 @@ def test_issue_webp_rgba(name, caplog):
 )
 def test_issue_webp_fsspec():
     """Test read WebP segments with missing alpha channel via fsspec."""
-    try:
-        from imagecodecs.numcodecs import register_codecs
-    except ImportError:
-        register_codecs = None
-    else:
-        register_codecs('imagecodecs_webp', verbose=False)
-
     filename = _file('issues/CMU-1-Small-Region.tile.webp.tiff')
     url = os.path.dirname(filename).replace('\\', '/')
     data = imread(filename, series=0)
@@ -1918,8 +1908,9 @@ def test_issue_webp_fsspec():
             series=0,
             level=0,
             version=0,
+            zarr_format=3,
         )
-        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=3)
         assert_array_equal(zobj[:], data)
 
 
@@ -13036,6 +13027,48 @@ def test_read_ome_multiscale_store():
             del z
 
 
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_read_tiffstore_dimension_names():
+    """Test ZarrTiffStore dimension_names parameter."""
+    with TempFileName('tiffstore_dimension_names') as filename:
+        data = numpy.zeros((5, 32, 32), dtype=numpy.uint8)
+        imwrite(filename, data, photometric='minisblack')
+        with TiffFile(filename) as tif:
+            series = tif.series[0]
+            # default: dimension names derived from series axes
+            with series.aszarr() as store:
+                zj = json.loads(store._store['zarr.json'])
+                assert zj['dimension_names'] == list(series.axes)
+            # explicit dimension_names override
+            custom = ['frame', 'row', 'col']
+            with series.aszarr(dimension_names=custom) as store:
+                zj = json.loads(store._store['zarr.json'])
+                assert zj['dimension_names'] == custom
+
+
+@pytest.mark.skipif(SKIP_FILE or SKIP_ZARR, reason=REASON)
+def test_read_tiffstore_multiscales_dimension_names():
+    """Test ZarrTiffStore dimension_names parameter for multiscales."""
+    filename = _file('tifffile/multiscene_pyramidal.ome.tif')
+    with TiffFile(filename) as tif:
+        series = tif.series[0]
+        assert series.axes == 'TZCYX'
+        assert series.is_pyramidal
+        # explicit dimension_names override applied at all levels
+        custom = ['time', 'depth', 'channel', 'height', 'width']
+        with series.aszarr(dimension_names=custom) as store:
+            lv0 = json.loads(store._store['0/zarr.json'])
+            assert lv0['dimension_names'] == custom
+            # level 1+: suffixed where shapes differ from level 0
+            lv1 = json.loads(store._store['1/zarr.json'])
+            assert lv1['dimension_names'][0] == 'time'
+            assert lv1['dimension_names'][2] == 'channel'
+            # OME-Zarr axes use the custom names
+            grp = json.loads(store._store['zarr.json'])
+            axes = grp['attributes']['ome']['multiscales'][0]['axes']
+            assert [ax['name'] for ax in axes] == custom
+
+
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
 def test_read_andor_light_sheet_512p():
     """Test read Andor."""
@@ -14797,13 +14830,10 @@ def test_read_philips_issue249():
             return
 
         # write fsspec
-        from imagecodecs.numcodecs import register_codecs
-
-        register_codecs('imagecodecs_jpeg', verbose=False)
         url = os.path.dirname(filename).replace('\\', '/')
         with TempFileName('issue_philips_fsspec', ext='.json') as jsonfile:
-            page.aszarr().write_fsspec(jsonfile, url, version=0)
-            zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
+            page.aszarr().write_fsspec(jsonfile, url, version=0, zarr_format=3)
+            zobj = zarr.open(refs_as_store(jsonfile), zarr_format=3)
             assert_array_equal(zobj[:], image)
 
 
@@ -15974,20 +16004,18 @@ def test_read_eer(caplog, superres):
         assert__str__(tif)
 
         if not (SKIP_ZARR or SKIP_HTTP):
-            try:
-                from imagecodecs.numcodecs import register_codecs
-            except ImportError:
-                return
-            register_codecs('imagecodecs_eer', verbose=False)
+            zarr_format = 3
             filename = os.path.split(filename)[-1]
             url = URL + 'test/EER/'
             with TempFileName(
                 filename + f'_{superres}', ext='.json'
             ) as jsonfile:
                 with page.aszarr() as store:
-                    store.write_fsspec(jsonfile, url)
+                    store.write_fsspec(jsonfile, url, zarr_format=zarr_format)
                 # if this fails add ".eer" as "image/tiff" to mime types
-                assert_fsspec(URL + os.path.split(jsonfile)[-1], data)
+                assert_fsspec(
+                    URL + os.path.split(jsonfile)[-1], data, zarr_format
+                )
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
@@ -21437,15 +21465,6 @@ def test_write_zarr():
 @pytest.mark.parametrize('zarr_format', [2, 3])
 def test_write_fsspec(zarr_format, version, byteorder):
     """Test write fsspec for multi-series OME-TIFF."""
-    if zarr_format == 3 and SKIP_ZARR3:
-        pytest.skip('imagecodecs.zarr not available')
-
-    from imagecodecs.numcodecs import register_codecs
-
-    register_codecs('imagecodecs_jpeg', verbose=False)
-    register_codecs('imagecodecs_delta', verbose=False)
-    register_codecs('imagecodecs_floatpred', verbose=False)
-
     data0 = random_data(numpy.uint8, (3, 252, 244))
     data1 = random_data(numpy.uint8, (219, 301, 3))
     data2 = random_data(numpy.uint16, (3, 219, 301))
@@ -21607,9 +21626,6 @@ def test_write_fsspec(zarr_format, version, byteorder):
 @pytest.mark.parametrize('zarr_format', [2, 3])
 def test_write_fsspec_multifile(zarr_format, version, chunkmode):
     """Test write fsspec for multi-file OME series."""
-    if zarr_format == 3 and SKIP_ZARR3:
-        pytest.skip('imagecodecs.zarr not available')
-
     filename = _file('OME/multifile/multifile-Z1.ome.tiff')
     url = os.path.dirname(filename).replace('\\', '/')
     zf = f'zf{zarr_format}'
@@ -21638,8 +21654,9 @@ def test_write_fsspec_multifile(zarr_format, version, chunkmode):
     SKIP_FILE or SKIP_LARGE or SKIP_CODECS or SKIP_ZARR,
     reason=REASON,
 )
+@pytest.mark.parametrize('zarr_format', [2, 3])
 @pytest.mark.parametrize('version', [1])  # 0,
-def test_write_fsspec_sequence(version):
+def test_write_fsspec_sequence(zarr_format, version):
     """Test write fsspec for multi-file sequence."""
     # https://bbbc.broadinstitute.org/BBBC006
     categories = {'p': {chr(i + 97): i for i in range(25)}}
@@ -21658,7 +21675,7 @@ def test_write_fsspec_sequence(version):
     assert tifs.axes == 'PAZSW'
     data = tifs.asarray()
     with TempFileName(
-        'write_fsspec_sequence', ext=f'.v{version}.json'
+        f'write_fsspec_sequence.v{version}zf{zarr_format}', ext='.json'
     ) as jsonfile:
         with tifs.aszarr(
             imreadargs={'codec': imagecodecs.tiff_decode}
@@ -21667,13 +21684,10 @@ def test_write_fsspec_sequence(version):
                 jsonfile,
                 'file:///' + store._commonpath.replace('\\', '/'),
                 version=version,
+                zarr_format=zarr_format,
             )
 
-        from imagecodecs.numcodecs import register_codecs
-
-        register_codecs(verbose=False)
-
-        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=2)
+        zobj = zarr.open(refs_as_store(jsonfile), zarr_format=zarr_format)
         assert_array_equal(zobj[:], data)
 
 
@@ -21681,9 +21695,6 @@ def test_write_fsspec_sequence(version):
 @pytest.mark.parametrize('zarr_format', [2, 3])
 def test_write_tiff2fsspec(zarr_format):
     """Test tiff2fsspec function."""
-    if zarr_format == 3 and SKIP_ZARR3:
-        pytest.skip('imagecodecs.zarr not available')
-
     filename = _file('tifffile/multiscene_pyramidal.ome.tif')
     url = os.path.dirname(filename).replace('\\', '/')
     data = imread(filename, series=0, level=1, maxworkers=1)
@@ -23272,6 +23283,51 @@ def test_sequence_tiled(tiled):
                     data[1, 2, 1, 3:5],
                     zarr.open(store, mode='r')[1, 2, 1, 3:5],
                 )
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_sequence_store_dimension_names():
+    """Test ZarrFileSequenceStore dimension_names."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create a 2x3 sequence: 2 z-planes, 3 channels, each 8x8 uint16
+        for z in range(2):
+            for c in range(3):
+                fname = os.path.join(tmpdir, f'z{z}_c{c}.tif')
+                imwrite(fname, numpy.zeros((8, 8), dtype=numpy.uint16))
+
+        tifs = TiffSequence(
+            os.path.join(tmpdir, '*.tif'),
+            pattern=r'(z)(\d+)_(c)(\d+)',
+        )
+        assert tifs.shape == (2, 3)
+        assert tifs.dims == ('z', 'c')
+
+        # explicit dimension_names: stored as-is, no auto-derivation
+        custom = ['Z-plane', 'channel', 'row', 'col']
+        with tifs.aszarr(dimension_names=custom) as store:
+            zj = json.loads(store._store['zarr.json'])
+            assert zj['dimension_names'] == custom
+
+        # no tiling (K=0 < M=2): dimension_names not auto-derived (None)
+        with tifs.aszarr() as store:
+            zj = json.loads(store._store['zarr.json'])
+            assert zj['dimension_names'] is None
+
+        # all chunk axes tiled (K=M=2): dimension_names auto-derived from dims
+        # axestiled {0: 0, 1: 1}: stack axis 0 (z) -> chunk axis 0 (row),
+        #                          stack axis 1 (c) -> chunk axis 1 (col)
+        # expected: no non-tiled stack dims + ['z', 'c'] in chunk order
+        with tifs.aszarr(axestiled={0: 0, 1: 1}) as store:
+            zj = json.loads(store._store['zarr.json'])
+            assert zj['dimension_names'] == ['z', 'c']
+            assert zj['shape'] == [2 * 8, 3 * 8]
+
+        # partial tiling (K=1 < M=2): dimension_names not auto-derived (None)
+        with tifs.aszarr(axestiled={0: 0}) as store:
+            zj = json.loads(store._store['zarr.json'])
+            assert zj['dimension_names'] is None
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
