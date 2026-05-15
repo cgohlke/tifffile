@@ -531,6 +531,9 @@ class ZarrTiffStore(ZarrStore):
             The default is 0.
         fillvalue:
             Value to use for missing chunks. The default is 0.
+        dimension_names:
+            Names of dimensions in image array.
+            Overrides dimension names derived from series axes.
         zattrs:
             Additional attributes to store in `.zattrs`.
         multiscales:
@@ -574,6 +577,7 @@ class ZarrTiffStore(ZarrStore):
         level: int | None = None,
         chunkmode: CHUNKMODE | int | str | None = None,
         fillvalue: float | None = None,
+        dimension_names: Sequence[str] | None = None,
         zattrs: dict[str, Any] | None = None,
         multiscales: bool | None = None,
         lock: threading.RLock | NullContext | None = None,
@@ -633,18 +637,26 @@ class ZarrTiffStore(ZarrStore):
         if multiscales or (multiscales is None and len(self._data) > 1):
             # multiscales: NGFF 0.5 + Zarr v3
             self._multiscales = True
-            array_dimensions: list[str] = list(
-                zattrs.pop('_ARRAY_DIMENSIONS', None) or self._data[0].axes
-            )
+            dimension_names = tuple(dimension_names or self._data[0].axes)
             series0 = self._data[0]
             shape0 = series0.shape
             coord_units = series0.coord_units
             coord_offsets = series0.coord_offsets
 
+            # NGFF 0.5 axis type from TIFF axis character code
+            axis_type = {
+                'X': 'space',
+                'Y': 'space',
+                'Z': 'space',
+                'T': 'time',
+                'C': 'channel',
+                'S': 'channel',
+            }
+
             ngff_axes: list[dict[str, Any]] = []
-            for ax in array_dimensions:
+            for ax in dimension_names:
                 ngff_axis: dict[str, Any] = {'name': ax}
-                ax_type = _NGFF_AXIS_TYPE.get(ax.upper())
+                ax_type = axis_type.get(ax.upper())
                 if ax_type:
                     ngff_axis['type'] = ax_type
                 unit = coord_units.get(ax)
@@ -662,16 +674,14 @@ class ZarrTiffStore(ZarrStore):
                         else s0 / s if s > 0 else 1.0
                     )
                     for ax, s0, s in zip(
-                        array_dimensions, shape0, series.shape, strict=True
+                        dimension_names, shape0, series.shape, strict=True
                     )
                 ]
                 coord_transforms: list[dict[str, Any]] = [
                     {'type': 'scale', 'scale': scale}
                 ]
                 if ilevel == 0:
-                    offsets = [
-                        coord_offsets.get(ax) for ax in array_dimensions
-                    ]
+                    offsets = [coord_offsets.get(ax) for ax in dimension_names]
                     if any(o is not None for o in offsets):
                         coord_transforms.append(
                             {
@@ -713,17 +723,17 @@ class ZarrTiffStore(ZarrStore):
                 # from the base level (xarray requires unique dim names per
                 # dataset that have different lengths)
                 if ilevel == 0:
-                    level_dims = array_dimensions
+                    level_dims = dimension_names
                 else:
-                    level_dims = [
+                    level_dims = tuple(
                         (f'{ax}{ilevel}' if i != j else ax)
                         for ax, i, j in zip(
-                            array_dimensions,
+                            dimension_names,
                             series.shape,
                             shape0,
                             strict=True,
                         )
-                    ]
+                    )
                 fillvalue, _ = self._init_zarray(
                     series,
                     f'{ilevel}/zarr.json',
@@ -733,11 +743,7 @@ class ZarrTiffStore(ZarrStore):
         else:
             self._multiscales = False
             series = self._data[0]
-            dimension_names: list[str] = list(
-                zattrs.pop('_ARRAY_DIMENSIONS')
-                if '_ARRAY_DIMENSIONS' in zattrs
-                else series.axes
-            )
+            dimension_names = tuple(dimension_names or series.axes)
             fillvalue, _ = self._init_zarray(
                 series, 'zarr.json', fillvalue, dimension_names
             )
@@ -752,7 +758,7 @@ class ZarrTiffStore(ZarrStore):
         key: str,
         fillvalue: float | None,
         /,
-        dimension_names: list[str] | None = None,
+        dimension_names: tuple[str, ...] | None = None,
     ) -> tuple[float | None, tuple[int, ...]]:
         """Store zarr.json for series; return updated fillvalue and shape."""
         keyframe = series.keyframe
@@ -856,8 +862,7 @@ class ZarrTiffStore(ZarrStore):
                 (zarr format 3).
             zarr_format:
                 Version of Zarr array format to write.
-                The default is 2.
-                If 3, write Zarr version 3 format using
+                The default is 2. If 3, write Zarr version 3 format using
                 :py:mod:`imagecodecs.zarr` native codec specifications.
                 Chunk keys use 'c/' prefix with '/' separator and
                 :py:meth:`imagecodecs.zarr.register_codecs` must be called
@@ -897,8 +902,6 @@ class ZarrTiffStore(ZarrStore):
             Multiscales metadata for pyramidal series uses OME-Zarr v0.5
             when ``zarr_format=3`` and OME-Zarr v0.4 when ``zarr_format=2``.
 
-            ``zarr_format=3`` requires imagecodecs > 2026.3.6.
-
         References:
             - `fsspec ReferenceFileSystem format
               <https://github.com/fsspec/kerchunk>`_
@@ -906,14 +909,15 @@ class ZarrTiffStore(ZarrStore):
         """
         compressors = {
             1: None,
-            8: 'zlib',
-            32946: 'zlib',
-            34925: 'lzma',
-            50013: 'zlib',  # pixtiff
+            # 2: 'imagecodecs_ccittrle',
+            # 3: 'imagecodecs_ccittfax3',
+            # 4: 'imagecodecs_ccittfax4',
             5: 'imagecodecs_lzw',
             7: 'imagecodecs_jpeg',
+            8: 'imagecodecs_zlib',
             22610: 'imagecodecs_jpegxr',
             32773: 'imagecodecs_packbits',
+            32946: 'imagecodecs_zlib',
             33003: 'imagecodecs_jpeg2k',
             33004: 'imagecodecs_jpeg2k',
             33005: 'imagecodecs_jpeg2k',
@@ -921,12 +925,14 @@ class ZarrTiffStore(ZarrStore):
             34712: 'imagecodecs_jpeg2k',
             34887: 'imagecodecs_lerc',
             34892: 'imagecodecs_jpeg',
+            34925: 'imagecodecs_lzma',
             34933: 'imagecodecs_png',
             34934: 'imagecodecs_jpegxr',
             # 48124: 'imagecodecs_jetraw',  # not supported by imagecodecs.zarr
-            50000: 'imagecodecs_zstd',  # numcodecs.zstd fails w/ unknown sizes
+            50000: 'imagecodecs_zstd',
             50001: 'imagecodecs_webp',
             50002: 'imagecodecs_jpegxl',
+            50013: 'imagecodecs_zlib',  # pixtiff
             52546: 'imagecodecs_jpegxl',
             **({} if compressors is None else compressors),
         }
@@ -1013,6 +1019,12 @@ class ZarrTiffStore(ZarrStore):
         elif _index:
             index = '.'.join(str(i) for i in _index)
             index += '.'
+
+        if zarr_format is None:
+            zarr_format = 2
+        elif zarr_format not in {2, 3}:
+            msg = f'invalid {zarr_format=!r} not in {{2, 3}}'
+            raise ValueError(msg)
 
         refs: dict[str, Any] = {}
         refzarr: dict[str, Any]
@@ -1148,12 +1160,7 @@ class ZarrTiffStore(ZarrStore):
         if key in self._store:
             return prototype.buffer.from_bytes(self._store[key])
 
-        if (
-            key[-10:] == '.zmetadata'
-            or key[-7:] == '.zarray'
-            or key[-7:] == '.zgroup'
-            or key[-7:] == '.zattrs'
-        ):
+        if key.endswith(('.zmetadata', '.zarray', '.zgroup', '.zattrs')):
             return None
 
         keyframe, page, chunkindex, offset, bytecount = self._parse_key(key)
@@ -1245,13 +1252,8 @@ class ZarrTiffStore(ZarrStore):
             msg = 'ZarrTiffStore is read-only'
             raise PermissionError(msg)
 
-        if (
-            key in self._store
-            or key[-8:] == 'zarr.json'
-            or key[-10:] == '.zmetadata'
-            or key[-7:] == '.zarray'
-            or key[-7:] == '.zgroup'
-            or key[-7:] == '.zattrs'
+        if key in self._store or key.endswith(
+            ('zarr.json', '.zmetadata', '.zarray', '.zgroup', '.zattrs')
         ):
             return
 
@@ -1395,7 +1397,7 @@ class ZarrTiffStore(ZarrStore):
 class ZarrFileSequenceStore(ZarrStore):
     """Zarr 3 store interface to image array in FileSequence.
 
-    The store uses Zarr v2 format.
+    The store uses Zarr v3 format.
 
     Parameters:
         filesequence:
@@ -1413,6 +1415,10 @@ class ZarrFileSequenceStore(ZarrStore):
             Must match ``FileSequence.imread(file, **imreadargs).dtype``.
         axestiled:
             Axes to be tiled. Map stacked sequence axis to chunk axis.
+        dimension_names:
+            Names of dimensions in image array.
+            If *None* and all chunk axes are tiled, derive from
+            ``filesequence.dims``. Otherwise not set in the store.
         zattrs:
             Additional attributes to store in `.zattrs`.
         ioworkers:
@@ -1453,6 +1459,7 @@ class ZarrFileSequenceStore(ZarrStore):
         chunkshape: Sequence[int] | None = None,
         chunkdtype: DTypeLike | None = None,
         axestiled: dict[int, int] | Sequence[tuple[int, int]] | None = None,
+        dimension_names: Sequence[str] | None = None,
         zattrs: dict[str, Any] | None = None,
         ioworkers: int | None = 1,
         imreadargs: dict[str, Any] | None = None,
@@ -1508,24 +1515,54 @@ class ZarrFileSequenceStore(ZarrStore):
             )
         )
 
+        if (
+            dimension_names is None
+            and filesequence.dims
+            and len(self._tiled._axestiled) == self._tiled._chunkdims
+        ):
+            # Auto-derive dimension names when all chunk axes are tiled.
+            # The tiled shape drops tiled stack axes and appends chunk axes,
+            # so reorder: non-tiled stack dims (in order) + tiled dims (in
+            # chunk-axis order).
+            tiled_stack_axes = {ax0 for ax0, _ in self._tiled._axestiled}
+            dimension_names = (
+                *(
+                    name
+                    for i, name in enumerate(filesequence.dims)
+                    if i not in tiled_stack_axes
+                ),
+                *(
+                    filesequence.dims[ax0]
+                    for ax0, _ in sorted(
+                        self._tiled._axestiled, key=lambda t: t[1]
+                    )
+                ),
+            )
+
         zattrs = {} if zattrs is None else dict(zattrs)
 
-        # TODO: update to zarr_format=3 and imagecodecs > 2026.3.6
-        # TODO: add _ARRAY_DIMENSIONS to ZarrFileSequenceStore
-        # if '_ARRAY_DIMENSIONS' not in zattrs:
-        #     zattrs['_ARRAY_DIMENSIONS'] = list(...)
+        bytes_codec: dict[str, Any] = {'name': 'bytes'}
+        if self._dtype.itemsize == 1:
+            bytes_codec['configuration'] = {'endian': sys.byteorder}
 
-        self._store['.zattrs'] = _json_dumps(zattrs)
-        self._store['.zarray'] = _json_dumps(
+        self._store['zarr.json'] = _json_dumps(
             {
-                'zarr_format': 2,
+                'zarr_format': 3,
+                'node_type': 'array',
                 'shape': self._tiled.shape,
-                'chunks': self._tiled.chunks,
-                'dtype': _dtype_str(self._dtype),
-                'compressor': None,
-                'fill_value': _json_value(fillvalue, self._dtype),
-                'order': 'C',
-                'filters': None,
+                'data_type': self._dtype.name,
+                'chunk_grid': {
+                    'name': 'regular',
+                    'configuration': {'chunk_shape': self._tiled.chunks},
+                },
+                'chunk_key_encoding': {
+                    'name': 'default',
+                    'configuration': {'separator': '/'},
+                },
+                'fill_value': _json_value(self._fillvalue, self._dtype),
+                'codecs': [bytes_codec],
+                'dimension_names': dimension_names,
+                'attributes': zattrs,
             }
         )
 
@@ -1537,7 +1574,7 @@ class ZarrFileSequenceStore(ZarrStore):
             return True
         assert isinstance(key, str)
         try:
-            indices = tuple(int(i) for i in key.split('.'))
+            indices = tuple(int(i) for i in key.removeprefix('c/').split('/'))
         except ValueError:
             return False
         return indices in self._lookup
@@ -1557,17 +1594,12 @@ class ZarrFileSequenceStore(ZarrStore):
         if key in self._store:
             return prototype.buffer.from_bytes(self._store[key])
 
-        if (
-            key == 'zarr.json'
-            or key[-10:] == '.zmetadata'
-            or key[-7:] == '.zarray'
-            or key[-7:] == '.zgroup'
-        ):
-            # catch '.zarray' and 'attribute/.zarray'
+        if key.endswith(('.zmetadata', '.zarray', '.zgroup', '.zattrs')):
+            # catch legacy zarr v2 keys
             return None
 
         try:
-            indices = tuple(int(i) for i in key.split('.'))
+            indices = tuple(int(i) for i in key.removeprefix('c/').split('/'))
         except ValueError:
             return None
         filename = self._lookup.get(indices)
@@ -1615,8 +1647,7 @@ class ZarrFileSequenceStore(ZarrStore):
                 (zarr format 3) codec to decode files or chunks.
             zarr_format:
                 Version of Zarr array format to write.
-                The default is 2.
-                If 3, write Zarr version 3 format using
+                The default is 2. If 3, write Zarr version 3 format using
                 :py:mod:`imagecodecs.zarr` native codec specifications.
                 Chunk keys use 'c/' prefix with '/' separator and
                 :py:meth:`imagecodecs.zarr.register_codecs` must be called
@@ -1634,6 +1665,12 @@ class ZarrFileSequenceStore(ZarrStore):
         from urllib.parse import quote as quote_
 
         kwargs = self._kwargs.copy()
+
+        if zarr_format is None:
+            zarr_format = 2
+        elif zarr_format not in {2, 3}:
+            msg = f'invalid {zarr_format=!r} not in {{2, 3}}'
+            raise ValueError(msg)
 
         if codec_id is not None:
             pass
@@ -1671,9 +1708,11 @@ class ZarrFileSequenceStore(ZarrStore):
                     'ljpeg': 'imagecodecs_ljpeg',
                     'lerc': 'imagecodecs_lerc',
                     # 'npy': 'imagecodecs_npy',
+                    'pcx': 'imagecodecs_pcx',
                     'png': 'imagecodecs_png',
                     'qoi': 'imagecodecs_qoi',
                     'rgbe': 'imagecodecs_rgbe',
+                    'tga': 'imagecodecs_tga',
                     'tiff': 'imagecodecs_tiff',
                     'ultrahdr': 'imagecodecs_ultrahdr',
                     'webp': 'imagecodecs_webp',
@@ -1723,65 +1762,65 @@ class ZarrFileSequenceStore(ZarrStore):
 
         if zarr_format == 3:
             for key, value_bytes in self._store.items():
-                if '.zarray' in key:
-                    value = json.loads(value_bytes)
-                    # Get attributes from corresponding .zattrs
-                    zattrs_key = key.replace('.zarray', '.zattrs')
-                    seq_attrs: dict[str, Any] = {}
-                    if zattrs_key in self._store:
-                        seq_attrs = json.loads(self._store[zattrs_key])
-                    # Build zarr v3 codec pipeline
-                    dtype = numpy.dtype(value['dtype'])
-                    if dtype.itemsize == 1:
-                        seq_bytes_codec: dict[str, Any] = {'name': 'bytes'}
-                    else:
-                        seq_bytes_codec = {
-                            'name': 'bytes',
-                            'configuration': {'endian': 'little'},
-                        }
-                    zarr3_id = _ZARR2_TO_ZARR3_CODEC.get(codec_id, codec_id)
-                    if zarr3_id in _ARRAY_BYTES_CODECS:
-                        seq_codecs: list[dict[str, Any]] = [
-                            {'name': zarr3_id, **kwargs}
-                        ]
-                    else:
-                        seq_codecs = [
-                            seq_bytes_codec,
-                            {'name': zarr3_id, **kwargs},
-                        ]
-                    zarr_json_key = key.replace('.zarray', 'zarr.json')
-                    refzarr[groupname + zarr_json_key] = _json_dumps(
-                        {
-                            'zarr_format': 3,
-                            'node_type': 'array',
-                            'shape': value['shape'],
-                            'data_type': dtype.name,
-                            'chunk_grid': {
-                                'name': 'regular',
-                                'configuration': {
-                                    'chunk_shape': value['chunks']
-                                },
-                            },
-                            'chunk_key_encoding': {
-                                'name': 'default',
-                                'configuration': {'separator': '/'},
-                            },
-                            'fill_value': value['fill_value'],
-                            'codecs': seq_codecs,
-                            'attributes': seq_attrs,
-                            'storage_transformers': [],
-                        }
-                    ).decode()
-                # else: skip .zattrs (folded into zarr.json above)
+                if not key.endswith('zarr.json'):
+                    continue
+                value = json.loads(value_bytes)
+                if value.get('node_type') != 'array':
+                    refzarr[groupname + key] = value_bytes.decode()
+                    continue
+                # inject actual codec into zarr v3 codec pipeline
+                # all file-format codecs are array-bytes codecs
+                seq_codecs: list[dict[str, Any]] = [
+                    {'name': codec_id, **kwargs}
+                ]
+                refzarr[groupname + key] = _json_dumps(
+                    {
+                        **value,
+                        'codecs': seq_codecs,
+                        'storage_transformers': [],
+                    }
+                ).decode()
         else:
-            for item in self._store.items():
-                key, value = item
-                if '.zarray' in key:
-                    value = json.loads(value)
+            # zarr_format == 2
+            for key, value_bytes in self._store.items():
+                if not key.endswith('zarr.json'):
+                    continue
+                value = json.loads(value_bytes)
+                if value.get('node_type') != 'array':
+                    continue
+                # Convert zarr v3 zarr.json -> zarr v2 .zarray + .zattrs
+                dtype = numpy.dtype(value['data_type'])
+                zarray_dict: dict[str, Any] = {
+                    'zarr_format': 2,
+                    'shape': value['shape'],
+                    'chunks': value['chunk_grid']['configuration'][
+                        'chunk_shape'
+                    ],
+                    'dtype': _dtype_str(dtype),
+                    'compressor': None,
+                    'fill_value': value['fill_value'],
+                    'order': 'C',
+                    'filters': None,
+                }
+                if codec_id is not None:
                     # TODO: make kwargs serializable
-                    value['compressor'] = {'id': codec_id, **kwargs}
-                    value = _json_dumps(value)
-                refzarr[groupname + key] = value.decode()
+                    zarray_dict['compressor'] = {'id': codec_id, **kwargs}
+                zarray_key = key.replace('zarr.json', '.zarray')
+                refzarr[groupname + zarray_key] = _json_dumps(
+                    zarray_dict
+                ).decode()
+                seq_zattrs: dict[str, Any] = {}
+                dim_names = value.get('dimension_names')
+                if dim_names is not None:
+                    seq_zattrs['_ARRAY_DIMENSIONS'] = dim_names
+                seq_attrs = value.get('attributes', {})
+                if seq_attrs:
+                    seq_zattrs.update(seq_attrs)
+                if seq_zattrs:
+                    zattrs_key = key.replace('zarr.json', '.zattrs')
+                    refzarr[groupname + zattrs_key] = _json_dumps(
+                        seq_zattrs
+                    ).decode()
 
         fh: TextIO
         with contextlib.ExitStack() as stack:
@@ -1801,27 +1840,29 @@ class ZarrFileSequenceStore(ZarrStore):
                 fh.write(json.dumps(refs, indent=1)[:-2])
                 indent = ' '
 
-            for item in self._store.items():
-                key, value = item
-                if '.zarray' in key:
-                    value = json.loads(value)
-                    for index, fname in sorted(
-                        self._lookup.items(), key=lambda x: x[0]
-                    ):
-                        filename = fname.removeprefix(self._commonpath)
-                        filename = filename.replace('\\', '/')
-                        if quote is None or quote:
-                            filename = quote_(filename)
-                        if filename and filename[0] == '/':
-                            filename = filename[1:]
-                        if zarr_format == 3:
-                            indexstr = 'c/' + '/'.join(str(i) for i in index)
-                        else:
-                            indexstr = '.'.join(str(i) for i in index)
-                        fh.write(
-                            f',\n{indent}"{groupname}{indexstr}": '
-                            f'["{url}{filename}"]'
-                        )
+            for key, value_bytes in self._store.items():
+                if not key.endswith('zarr.json'):
+                    continue
+                value = json.loads(value_bytes)
+                if value.get('node_type') != 'array':
+                    continue
+                for index, fname in sorted(
+                    self._lookup.items(), key=lambda x: x[0]
+                ):
+                    filename = fname.removeprefix(self._commonpath)
+                    filename = filename.replace('\\', '/')
+                    if quote is None or quote:
+                        filename = quote_(filename)
+                    if filename and filename[0] == '/':
+                        filename = filename[1:]
+                    if zarr_format == 3:
+                        indexstr = 'c/' + '/'.join(str(i) for i in index)
+                    else:
+                        indexstr = '.'.join(str(i) for i in index)
+                    fh.write(
+                        f',\n{indent}"{groupname}{indexstr}": '
+                        f'["{url}{filename}"]'
+                    )
 
             if version == 1:
                 fh.write('\n }\n}')
@@ -1911,6 +1952,24 @@ def _write_fsspec_v3_metadata(
                 'attributes': {},
             }
         ).decode()
+
+    # imagecodecs.zarr ArrayBytesCodecs that appear as TIFF compression codecs
+    array_byte_codecs = {
+        'imagecodecs_ccittfax3',
+        'imagecodecs_ccittfax4',
+        'imagecodecs_ccittrle',
+        'imagecodecs_eer',
+        'imagecodecs_float24',
+        'imagecodecs_jpeg',
+        'imagecodecs_jpeg2k',
+        'imagecodecs_jpegxl',
+        'imagecodecs_jpegxr',
+        'imagecodecs_lerc',
+        'imagecodecs_pixarlog',
+        'imagecodecs_png',
+        'imagecodecs_webp',
+    }
+
     for key, value_bytes in store.items():
         value = json.loads(value_bytes)
         node_type = value.get('node_type')
@@ -1999,7 +2058,7 @@ def _write_fsspec_v3_metadata(
             if codec_id is None:
                 # no compression: just bytes array-bytes codec
                 codecs.append(bytes_codec)
-            elif codec_id in _ARRAY_BYTES_CODECS:
+            elif codec_id in array_byte_codecs:
                 # array-bytes codec: handles array-bytes directly
                 if codec_id == 'imagecodecs_jpeg':
                     # TODO: handle JPEG color spaces
@@ -2077,30 +2136,29 @@ def _write_fsspec_v3_metadata(
                     codecs.append({'name': codec_id})
             else:
                 # bytes-bytes codec: needs bytes array-bytes first
-                zarr3_codec_id = _ZARR2_TO_ZARR3_CODEC.get(codec_id, codec_id)
                 codecs.append(bytes_codec)
-                codecs.append({'name': zarr3_codec_id})
-            array_meta: dict[str, Any] = {
-                'zarr_format': 3,
-                'node_type': 'array',
-                'shape': shape,
-                'data_type': dtype.name,
-                'chunk_grid': {
-                    'name': 'regular',
-                    'configuration': {'chunk_shape': chunk_shape},
-                },
-                'chunk_key_encoding': {
-                    'name': 'default',
-                    'configuration': {'separator': '/'},
-                },
-                'fill_value': value['fill_value'],
-                'codecs': codecs,
-                'dimension_names': dim_names,
-                'attributes': value.get('attributes', {}),
-                'storage_transformers': [],
-            }
+                codecs.append({'name': codec_id})
+
             refzarr[groupname + levelstr + 'zarr.json'] = _json_dumps(
-                array_meta
+                {
+                    'zarr_format': 3,
+                    'node_type': 'array',
+                    'shape': shape,
+                    'data_type': dtype.name,
+                    'chunk_grid': {
+                        'name': 'regular',
+                        'configuration': {'chunk_shape': chunk_shape},
+                    },
+                    'chunk_key_encoding': {
+                        'name': 'default',
+                        'configuration': {'separator': '/'},
+                    },
+                    'fill_value': value['fill_value'],
+                    'codecs': codecs,
+                    'dimension_names': dim_names,
+                    'attributes': value.get('attributes', {}),
+                    'storage_transformers': [],
+                }
             ).decode()
 
 
@@ -2249,6 +2307,12 @@ def _write_fsspec_v2_metadata(
                     'superres': keyframe.parent._superres,
                 }
             elif codec_id is not None:
+                codec_id = {
+                    # use numcodecs built-in codecs
+                    'imagecodecs_zlib': 'zlib',
+                    'imagecodecs_lzma': 'lzma',
+                    # 'imagecodecs_zstd': 'zstd',
+                }.get(codec_id, codec_id)
                 zarray['compressor'] = {'id': codec_id}
             if keyframe.predictor > 1:
                 # predictors need access to chunk shape and dtype
@@ -2407,67 +2471,3 @@ def register_codec() -> None:
     from zarr.registry import register_codec
 
     register_codec('tifffile', Tiff)
-
-
-# imagecodecs.zarr ArrayBytesCodecs: handle array-to-bytes themselves,
-# so no preceding 'bytes' codec is needed in the Zarr v3 codec pipeline
-_ARRAY_BYTES_CODECS: frozenset[str] = frozenset(
-    {
-        'imagecodecs_apng',
-        'imagecodecs_avif',
-        'imagecodecs_bfloat16',
-        'imagecodecs_bmp',
-        'imagecodecs_ccittfax3',
-        'imagecodecs_ccittfax4',
-        'imagecodecs_ccittrle',
-        'imagecodecs_dds',
-        'imagecodecs_dicomrle',
-        'imagecodecs_eer',
-        'imagecodecs_exr',
-        'imagecodecs_float24',
-        'imagecodecs_gif',
-        'imagecodecs_heif',
-        'imagecodecs_htj2k',
-        'imagecodecs_jpeg',
-        'imagecodecs_jpeg2k',
-        'imagecodecs_jpegls',
-        'imagecodecs_jpegxl',
-        'imagecodecs_jpegxr',
-        'imagecodecs_jpegxs',
-        'imagecodecs_lerc',
-        'imagecodecs_ljpeg',
-        'imagecodecs_meshopt',
-        'imagecodecs_packints',
-        'imagecodecs_pcodec',
-        'imagecodecs_pixarlog',
-        'imagecodecs_png',
-        'imagecodecs_qoi',
-        'imagecodecs_rcomp',
-        'imagecodecs_rgbe',
-        'imagecodecs_sperr',
-        'imagecodecs_spng',
-        'imagecodecs_sz3',
-        'imagecodecs_tiff',
-        'imagecodecs_ultrahdr',
-        'imagecodecs_webp',
-        'imagecodecs_wic',
-        'imagecodecs_zfp',
-    }
-)
-
-# Zarr v2 / Numcodecs codec name -> Zarr v3 imagecodecs.zarr codec name.
-# Only entries that differ are listed; imagecodecs_* names are unchanged.
-_ZARR2_TO_ZARR3_CODEC: dict[str, str] = {
-    'zlib': 'imagecodecs_zlib',
-    'lzma': 'imagecodecs_lzma',
-}
-
-# NGFF 0.5 axis type from TIFF axis character code.
-_NGFF_AXIS_TYPE: dict[str, str] = {
-    'X': 'space',
-    'Y': 'space',
-    'Z': 'space',
-    'T': 'time',
-    'C': 'channel',
-    'S': 'channel',
-}
