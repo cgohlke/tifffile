@@ -63,7 +63,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.5.2
+:Version: 2026.5.15
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,9 +99,9 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.4 64-bit
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.5, 3.15.0b1 64-bit
 - `NumPy <https://pypi.org/project/numpy>`_ 2.4.4
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.3.6
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.5.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Xarray <https://pypi.org/project/xarray>`_ 2026.4.0
   (required only for reading xarray DataArrays)
@@ -109,13 +109,20 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.1.0
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.2.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.2.1
   (required only for using Zarr stores)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
+
+2026.5.15
+
+- Update ZarrFileSequenceStore to zarr format 3 (breaking).
+- Derive ZarrFileSequenceStore dimension names from FileSequence.dims.
+- Add option to override dimension names in zarr stores.
+- Add support for Python 3.15.
 
 2026.5.2
 
@@ -714,14 +721,14 @@ dask.array<...shape=(8, 2, 512, 512, 3)...chunksize=(1, 1, 128, 128, 3)...
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
 >>> store = imread('temp.ome.tif', return_as='zarr')
->>> store.write_fsspec('temp.ome.tif.json', url='file://', zarr_format=2)
+>>> store.write_fsspec('temp.ome.tif.json', url='file://', zarr_format=3)
 >>> store.close()
 
 Open the fsspec ReferenceFileSystem as a Zarr group and read the first layer:
 
 >>> from kerchunk.utils import refs_as_store
->>> import imagecodecs.numcodecs
->>> imagecodecs.numcodecs.register_codecs(verbose=False)
+>>> import imagecodecs.zarr
+>>> imagecodecs.zarr.register_codecs(verbose=False)
 >>> z = zarr.open(refs_as_store('temp.ome.tif.json'), mode='r')
 >>> z['1']  # first layer
 <Array <FsspecStore(ReferenceFileSystem, /)>/1 shape=(8, 2, 256, 256, 3) ...>
@@ -776,13 +783,13 @@ as NumPy or Zarr arrays:
 Write the Zarr store to a fsspec ReferenceFileSystem in JSON format:
 
 >>> store = image_sequence.aszarr()
->>> store.write_fsspec('temp.json', url='file://')
+>>> store.write_fsspec('temp.json', url='file://', zarr_format=3)
 
 Open the fsspec ReferenceFileSystem as a Zarr array:
 
 >>> from kerchunk.utils import refs_as_store
->>> import tifffile.numcodecs
->>> tifffile.numcodecs.register_codec()
+>>> import tifffile.zarr
+>>> tifffile.zarr.register_codec()
 >>> zarr.open(refs_as_store('temp.json'), mode='r')
 <Array <FsspecStore(ReferenceFileSystem, /)> shape=(1, 2, 64, 64) ...>
 
@@ -794,7 +801,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.5.2'
+__version__ = '2026.5.15'
 
 __all__ = [
     'CHUNKMODE',
@@ -10407,7 +10414,7 @@ class TiffTag:
         if dtype == 2:
             # TIFF ASCII fields can contain multiple strings,
             #   each terminated with a NUL
-            value = value.rstrip(b'\x00')
+            value = value.rstrip(b'\x00')  # type: ignore[union-attr]
             try:
                 value = value.decode('utf-8').strip()
             except UnicodeDecodeError:
