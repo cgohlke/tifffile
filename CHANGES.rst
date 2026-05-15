@@ -1,6 +1,13 @@
 Revisions
 =========
 
+2026.5.15
+
+- Update ZarrFileSequenceStore to zarr format 3 (breaking).
+- Derive ZarrFileSequenceStore dimension names from FileSequence.dims.
+- Add option to override dimension names in zarr stores.
+- Add support for Python 3.15.
+
 2026.5.2
 
 - Change TiffFile.series from list to callable TiffSeries sequence (breaking).
