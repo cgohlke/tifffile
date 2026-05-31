@@ -78,7 +78,9 @@ class Tiff(Codec):  # type: ignore[misc]
         # TiffWriter.write
         photometric: PHOTOMETRIC | int | str | None = None,
         planarconfig: PLANARCONFIG | int | str | None = None,
-        extrasamples: Sequence[EXTRASAMPLE | int | str] | None = None,
+        extrasamples: (
+            Sequence[EXTRASAMPLE | int | str] | Literal[False] | None
+        ) = None,
         volumetric: bool = False,
         tile: Sequence[int] | None = None,
         rowsperstrip: int | None = None,
