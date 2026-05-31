@@ -28,6 +28,4 @@ include examples/earthbigdata.py
 include examples/issue125.py
 include examples/write_dng.py
 
-include docs/conf.py
-include docs/make.py
-include docs/_static/custom.css
+recursive-exclude docs *
