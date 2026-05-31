@@ -76,7 +76,6 @@ from .tifffile import (
     ByteOrder,
     FileCache,
     FileSequence,
-    NullContext,
     TagTuple,
     TiffFile,
     TiffFrame,
@@ -93,7 +92,6 @@ from .tifffile import (
 
 if TYPE_CHECKING:
     import os
-    import threading
     from collections.abc import (
         AsyncIterator,
         Callable,
@@ -131,7 +129,7 @@ class Tiff(ArrayBytesCodec):
     # TiffWriter.write
     photometric: str | None = None
     planarconfig: str | None = None
-    extrasamples: tuple[str, ...] | None = None
+    extrasamples: tuple[str, ...] | Literal[False] | None = None
     volumetric: bool = False
     tile: tuple[int, ...] | None = None
     rowsperstrip: int | None = None
@@ -158,7 +156,9 @@ class Tiff(ArrayBytesCodec):
         byteorder: ByteOrder | None = None,
         photometric: PHOTOMETRIC | int | str | None = None,
         planarconfig: PLANARCONFIG | int | str | None = None,
-        extrasamples: Sequence[EXTRASAMPLE | int | str] | None = None,
+        extrasamples: (
+            Sequence[EXTRASAMPLE | int | str] | Literal[False] | None
+        ) = None,
         volumetric: bool = False,
         tile: Sequence[int] | None = None,
         rowsperstrip: int | None = None,
@@ -172,6 +172,12 @@ class Tiff(ArrayBytesCodec):
         truncate: bool = False,
         maxworkers: int | None = None,
     ) -> None:
+        if extrasamples is not None and not isinstance(extrasamples, bool):
+            extrasamples = tuple(
+                _enum_name(e, EXTRASAMPLE)  # type: ignore[misc]
+                for e in extrasamples
+            )
+
         _setattrs(
             self,
             key=key,
@@ -184,11 +190,7 @@ class Tiff(ArrayBytesCodec):
             byteorder=byteorder,
             photometric=_enum_name(photometric, PHOTOMETRIC),
             planarconfig=_enum_name(planarconfig, PLANARCONFIG),
-            extrasamples=(
-                tuple(_enum_name(e, EXTRASAMPLE) for e in extrasamples)
-                if extrasamples is not None
-                else None
-            ),
+            extrasamples=extrasamples,
             volumetric=bool(volumetric),
             tile=tuple(int(x) for x in tile) if tile is not None else None,
             rowsperstrip=(
@@ -246,7 +248,9 @@ class Tiff(ArrayBytesCodec):
             cfg['photometric'] = self.photometric
         if self.planarconfig is not None:
             cfg['planarconfig'] = self.planarconfig
-        if self.extrasamples is not None:
+        if self.extrasamples is False:
+            cfg['extrasamples'] = False
+        elif self.extrasamples is not None:
             cfg['extrasamples'] = list(self.extrasamples)
         if self.volumetric:
             cfg['volumetric'] = self.volumetric
@@ -580,7 +584,7 @@ class ZarrTiffStore(ZarrStore):
         dimension_names: Sequence[str] | None = None,
         zattrs: dict[str, Any] | None = None,
         multiscales: bool | None = None,
-        lock: threading.RLock | NullContext | None = None,
+        lock: contextlib.AbstractContextManager[Any] | None = None,
         maxworkers: int | None = None,
         buffersize: int | None = None,
         read_only: bool | None = None,
