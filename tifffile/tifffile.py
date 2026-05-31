@@ -63,7 +63,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.5.15
+:Version: 2026.6.1
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -100,14 +100,14 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.5, 3.15.0b1 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.4
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.6
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.5.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Xarray <https://pypi.org/project/xarray>`_ 2026.4.0
   (required only for reading xarray DataArrays)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.9
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.1.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.1.1
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 3.2.1
   (required only for using Zarr stores)
@@ -116,6 +116,15 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.6.1
+
+- Replace NullContext with contextlib.nullcontext (breaking).
+- Fix writing monochrome linear_raw (#328).
+- Fix keyboard axis selection in imshow interactive viewer (#327).
+- Fix reading short ASCII string tag values from NDPI.
+- Add option to suppress writing extrasamples tag.
+- Verify origin of codecs.
 
 2026.5.15
 
@@ -262,6 +271,7 @@ handling multi-dimensional data, or working around format constraints:
   performs poorly. BitsPerSample, SamplesPerPixel, and
   PhotometricInterpretation tags may contain wrong values, which can be
   corrected using the value of tag 65441.
+  Short ASCII string tag values are not stored inline.
 - **Philips TIFF** slides store padded ImageWidth and ImageLength tag values
   for tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tile offsets
@@ -527,7 +537,7 @@ Coordinates:
     * Z        (Z) float64 456B 0.0 3.947 ... 221.1
     * Y        (Y) float32 1kB 0.0 2.675 ... 682.3
     * X        (X) float32 1kB 0.0 2.675 ... 682.3
-Attributes:
+Attributes...
     photometric:    minisblack
     mode:           grayscale
 ...
@@ -801,7 +811,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.5.15'
+__version__ = '2026.6.1'
 
 __all__ = [
     'CHUNKMODE',
@@ -822,7 +832,6 @@ __all__ = [
     'FileCache',
     'FileHandle',
     'FileSequence',
-    'NullContext',
     'OmeXml',
     'OmeXmlError',
     'StoredShape',
@@ -1391,7 +1400,9 @@ def imwrite(
     dtype: DTypeLike | None = None,
     photometric: PHOTOMETRIC | int | str | None = None,
     planarconfig: PLANARCONFIG | int | str | None = None,
-    extrasamples: Sequence[EXTRASAMPLE | int | str] | None = None,
+    extrasamples: (
+        Sequence[EXTRASAMPLE | int | str] | Literal[False] | None
+    ) = None,
     volumetric: bool = False,
     tile: Sequence[int] | None = None,
     rowsperstrip: int | None = None,
@@ -1960,7 +1971,9 @@ class TiffWriter:
         dtype: DTypeLike | None = None,
         photometric: PHOTOMETRIC | int | str | None = None,
         planarconfig: PLANARCONFIG | int | str | None = None,
-        extrasamples: Sequence[EXTRASAMPLE | int | str] | None = None,
+        extrasamples: (
+            Sequence[EXTRASAMPLE | int | str] | Literal[False] | None
+        ) = None,
         volumetric: bool = False,
         tile: Sequence[int] | None = None,
         rowsperstrip: int | None = None,
@@ -2069,7 +2082,8 @@ class TiffWriter:
                 *UNSPECIFIED*: no transparency information (default).
                 *ASSOCALPHA*: true transparency with premultiplied color.
                 *UNASSALPHA*: independent transparency masks.
-                The values are written to the ExtraSamples tag.
+                The values are written to the ExtraSamples tag unless
+                extrasamples is *False*.
             volumetric:
                 Volumetric image stored on single page via SGI ImageDepth tag.
                 The volumetric format is not part of the TIFF specification,
@@ -2549,16 +2563,23 @@ class TiffWriter:
             photometric = enumarg(PHOTOMETRIC, photometric)
         if planarconfig:
             planarconfig = enumarg(PLANARCONFIG, planarconfig)
+        omit_extrasamples = extrasamples is False
         if extrasamples is not None:
-            # TODO: deprecate non-sequence extrasamples
-            extrasamples = tuple(
-                int(enumarg(EXTRASAMPLE, x))
-                for x in (
-                    extrasamples
-                    if isinstance(extrasamples, (tuple, list))
-                    else (extrasamples,)
+            if isinstance(extrasamples, bool):
+                if extrasamples:
+                    msg = 'extrasamples=True not supported'
+                    raise ValueError(msg)
+                extrasamples = None
+            else:
+                # TODO: deprecate non-sequence extrasamples
+                extrasamples = tuple(
+                    int(enumarg(EXTRASAMPLE, x))
+                    for x in (
+                        extrasamples
+                        if isinstance(extrasamples, (tuple, list))
+                        else (extrasamples,)
+                    )
                 )
-            )
 
         if compression:
             if isinstance(compression, str):
@@ -3024,6 +3045,7 @@ class TiffWriter:
 
         if (
             planarconfig is not None
+            and storedshape.samples > 1
             and storedshape.planarconfig != planarconfig
         ):
             msg = f'{planarconfig!r} does not match {storedshape=!r}'
@@ -3212,7 +3234,7 @@ class TiffWriter:
             )
         else:
             addtag(tags, 258, 3, 1, bitspersample)
-        if storedshape.extrasamples > 0:
+        if storedshape.extrasamples > 0 and not omit_extrasamples:
             if extrasamples is not None:
                 if storedshape.extrasamples != len(extrasamples):
                     msg = (
@@ -7418,7 +7440,7 @@ class TiffPage:
     def segments(
         self,
         *,
-        lock: threading.RLock | NullContext | None = ...,
+        lock: contextlib.AbstractContextManager[Any] | None = ...,
         maxworkers: int | None = ...,
         func: None = ...,
         sort: bool = ...,
@@ -7430,7 +7452,7 @@ class TiffPage:
     def segments(
         self,
         *,
-        lock: threading.RLock | NullContext | None = ...,
+        lock: contextlib.AbstractContextManager[Any] | None = ...,
         maxworkers: int | None = ...,
         func: Callable[[DecodeResult], Any],
         sort: bool = ...,
@@ -7441,7 +7463,7 @@ class TiffPage:
     def segments(
         self,
         *,
-        lock: threading.RLock | NullContext | None = None,
+        lock: contextlib.AbstractContextManager[Any] | None = None,
         maxworkers: int | None = None,
         func: Callable[[DecodeResult], Any] | None = None,
         sort: bool = False,
@@ -7540,7 +7562,7 @@ class TiffPage:
         *,
         out: OutputType = None,
         squeeze: bool = True,
-        lock: threading.RLock | NullContext | None = None,
+        lock: contextlib.AbstractContextManager[Any] | None = None,
         maxworkers: int | None = None,
         buffersize: int | None = None,
     ) -> NDArray[Any]:
@@ -10296,6 +10318,7 @@ class TiffTag:
         valuesize = count * struct.calcsize(valueformat)
         if (
             valuesize > tiff.tagoffsetthreshold
+            or (tiff.is_ndpi and dtype == 2)  # NDPI string never stored inline
             or code in TIFF.TAG_READERS  # TODO: only works with offsets?
         ):
             valueoffset = struct.unpack(tiff.offsetformat, value)[0]
@@ -10683,6 +10706,10 @@ class TiffTag:
         newsize = len(packedvalue)
         oldsize = self.count * struct.calcsize(TIFF.DATA_FORMATS[self.dtype])
         valueoffset = self.valueoffset
+        valueoffset_inline = (
+            self.offset + 4 + struct.calcsize(tiff.tagformat2[:2])
+        )
+        force_outofline = tiff.is_ndpi and dtype == 2
 
         pos = fh.tell()
         try:
@@ -10691,8 +10718,11 @@ class TiffTag:
                 fh.seek(self.offset + 2)
                 fh.write(struct.pack(tiff.byteorder + 'H', dtype))
 
-            if oldsize <= tiff.tagoffsetthreshold:
-                if newsize <= tiff.tagoffsetthreshold:
+            if (
+                oldsize <= tiff.tagoffsetthreshold
+                and self.valueoffset == valueoffset_inline
+            ):
+                if newsize <= tiff.tagoffsetthreshold and not force_outofline:
                     # inline -> inline: overwrite
                     fh.seek(self.offset + 4)
                     fh.write(struct.pack(tiff.tagformat2, count, packedvalue))
@@ -10717,11 +10747,9 @@ class TiffTag:
                     fh.seek(valueoffset)
                     fh.write(packedvalue)
 
-            elif newsize <= tiff.tagoffsetthreshold:
+            elif newsize <= tiff.tagoffsetthreshold and not force_outofline:
                 # separate -> inline: erase old value
-                valueoffset = (
-                    self.offset + 4 + struct.calcsize(tiff.tagformat2[:2])
-                )
+                valueoffset = valueoffset_inline
                 fh.seek(self.offset + 4)
                 fh.write(struct.pack(tiff.tagformat2, count, packedvalue))
                 if erase:
@@ -12697,7 +12725,7 @@ class FileHandle:
     _offset: int
     _size: int
     _close: bool
-    _lock: threading.RLock | NullContext
+    _lock: contextlib.AbstractContextManager[Any]
 
     def __init__(
         self,
@@ -12719,7 +12747,7 @@ class FileHandle:
         self._offset = -1 if offset is None else offset
         self._size = -1 if size is None else size
         self._close = True
-        self._lock = NullContext()
+        self._lock = contextlib.nullcontext()
         self.open()
         assert self._fh is not None
 
@@ -13122,7 +13150,7 @@ class FileHandle:
         length: int | None = None,
         *,
         sort: bool = True,
-        lock: threading.RLock | NullContext | None = None,
+        lock: contextlib.AbstractContextManager[Any] | None = None,
         buffersize: int | None = None,
         flat: bool = True,
     ) -> (
@@ -13356,7 +13384,7 @@ class FileHandle:
         return self._fh is None
 
     @property
-    def lock(self) -> threading.RLock | NullContext:
+    def lock(self) -> contextlib.AbstractContextManager[Any]:
         """Reentrant lock to synchronize reads and writes."""
         return self._lock
 
@@ -13366,13 +13394,15 @@ class FileHandle:
 
     def set_lock(self, lock: bool) -> None:  # noqa: FBT001
         """Set reentrant lock to synchronize reads and writes."""
-        if bool(lock) == isinstance(self._lock, NullContext):
-            self._lock = threading.RLock() if lock else NullContext()
+        if bool(lock) == isinstance(self._lock, contextlib.nullcontext):
+            self._lock = (
+                threading.RLock() if lock else contextlib.nullcontext()
+            )
 
     @property
     def has_lock(self) -> bool:
         """File uses reentrant lock to synchronize reads and writes."""
-        return not isinstance(self._lock, NullContext)
+        return not isinstance(self._lock, contextlib.nullcontext)
 
     @property
     def is_file(self) -> bool:
@@ -13408,20 +13438,20 @@ class FileCache:
     past: list[FileHandle]
     """FIFO list of opened files."""
 
-    lock: threading.RLock | NullContext
+    lock: contextlib.AbstractContextManager[Any]
     """Reentrant lock to synchronize reads and writes."""
 
     def __init__(
         self,
         size: int | None = None,
         *,
-        lock: threading.RLock | NullContext | None = None,
+        lock: contextlib.AbstractContextManager[Any] | None = None,
     ) -> None:
         self.past = []
         self.files = {}
         self.keep = set()
         self.size = 8 if size is None else int(size)
-        self.lock = NullContext() if lock is None else lock
+        self.lock = contextlib.nullcontext() if lock is None else lock
 
     def open(self, fh: FileHandle, /) -> None:
         """Open file, re-open if necessary."""
@@ -13775,51 +13805,6 @@ class StoredShape(Sequence[int]):
             f'extrasamples={self.extrasamples}'
             ')>'
         )
-
-
-@final
-class NullContext:
-    """Null context manager and dummy reentrant lock.
-
-    Can replace :py:class:`threading.RLock` where no synchronization
-    is needed. Implements both the context manager and lock interfaces.
-
-    >>> with NullContext():
-    ...     pass
-    ...
-
-    """
-
-    __slots__ = ()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> Literal[False]:
-        return False
-
-    def acquire(
-        self,
-        blocking: bool = True,  # noqa: FBT001, FBT002
-        timeout: float = -1,
-    ) -> bool:
-        """Acquire lock immediately and return True."""
-        return True
-
-    def release(self) -> None:
-        """Release lock (no-op)."""
-
-    def locked(self) -> bool:
-        """Return False; lock is never held."""
-        return False
-
-    def __repr__(self) -> str:
-        return 'NullContext()'
 
 
 @final
@@ -15155,6 +15140,9 @@ class CompressionCodec(Mapping[int, Callable[..., object]]):
         except NotImplementedError as exc:
             msg = f'{COMPRESSION(key)!r} not implemented'
             raise KeyError(msg) from exc
+        mod = getattr(codec, '__module__', '') or ''
+        if mod.split('.', 1)[0] not in {'imagecodecs', 'tifffile'}:
+            raise RuntimeError(mod, codec)
         self._codecs[key] = codec
         return codec
 
@@ -15285,6 +15273,9 @@ class PredictorCodec(Mapping[int, Callable[..., object]]):
         except NotImplementedError as exc:
             msg = f'{PREDICTOR(key)!r} not implemented'
             raise KeyError(msg) from exc
+        mod = getattr(codec, '__module__', '') or ''
+        if mod.split('.', 1)[0] not in {'imagecodecs', 'tifffile'}:
+            raise RuntimeError(mod, codec)
         self._codecs[key] = codec
         return codec
 
@@ -16803,11 +16794,11 @@ class _TIFF:
             9: 3,  # ICCLAB
             10: 3,  # ITULAB
             32803: 1,  # CFA
-            32844: 1,  # LOGL ?
+            32844: 1,  # LOGL
             32845: 3,  # LOGLUV
-            34892: 3,  # LINEAR_RAW ?
-            51177: 1,  # DEPTH_MAP ?
-            52527: 1,  # SEMANTIC_MASK ?
+            34892: 1,  # LINEAR_RAW
+            51177: 1,  # DEPTH_MAP
+            52527: 1,  # SEMANTIC_MASK
         }
 
     @cached_property
@@ -25040,7 +25031,7 @@ def stack_pages(
     /,
     *,
     tiled: TiledSequence | None = None,
-    lock: threading.RLock | NullContext | None = None,
+    lock: contextlib.AbstractContextManager[Any] | None = None,
     maxworkers: int | None = None,
     out: OutputType = None,
     **kwargs: Any,
@@ -25132,7 +25123,7 @@ def stack_pages(
             index: int,
             out: Any = out,
             filecache: FileCache = filecache,
-            lock: threading.RLock | NullContext | None = lock,
+            lock: contextlib.AbstractContextManager[Any] | None = lock,
             kwargs: dict[str, Any] = kwargs,
             /,
         ) -> None:
@@ -25163,7 +25154,7 @@ def stack_pages(
         #     index: tuple[int | slice, ...],
         #     out: Any = out,
         #     filecache: FileCache = filecache,
-        #     lock: threading.RLock | NullContext | None = lock,
+        #     lock: contextlib.AbstractContextManager[Any] | None = lock,
         #     kwargs: dict[str, Any] = kwargs,
         #     /,
         # ) -> None:
@@ -27055,8 +27046,11 @@ def imshow(
 
     if dims:
         current = list((0,) * dims)
-        curaxdat = [0, data[tuple(current)].squeeze()]
         slider_axes = [axis for axis in range(dims) if data.shape[axis] > 1]
+        curaxdat = [
+            slider_axes[0] if slider_axes else 0,
+            data[tuple(current)].squeeze(),
+        ]
         sliders = [
             Slider(
                 ax=pyplot.axes((0.125, 0.03 * (i + 1), 0.725, 0.025)),
@@ -27096,7 +27090,9 @@ def imshow(
             current[axis] = index
             set_image(current)
 
-        def on_keypressed(event, data=data, current=current):
+        def on_keypressed(
+            event, data=data, current=current, slider_axes=slider_axes
+        ):
             # callback function for key press event
             key = event.key
             axis = curaxdat[0]
@@ -27107,9 +27103,19 @@ def imshow(
             elif key == 'left':
                 on_changed(current[axis] - 1, axis)
             elif key == 'up':
-                curaxdat[0] = 0 if axis == len(data.shape) - 1 else axis + 1
+                if slider_axes:
+                    n = len(slider_axes)
+                    idx = (
+                        slider_axes.index(axis)
+                        if axis in slider_axes
+                        else n - 1
+                    )
+                    curaxdat[0] = slider_axes[(idx + 1) % n]
             elif key == 'down':
-                curaxdat[0] = len(data.shape) - 1 if axis == 0 else axis - 1
+                if slider_axes:
+                    n = len(slider_axes)
+                    idx = slider_axes.index(axis) if axis in slider_axes else 0
+                    curaxdat[0] = slider_axes[(idx - 1) % n]
             elif key == 'end':
                 on_changed(data.shape[axis] - 1, axis)
             elif key == 'home':
