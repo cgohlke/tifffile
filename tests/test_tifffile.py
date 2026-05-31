@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.5.15
+:Version: 2026.6.1
 
 """
 
@@ -3347,6 +3347,31 @@ def test_issue_incompatible_keyframe():
         assert series[1].sizes == {'I': 612, 'X': 658, 'Y': 658}
         assert series[0].asarray().dtype == numpy.bool_
         assert series[1].asarray().dtype == numpy.uint16
+
+
+@pytest.mark.skipif(SKIP_FILE, reason=REASON)
+@pytest.mark.parametrize('samples', [1, 3])
+def test_issue_linearraw(samples):
+    """Test write LINEAR_RAW images without extrasamples."""
+    # https://github.com/cgohlke/tifffile/issues/328
+    with TempFileName(f'test_issue_linearraw_{samples}') as filename:
+        imwrite(
+            filename,
+            shape=(27, 23, samples),
+            dtype=numpy.uint8,
+            photometric='linear_raw',
+            planarconfig='contig',
+            extrasamples=False,
+        )
+    with TiffFile(filename) as tif:
+        assert len(tif.pages) == 1
+        page = tif.pages.first
+        assert 'Extrasamples' not in page.tags
+        assert page.photometric == PHOTOMETRIC.LINEAR_RAW
+        assert page.planarconfig == PLANARCONFIG.CONTIG
+        assert page.samplesperpixel == samples
+        assert page.extrasamples == ()
+        assert page.asarray().shape == (27, 23, samples)[: 2 + (samples > 1)]
 
 
 class TestExceptions:
@@ -11236,6 +11261,52 @@ def test_read_ndpi_layers():
         )
         assert_aszarr_method(series.levels[3], data, maxworkers=1)
         assert__str__(tif)
+
+
+@pytest.mark.skipif(
+    SKIP_FILE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
+)
+def test_read_ndpi_ascii():
+    """Test read Hamamatsu NDPI slide with short ASCII strings."""
+    # https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/
+    # short ASCII string tag values are not stored inline
+    filename = _file('HamamatsuNDPI/Hamamatsu-2.ndpi')
+    with TiffFile(filename) as tif:
+        assert tif.is_ndpi
+        assert len(tif.pages) == 8
+        assert len(tif.series) == 3
+
+        # first page
+        page = tif.pages.first
+        assert page.tags[65427].value == 'A1'  # not K
+        assert page.ndpi_tags['SlideLabel'] == 'A1'
+        assert page.databytecounts[0] == 2697
+        assert page.shape == (39168, 30720, 3)
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
+
+        # last page
+        page = tif.pages[-1]
+        assert page.is_ndpi
+        assert page.tags[65476].value == 'IVR'
+        assert page.shape == (205, 600, 1)  # TODO: wrong!
+        assert page.photometric == PHOTOMETRIC.RGB  # TODO: wrong!
+        assert page.compression == COMPRESSION.NONE
+
+    with open(filename, 'rb') as fh:
+        data = fh.read()
+
+    bio = BytesIO(data)
+    with TiffFile(bio) as tif:
+        tif.pages.first.tags[65427].overwrite('A 2')
+        tif.pages[-1].tags[65476].overwrite('IVR modified')
+
+    bio.seek(0)
+    with TiffFile(bio) as tif:
+        assert tif.is_ndpi
+        assert tif.pages.first.tags[65427].value == 'A 2'
+        assert tif.pages[-1].tags[65476].value == 'IVR modified'
 
 
 @pytest.mark.skipif(
@@ -19446,6 +19517,55 @@ def test_write_extrasamples_gray_planar():
             assert page.imagelength == 301
             assert page.samplesperpixel == 2
             assert page.extrasamples[0] == 2
+            image = tif.asarray()
+            assert_array_equal(data, image)
+            assert_aszarr_method(tif, image)
+            assert__str__(tif)
+
+
+def test_write_extrasamples_false_gray():
+    """Test write grayscale with omitted extrasamples tag."""
+    data = random_data(numpy.uint8, (301, 219, 2))
+    with TempFileName('write_extrasamples_false_gray') as filename:
+        imwrite(filename, data, planarconfig='contig', extrasamples=False)
+        assert_valid_tiff(filename)
+        with TiffFile(filename) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages.first
+            assert page.is_contiguous
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
+            assert page.planarconfig == PLANARCONFIG.CONTIG
+            assert page.imagewidth == 219
+            assert page.imagelength == 301
+            assert page.samplesperpixel == 2
+            assert 'ExtraSamples' not in page.tags
+            image = tif.asarray()
+            assert_array_equal(data, image)
+            assert_aszarr_method(tif, image)
+            assert__str__(tif)
+
+
+def test_write_extrasamples_false_gray_planar():
+    """Test write planar grayscale with omitted extrasamples tag."""
+    data = random_data(numpy.uint8, (2, 301, 219))
+    with TempFileName('write_extrasamples_false_gray_planar') as filename:
+        imwrite(
+            filename,
+            data,
+            planarconfig=PLANARCONFIG.SEPARATE,
+            extrasamples=False,
+        )
+        assert_valid_tiff(filename)
+        with TiffFile(filename) as tif:
+            assert len(tif.pages) == 1
+            page = tif.pages.first
+            assert page.is_contiguous
+            assert page.photometric == PHOTOMETRIC.MINISBLACK
+            assert page.planarconfig == PLANARCONFIG.SEPARATE
+            assert page.imagewidth == 219
+            assert page.imagelength == 301
+            assert page.samplesperpixel == 2
+            assert 'ExtraSamples' not in page.tags
             image = tif.asarray()
             assert_array_equal(data, image)
             assert_aszarr_method(tif, image)
