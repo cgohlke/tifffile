@@ -1,6 +1,15 @@
 Revisions
 =========
 
+2026.6.1
+
+- Replace NullContext with contextlib.nullcontext (breaking).
+- Fix writing monochrome linear_raw (#328).
+- Fix keyboard axis selection in imshow interactive viewer (#327).
+- Fix reading short ASCII string tag values from NDPI.
+- Add option to suppress writing extrasamples tag.
+- Verify origin of codecs.
+
 2026.5.15
 
 - Update ZarrFileSequenceStore to zarr format 3 (breaking).
