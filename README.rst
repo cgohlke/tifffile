@@ -36,7 +36,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.5.15
+:Version: 2026.6.1
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -73,14 +73,14 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.5, 3.15.0b1 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.4
+- `NumPy <https://pypi.org/project/numpy>`_ 2.4.6
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.5.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Xarray <https://pypi.org/project/xarray>`_ 2026.4.0
   (required only for reading xarray DataArrays)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.9
   (required for plotting)
-- `Lxml <https://pypi.org/project/lxml/>`_ 6.1.0
+- `Lxml <https://pypi.org/project/lxml/>`_ 6.1.1
   (required only for validating and printing XML)
 - `Zarr <https://pypi.org/project/zarr/>`_ 3.2.1
   (required only for using Zarr stores)
@@ -89,6 +89,15 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.6.1
+
+- Replace NullContext with contextlib.nullcontext (breaking).
+- Fix writing monochrome linear_raw (#328).
+- Fix keyboard axis selection in imshow interactive viewer (#327).
+- Fix reading short ASCII string tag values from NDPI.
+- Add option to suppress writing extrasamples tag.
+- Verify origin of codecs.
 
 2026.5.15
 
@@ -235,6 +244,7 @@ handling multi-dimensional data, or working around format constraints:
   performs poorly. BitsPerSample, SamplesPerPixel, and
   PhotometricInterpretation tags may contain wrong values, which can be
   corrected using the value of tag 65441.
+  Short ASCII string tag values are not stored inline.
 - **Philips TIFF** slides store padded ImageWidth and ImageLength tag values
   for tiled pages. The values can be corrected using the DICOM_PIXEL_SPACING
   attributes of the XML formatted description of the first page. Tile offsets
@@ -532,7 +542,7 @@ as xarray DataArray:
         * Z        (Z) float64 456B 0.0 3.947 ... 221.1
         * Y        (Y) float32 1kB 0.0 2.675 ... 682.3
         * X        (X) float32 1kB 0.0 2.675 ... 682.3
-    Attributes:
+    Attributes...
         photometric:    minisblack
         mode:           grayscale
     ...
