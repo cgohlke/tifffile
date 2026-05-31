@@ -95,7 +95,7 @@ setup(
     project_urls={
         'Bug Tracker': 'https://github.com/cgohlke/tifffile/issues',
         'Source Code': 'https://github.com/cgohlke/tifffile',
-        # 'Documentation': 'https://',
+        'Documentation': 'https://www.cgohlke.com/docs/tifffile/',
     },
     packages=['tifffile'],
     package_data={'tifffile': ['py.typed']},
