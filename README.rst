@@ -11,10 +11,11 @@ Tifffile is a comprehensive Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, GeoTIFF,
 Adobe DNG, ZIF (Zoomable Image File Format), MetaMorph STK, Zeiss LSM,
-ImageJ hyperstack, Micro-Manager MMStack and NDTiff, SGI, NIHImage,
-Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
+ImageJ hyperstack, Micro-Manager MMStack and NDTiff, SGI, NIHImage, FLIMage,
+Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL, Huron TIFF,
 Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
-Hamamatsu NDPI, Argos AVS, Philips DP, and ThermoFisher EER formatted files.
+Hamamatsu NDPI, Argos AVS, Philips DP, DICOM-TIFF, and ThermoFisher EER
+formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher-order series, and pyramidal levels.
@@ -36,7 +37,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.6.1
+:Version: 2026.7.14
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -72,13 +73,13 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.5, 3.15.0b1 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.6
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.5.10
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.14, 3.14.6, 3.15.0b3 64-bit
+- `numpy <https://pypi.org/project/numpy>`_ 2.5.1
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.6.26
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Xarray <https://pypi.org/project/xarray>`_ 2026.4.0
+- `Xarray <https://pypi.org/project/xarray>`_ 2026.7.0
   (required only for reading xarray DataArrays)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.9
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.11.0
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.1.1
   (required only for validating and printing XML)
@@ -89,6 +90,15 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.7.14
+
+- Fix series.asxarray returns wrong series for sublevels.
+- Support Huron TIFF series and metadata.
+- Support FLIMage FLIM series and metadata.
+- Support DECTRIS IFD and tags.
+- Allow subsampling with any image compression scheme.
+- Detect DICOM-TIFF dual-personality format.
 
 2026.6.1
 
