@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.6.1
+:Version: 2026.7.14
 
 """
 
@@ -158,6 +158,7 @@ from tifffile.tifffile import (  # noqa: F401
     fluoview_description_metadata,
     format_size,
     hexdump,
+    huron_description_metadata,
     imagej_description,
     imagej_description_metadata,
     imagej_shape,
@@ -847,6 +848,7 @@ def test_issue_missing_eoi_in_strips():
         assert data.shape == (128, 256, 256)
         assert data.dtype == numpy.uint16
         assert data[64, 128, 128] == 19226
+        assert data.sum(dtype=numpy.uint64) == 29587603488
         assert_aszarr_method(tif, data)
         del data
         assert__str__(tif)
@@ -3380,7 +3382,8 @@ class TestExceptions:
     data = random_data(numpy.uint16, (5, 13, 17))
 
     @pytest.fixture(scope='class')
-    def filename(self):
+    @classmethod
+    def filename(cls):
         with TempFileName('exceptions') as filename:
             yield filename
 
@@ -4253,7 +4256,7 @@ def test_class_tifftags():
 
 def test_class_tifftagregistry():
     """Test TiffTagRegistry."""
-    numtags = 668
+    numtags = 669
     tags = TIFF.TAGS
     assert len(tags) == numtags
     assert tags[11] == 'ProcessingSoftware'
@@ -5660,6 +5663,36 @@ def test_func_pilatus_header_metadata():
     # self.assertEqual(attr['Threshold_setting'], float('nan'))
     assert attr['Beam_xy'] == (243.12, 309.12)
     assert attr['Unknown'] == '1 2 3 4 5'
+
+
+def test_func_huron_description_metadata():
+    """Test huron_description_metadata function."""
+    description = (
+        'Scan Size = 2.41x4.20 mm\n'
+        'Image Dimensions = 6022x10503 Pixels\n'
+        'Resolution = 0.40 um\n'
+        'Source = Bright Field\n'
+        'Scan Started = 2020:05:20 14:07:22\n'
+        'Scan Duration = 00:01:18\n'
+        'ImageID = {D16CE059-8DCA-4B4D-8AF5-8FAB25CF6AE2}\n'
+        'Compress Option = JPEG\n'
+        'Compress Method = Lossy\n'
+        'Image Quality = 0.900000\n'
+        'DeviceID = LE176\n'
+    )
+    meta = huron_description_metadata(description)
+    assert meta['Scan Size'] == '2.41x4.20 mm'
+    assert meta['Image Dimensions'] == '6022x10503 Pixels'
+    assert meta['Resolution'] == '0.40 um'
+    assert meta['Source'] == 'Bright Field'
+    assert meta['Scan Started'] == '2020:05:20 14:07:22'
+    assert meta['Scan Duration'] == '00:01:18'
+    assert meta['ImageID'] == '{D16CE059-8DCA-4B4D-8AF5-8FAB25CF6AE2}'
+    assert meta['Compress Option'] == 'JPEG'
+    assert meta['Compress Method'] == 'Lossy'
+    assert meta['Image Quality'] == 0.9
+    assert meta['DeviceID'] == 'LE176'
+    assert huron_description_metadata('') == {}
 
 
 def test_func_astrotiff_description_metadata(caplog):
@@ -10470,6 +10503,7 @@ def test_read_lsm_lzw_no_eoi():
         # assert second channel is not corrupted
         data = page.asarray()
         assert tuple(data[:, 0, 0]) == (288, 238)
+        assert data.sum(dtype=numpy.uint64) == 190700204
         assert__str__(tif, 0)
 
 
@@ -11417,6 +11451,89 @@ def test_read_svs_jp2k_33003_1():
         assert_allclose(series.coords['Y'][1], 0.2498, rtol=1e-6)
         assert len(series.coords['X']) == 15374
         assert_aszarr_method(page)
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(
+    SKIP_FILE or SKIP_CODECS or not imagecodecs.JPEG.available,
+    reason=REASON,
+)
+def test_read_huron():
+    """Test read Huron TIFF slide, JPEG."""
+    filename = _file('Huron/Huron-1-40x.tif')
+    with TiffFile(filename) as tif:
+        assert tif.is_huron
+        assert not tif.is_svs
+        assert len(tif.pages) == 6
+        assert len(tif.series) == 4
+
+        # first page
+        page = tif.pages.first
+        assert page.is_huron
+        assert page.is_tiled
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.JPEG
+        assert page.shape == (21006, 12040, 3)
+        assert page.dtype == numpy.uint8
+
+        # huron metadata
+        meta = tif.huron_metadata
+        assert meta is not None
+        assert meta['Scan Size'] == '2.41x4.20 mm'
+        assert meta['Resolution'] == '0.20 um'
+        assert meta['Source'] == 'Bright Field'
+        assert meta['Image Quality'] == pytest.approx(0.9)
+        assert meta['DeviceID'] == 'LE176'
+        assert huron_description_metadata(page.description) == meta
+
+        # series
+        series = tif.series[0]
+        assert series.kind == 'huron'
+        assert series.name == 'Baseline'
+        assert series.shape == (21006, 12040, 3)
+        assert series.axes == 'YXS'
+        assert series.dtype == numpy.uint8
+        assert len(series.levels) == 3
+        assert series.mpp == pytest.approx((0.2, 0.2), rel=1e-3)
+        assert series.coord_units == {'X': 'micrometer', 'Y': 'micrometer'}
+        assert series.coord_scales == pytest.approx(
+            {'X': 0.2, 'Y': 0.2}, rel=1e-3
+        )
+        assert series.coord_offsets == {'X': 0.0, 'Y': 0.0}
+        assert len(series.coords['X']) == 12040
+        assert_allclose(series.coords['X'][1], 0.2, rtol=1e-3)
+        assert_allclose(series.coords['Y'][1], 0.2, rtol=1e-3)
+
+        # pyramid levels
+        assert series.levels[1].shape == (5252, 3010, 3)
+        assert series.levels[2].shape == (1313, 753, 3)
+        assert series.levels[1].mpp == pytest.approx((0.8, 0.8), rel=1e-2)
+        assert series.levels[2].mpp == pytest.approx((3.2, 3.2), rel=1e-2)
+        xarr = series.levels[2].asxarray()
+        assert xarr.sizes == {'Y': 1313, 'X': 753, 'S': 3}
+        xarr = series.asxarray(level=2)
+        assert xarr.sizes == {'Y': 1313, 'X': 753, 'S': 3}
+
+        # thumbnail
+        series = tif.series[1]
+        assert series.kind == 'huron'
+        assert series.name == 'Thumbnail'
+        assert series.shape == (1313, 753, 3)
+        assert series.asarray().shape == (1313, 753, 3)
+
+        # label
+        series = tif.series[2]
+        assert series.kind == 'huron'
+        assert series.name == 'Label'
+        assert series.shape == (230, 250, 3)
+        assert series.asarray().shape == (230, 250, 3)
+
+        # macro
+        series = tif.series[3]
+        assert series.kind == 'huron'
+        assert series.name == 'Macro'
+        assert series.shape == (530, 273, 3)
+        assert series.asarray().shape == (530, 273, 3)
         assert__str__(tif)
 
 
@@ -12939,6 +13056,49 @@ def test_read_ome_jpeg2000_be():
         assert data[0, 0] == 1904
         assert_aszarr_method(page, data)
         assert_aszarr_method(page, data, chunkmode='page')
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(
+    SKIP_FILE or SKIP_CODECS or not imagecodecs.JPEG2K.available,
+    reason=REASON,
+)
+def test_read_ome_jpeg2000_lossy():
+    """Test read JPEG_2000_LOSSY compressed OME-TIFF."""
+    # https://github.com/cgohlke/tifffile/issues/329
+    filename = _file('OME/CMU-1.jpeg2000-lossy.ome.tif')
+    with TiffFile(filename) as tif:
+        assert tif.is_ome
+        assert tif.byteorder == '>'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+        # assert page properties
+        page = tif.pages.first
+        assert not page.is_contiguous
+        assert page.tags['Software'].value[:15] == 'OME Bio-Formats'
+        assert page.compression == COMPRESSION.JPEG_2000_LOSSY
+        assert page.imagewidth == 46000
+        assert page.imagelength == 32914
+        assert page.bitspersample == 8
+        assert page.samplesperpixel == 3
+        # assert series properties
+        series = tif.series[0]
+        assert series.shape == (32914, 46000, 3)
+        assert series.dtype == numpy.uint8
+        assert series.axes == 'YXS'
+        assert series.kind == 'ome'
+        assert series.is_pyramidal
+        assert len(series.levels) == 4
+        assert series.levels[1].shape == (8228, 11500, 3)
+        assert series.levels[2].shape == (2057, 2875, 3)
+        assert series.levels[3].shape == (514, 718, 3)
+        # assert data
+        data = series.levels[3].asarray(maxworkers=1)
+        assert isinstance(data, numpy.ndarray)
+        assert data.shape == (514, 718, 3)
+        assert data.dtype == numpy.uint8
+        assert tuple(data[0, 0]) == (242, 242, 242)
+        assert_aszarr_method(series.levels[3], data, maxworkers=1)
         assert__str__(tif)
 
 
@@ -16270,6 +16430,116 @@ def test_read_nuvu():
         assert meta['RETD_TOD'] == '2025-08-29 17:03:05.713'
         assert meta['DATE'] == '2025-08-29 17:03:05.723'
         assert meta['TEMP_CCD'] == -99.98
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
+def test_read_dicom():
+    """Test read DICOM-TIFF file."""
+    filename = _file('DICOM-TIFF/0fd90949-6138-4e07-91a2-38bb068331e9.dcm')
+
+    with TiffFile(filename) as tif:
+        assert tif.is_dicom
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+
+        page = tif.pages.first
+        assert page.shape == (3979, 4612, 3)
+        assert page.axes == 'YXS'
+        assert page.dtype == numpy.uint8
+        assert page.photometric == PHOTOMETRIC.RGB
+        assert page.compression == COMPRESSION.APERIO_JP2000_RGB
+        assert page.planarconfig == PLANARCONFIG.CONTIG
+        assert page.samplesperpixel == 3
+        assert page.imagewidth == 4612
+        assert page.imagelength == 3979
+        assert_array_equal(page.asarray()[100, 100], [243, 244, 243])
+
+        series = tif.series[0]
+        assert series.shape == (3979, 4612, 3)
+        assert series.axes == 'YXS'
+        assert_array_equal(series.asarray()[-1, -1], [242, 242, 242])
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
+def test_read_dicom_jpeg2000_ycbcr():
+    """Test read DICOM-TIFF file with JPEG 2000 YCbCr compression."""
+    # this was rejected previously because subsampling would not work
+    # without JPEG compression
+    filename = _file('DICOM-WSI/CMU-1-JP2K-RCT/img_3.dcm')
+
+    with TiffFile(filename) as tif:
+        assert tif.is_dicom
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+
+        page = tif.pages.first
+        assert page.shape == (2057, 2875, 3)
+        assert page.axes == 'YXS'
+        assert page.dtype == numpy.uint8
+        assert page.photometric == PHOTOMETRIC.YCBCR
+        assert page.compression == COMPRESSION.APERIO_JP2000_YCBC
+        assert page.planarconfig == PLANARCONFIG.CONTIG
+        assert_array_equal(page.asarray()[100, 100], [244, 244, 244])
+
+        assert__str__(tif)
+
+
+@pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
+def test_read_flimage():
+    """Test read FLImage file."""
+    # https://github.com/ryoheiyasuda/FLIMage_public
+    filename = _file('FLIMage/yn294_201119HeLa/yn294a001.flim')
+
+    with TiffFile(filename) as tif:
+        assert tif.is_flimage
+        assert tif.byteorder == '<'
+        assert len(tif.pages) == 1
+        assert len(tif.series) == 1
+
+        page = tif.pages.first
+        assert page.shape == (1, 2097152)
+        assert page.axes == 'YX'
+        assert page.dtype == numpy.uint8
+        assert page.photometric == PHOTOMETRIC.MINISBLACK
+        assert page.compression == COMPRESSION.LZW
+        assert page.planarconfig == PLANARCONFIG.CONTIG
+        assert page.samplesperpixel == 1
+        assert page.imagewidth == 2097152
+        assert page.imagelength == 1
+        assert page.bitspersample == 8
+        assert page.dataoffsets == (16,)
+        assert page.databytecounts == (304271,)
+        assert page.description.startswith('FLIMimage parameters')
+        assert 'State.Acq.pixelsPerLine = 128;' in page.description
+        assert 'State.Files.fileName = "yn294a001";' in page.description
+
+        meta = tif.flimage_metadata
+        assert meta is not None
+        assert meta['State.Acq.pixelsPerLine'] == 128
+        assert meta['State.Acq.aveFrame'] is True
+        assert meta['State.Acq.power'] == [11, 0, 10, 10]
+        assert meta['State.Files.fileName'] == 'yn294a001'
+        assert page.asarray()[0, 0] == 1
+
+        series = tif.series[0]
+        assert series.kind == 'flimage'
+        assert series.shape == (2, 128, 128, 64)
+        assert series.axes == 'CYXH'
+        assert series.coord_units['X'] == 'micrometer'
+        assert series.coord_units['Y'] == 'micrometer'
+        assert numpy.isclose(series.coord_scales['X'], 260 / 128)
+        assert numpy.isclose(series.coord_scales['Y'], 260 / 128)
+
+        data = series.asxarray()
+        assert data.data.reshape(-1)[12345] == 0
+        assert data.attrs['Format'] == 'Linear'
+        assert data.attrs['n_dataPoint'] == [64, 64]
+        assert data.attrs['ExpectedLaserPulseRate_MHz'] == 80.0
+
         assert__str__(tif)
 
 
@@ -23712,7 +23982,13 @@ def test_dependent_opentile():
         stripe = level._read_frame(index)
         assert md5(stripe).hexdigest() == '2a903c6e05bd10f10d856eecceb591f0'
         # get frame
-        image = level._read_extended_frame(Point(10, 10), level.frame_size)
+        position = Point(10, 10)
+        indices = level._stripe_indices(position, level.frame_size)
+        stripes = dict(zip(indices, level._read_frames(indices), strict=False))
+        image = level._jpeg.concatenate_fragments(
+            (stripes[index] for index in indices),
+            level._header(level.frame_size),
+        )
         assert md5(image).hexdigest() == 'aeffd12997ca6c232d0ef35aaa35f6b7'
         # get tile
         tile = level.get_tile((0, 0))
@@ -23731,6 +24007,8 @@ def test_dependent_opentile():
 def test_dependent_aicsimageio():
     """Test aicsimageio package."""
     # https://github.com/AllenCellModeling/aicsimageio
+    tifffile.TIFF.RESUNIT = RESUNIT
+
     aicsimageio = pytest.importorskip('aicsimageio')
 
     filename = _file('tifffile/multiscene_pyramidal.ome.tif')
