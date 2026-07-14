@@ -1,6 +1,15 @@
 Revisions
 =========
 
+2026.7.14
+
+- Fix series.asxarray returns wrong series for sublevels.
+- Support Huron TIFF series and metadata.
+- Support FLIMage FLIM series and metadata.
+- Support DECTRIS IFD and tags.
+- Allow subsampling with any image compression scheme.
+- Detect DICOM-TIFF dual-personality format.
+
 2026.6.1
 
 - Replace NullContext with contextlib.nullcontext (breaking).
