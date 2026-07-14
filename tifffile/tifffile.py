@@ -38,10 +38,11 @@ Tifffile is a comprehensive Python library to
 
 Image and metadata can be read from TIFF, BigTIFF, OME-TIFF, GeoTIFF,
 Adobe DNG, ZIF (Zoomable Image File Format), MetaMorph STK, Zeiss LSM,
-ImageJ hyperstack, Micro-Manager MMStack and NDTiff, SGI, NIHImage,
-Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL,
+ImageJ hyperstack, Micro-Manager MMStack and NDTiff, SGI, NIHImage, FLIMage,
+Olympus FluoView and SIS, ScanImage, Molecular Dynamics GEL, Huron TIFF,
 Aperio SVS, Leica SCN, Roche BIF, PerkinElmer QPTIFF (QPI, PKI),
-Hamamatsu NDPI, Argos AVS, Philips DP, and ThermoFisher EER formatted files.
+Hamamatsu NDPI, Argos AVS, Philips DP, DICOM-TIFF, and ThermoFisher EER
+formatted files.
 
 Image data can be read as NumPy arrays or Zarr arrays/groups from strips,
 tiles, pages (IFDs), SubIFDs, higher-order series, and pyramidal levels.
@@ -63,7 +64,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.6.1
+:Version: 2026.7.14
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,13 +100,13 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.12.10, 3.13.13, 3.14.5, 3.15.0b1 64-bit
-- `NumPy <https://pypi.org/project/numpy>`_ 2.4.6
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.5.10
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.14, 3.14.6, 3.15.0b3 64-bit
+- `numpy <https://pypi.org/project/numpy>`_ 2.5.1
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.6.26
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Xarray <https://pypi.org/project/xarray>`_ 2026.4.0
+- `Xarray <https://pypi.org/project/xarray>`_ 2026.7.0
   (required only for reading xarray DataArrays)
-- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.10.9
+- `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.11.0
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.1.1
   (required only for validating and printing XML)
@@ -116,6 +117,15 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.7.14
+
+- Fix series.asxarray returns wrong series for sublevels.
+- Support Huron TIFF series and metadata.
+- Support FLIMage FLIM series and metadata.
+- Support DECTRIS IFD and tags.
+- Allow subsampling with any image compression scheme.
+- Detect DICOM-TIFF dual-personality format.
 
 2026.6.1
 
@@ -811,7 +821,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.6.1'
+__version__ = '2026.7.14'
 
 __all__ = [
     'CHUNKMODE',
@@ -1566,8 +1576,8 @@ def memmap(
 ) -> numpy.memmap[Any, Any]:
     """Return memory-mapped NumPy array of image data stored in TIFF file.
 
-    Memory-mapping requires the image data to be stored in native byte order,
-    without tiling, compression, predictors, etc.
+    Memory-mapping requires the image data to be stored without tiling,
+    compression, predictors, etc.
     If both ``shape`` and ``dtype`` are provided, a new TIFF file is created
     (overwriting or appending depending on the ``append`` keyword argument)
     and the image data region is memory-mapped read-write.
@@ -3260,7 +3270,7 @@ class TiffWriter:
             addtag(tags, 347, 7, len(jpegtables), jpegtables)
 
         if (
-            compressiontag == 7
+            compressiontag == 7  # in {7, 34892, 33007}
             and storedshape.planarconfig == 1
             and photometric in {RGB, YCBCR}
         ):
@@ -5629,6 +5639,14 @@ class TiffFile:
             return False
 
     @cached_property
+    def is_dicom(self) -> bool:
+        """File is DICOM-TIFF dual personality."""
+        try:
+            return self._fh.seek(128) == 128 and self._fh.read(4) == b'DICM'
+        except IndexError:
+            return False
+
+    @cached_property
     def shaped_metadata(self) -> tuple[dict[str, Any], ...] | None:
         """Tifffile metadata from JSON formatted ImageDescription tags."""
         if not self.is_shaped:
@@ -5987,6 +6005,20 @@ class TiffFile:
         if not self.is_c2pa:
             return None
         return self.pages.get(-1).aspage().tags.valueof(52545)
+
+    @cached_property
+    def flimage_metadata(self) -> dict[str, Any] | None:
+        """FLIMage metadata from ImageDescription tag."""
+        if not self.is_flimage:
+            return None
+        return flimage_description_metadata(self.pages.first.description)
+
+    @cached_property
+    def huron_metadata(self) -> dict[str, Any] | None:
+        """Huron metadata from ImageDescription tag."""
+        if not self.is_huron:
+            return None
+        return huron_description_metadata(self.pages.first.description)
 
 
 @final
@@ -6830,13 +6862,14 @@ class TiffPage:
                 return cache(decode_raise_sampleformat)
 
         if self.is_subsampled and (
-            self.compression not in {6, 7, 34892, 33007}
+            self.compression not in TIFF.IMAGE_COMPRESSIONS
             or self.planarconfig == 2
         ):
 
             def decode_raise_subsampling(*args, **kwargs):
                 msg = (
-                    'chroma subsampling not supported without JPEG compression'
+                    'chroma subsampling not supported with '
+                    f'{self.compression!r}'
                 )
                 raise NotImplementedError(msg)
 
@@ -7178,7 +7211,7 @@ class TiffPage:
                 ccitt_decompress = imagecodecs.ccittfax4_decode
 
             def decode_ccitt(
-                data: bytes | bytearray | None,
+                data: bytes | bytearray | memoryview | None,
                 index: int,
                 /,
                 *,
@@ -7258,7 +7291,9 @@ class TiffPage:
                 f'{self.parent.byteorder}f{dtype.itemsize // 2}'
             )
 
-            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
+            def unpack(
+                data: bytes | bytearray | memoryview, /
+            ) -> NDArray[Any]:
                 # return complex integer as numpy.complex
                 return numpy.frombuffer(data, itype).astype(ftype).view(dtype)
 
@@ -7275,7 +7310,9 @@ class TiffPage:
 
             bps = bitspersample // 8
 
-            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
+            def unpack(
+                data: bytes | bytearray | memoryview, /
+            ) -> NDArray[Any]:
                 # return numpy array from buffer
                 try:
                     # read only numpy array
@@ -7288,7 +7325,9 @@ class TiffPage:
         elif isinstance(self.bitspersample, tuple):
             # TODO: type bitspersample as tuple[int, ...]?
             # for example, RGB 565
-            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
+            def unpack(
+                data: bytes | bytearray | memoryview, /
+            ) -> NDArray[Any]:
                 # return numpy array from packed integers
                 return unpack_rgb(data, dtype, self.bitspersample)
 
@@ -7299,7 +7338,9 @@ class TiffPage:
                 msg = 'unpredicting float24 not supported'
                 raise NotImplementedError(msg)
 
-            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
+            def unpack(
+                data: bytes | bytearray | memoryview, /
+            ) -> NDArray[Any]:
                 # return numpy.float32 array from float24
                 return imagecodecs.float24_decode(
                     data, byteorder=self.parent.byteorder
@@ -7309,7 +7350,9 @@ class TiffPage:
             # bilevel and packed integers
             runlen = stwidth * samples
 
-            def unpack(data: bytes | bytearray, /) -> NDArray[Any]:
+            def unpack(
+                data: bytes | bytearray | memoryview, /
+            ) -> NDArray[Any]:
                 # return numpy array from packed integers
                 return imagecodecs.packints_decode(
                     data, dtype, bitspersample, runlen=runlen
@@ -7322,7 +7365,7 @@ class TiffPage:
         if decompress is None and unpredict is None:
 
             def decode_other(
-                data: bytes | bytearray | None,
+                data: bytes | bytearray | memoryview | None,
                 index: int,
                 /,
                 *,
@@ -7348,7 +7391,7 @@ class TiffPage:
         elif decompress is not None and unpredict is None:
 
             def decode_other(
-                data: bytes | bytearray | None,
+                data: bytes | bytearray | memoryview | None,
                 index: int,
                 /,
                 *,
@@ -7377,7 +7420,7 @@ class TiffPage:
         elif decompress is None and unpredict is not None:
 
             def decode_other(
-                data: bytes | bytearray | None,
+                data: bytes | bytearray | memoryview | None,
                 index: int,
                 /,
                 *,
@@ -7406,7 +7449,7 @@ class TiffPage:
             assert decompress is not None  # for mypy
 
             def decode_other(
-                data: bytes | bytearray | None,
+                data: bytes | bytearray | memoryview | None,
                 index: int,
                 /,
                 *,
@@ -8914,6 +8957,11 @@ class TiffPage:
         return self.description[:7] == 'Aperio '
 
     @property
+    def is_huron(self) -> bool:
+        """Page contains Huron metadata."""
+        return self.is_tiled and self.tags.valueof(271, '')[:6] == 'Huron '
+
+    @property
     def is_bif(self) -> bool:
         """Page contains Ventana metadata."""
         try:
@@ -9029,6 +9077,11 @@ class TiffPage:
     def is_c2pa(self) -> bool:
         """Page contains embedded C2PA manifest."""
         return len(self.tags) == 1 and 52545 in self.tags
+
+    @property
+    def is_flimage(self) -> bool:
+        """Page contains FLIMage metadata."""
+        return self.description[:20] == 'FLIMimage parameters'
 
 
 @final
@@ -11768,9 +11821,14 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
 
         series: TiffPageSeries = self
         if squeeze or (squeeze is None and self.kind != 'shaped'):
-            squeezed = self.parent._get_series(squeeze=True)
-            if self._index < len(squeezed):
-                series = squeezed[self._index]
+            unsqueezed = self.parent._get_series()
+            if (
+                self._index < len(unsqueezed)
+                and unsqueezed[self._index] is self
+            ):
+                squeezed = self.parent._get_series(squeeze=True)
+                if self._index < len(squeezed):
+                    series = squeezed[self._index]
         if level is not None:
             series = series.levels[level]
 
@@ -15348,10 +15406,13 @@ class COMPRESSION(enum.IntEnum):
     NONE = 1
     """No compression (default)."""
     CCITTRLE = 2  # CCITT 1D
-    CCITTFAX3 = 3  # T4/Group 3 Fax
+    """CCITT Run-Length Encoding (1D)."""
+    CCITTFAX3 = 3
     CCITT_T4 = 3
-    CCITTFAX4 = 4  # T6/Group 4 Fax
+    """CCITT T4/Group 3 Fax."""
+    CCITTFAX4 = 4
     CCITT_T6 = 4
+    """CCITT T6/Group 4 Fax."""
     LZW = 5
     """Lempel-Ziv-Welch."""
     OJPEG = 6  # old-style JPEG
@@ -15385,12 +15446,14 @@ class COMPRESSION(enum.IntEnum):
     DCS = 32947
     APERIO_JP2000_YCBC = 33003  # Matrox libraries
     """JPEG 2000 YCbCr (Leica Aperio)."""
-    JPEG_2000_LOSSY = 33004
+    JPEG_2000_LOSSY = 33004  # conflicts with Aperio JPEG/YCC; issue #329
     """Lossy JPEG 2000 (Bio-Formats)."""
     APERIO_JP2000_RGB = 33005  # Kakadu libraries
     """JPEG 2000 RGB (Leica Aperio)."""
-    ALT_JPEG = 33007
+    ALT_JPEG = 33007  # conflicts with Aperio raw YCbCr 422; issue #329
     """JPEG (Bio-Formats)."""
+    # APERIO_YCBCR = 33007  # conflicts with Bio-Formats ALT_JPEG; issue #329
+    # """YCbCr 422 (Leica Aperio)."""
     # PANASONIC_RAW1 = 34316
     # PANASONIC_RAW2 = 34826
     # PANASONIC_RAW3 = 34828
@@ -15434,6 +15497,7 @@ class COMPRESSION(enum.IntEnum):
     EER_V2 = 65002  # VARIABLE Thermo Fisher Scientific
     # KODAK_DCR = 65000
     # PENTAX_PEF = 65535
+    # TODO: what does LEADTOOLS use for ABIC, CMP, CMW, DXF, MRC compression?
 
     def __bool__(self) -> bool:
         return self > 1
@@ -15478,20 +15542,29 @@ class PHOTOMETRIC(enum.IntEnum):
     PALETTE = 3
     """Single chroma component is index into colormap."""
     MASK = 4
+    """Transparency mask."""
     SEPARATED = 5
     """Chroma components are Cyan, Magenta, Yellow, and Key (black)."""
     YCBCR = 6
     """Chroma components are Luma, blue-difference, and red-difference."""
     CIELAB = 8
+    """CIE L*a*b*."""
     ICCLAB = 9
+    """ICC L*a*b*."""
     ITULAB = 10
+    """ITU L*a*b*."""
     CFA = 32803
     """Color Filter Array."""
     LOGL = 32844
+    """Logarithmic Luminance."""
     LOGLUV = 32845
+    """Logarithmic Luminance and Chrominance."""
     LINEAR_RAW = 34892
+    """Linear RAW."""
     DEPTH_MAP = 51177  # DNG 1.5
+    """Depth map."""
     SEMANTIC_MASK = 52527  # DNG 1.6
+    """Semantic mask."""
 
 
 class FILETYPE(enum.IntFlag):
@@ -15667,7 +15740,7 @@ class CHUNKMODE(enum.IntEnum):
 
 
 class _TIFF:
-    """Delay-loaded constants, accessible via :py:attr:`TIFF` instance."""
+    """Lazily loaded constants namespace, accessible via :py:attr:`TIFF`."""
 
     @cached_property
     def CLASSIC_LE(self) -> TiffFormat:
@@ -16392,6 +16465,7 @@ class _TIFF:
                 (51180, 'DepthUnits'),
                 (51181, 'DepthMeasureType'),
                 (51182, 'EnhanceParams'),
+                (51192, 'DectrisIFD'),  # DECTRIS Eiger
                 (52525, 'ProfileGainTableMap'),  # DNG 1.6
                 (52526, 'SemanticName'),  # DNG 1.6
                 (52528, 'SemanticInstanceID'),  # DNG 1.6
@@ -16503,6 +16577,7 @@ class _TIFF:
             34665: read_exif_ifd,
             34853: read_gps_ifd,  # conflicts with OlympusSIS
             40965: read_interoperability_ifd,
+            51192: read_dectris_ifd,
             65426: read_numpy,  # NDPI McuStarts
             65432: read_numpy,  # NDPI McuStartsHighBytes
             65439: read_numpy,  # NDPI unknown
@@ -16677,7 +16752,7 @@ class _TIFF:
 
     @cached_property
     def NDPI_TAGS(self) -> TiffTagRegistry:
-        """Registry of private TIFF tags for Hamamatsu NDPI (65420-65458)."""
+        """Registry of private TIFF tags for Hamamatsu NDPI (65420-65500)."""
         # TODO: obtain specification
         return TiffTagRegistry(
             (
@@ -16722,6 +16797,47 @@ class _TIFF:
                 (65456, 'ScanTime'),
                 (65457, 'WriteTime'),
                 (65458, 'FullyAutoFocus'),
+                (65459, '65459'),
+                (65460, '65460'),
+                (65461, '65461'),
+                (65462, '65462'),
+                (65463, '65463'),
+                (65464, '65464'),
+                (65465, '65465'),
+                (65466, '65466'),
+                (65467, '65467'),
+                (65468, 'Barcode'),
+                (65469, '65469'),
+                (65470, '65470'),
+                (65471, '65471'),
+                (65472, '65472'),
+                (65473, '65473'),
+                (65474, '65474'),
+                (65475, '65475'),
+                (65476, '65476'),
+                (65477, 'ScanProfile'),  # XML
+                (65478, '65478'),
+                (65479, '65479'),
+                (65480, 'BarcodeType'),
+                (65481, '65481'),
+                (65482, '65482'),
+                (65483, '65483'),
+                (65484, '65484'),
+                (65485, '65485'),
+                (65486, '65486'),
+                (65487, '65487'),
+                (65488, '65488'),
+                (65489, '65489'),
+                (65490, '65490'),
+                (65491, '65491'),
+                (65492, '65492'),
+                (65493, '65493'),
+                (65494, '65494'),
+                (65495, '65495'),
+                (65496, '65496'),
+                (65497, '65497'),
+                (65498, '65498'),
+                (65499, '65499'),
                 (65500, 'DefaultGamma'),
             )
         )
@@ -16776,6 +16892,28 @@ class _TIFF:
                 (4096, 'RelatedImageFileFormat'),
                 (4097, 'RelatedImageWidth'),
                 (4098, 'RelatedImageLength'),
+            )
+        )
+
+    @cached_property
+    def DECTRIS_TAGS(self) -> TiffTagRegistry:
+        """Registry of DECTRIS IFD tags."""
+        # DECTRIS SIMPLON 1.8 API documentation, 33-34
+        return TiffTagRegistry(
+            (
+                (0, 'IfdVersion'),
+                (1, 'SeriesUniqueId'),
+                (2, 'SeriesNumber'),
+                (3, 'ImageNumber'),
+                (4, 'ImageDateTime'),
+                (5, 'ThresholdId'),
+                (6, 'ThresholdEnergy'),
+                (7, 'ExposureTime'),
+                (9, 'IncidentEnergy'),
+                (10, 'IncidentWavelength'),
+                (18, 'LostPixelCount'),
+                (22, 'BeamCenter'),
+                (23, 'DetectorDistance'),
             )
         )
 
@@ -17004,6 +17142,7 @@ class _TIFF:
             'stk': series_stk,
             'sis': series_sis,
             'svs': series_svs,
+            'huron': series_huron,
             'scn': series_scn,
             'qpi': series_qpi,
             'ndpi': series_ndpi,
@@ -17016,6 +17155,7 @@ class _TIFF:
             'nih': series_nih,
             'mdgel': series_mdgel,  # adds second page to cache
             'geotiff': series_geotiff,
+            'flimage': series_flimage,
             'uniform': series_uniform,
             'generic': series_generic,
         }
@@ -18032,6 +18172,7 @@ class _TIFF:
 
 
 TIFF = _TIFF()
+"""Constants loaded lazily from :py:attr:`_TIFF`."""
 
 SU2UM: dict[str, float] = {
     'nm': 1e-3,
@@ -19811,6 +19952,212 @@ def series_scanimage(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     ]
 
 
+def series_flimage(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in FLIMage file."""
+    meta = tif.flimage_metadata
+    if meta is None:
+        return None
+
+    pages = tif.pages._getlist(validate=False)
+    page = tif.pages.first
+
+    def _int(key: str, default: int = 0) -> int:
+        value = meta.get(key, default)
+        with contextlib.suppress(TypeError, ValueError):
+            return int(value)
+        return default
+
+    def _float(value: Any, default: float = 0.0) -> float:
+        with contextlib.suppress(TypeError, ValueError):
+            return float(value)
+        return default
+
+    def _float_list(value: Any, size: int) -> list[float]:
+        if not isinstance(value, list):
+            return []
+        values: list[float] = []
+        for item in value[:size]:
+            with contextlib.suppress(TypeError, ValueError):
+                values.append(float(item))
+        return values
+
+    def _bool_list(value: Any, size: int) -> list[bool]:
+        if isinstance(value, list):
+            values = [bool(v) for v in value]
+        else:
+            values = [bool(value)] if value is not None else []
+        if len(values) < size:
+            values.extend([True] * (size - len(values)))
+        return values[:size]
+
+    width = _int('State.Acq.pixelsPerLine')
+    height = _int('State.Acq.linesPerFrame')
+    nchannels = max(1, _int('State.Acq.nChannels', 1))
+    ndatapoint = max(1, _int('State.Spc.spcData.n_dataPoint', 1))
+
+    acquired = _bool_list(meta.get('State.Acq.acquisition'), nchannels)
+    acqflim_raw = meta.get('State.Acq.acqFLIMA')
+    if acqflim_raw is None:
+        # backward compat: older files use single bool State.Acq.acqFLIM
+        acqflim_raw = meta.get('State.Acq.acqFLIM', True)
+    acqflim = _bool_list(acqflim_raw, nchannels)
+
+    ntime = [
+        ndatapoint if acquired[i] and acqflim[i] else 1 if acquired[i] else 0
+        for i in range(nchannels)
+    ]
+
+    # channels not saved to file contribute no data to the page payload
+    save_channels = _bool_list(meta.get('SaveChannels'), nchannels)
+    for i in range(nchannels):
+        if not save_channels[i]:
+            ntime[i] = 0
+
+    imageformat = str(meta.get('Format', 'Linear'))
+    nfastz = _int('State.Acq.FastZ_nSlices', 1)
+    if not bool(meta.get('State.Acq.fastZScan')) or nfastz < 1:
+        nfastz = 1
+
+    # FLIMage stores linearized data
+    # infer higher-dimensional shape when metadata and page size are consistent
+    shape: tuple[int, ...] | None = None
+    axes: str | None = None
+    series_kind = 'flimage'
+    attrs: dict[str, Any] = {'Format': imageformat, 'n_dataPoint': ntime}
+    coords: dict[str, Any] = {}
+    units: dict[str, str] = {}
+
+    if width > 0 and height > 0:
+        ntime_positive = [t for t in ntime if t > 0]
+        if ntime_positive and all(
+            t == ntime_positive[0] for t in ntime_positive
+        ):
+            channel_count = sum(t > 0 for t in ntime)
+            per_plane = width * height * sum(ntime)
+            page_elems = product(page.shape)
+
+            if imageformat == 'ZLinear' and nfastz > 1:
+                expected = per_plane * nfastz
+            else:
+                expected = per_plane
+
+            if expected > 0 and page_elems == expected and channel_count > 0:
+                base_shape: tuple[int, ...]
+                base_axes: str
+                if imageformat == 'ZLinear' and nfastz > 1:
+                    base_shape = (
+                        nfastz,
+                        channel_count,
+                        height,
+                        width,
+                        ntime_positive[0],
+                    )
+                    base_axes = 'ZCYXH'
+                elif imageformat == 'ChTime_YX':
+                    # pixel-major: data is laid out as (H, W, C, T)
+                    base_shape = (
+                        height,
+                        width,
+                        channel_count,
+                        ntime_positive[0],
+                    )
+                    base_axes = 'YXCH'
+                elif imageformat == 'ChYX_Time':
+                    # time-major: data is laid out as (T, C, H, W)
+                    base_shape = (
+                        ntime_positive[0],
+                        channel_count,
+                        height,
+                        width,
+                    )
+                    base_axes = 'HCYX'
+                else:
+                    # Linear, ZLinear (nfastz==1), Time_ChYX
+                    base_shape = (
+                        channel_count,
+                        height,
+                        width,
+                        ntime_positive[0],
+                    )
+                    base_axes = 'CYXH'
+
+                if len(pages) > 1:
+                    shape = (len(pages), *base_shape)
+                    axes = 'I' + base_axes
+                else:
+                    shape = base_shape
+                    axes = base_axes
+
+    if shape is None or axes is None:
+        # metadata could not unambiguously map linearized payload to axes
+        # fall back to page-derived shape while preserving FLIMage kind
+        if len(pages) > 1:
+            shape = (len(pages), *page.shape)
+            axes = 'I' + page.axes
+        else:
+            shape = page.shape
+            axes = page.axes
+
+    # derive physical coordinates from FLIMage metadata when available
+    fov = _float_list(meta.get('State.Acq.field_of_view'), 2)
+    if len(fov) == 2 and fov[0] > 0 and fov[1] > 0:
+        if 'X' in axes:
+            coords['X'] = (0.0, fov[0])
+            units['X'] = 'micrometer'
+        if 'Y' in axes:
+            coords['Y'] = (0.0, fov[1])
+            units['Y'] = 'micrometer'
+
+    if 'H' in axes:
+        # spcData.resolution is in picoseconds per histogram bin
+        hsize = shape[axes.index('H')]
+        resolution = meta.get('State.Spc.spcData.resolution', 0.0)
+        if isinstance(resolution, list):
+            resolution_ps = next(
+                (_float(v) for v in resolution if _float(v) > 0), 0.0
+            )
+        else:
+            resolution_ps = _float(resolution)
+        if resolution_ps > 0 and hsize > 1:
+            coords['H'] = (0.0, hsize * resolution_ps / 1000.0)
+            units['H'] = 'nanosecond'
+        frequency = _float(
+            meta.get('State.Acq.ExpectedLaserPulseRate_MHz', 0.0)
+        )
+        if frequency > 0:
+            attrs['ExpectedLaserPulseRate_MHz'] = frequency
+
+    if 'Z' in axes:
+        zstep = _float(meta.get('State.Acq.FastZ_umPerSlice', 0.0))
+        if zstep > 0:
+            zsize = shape[axes.index('Z')]
+            if zsize > 1:
+                coords['Z'] = (0.0, zsize * zstep)
+                units['Z'] = 'micrometer'
+
+    if 'I' in axes:
+        interval = _float(meta.get('State.Acq.imageInterval', 0.0))
+        if interval > 0:
+            isize = shape[axes.index('I')]
+            if isize > 1:
+                coords['I'] = (0.0, isize * interval)
+                units['I'] = 'second'
+
+    tif.is_uniform = True
+    return [
+        TiffPageSeries(
+            pages,
+            shape,
+            page.dtype,
+            axes,
+            kind=series_kind,
+            attrs=attrs,
+            coords=coords or None,
+            units=units or None,
+        )
+    ]
+
+
 def series_lsm(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     """Return image series in LSM file."""
     lsmi = tif.lsm_metadata
@@ -20736,6 +21083,145 @@ def series_svs(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     return series
 
 
+def series_huron(tif: TiffFile, /) -> list[TiffPageSeries] | None:
+    """Return image series in Huron TIFF file."""
+    series = []
+    pages = tif.pages
+    pages.cache = True
+    pages.useframes = False
+    pages.set_keyframe(0)
+    pages._load()
+
+    page0 = pages.first
+
+    # derive MPP from XResolution/YResolution tags
+    attrs: dict[str, Any] = {}
+    coords: dict[str, Any] = {}
+    mpp_val: float | None = None
+    units: dict[str, str] | None = None
+    try:
+        xres, yres = page0.get_resolution(unit='centimeter')
+        if xres > 0 and yres > 0:
+            mpp_val = 1e4 / xres
+            units = {'X': 'micrometer', 'Y': 'micrometer'}
+            coords['X'] = (0.0, page0.imagewidth * mpp_val)
+            coords['Y'] = (0.0, page0.imagelength * mpp_val)
+    except Exception as exc:
+        logger().warning(
+            f'{tif!r} Huron series resolution failed: {exc!r:.128}'
+        )
+
+    if len(pages) == 1:
+        tif.is_uniform = False
+        return [
+            TiffPageSeries(
+                [page0],
+                page0.shape,
+                page0.dtype,
+                page0.axes,
+                name='Baseline',
+                kind='huron',
+                attrs=attrs or None,
+                coords=coords or None,
+                units=units,
+            )
+        ]
+
+    # thumbnail (second image)
+    page = pages[1]
+    thumbnail = TiffPageSeries(
+        [page],
+        page.shape,
+        page.dtype,
+        page.axes,
+        name='Thumbnail',
+        kind='huron',
+    )
+
+    # pyramid levels: tiled pages starting from index 2
+    levels = {page0.shape: [page0]}
+    index = 2
+    while index < len(pages):
+        page = cast(TiffPage, pages[index])
+        if not page.is_tiled or page.is_reduced:
+            break
+        if page.shape in levels:
+            levels[page.shape].append(page)
+        else:
+            levels[page.shape] = [page]
+        index += 1
+
+    zsize = len(levels[page0.shape])
+    if not all(len(level) == zsize for level in levels.values()):
+        logger().warning(f'{tif!r} Huron series focal planes do not match')
+        zsize = 1
+        for shape in levels:
+            levels[shape] = levels[shape][:1]
+    baseline = TiffPageSeries(
+        levels[page0.shape],
+        (zsize, *page0.shape),
+        page0.dtype,
+        'Z' + page0.axes,
+        name='Baseline',
+        kind='huron',
+        attrs=attrs or None,
+        coords=coords or None,
+        units=units,
+    )
+    base_mag = attrs.get('magnification')
+    for shape, level in levels.items():
+        if shape == page0.shape:
+            continue
+        page = level[0]
+        ratio = page0.imagewidth / page.imagewidth
+        level_attrs: dict[str, Any] = {}
+        level_coords: dict[str, Any] = {}
+        level_units = None
+        if mpp_val is not None:
+            lmpp = mpp_val * ratio
+            level_units = {'X': 'micrometer', 'Y': 'micrometer'}
+            level_coords['X'] = (0.0, page.imagewidth * lmpp)
+            level_coords['Y'] = (0.0, page.imagelength * lmpp)
+        if base_mag is not None:
+            level_attrs['magnification'] = base_mag / ratio
+        baseline.levels.append(
+            TiffPageSeries(
+                level,
+                (zsize, *page.shape),
+                page.dtype,
+                'Z' + page.axes,
+                name='Resolution',
+                kind='huron',
+                attrs=level_attrs or None,
+                coords=level_coords or None,
+                units=level_units,
+            )
+        )
+    series.append(baseline)
+    series.append(thumbnail)
+
+    # label (subfiletype 1) and macro (subfiletype 9) at end of file
+    for _ in range(2):
+        if index == len(pages):
+            break
+        page = pages[index]
+        assert isinstance(page, TiffPage)
+        name = 'Macro' if page.subfiletype == 9 else 'Label'
+        series.append(
+            TiffPageSeries(
+                [page],
+                page.shape,
+                page.dtype,
+                page.axes,
+                name=name,
+                kind='huron',
+            )
+        )
+        index += 1
+    tif.is_uniform = False
+    return series
+
+
 def series_scn(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     """Return pyramidal image series in Leica SCN file."""
     # TODO: support collections
@@ -21630,6 +22116,20 @@ def read_interoperability_ifd(
 ) -> dict[str, Any]:
     """Read Interoperability tags from file."""
     return read_tags(fh, byteorder, offsetsize, TIFF.IOP_TAGS, maxifds=1)[0]
+
+
+def read_dectris_ifd(
+    fh: FileHandle,
+    byteorder: ByteOrder,
+    dtype: int,
+    count: int,
+    offsetsize: int,
+    /,
+) -> dict[str, Any]:
+    """Read DECTRIS tags from file."""
+    return read_tags(fh, byteorder, offsetsize, TIFF.DECTRIS_TAGS, maxifds=1)[
+        0
+    ]
 
 
 def read_bytes(
@@ -23960,6 +24460,60 @@ def streak_description_metadata(
                 pass
         fh.seek(pos)
 
+    return result
+
+
+def flimage_description_metadata(description: str, /) -> dict[str, Any]:
+    """Return metadata from FLIMage image description.
+
+    The FLIMage description is a line-based ``key = value;`` format where
+    keys are often dot-separated and values may be scalars, quoted strings,
+    or lists enclosed in brackets.
+
+    """
+
+    def parse_value(value: str, /) -> Any:
+        value = value.strip()
+        if not value:
+            return None
+        if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+            return value[1:-1]
+        if value[0] == '[' and value[-1] == ']':
+            values = value[1:-1].strip()
+            if not values:
+                return []
+            return [parse_value(item) for item in values.split(',')]
+        return astype(value)
+
+    result: dict[str, Any] = {}
+    for raw_line in description.splitlines():
+        line = raw_line.strip()
+        if not line or '=' not in line:
+            continue
+        if line[-1] == ';':
+            line = line[:-1]
+        key, value = line.split('=', 1)
+        result[key.strip()] = parse_value(value)
+    return result
+
+
+def huron_description_metadata(description: str, /) -> dict[str, Any]:
+    r"""Return metadata from Huron image description.
+
+    The Huron description is a line-based ``key = value`` format.
+
+    >>> huron_description_metadata('Resolution = 0.40 um\nImageID = {ABC}')
+    {'Resolution': '0.40 um', 'ImageID': '{ABC}'}
+
+    """
+    result: dict[str, Any] = {}
+    for raw_line in description.splitlines():
+        line = raw_line.strip()
+        if not line or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        value = value.strip()
+        result[key.strip()] = astype(value)
     return result
 
 
