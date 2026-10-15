@@ -146,7 +146,7 @@ class Tiff(ArrayBytesCodec):
     def __init__(
         self,
         *,
-        key: int | slice | Sequence[int] | None = None,
+        key: int | slice | Sequence[int] | dict[str, int | None] | None = None,
         series: int | None = None,
         kind: Literal['generic', 'imagej', 'ome', 'shaped'] | None = None,
         level: int | None = None,
@@ -177,6 +177,9 @@ class Tiff(ArrayBytesCodec):
                 _enum_name(e, EXTRASAMPLE)  # type: ignore[misc]
                 for e in extrasamples
             )
+        if isinstance(key, dict):
+            # slice deserialized from JSON
+            key = slice(key.get('start'), key.get('stop'), key.get('step'))
 
         _setattrs(
             self,
@@ -228,8 +231,16 @@ class Tiff(ArrayBytesCodec):
     def to_dict(self) -> dict[str, JSON]:
         """Convert instance of model to dictionary."""
         cfg: dict[str, JSON] = {}
-        if self.key is not None:
-            cfg['key'] = self.key  # type: ignore[assignment]
+        if isinstance(self.key, slice):
+            cfg['key'] = {
+                'start': self.key.start,
+                'stop': self.key.stop,
+                'step': self.key.step,
+            }
+        elif isinstance(self.key, (int, numpy.integer)):
+            cfg['key'] = int(self.key)
+        elif self.key is not None:
+            cfg['key'] = [int(k) for k in self.key]
         if self.series is not None:
             cfg['series'] = self.series
         if self.kind is not None:
@@ -456,7 +467,9 @@ class ZarrStore(Store):
     @override
     async def list(self) -> AsyncIterator[str]:
         """Return all keys in store."""
-        for key in self._store:
+        for key in list(self._store):
+            yield key
+        for key in self._iter_chunk_keys(''):
             yield key
 
     @override
@@ -469,6 +482,8 @@ class ZarrStore(Store):
         for key in list(self._store):
             if key.startswith(prefix):
                 yield key
+        for key in self._iter_chunk_keys(prefix):
+            yield key
 
     @override
     async def list_dir(self, prefix: str) -> AsyncIterator[str]:
@@ -479,16 +494,84 @@ class ZarrStore(Store):
 
         """
         prefix = prefix.rstrip('/')
-        if prefix == '':
-            keys_unique = {k.split('/')[0] for k in self._store}
-        else:
-            keys_unique = {
-                key.removeprefix(prefix + '/').split('/')[0]
-                for key in self._store
-                if key.startswith(prefix + '/') and key != prefix
-            }
+        base = prefix + '/' if prefix else ''
+        keys_unique = {
+            key.removeprefix(base).split('/')[0]
+            for key in self._store
+            if key.startswith(base) and key != prefix
+        }
+        for path, _, _ in self._iter_array_info():
+            if base == path:
+                if next(self._iter_chunk_keys(path + 'c/'), None) is not None:
+                    keys_unique.add('c')
+            elif base.startswith(path + 'c/'):
+                keys_unique.update(
+                    key.removeprefix(base).split('/')[0]
+                    for key in self._iter_chunk_keys(base)
+                )
         for key in keys_unique:
             yield key
+
+    def _iter_array_info(
+        self,
+    ) -> Iterator[tuple[str, Sequence[int], Sequence[int]]]:
+        """Return iterator over path, shape, and chunk shape of arrays."""
+        for key, value in list(self._store.items()):
+            if not key.endswith('zarr.json'):
+                continue
+            meta = json.loads(value)
+            if meta.get('node_type') != 'array':
+                continue
+            yield (
+                key.removesuffix('zarr.json'),
+                meta['shape'],
+                meta['chunk_grid']['configuration']['chunk_shape'],
+            )
+
+    def _iter_chunk_keys(self, prefix: str, /) -> Iterator[str]:
+        """Return iterator over keys of existing chunks with prefix."""
+        for path, shape, chunks in self._iter_array_info():
+            chunkprefix = path + 'c/'
+            if prefix.startswith(chunkprefix):
+                # only complete index components narrow the search
+                parts = prefix.removeprefix(chunkprefix).split('/')[:-1]
+                try:
+                    leading = tuple(int(i) for i in parts)
+                except ValueError:
+                    continue
+            elif chunkprefix.startswith(prefix):
+                leading = ()
+            else:
+                continue
+            for key in self._chunk_keys(path, shape, chunks, leading):
+                if key.startswith(prefix):
+                    yield key
+
+    def _chunk_keys(
+        self,
+        path: str,
+        shape: Sequence[int],
+        chunks: Sequence[int],
+        leading: tuple[int, ...],
+        /,
+    ) -> Iterator[str]:
+        """Return iterator over keys of existing chunks of array at path."""
+        grid = [-(-s // c) for s, c in zip(shape, chunks, strict=True)]
+        if (
+            not grid
+            or 0 in grid
+            or len(leading) > len(grid)
+            or any(not 0 <= i < n for i, n in zip(leading, grid, strict=False))
+        ):
+            return
+        for index in numpy.ndindex(*grid[len(leading) :]):
+            key = path + 'c/' + '/'.join(str(i) for i in (*leading, *index))
+            if self._chunk_exists(key):
+                yield key
+
+    def _chunk_exists(self, key: str, /) -> bool:
+        """Return whether chunk key exists in store."""
+        return False
 
     @property
     def is_multiscales(self) -> bool:
@@ -539,7 +622,7 @@ class ZarrTiffStore(ZarrStore):
             Names of dimensions in image array.
             Overrides dimension names derived from series axes.
         zattrs:
-            Additional attributes to store in `.zattrs`.
+            Additional attributes to store in `attributes` of `zarr.json`.
         multiscales:
             Create a multiscales-compatible Zarr group store.
             By default, create a Zarr array store for pages and non-pyramidal
@@ -1188,12 +1271,14 @@ class ZarrTiffStore(ZarrStore):
                 )
             # TODO: use asyncio.to_thread ?
             self._filecache.open(fh)
-            chunk = page.asarray(
-                lock=self._filecache.lock,
-                maxworkers=self._maxworkers,
-                buffersize=self._buffersize,
-            )
-            self._filecache.close(fh)
+            try:
+                chunk = page.asarray(
+                    lock=self._filecache.lock,
+                    maxworkers=self._maxworkers,
+                    buffersize=self._buffersize,
+                )
+            finally:
+                self._filecache.close(fh)
             if self._transform is not None:
                 chunk = self._transform(chunk)
             return prototype.buffer.from_array_like(
@@ -1235,6 +1320,11 @@ class ZarrTiffStore(ZarrStore):
         # print(f'exists({key=})')
         if key in self._store:
             return True
+        return self._chunk_exists(key)
+
+    @override
+    def _chunk_exists(self, key: str, /) -> bool:
+        """Return whether chunk key exists in store."""
         try:
             _kf, page, _ci, offset, bytecount = self._parse_key(key)
         except (KeyError, IndexError):
@@ -1424,13 +1514,13 @@ class ZarrFileSequenceStore(ZarrStore):
             If *None* and all chunk axes are tiled, derive from
             ``filesequence.dims``. Otherwise not set in the store.
         zattrs:
-            Additional attributes to store in `.zattrs`.
+            Additional attributes to store in `attributes` of `zarr.json`.
         ioworkers:
             If not 1, asynchronously run `imread` function in separate thread.
             If enabled, internal threading for the `imread` function
             should be disabled.
         read_only:
-            Passed to :py:class:`zarr.abc.store.Store`.
+            Must be ``True``. Writing is not supported.
         imreadargs:
             Arguments passed to :py:attr:`FileSequence.imread`.
         **kwargs:
@@ -1440,7 +1530,7 @@ class ZarrFileSequenceStore(ZarrStore):
     Notes:
         If `chunkshape` or `chunkdtype` are *None* (default), their values
         are determined by reading the first file with
-        ``FileSequence.imread(arg.files[0], **imreadargs)``.
+        ``FileSequence.imread(filesequence[0], **imreadargs)``.
 
     """
 
@@ -1482,8 +1572,12 @@ class ZarrFileSequenceStore(ZarrStore):
             msg = 'filesequence is empty'
             raise ValueError(msg)
 
+        if not read_only:
+            msg = 'ZarrFileSequenceStore does not support writing'
+            raise ValueError(msg)
+
         super().__init__(
-            fillvalue=fillvalue, chunkmode=chunkmode, read_only=read_only
+            fillvalue=fillvalue, chunkmode=chunkmode, read_only=True
         )
 
         if self._chunkmode not in {0, 3}:
@@ -1585,12 +1679,31 @@ class ZarrFileSequenceStore(ZarrStore):
         # print(f'exists({key=})')
         if key in self._store:
             return True
-        assert isinstance(key, str)
+        return self._chunk_exists(key)
+
+    @override
+    def _chunk_exists(self, key: str, /) -> bool:
+        """Return whether chunk key exists in store."""
         try:
             indices = tuple(int(i) for i in key.removeprefix('c/').split('/'))
         except ValueError:
             return False
         return indices in self._lookup
+
+    @override
+    def _chunk_keys(
+        self,
+        path: str,
+        shape: Sequence[int],
+        chunks: Sequence[int],
+        leading: tuple[int, ...],
+        /,
+    ) -> Iterator[str]:
+        """Return iterator over keys of existing chunks of array at path."""
+        n = len(leading)
+        for indices in sorted(self._lookup):
+            if indices[:n] == leading:
+                yield path + 'c/' + '/'.join(str(i) for i in indices)
 
     @override
     async def get(
