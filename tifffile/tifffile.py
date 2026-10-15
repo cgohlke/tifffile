@@ -64,7 +64,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.9.20
+:Version: 2026.10.15
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -78,12 +78,12 @@ Install the tifffile package and all dependencies from the
 Tifffile is also available in other package repositories such as Anaconda,
 Debian, and MSYS2.
 
-See `Examples`_ and `Documentation <https://www.cgohlke.com/docs/tifffile/>`_
-for using the programming interface.
-
-Tifffile can be used as a console script to inspect and preview TIFF files::
+Use tifffile from the command line to inspect and preview TIFF files::
 
     python -m tifffile --help
+
+See `Examples`_ and `Documentation <https://www.cgohlke.com/docs/tifffile/>`_
+for using the programming interface.
 
 Source code and support are available on
 `GitHub <https://github.com/cgohlke/tifffile>`_.
@@ -97,23 +97,37 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.12.10, 3.13.15, 3.14.7, 3.15.0rc 64-bit
-- `Numpy <https://pypi.org/project/numpy>`_ 2.5.3
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.8.16
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.16, 3.14.8, 3.15.0 64-bit
+- `Numpy <https://pypi.org/project/numpy>`_ 2.5.4
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.10.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Xarray <https://pypi.org/project/xarray>`_ 2026.7.0
+- `Xarray <https://pypi.org/project/xarray>`_ 2026.9.0
   (required only for reading xarray DataArrays)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.11.2
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.1.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.1
   (required only for using Zarr stores)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
+
+2026.10.15
+
+- Fix TiffWriter truncating existing file on invalid kind argument.
+- Fix TiffPage.asarray not closing reopened file handle on exceptions.
+- Fix ZarrTiffStore not releasing file cache reference on decode errors.
+- Fix Tiff codec configuration not JSON-serializable with slice key.
+- Fix ZarrStore listing methods omitting chunk keys.
+- Fix FileSequence.asarray leaving missing chunks uninitialized.
+- Fix 'axes' file name pattern matching characters in file name prefix.
+- Fix parse_filenames with _shape argument.
+- Raise ValueError if FileSequence files map to same index (breaking).
+- Disallow writable ZarrFileSequenceStore (breaking).
+- Use struct.unpack_from when possible.
 
 2026.9.20
 
@@ -829,7 +843,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.9.20'
+__version__ = '2026.10.15'
 
 __all__ = [
     'CHUNKMODE',
@@ -1025,7 +1039,7 @@ def imread(
         | None
     ) = None,
     *,
-    selection: Any | None = None,  # TODO: type this
+    selection: None = None,
     return_as: Literal['zarr'],
     key: int | slice | Sequence[int] | None = None,
     series: int | None = None,
@@ -1075,7 +1089,7 @@ def imread(
     ) = None,
     *,
     selection: Any | None = None,  # TODO: type this
-    return_as: Literal['numpy'] | None = None,
+    return_as: Literal['numpy', 'zarr'] | None = None,
     key: int | slice | Sequence[int] | None = None,
     series: int | None = None,
     kind: str | None = None,
@@ -1903,6 +1917,29 @@ class TiffWriter:
         self._omexml = None
         self._storedshape = None
 
+        match kind:
+            case 'ome':
+                ome = True
+                imagej = False
+                shaped = False
+            case 'imagej':
+                imagej = True
+                ome = False
+                shaped = False
+            case 'shaped':
+                ome = False
+                imagej = False
+                shaped = True
+            case 'generic':
+                ome = False
+                imagej = False
+                shaped = False
+            case None:
+                pass
+            case _:
+                msg = f'invalid {kind=}'
+                raise ValueError(msg)
+
         self._fh = FileHandle(file, mode=mode, size=0)
         if append:
             self._fh.seek(0, os.SEEK_END)
@@ -1935,29 +1972,6 @@ class TiffWriter:
         #         DeprecationWarning,
         #         stacklevel=2
         #     )
-
-        match kind:
-            case 'ome':
-                ome = True
-                imagej = False
-                shaped = False
-            case 'imagej':
-                imagej = True
-                ome = False
-                shaped = False
-            case 'shaped':
-                ome = False
-                imagej = False
-                shaped = True
-            case 'generic':
-                ome = False
-                imagej = False
-                shaped = False
-            case None:
-                pass
-            case _:
-                msg = f'invalid {kind=}'
-                raise ValueError(msg)
 
         self._ome = None if ome is None else bool(ome)
         self._imagej = False if self._ome else bool(imagej)
@@ -4587,7 +4601,7 @@ class TiffFile:
                 msg = f'not a TIFF file: {header=!r}'
                 raise TiffFileError(msg) from None
 
-            version = struct.unpack(byteorder + 'H', header[2:4])[0]
+            version = struct.unpack_from(byteorder + 'H', header, 2)[0]
             if version == 43:
                 # BigTiff
                 offsetsize, zero = struct.unpack(byteorder + 'HH', fh.read(4))
@@ -7163,15 +7177,29 @@ class TiffPage:
                     if _fullsize:
                         shape = pad_none(shape)
                     return data, segmentindex, shape
-                data_array: NDArray[Any] = imagecodecs.jpeg_decode(
-                    data,
-                    bitspersample=bitspersample,
-                    tables=jpegtables,
-                    header=jpegheader,
-                    colorspace=colorspace,
-                    outcolorspace=outcolorspace,
-                    shape=shape[1:3],
-                )
+                try:
+                    data_array: NDArray[Any] = imagecodecs.jpeg_decode(
+                        data,
+                        tables=jpegtables,
+                        header=jpegheader,
+                        colorspace=colorspace,
+                        outcolorspace=outcolorspace,
+                        shape=shape[1:3],
+                    )
+                except Exception as exc:
+                    # try LJPEG codec, which handles more precisions
+                    # and colorspaces found in DNG images.
+                    # imagecodecs > 2026.10.10 removed ljpeg fallback from
+                    # jpeg_decode.
+                    msg = str(exc)
+                    if not (
+                        'Unsupported JPEG data precision' in msg
+                        or 'Unsupported color conversion' in msg
+                        or 'Bogus Huffman table definition' in msg
+                        or 'SOF type' in msg
+                    ):
+                        raise
+                    data_array = imagecodecs.ljpeg_decode(data)
                 data_array = reshape(data_array, segmentindex, shape)
                 if _fullsize:
                     data_array, shape = pad(data_array, shape)
@@ -7733,150 +7761,150 @@ class TiffPage:
             lock = fh.lock
         closed = False
 
-        if (
-            isinstance(out, str)
-            and out == 'memmap'
-            and keyframe.is_memmappable
-        ):
-            # direct memory map array in file
-            with lock:
-                closed = fh.closed
-                if closed:
-                    warnings.warn(
-                        f'{self!r} reading array from closed file',
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    fh.open()
-                result = fh.memmap_array(
-                    keyframe.parent.byteorder + keyframe._dtype.char,
-                    keyframe.shaped,
-                    offset=self.dataoffsets[0],
-                )
-
-        elif keyframe.is_contiguous:
-            # read contiguous bytes to array
-            if keyframe.is_subsampled:
-                msg = 'chroma subsampling not supported'
-                raise NotImplementedError(msg)
-            if out is not None:
-                out = create_output(out, keyframe.shaped, keyframe._dtype)
-            with lock:
-                closed = fh.closed
-                if closed:
-                    warnings.warn(
-                        f'{self!r} reading array from closed file',
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    fh.open()
-                fh.seek(self.dataoffsets[0])
-                result = fh.read_array(
-                    keyframe.parent.byteorder + keyframe._dtype.char,
-                    product(keyframe.shaped),
-                    out=out,
-                )
-            if keyframe.fillorder == 2:
-                result = imagecodecs.bitorder_decode(result, out=result)
-            if keyframe.predictor != 1:
-                # predictors without compression
-                unpredict = TIFF.UNPREDICTORS[keyframe.predictor]
-                if keyframe.predictor == 2:
-                    result = unpredict(result, axis=-2, out=result)
-                else:
-                    # floatpred cannot decode in-place
-                    result[:] = unpredict(result, axis=-2, out=result)
-
-        elif (
-            keyframe.jpegheader is not None
-            and keyframe is self
-            and 273 in self.tags  # striped ...
-            and self.is_tiled  # but reported as tiled
-            # TODO: imagecodecs can decode larger JPEG
-            and self.imagewidth <= 65500
-            and self.imagelength <= 65500
-        ):
-            # decode the whole NDPI JPEG strip
-            with lock:
-                closed = fh.closed
-                if closed:
-                    warnings.warn(
-                        f'{self!r} reading array from closed file',
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    fh.open()
-                fh.seek(self.tags[273].value[0])  # StripOffsets
-                data = fh.read(self.tags[279].value[0])  # StripByteCounts
-            decompress = TIFF.DECOMPRESSORS[self.compression]
-            result = decompress(
-                data,
-                bitspersample=self.bitspersample,
-                out=out,
-                # shape=(self.imagelength, self.imagewidth)
-            )
-            del data
-
-        else:
-            # decode individual strips or tiles
-            with lock:
-                closed = fh.closed
-                if closed:
-                    warnings.warn(
-                        f'{self!r} reading array from closed file',
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    fh.open()
-                keyframe.init_decode()  # init decode function under lock
-
-            result = create_output(out, keyframe.shaped, keyframe._dtype)
-
-            def func(
-                decoderesult: DecodeResult,
-                keyframe: TiffPage = keyframe,
-                result: NDArray[Any] = result,
-            ) -> None:
-                # copy decoded segments to output array
-                segment, (s, d, h, w, _), shape = decoderesult
-                if segment is None:
-                    result[
-                        s, d : d + shape[0], h : h + shape[1], w : w + shape[2]
-                    ] = keyframe.nodata
-                else:
-                    result[
-                        s, d : d + shape[0], h : h + shape[1], w : w + shape[2]
-                    ] = segment[
-                        : keyframe.imagedepth - d,
-                        : keyframe.imagelength - h,
-                        : keyframe.imagewidth - w,
-                    ]
-                # except IndexError:
-                #     pass  # corrupted file, for example, with too many strips
-
-            for _ in self.segments(
-                func=func,
-                lock=lock,
-                maxworkers=maxworkers,
-                buffersize=buffersize,
-                sort=True,
-                _fullsize=False,
+        try:
+            if (
+                isinstance(out, str)
+                and out == 'memmap'
+                and keyframe.is_memmappable
             ):
-                pass
+                # direct memory map array in file
+                with lock:
+                    closed = fh.closed
+                    if closed:
+                        warnings.warn(
+                            f'{self!r} reading array from closed file',
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        fh.open()
+                    result = fh.memmap_array(
+                        keyframe.parent.byteorder + keyframe._dtype.char,
+                        keyframe.shaped,
+                        offset=self.dataoffsets[0],
+                    )
 
-        result = result.reshape(keyframe.shaped, copy=False)
-        if squeeze:
-            try:
-                result = result.reshape(keyframe.shape, copy=False)
-            except ValueError as exc:
-                logger().warning(
-                    f'{self!r} <asarray> failed to reshape '
-                    f'{result.shape} to {keyframe.shape}, raised {exc!r:.128}'
+            elif keyframe.is_contiguous:
+                # read contiguous bytes to array
+                if keyframe.is_subsampled:
+                    msg = 'chroma subsampling not supported'
+                    raise NotImplementedError(msg)
+                if out is not None:
+                    out = create_output(out, keyframe.shaped, keyframe._dtype)
+                with lock:
+                    closed = fh.closed
+                    if closed:
+                        warnings.warn(
+                            f'{self!r} reading array from closed file',
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        fh.open()
+                    fh.seek(self.dataoffsets[0])
+                    result = fh.read_array(
+                        keyframe.parent.byteorder + keyframe._dtype.char,
+                        product(keyframe.shaped),
+                        out=out,
+                    )
+                if keyframe.fillorder == 2:
+                    result = imagecodecs.bitorder_decode(result, out=result)
+                if keyframe.predictor != 1:
+                    # predictors without compression
+                    unpredict = TIFF.UNPREDICTORS[keyframe.predictor]
+                    if keyframe.predictor == 2:
+                        result = unpredict(result, axis=-2, out=result)
+                    else:
+                        # floatpred cannot decode in-place
+                        result[:] = unpredict(result, axis=-2, out=result)
+
+            elif (
+                keyframe.jpegheader is not None
+                and keyframe is self
+                and 273 in self.tags  # striped ...
+                and self.is_tiled  # but reported as tiled
+                # TODO: imagecodecs can decode larger JPEG
+                and self.imagewidth <= 65500
+                and self.imagelength <= 65500
+            ):
+                # decode the whole NDPI JPEG strip
+                with lock:
+                    closed = fh.closed
+                    if closed:
+                        warnings.warn(
+                            f'{self!r} reading array from closed file',
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        fh.open()
+                    fh.seek(self.tags[273].value[0])  # StripOffsets
+                    data = fh.read(self.tags[279].value[0])  # StripByteCounts
+                decompress = TIFF.DECOMPRESSORS[self.compression]
+                result = decompress(
+                    data,
+                    bitspersample=self.bitspersample,
+                    out=out,
+                    # shape=(self.imagelength, self.imagewidth)
                 )
+                del data
 
-        if closed:
-            # TODO: close file if an exception occurred above
-            fh.close()
+            else:
+                # decode individual strips or tiles
+                with lock:
+                    closed = fh.closed
+                    if closed:
+                        warnings.warn(
+                            f'{self!r} reading array from closed file',
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        fh.open()
+                    keyframe.init_decode()  # init decode function under lock
+
+                result = create_output(out, keyframe.shaped, keyframe._dtype)
+
+                def func(
+                    decoderesult: DecodeResult,
+                    keyframe: TiffPage = keyframe,
+                    result: NDArray[Any] = result,
+                ) -> None:
+                    # copy decoded segments to output array
+                    segment, (s, d, h, w, _), shape = decoderesult
+                    dd = slice(d, d + shape[0])
+                    hh = slice(h, h + shape[1])
+                    ww = slice(w, w + shape[2])
+                    if segment is None:
+                        result[s, dd, hh, ww] = keyframe.nodata
+                    else:
+                        result[s, dd, hh, ww] = segment[
+                            : keyframe.imagedepth - d,
+                            : keyframe.imagelength - h,
+                            : keyframe.imagewidth - w,
+                        ]
+                    # except IndexError:
+                    #     pass  # corrupted file, for example, too many strips
+
+                for _ in self.segments(
+                    func=func,
+                    lock=lock,
+                    maxworkers=maxworkers,
+                    buffersize=buffersize,
+                    sort=True,
+                    _fullsize=False,
+                ):
+                    pass
+
+            result = result.reshape(keyframe.shaped, copy=False)
+            if squeeze:
+                try:
+                    result = result.reshape(keyframe.shape, copy=False)
+                except ValueError as exc:
+                    logger().warning(
+                        f'{self!r} <asarray> failed to reshape '
+                        f'{result.shape} to {keyframe.shape}, '
+                        f'raised {exc!r:.128}'
+                    )
+        finally:
+            if closed:
+                fh.close()
         return result
 
     def asxarray(self, **kwargs: Any) -> DataArray:
@@ -9288,9 +9316,8 @@ class TiffFrame:
             codes = {256, 273, 279, 324, 325, 330, 347}
 
         tiff = parent.tiff
-        unpack = struct.unpack
         try:
-            tagno = unpack(tiff.tagnoformat, fh.read(tiff.tagnosize))[0]
+            tagno = struct.unpack(tiff.tagnoformat, fh.read(tiff.tagnosize))[0]
         except (struct.error, OSError, ValueError) as exc:
             msg = f'corrupted tag list @{self.offset}'
             raise TiffFileError(msg) from exc
@@ -9307,7 +9334,7 @@ class TiffFrame:
 
         for _ in range(tagno):
             tagindex += tagsize
-            code = unpack(codeformat, tagbytes[tagindex : tagindex + 2])[0]
+            code = struct.unpack_from(codeformat, tagbytes, tagindex)[0]
             if code not in codes:
                 continue
             try:
@@ -10295,6 +10322,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         tagnosize = tiff.tagnosize
         tagsize = tiff.tagsize
         unpack = struct.unpack
+        unpack_from = struct.unpack_from
 
         offset = offsets[-1]
 
@@ -10325,7 +10353,9 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
             # read tags + next IFD offset in one sequential read (no seek)
             try:
                 next_data = fh.read(tagno * tagsize + offsetsize)
-                offset = int(unpack(offsetformat, next_data[-offsetsize:])[0])
+                offset = int(
+                    unpack_from(offsetformat, next_data, -offsetsize)[0]
+                )
             except (struct.error, OSError) as exc:
                 logger().error(
                     f'{self!r} invalid offset to page '
@@ -10709,7 +10739,7 @@ class TiffTag:
                 f'{count * int(valueformat[0])}'
                 f'{valueformat[1]}'
             )
-            value = struct.unpack(fmt, value[:valuesize])
+            value = struct.unpack_from(fmt, value)
 
         value = TiffTag._process_value(value, code, dtype, offset)
 
@@ -12546,6 +12576,18 @@ class FileSequence(Sequence[str]):
 
         assert isinstance(files, list)
         assert isinstance(files[0], str)
+
+        seen: dict[tuple[int, ...], str] = {}
+        for index, filename in zip(indices, files, strict=True):
+            index = tuple(index)  # noqa: PLW2901
+            if index in seen:
+                msg = (
+                    f'files {seen[index]!r} and {filename!r} '
+                    f'map to same index {index}'
+                )
+                raise ValueError(msg)
+            seen[index] = filename
+
         codes = TIFF.AXES_CODES
         axes = ''.join(codes.get(dim.lower(), dim[0].upper()) for dim in dims)
 
@@ -12642,9 +12684,14 @@ class FileSequence(Sequence[str]):
         chunkdtype = numpy.dtype(chunkdtype)
         assert chunkshape is not None
 
+        # zero output if sequence has missing chunks
+        fillvalue = 0 if len(files) < product(self.shape) else None
+
         if axestiled:
             tiled = TiledSequence(self.shape, chunkshape, axestiled=axestiled)
-            result = create_output(out, tiled.shape, chunkdtype)
+            result = create_output(
+                out, tiled.shape, chunkdtype, fillvalue=fillvalue
+            )
 
             def func(index: tuple[int | slice, ...], filename: str, /) -> None:
                 # read single image from file into result
@@ -12670,7 +12717,7 @@ class FileSequence(Sequence[str]):
                         pass
         else:
             shape = self.shape + chunkshape
-            result = create_output(out, shape, chunkdtype)
+            result = create_output(out, shape, chunkdtype, fillvalue=fillvalue)
             result = result.reshape((-1, *chunkshape))
 
             def func(index: tuple[int | slice, ...], filename: str, /) -> None:
@@ -15426,9 +15473,9 @@ class CompressionCodec(Mapping[int, Callable[..., object]]):
                         codec = imagecodecs.lerc_decode
                 case 34892:
                     if self._encode:
-                        codec = imagecodecs.jpeg8_encode
+                        codec = imagecodecs.jpeg_encode
                     else:
-                        codec = imagecodecs.jpeg8_decode
+                        codec = imagecodecs.jpeg_decode
                 case 34925:
                     if (
                         hasattr(imagecodecs, 'LZMA')
@@ -17597,6 +17644,8 @@ class _TIFF:
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
                 _?(?:(q|l|p|a|c|t|x|y|z|ch|tp)(\d{1,4}))?
+                # only match axes at end of file name, before extension
+                (?=\.[^\\/]*$|$)
                 """}
 
     @property
@@ -22374,6 +22423,7 @@ def read_tags(
 
     result: list[dict[str, Any]] = []
     unpack = struct.unpack
+    unpack_from = struct.unpack_from
     offset = fh.tell()
     while len(result) < maxifds:
         # loop over IFDs
@@ -22398,8 +22448,8 @@ def read_tags(
         index = 0
 
         for _ in range(tagno):
-            code, dtype, count, valuebytes = unpack(
-                tagheaderformat, data[index : index + tagsize]
+            code, dtype, count, valuebytes = unpack_from(
+                tagheaderformat, data, index
             )
             index += tagsize
             name = tagnames.get(code, str(code))
@@ -22442,7 +22492,7 @@ def read_tags(
                 # BYTES, ASCII, UNDEFINED
                 value = valuebytes[:valuesize]
             else:
-                value = unpack(fmt, valuebytes[:valuesize])
+                value = unpack_from(fmt, valuebytes)
 
             process = (
                 code not in customtags
@@ -23050,11 +23100,17 @@ def read_lsm_channelcolors(fh: FileHandle, /) -> dict[str, Any]:
     # ColorNames
     fh.seek(pos + noffset)
     buffer = fh.read(size - noffset)
+    buffer_size = len(buffer)
     names = []
-    while len(buffer) > 4:
-        namesize = struct.unpack('<I', buffer[:4])[0]
-        names.append(bytes2str(buffer[4 : 3 + namesize]))
-        buffer = buffer[4 + namesize :]
+    index = 0
+    while index + 4 <= buffer_size:
+        namesize = struct.unpack_from('<I', buffer, index)[0]
+        start = index + 4
+        end = start + namesize
+        if end > buffer_size:
+            break
+        names.append(bytes2str(buffer[start:end]))
+        index = end
     result['ColorNames'] = names
     return result
 
@@ -23120,7 +23176,8 @@ def read_lsm_scaninfo(fh: FileHandle, /) -> dict[str, Any]:
     block: dict[str, Any] = {}
     blocks: list[dict[str, Any]] = [block]
     unpack = struct.unpack
-    if struct.unpack('<I', fh.read(4))[0] != 0x10000000:
+
+    if unpack('<I', fh.read(4))[0] != 0x10000000:
         # not a Recording sub block
         logger().warning(
             '<tifffile.read_lsm_scaninfo> invalid LSM ScanInfo structure'
@@ -23200,7 +23257,7 @@ def read_sis(
     data = fh.read(8 * tagcount)
     for i in range(0, tagcount * 8, 8):
         try:
-            tagtype, _count, offset = struct.unpack('<hhI', data[i : i + 8])
+            tagtype, _count, offset = struct.unpack_from('<hhI', data, i)
         except struct.error:
             break
         if tagtype == 1:
@@ -23668,15 +23725,16 @@ def read_ndtiff_index(
         - metacompression: Metadata compression. 0: Uncompressed.
 
     """
+    unpack = struct.unpack
     with open(file, 'rb') as fh:
         while True:
             b = fh.read(4)
             if len(b) != 4:
                 break
             try:
-                k = struct.unpack('<I', b)[0]
+                k = unpack('<I', b)[0]
                 axes_dict = json.loads(fh.read(k))
-                n = struct.unpack('<I', fh.read(4))[0]
+                n = unpack('<I', fh.read(4))[0]
                 filename = fh.read(n).decode('utf-8', errors='replace')
                 (
                     dataoffset,
@@ -23687,7 +23745,7 @@ def read_ndtiff_index(
                     metaoffset,
                     metabytecount,
                     metacompression,
-                ) = struct.unpack('<IiiiiIii', fh.read(32))
+                ) = unpack('<IiiiiIii', fh.read(32))
             except (struct.error, json.JSONDecodeError, ValueError) as exc:
                 logger().warning(
                     f'<tifffile.read_ndtiff_index> raised {exc!r:.128}'
@@ -23942,9 +24000,7 @@ def imagej_metadata(
         raise ValueError(msg)
 
     ntypes = (header_size - 4) // 8
-    header = struct.unpack(
-        byteorder + '4sI' * ntypes, data[4 : 4 + ntypes * 8]
-    )
+    header = struct.unpack_from(byteorder + '4sI' * ntypes, data, 4)
     pos = 4 + ntypes * 8
     counter = 0
     result = {}
@@ -24226,9 +24282,11 @@ def jpeg_shape(jpeg: bytes, /) -> tuple[int, int, int, int]:
         ValueError: No SOF marker found.
 
     """
+    unpack_from = struct.unpack_from
+    size = len(jpeg)
     i = 0
-    while i < len(jpeg):
-        marker = struct.unpack('>H', jpeg[i : i + 2])[0]
+    while i < size:
+        marker = unpack_from('>H', jpeg, i)[0]
         i += 2
 
         if marker == 0xFFD8:
@@ -24244,13 +24302,13 @@ def jpeg_shape(jpeg: bytes, /) -> tuple[int, int, int, int]:
             # private marker
             continue
 
-        length = struct.unpack('>H', jpeg[i : i + 2])[0]
+        length = unpack_from('>H', jpeg, i)[0]
         i += 2
 
         if 0xFFC0 <= marker <= 0xFFC3:
             # start of frame (baseline, extended, progressive, lossless)
             # SOF5-SOF11 and SOF13-SOF15 are not handled
-            return struct.unpack('>BHHB', jpeg[i : i + 6])
+            return unpack_from('>BHHB', jpeg, i)
         if marker == 0xFFDA:
             # start of scan
             break
@@ -24272,14 +24330,16 @@ def ndpi_jpeg_tile(jpeg: bytes, /) -> tuple[int, int, bytes]:
         ValueError: Missing required JPEG markers (DRI, SOF0, SOS).
 
     """
+    unpack_from = struct.unpack_from
     restartinterval: int = 0
     sofoffset: int = 0
     sosoffset: int = 0
     mcuwidth: int = 1
     mcuheight: int = 1
     i: int = 0
-    while i < len(jpeg):
-        marker = struct.unpack('>H', jpeg[i : i + 2])[0]
+    size = len(jpeg)
+    while i < size:
+        marker = unpack_from('>H', jpeg, i)[0]
         i += 2
 
         if marker == 0xFFD8:
@@ -24295,26 +24355,26 @@ def ndpi_jpeg_tile(jpeg: bytes, /) -> tuple[int, int, bytes]:
             # private marker
             continue
 
-        length = struct.unpack('>H', jpeg[i : i + 2])[0]
+        length = unpack_from('>H', jpeg, i)[0]
         i += 2
 
         if marker == 0xFFDD:
             # define restart interval
-            restartinterval = struct.unpack('>H', jpeg[i : i + 2])[0]
+            restartinterval = unpack_from('>H', jpeg, i)[0]
 
         elif marker == 0xFFC0:
             # start of frame: record offset to height field (precision+1),
             # parse MCU sampling factors, then reset i so that the
             # 'skip to next marker' step below moves past the SOF segment
             sofoffset = i + 1
-            _precision, _imlength, _imwidth, ncomponents = struct.unpack(
-                '>BHHB', jpeg[i : i + 6]
-            )
+            # precision, imlength, imwidth, ncomponents: '>BHHB'
+            ncomponents = unpack_from('>B', jpeg, i + 5)[0]
             i += 6
             mcuwidth = 1
             mcuheight = 1
             for _ in range(ncomponents):
-                _cid, factor, _table = struct.unpack('>BBB', jpeg[i : i + 3])
+                # cid, factor, table: '>BBB'
+                factor = unpack_from('>B', jpeg, i + 1)[0]
                 i += 3
                 mcuwidth = max(mcuwidth, factor >> 4)
                 mcuheight = max(mcuheight, factor & 0xF)
@@ -25260,18 +25320,22 @@ def parse_filenames(
     # determine shape
     indices_array = numpy.array(indices, dtype=numpy.intp)
 
-    # always zero-base indices regardless of whether _shape was provided
-    startindex = numpy.min(indices_array, axis=0)
-    indices_array -= startindex
-    parsedshape = numpy.max(indices_array, axis=0) + 1
-
     if shape is None:
+        indices_array -= numpy.min(indices_array, axis=0)
+        parsedshape = numpy.max(indices_array, axis=0) + 1
         shape = tuple(int(i) for i in parsedshape.tolist())
-    elif len(parsedshape) != len(shape) or any(
-        i > j for i, j in zip(shape, parsedshape, strict=True)
-    ):
-        msg = f'parsed shape {parsedshape} does not fit provided shape {shape}'
-        raise ValueError(msg)
+    else:
+        parsedshape = numpy.max(indices_array, axis=0) + 1
+        if (
+            len(parsedshape) != len(shape)
+            or numpy.min(indices_array) < 0
+            or any(i < j for i, j in zip(shape, parsedshape, strict=True))
+        ):
+            msg = (
+                f'parsed shape {tuple(parsedshape.tolist())} '
+                f'does not fit provided shape {shape}'
+            )
+            raise ValueError(msg)
 
     indices_list: list[list[int]] = indices_array.tolist()
     indices = [tuple(index) for index in indices_list]
@@ -26152,18 +26216,25 @@ def stack_pages(
                 out[index].fill(0)
             else:
                 filecache.open(page.parent.filehandle)
-                page.asarray(lock=lock, out=out[index], **kwargs)
-                filecache.close(page.parent.filehandle)
+                try:
+                    page.asarray(lock=lock, out=out[index], **kwargs)
+                finally:
+                    filecache.close(page.parent.filehandle)
 
-        if maxworkers < 2:
-            for index, page in enumerate(pages):
-                func(page, index)
-        else:
-            page0.init_decode()
-            with ThreadPoolExecutor(maxworkers) as executor:
-                # iterate map results to propagate exceptions from workers
-                for _ in executor.map(func, pages, range(npages)):
-                    pass
+        try:
+            if maxworkers < 2:
+                for index, page in enumerate(pages):
+                    func(page, index)
+            else:
+                page0.init_decode()
+                with ThreadPoolExecutor(maxworkers) as executor:
+                    # iterate map results to propagate exceptions
+                    for _ in executor.map(func, pages, range(npages)):
+                        pass
+        finally:
+            filecache.clear()
+            if not haslock:
+                fh.set_lock(False)
 
     else:
         msg = 'tiled stacking not implemented'
@@ -26196,9 +26267,6 @@ def stack_pages(
         #         for _ in executor.map(func_tiled, pages, tiled.slices()):
         #             pass
 
-    filecache.clear()
-    if not haslock:
-        fh.set_lock(False)
     return out
 
 
@@ -26536,12 +26604,12 @@ def asbool(
     true_vals = (
         true
         if true is not None
-        else (b'true' if isinstance(value, bytes) else ('true',))
+        else ((b'true',) if isinstance(value, bytes) else ('true',))
     )
     false_vals = (
         false
         if false is not None
-        else (b'false' if isinstance(value, bytes) else ('false',))
+        else ((b'false',) if isinstance(value, bytes) else ('false',))
     )
     if value in true_vals:
         return True
