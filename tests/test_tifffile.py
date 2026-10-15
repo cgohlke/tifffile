@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.9.20
+:Version: 2026.10.15
 
 """
 
@@ -67,7 +67,8 @@ if TYPE_CHECKING:
 
 import numpy
 import pytest
-from numpy.testing import assert_allclose, assert_array_equal, assert_raises
+from numpy import array_equal  # faster than assert_array_equal
+from numpy.testing import assert_allclose, assert_array_equal
 
 import tifffile
 
@@ -359,11 +360,11 @@ def assert_fsspec(url: str, data: NDArray[Any], zarr_format: int) -> None:
     zobj = zarr.open(refs_as_store(url), zarr_format=zarr_format)
 
     if isinstance(zobj, zarr.Group):
-        assert_array_equal(zobj['0'][:], data)
-        assert_array_equal(zobj['1'][:], data[:, ::2, ::2])
-        assert_array_equal(zobj['2'][:], data[:, ::4, ::4])
+        assert array_equal(zobj['0'][:], data)
+        assert array_equal(zobj['1'][:], data[:, ::2, ::2])
+        assert array_equal(zobj['2'][:], data[:, ::4, ::4])
     else:
-        assert_array_equal(zobj[:], data)
+        assert array_equal(zobj[:], data)
 
 
 def assert_file_flags(tiff_file: TiffFile) -> None:
@@ -460,9 +461,10 @@ def assert_aszarr_method(
         data = zarr.open(store, mode=mode)
         if isinstance(data, zarr.Group):
             data = data['0']
-        data = data[:]
-        assert_array_equal(data, image)
+        data_array = data[:]
+        assert array_equal(data_array, image)
         del data
+        del data_array
 
 
 def assert_asxarray_method(
@@ -477,7 +479,7 @@ def assert_asxarray_method(
         image = obj.asarray(**kwargs)
     da = obj.asxarray(**kwargs)
     assert isinstance(da, xarray.DataArray)
-    assert_array_equal(da.values, image)
+    assert array_equal(da.values, image)
     return da
 
 
@@ -563,9 +565,9 @@ def test_issue_imread_kwargs():
                 tif.write(image)  # create 5 series
         assert_valid_tiff(filename)
         image = imread(filename, pattern=None)  # reads first series
-        assert_array_equal(image, data[0])
+        assert array_equal(image, data[0])
         image = imread(filename, is_shaped=False)  # reads all pages
-        assert_array_equal(image, data)
+        assert array_equal(image, data)
 
 
 def test_issue_imread_kwargs_legacy():
@@ -624,7 +626,7 @@ def test_issue_jpeg_ia():
     with TiffFile(filename) as tif:
         page = tif.pages.first
         assert page.compression == COMPRESSION.JPEG
-        assert_array_equal(
+        assert array_equal(
             page.asarray(),
             numpy.array([[[0, 0], [255, 255]]], dtype=numpy.uint8),
         )
@@ -661,7 +663,7 @@ def test_issue_specific_pages():
         # UserWarning: can not reshape (21, 31) to (3, 21, 31)
         image = imread(filename, key=1)
         assert image.shape == (21, 31)
-        assert_array_equal(image, data[1])
+        assert array_equal(image, data[1])
     with TempFileName('issue_specific_pages_bigtiff') as filename:
         imwrite(
             filename, data, bigtiff=True, photometric=PHOTOMETRIC.MINISBLACK
@@ -671,7 +673,7 @@ def test_issue_specific_pages():
         # UserWarning: can not reshape (21, 31) to (3, 21, 31)
         image = imread(filename, key=1)
         assert image.shape == (21, 31)
-        assert_array_equal(image, data[1])
+        assert array_equal(image, data[1])
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -991,11 +993,11 @@ def test_issue_pages_iterator():
             assert len(series._pages) == 1
             assert len(series) == 8
             image = series.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             for i, page in enumerate(series):
                 assert page is not None
                 im = page.asarray()
-                assert_array_equal(image[i], im)
+                assert array_equal(image[i], im)
             assert__str__(tif)
 
 
@@ -1015,7 +1017,7 @@ def test_issue_tile_partial():
                 + page.tags['TileByteCounts'].value[0]
                 == tif.filehandle.size
             )
-            assert_array_equal(page.asarray(), data[0, 0])
+            assert array_equal(page.asarray(), data[0, 0])
             assert_aszarr_method(page, data[0, 0])
             assert__str__(tif)
 
@@ -1032,7 +1034,7 @@ def test_issue_tile_partial():
                 + page.tags['TileByteCounts'].value[0]
                 == tif.filehandle.size
             )
-            assert_array_equal(page.asarray(), data[0])
+            assert array_equal(page.asarray(), data[0])
             assert_aszarr_method(page, data[0])
             assert__str__(tif)
 
@@ -1054,7 +1056,7 @@ def test_issue_tile_partial():
                 + page.tags['TileByteCounts'].value[0] * 3
                 == tif.filehandle.size
             )
-            assert_array_equal(page.asarray(), data)
+            assert array_equal(page.asarray(), data)
             assert_aszarr_method(page, data)
             assert__str__(tif)
 
@@ -1073,7 +1075,7 @@ def test_issue_tile_partial():
                 + page.tags['TileByteCounts'].value[0]
                 == tif.filehandle.size
             )
-            assert_array_equal(page.asarray(), data)
+            assert array_equal(page.asarray(), data)
             assert_aszarr_method(page, data)
             assert__str__(tif)
 
@@ -1116,7 +1118,7 @@ def test_issue_tiles_pad(samples, compression):
             photometric=photometric,
             compression=compression,
         )
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
         assert_valid_tiff(filename)
 
 
@@ -1129,7 +1131,7 @@ def test_issue_fcontiguous():
         with TiffFile(filename) as tif:
             assert len(tif.pages) == 1
             page = tif.pages.first
-            assert_array_equal(page.asarray(), data)
+            assert array_equal(page.asarray(), data)
             assert__str__(tif)
 
 
@@ -1143,11 +1145,11 @@ def test_issue_pathlib():
         imwrite(filename, data)
         # imread
         im = imread(filename)
-        assert_array_equal(im, data)
+        assert array_equal(im, data)
         # memmap
         im = memmap(filename)
         try:
-            assert_array_equal(im, data)
+            assert array_equal(im, data)
         finally:
             del im
         # TiffFile
@@ -1160,17 +1162,17 @@ def test_issue_pathlib():
             im = tif.asarray(out=outfilename)
             try:
                 assert isinstance(im, numpy.memmap)
-                assert_array_equal(im, data)
+                assert array_equal(im, data)
                 assert os.path.samefile(im.filename, outfilename_str)
             finally:
                 del im
         # TiffSequence
         with TiffSequence(filename) as tifs:
             im = tifs.asarray()
-            assert_array_equal(im[0], data)
+            assert array_equal(im[0], data)
         with TiffSequence([filename]) as tifs:
             im = tifs.asarray()
-            assert_array_equal(im[0], data)
+            assert array_equal(im[0], data)
 
     # TiffSequence container
     if SKIP_FILE or SKIP_CODECS:
@@ -1205,8 +1207,8 @@ def test_issue_iterable_compression():
                 compression=COMPRESSION.ADOBE_DEFLATE,
             )
         with TiffFile(filename) as tif:
-            assert_array_equal(tif.series[0].asarray(), data)
-            assert_array_equal(tif.series[1].asarray(), data)
+            assert array_equal(tif.series[0].asarray(), data)
+            assert array_equal(tif.series[1].asarray(), data)
     # fail with wrong dtype
     with TempFileName('issue_iterable_compression_fail') as filename:
         with TiffWriter(filename) as tif:  # noqa: SIM117
@@ -1243,14 +1245,14 @@ def test_issue_write_separated():
             assert len(tif.series) == 3
             page = tif.pages.first
             assert page.photometric == PHOTOMETRIC.SEPARATED
-            assert_array_equal(page.asarray(), contig)
+            assert array_equal(page.asarray(), contig)
             page = tif.pages[1]
             assert page.photometric == PHOTOMETRIC.SEPARATED
-            assert_array_equal(page.asarray(), separate)
+            assert array_equal(page.asarray(), separate)
             page = tif.pages[2]
             assert page.photometric == PHOTOMETRIC.SEPARATED
             assert page.extrasamples == (1,)
-            assert_array_equal(page.asarray(), extrasample)
+            assert array_equal(page.asarray(), extrasample)
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -1259,7 +1261,7 @@ def test_issue_mmap():
     filename = _file('OME/bioformats-artificial/4D-series.ome.tiff')
     with open(filename, 'rb') as fh:
         mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
-        assert_array_equal(imread(mm), imread(filename))
+        assert array_equal(imread(mm), imread(filename))
         mm.close()
 
 
@@ -1322,7 +1324,7 @@ def test_issue_imagej_singlet_dimensions():
     with TempFileName('issue_imagej_singlet_dimensions') as filename:
         imwrite(filename, data, kind='imagej')
         image = imread(filename, squeeze=False)
-        assert_array_equal(image, data)
+        assert array_equal(image, data)
 
         with TiffFile(filename) as tif:
             assert tif.is_imagej
@@ -1333,7 +1335,7 @@ def test_issue_imagej_singlet_dimensions():
             assert unsqueezed.axes == 'TZCYXS'
             assert unsqueezed.shape == (1, 10, 1, 248, 260, 1)
             data = tif.asarray(squeeze=False)
-            assert_array_equal(image, data)
+            assert array_equal(image, data)
             assert_aszarr_method(unsqueezed, data, squeeze=False)
             assert_aszarr_method(
                 unsqueezed, data, squeeze=False, chunkmode='page'
@@ -1652,7 +1654,7 @@ def test_issue_dask_multipage(truncate, chunkmode):
             assert isinstance(store, ZarrStore)
             assert isinstance(store, ZarrTiffStore)
             daskarray = dask.array.from_zarr(store).compute()
-            assert_array_equal(data, daskarray)
+            assert array_equal(data, daskarray)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_ZARR, reason=REASON)
@@ -1670,7 +1672,7 @@ def test_issue_zarr_store_closed(chunkmode):
         chunk = z[10:11, 3:-3]  # seek of closed file
     finally:
         store.close()
-    assert_array_equal(chunk, data[10:11, 3:-3])
+    assert array_equal(chunk, data[10:11, 3:-3])
 
     store = imread(filename, return_as='zarr', chunkmode=chunkmode)
     assert isinstance(store, ZarrStore)
@@ -1680,7 +1682,7 @@ def test_issue_zarr_store_closed(chunkmode):
         chunk = z[:]
     finally:
         store.close()
-    assert_array_equal(chunk, data)
+    assert array_equal(chunk, data)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_ZARR or SKIP_CODECS, reason=REASON)
@@ -1696,7 +1698,7 @@ def test_issue_zarr_store_multifile_closed(chunkmode):
         chunk = z[32:35, 3:7, :, 31:-31, 33:-33]  # seek of closed file
     finally:
         store.close()
-    assert_array_equal(chunk, data[32:35, 3:7, :, 31:-31, 33:-33])
+    assert array_equal(chunk, data[32:35, 3:7, :, 31:-31, 33:-33])
 
 
 @pytest.mark.skipif(
@@ -1768,9 +1770,9 @@ def test_issue_filesequence_file_parameter():
     with TiffSequence(files) as tiffs:
         assert tiffs.shape == (2,)
         with pytest.raises(TypeError):
-            assert_array_equal(tiffs.asarray(file=files[0]), imread(files[0]))
+            assert array_equal(tiffs.asarray(file=files[0]), imread(files[0]))
         with pytest.raises(TypeError):
-            assert_array_equal(tiffs.asarray(file=1), imread(files[1]))
+            assert array_equal(tiffs.asarray(file=1), imread(files[1]))
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -1810,7 +1812,7 @@ def test_issue_imagej_prop():
         assert tif.pages.first.photometric == PHOTOMETRIC.PALETTE
         colormap = tif.pages.first.colormap
         image = tif.asarray()
-        assert_array_equal(image, data)
+        assert array_equal(image, data)
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -1891,7 +1893,7 @@ def test_issue_imagej_colormap():
             assert tif.imagej_metadata is not None
             assert tif.imagej_metadata['Properties']['CurrentLUT'] == 'cyan'
             assert tif.pages.first.photometric == PHOTOMETRIC.MINISBLACK
-            assert_array_equal(tif.pages.first.colormap, colormap)
+            assert array_equal(tif.pages.first.colormap, colormap)
 
 
 @pytest.mark.skipif(
@@ -1931,7 +1933,7 @@ def test_issue_webp_fsspec():
             zarr_format=3,
         )
         zobj = zarr.open(refs_as_store(jsonfile), zarr_format=3)
-        assert_array_equal(zobj[:], data)
+        assert array_equal(zobj[:], data)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_ZARR, reason=REASON)
@@ -1990,7 +1992,7 @@ def test_issue_xarray():
                     assert dataset['x'].shape == (5, 1, 1, 31, 33, 3)
                     assert dataset['x'].dims == ('T', 'Z', 'C', 'Y', 'X', 'S')
 
-                assert_array_equal(data, numpy.squeeze(dataset['x'][:]))
+                assert array_equal(data, numpy.squeeze(dataset['x'][:]))
                 del dataset
 
 
@@ -2062,8 +2064,8 @@ def test_issue_xarray_multiscale():
                         'X2',
                     )
 
-                assert_array_equal(data, numpy.squeeze(dataset['0'][:]))
-                assert_array_equal(
+                assert array_equal(data, numpy.squeeze(dataset['0'][:]))
+                assert array_equal(
                     data[:, :, ::4, ::4], numpy.squeeze(dataset['2'][:])
                 )
                 del dataset
@@ -2105,34 +2107,34 @@ def test_issue_indexing():
     assert isinstance(data1, numpy.ndarray)
     assert data1.shape == (128, 128, 3)
 
-    assert_array_equal(data1, imread(filename, key=1024))
-    assert_array_equal(data1, imread(filename, key=[1024]))
-    assert_array_equal(data1, imread(filename, key=range(1024, 1025)))
-    assert_array_equal(data1, imread(filename, series=1, key=0))
-    assert_array_equal(data1, imread(filename, series=1, key=[0]))
-    assert_array_equal(
+    assert array_equal(data1, imread(filename, key=1024))
+    assert array_equal(data1, imread(filename, key=[1024]))
+    assert array_equal(data1, imread(filename, key=range(1024, 1025)))
+    assert array_equal(data1, imread(filename, series=1, key=0))
+    assert array_equal(data1, imread(filename, series=1, key=[0]))
+    assert array_equal(
         data1, imread(filename, series=1, level=0, key=slice(None))
     )
 
-    assert_array_equal(data0, imread(filename, series=0))
-    assert_array_equal(
+    assert array_equal(data0, imread(filename, series=0))
+    assert array_equal(
         data0.reshape((-1, 256, 256)),
         imread(filename, series=0, key=slice(None)),
     )
-    assert_array_equal(
+    assert array_equal(
         data0.reshape((-1, 256, 256)), imread(filename, key=slice(0, -1, 1))
     )
-    assert_array_equal(
+    assert array_equal(
         data0.reshape((-1, 256, 256)), imread(filename, key=range(1024))
     )
-    assert_array_equal(data0[0, 0], imread(filename, key=[0, 1]))
-    assert_array_equal(data0[0, 0], imread(filename, series=0, key=(0, 1)))
+    assert array_equal(data0[0, 0], imread(filename, key=[0, 1]))
+    assert array_equal(data0[0, 0], imread(filename, series=0, key=(0, 1)))
 
-    assert_array_equal(
+    assert array_equal(
         level1.reshape((-1, 128, 128)),
         imread(filename, series=0, level=1, key=slice(None)),
     )
-    assert_array_equal(
+    assert array_equal(
         level1.reshape((-1, 128, 128)),
         imread(filename, series=0, level=1, key=range(1024)),
     )
@@ -2174,17 +2176,17 @@ def test_issue_shaped_metadata():
             # coords filled from keyframe
             coords0 = tif.series[0].coords
             assert list(coords0.keys()) == ['Y', 'X']
-            assert_array_equal(
+            assert array_equal(
                 coords0['X'],
                 numpy.linspace(0, 31, 31, endpoint=False, dtype=numpy.float32),
             )
             coords1 = tif.series[1].coords
             assert list(coords1.keys()) == ['Y', 'X', 'S']
-            assert_array_equal(
+            assert array_equal(
                 coords1['X'],
                 numpy.linspace(0, 33, 33, endpoint=False, dtype=numpy.float32),
             )
-            assert_array_equal(coords1['S'], ['Red', 'Green', 'Blue'])
+            assert array_equal(coords1['S'], ['Red', 'Green', 'Blue'])
             meta = tif.shaped_metadata
             assert meta is not None
             assert len(meta) == 2
@@ -2263,7 +2265,7 @@ def test_issue_imagej_zct_order(caplog):
             assert 'OME series is BinaryOnly' in caplog.text
         assert series.axes == 'CZYX'
         assert series.kind == 'imagej'
-        assert_array_equal(series.asarray(), data)
+        assert array_equal(series.asarray(), data)
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -2513,7 +2515,7 @@ def test_issue_jpeg_rgb():
             assert page.compression == COMPRESSION.JPEG
             assert not page.is_jfif
             image = page.asarray()
-        assert_array_equal(image, imagecodecs.imread(filename))
+        assert array_equal(image, imagecodecs.imread(filename))
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -2525,11 +2527,11 @@ def test_issue_imread_out():
     assert isinstance(image, numpy.ndarray)
     data = imread(filename, out='memmap')
     assert isinstance(data, numpy.memmap)
-    assert_array_equal(data, image)
+    assert array_equal(data, image)
 
     image = imread([filename, filename], out=None)
     assert isinstance(image, numpy.ndarray)
-    assert_array_equal(image[1], data)
+    assert array_equal(image[1], data)
 
     data = imread(
         [filename, filename],
@@ -2539,7 +2541,7 @@ def test_issue_imread_out():
         out='memmap',
     )
     assert isinstance(data, numpy.memmap)
-    assert_array_equal(data, image)
+    assert array_equal(data, image)
 
 
 def test_issue_imagej_hyperstack_arg():
@@ -2588,7 +2590,7 @@ def test_issue_description_overwrite():
             assert tif.pages.first.description == omexml.tostring()
             assert tif.series[0].kind == 'ome'
             assert tif.series[0].axes == 'ZYX'
-            assert_array_equal(tif.asarray(), data)
+            assert array_equal(tif.asarray(), data)
 
 
 def test_issue_svs_description():
@@ -2727,7 +2729,7 @@ def test_issue_predictor_floatx2():
             assert page.predictor == 34894
             assert page.compression == 8
             image = page.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert__str__(tif)
 
 
@@ -2750,7 +2752,7 @@ def test_issue_predictor_deltax2():
         #     assert page.predictor == 34892
         #     assert page.compression == 8
         #     image = page.asarray()
-        #     assert_array_equal(data, image)
+        #     assert array_equal(data, image)
         #     assert__str__(tif)
 
 
@@ -2790,14 +2792,14 @@ def test_issue_tile_generator(compression, predictor, samples):
             compression=compression,
             predictor=predictor,
         )
-        assert_array_equal(imread(filename), data.squeeze())
+        assert array_equal(imread(filename), data.squeeze())
         if (
             SKIP_CODECS
             or not imagecodecs.TIFF.available
             or (compression == 'packbits' and predictor == 'horizontal')
         ):
             return
-        assert_array_equal(imagecodecs.imread(filename), data.squeeze())
+        assert array_equal(imagecodecs.imread(filename), data.squeeze())
 
 
 def test_issue_extratags_filter(caplog):
@@ -2930,7 +2932,7 @@ def test_issue_wrong_shape(caplog):
         assert 'shaped series metadata does not match page' in caplog.text
         assert series.shape == (1000, 1000, 4)  # != (1, 1, 4, 1000, 1000)
         assert series.axes == 'YXS'  # != 'ZTCYX'
-        assert_array_equal(page.asarray(), series.asarray())
+        assert array_equal(page.asarray(), series.asarray())
 
 
 def test_issue_exclusive_creation():
@@ -3056,13 +3058,13 @@ def test_issue_truncated_tileoffsets(caplog):
 
         image = imread(filename)
         assert 'expected 6 segments, got 4' in caplog.text
-        assert_raises(AssertionError, assert_array_equal, image, data)
-        assert_array_equal(image[:128], data[:128])
+        assert not array_equal(image, data)
+        assert array_equal(image[:128], data[:128])
 
         store = imread(filename, return_as='zarr')
         za = zarr.open(store, mode='r')[:]
         store.close()
-        assert_array_equal(za, image)
+        assert array_equal(za, image)
 
 
 @pytest.mark.parametrize('buffersize', [0, 1, 1234])
@@ -3081,7 +3083,7 @@ def test_issue_buffersize(buffersize, tile):
             **kwargs,
         )
         im = imread(filename, maxworkers=2, buffersize=buffersize)
-    assert_array_equal(im, data)
+    assert array_equal(im, data)
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -3101,7 +3103,7 @@ def test_issue_ideas(caplog):
         series = tif.series[0]
         assert series.shape == (37, 29)
         assert series.axes == 'YX'
-        assert_array_equal(page.asarray(), series.asarray())
+        assert array_equal(page.asarray(), series.asarray())
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -3226,11 +3228,11 @@ def test_issue_jpeg_bitspersample():
             assert tif.pages[2].bitspersample == 14
             assert tif.pages[3].bitspersample == 12
             assert tif.pages[4].bitspersample == 12
-            assert_array_equal(tif.series[0].asarray(), data6)
-            assert_array_equal(tif.series[1].asarray(), data12)
-            assert_array_equal(tif.series[2].asarray(), data12)
-            assert_array_equal(tif.series[3].asarray(), data12)
-            assert_array_equal(tif.series[4].asarray(), data12)
+            assert array_equal(tif.series[0].asarray(), data6)
+            assert array_equal(tif.series[1].asarray(), data12)
+            assert array_equal(tif.series[2].asarray(), data12)
+            assert array_equal(tif.series[3].asarray(), data12)
+            assert array_equal(tif.series[4].asarray(), data12)
 
             assert__str__(tif)
 
@@ -3293,12 +3295,12 @@ def test_issue_zarr_shape_one(shape):
     with TempFileName(f'issue_zarr_shape_one_{shape}') as filename:
         data = numpy.ones(shape, dtype=numpy.uint8)
         imwrite(filename, data, tile=(16, 16), metadata=None)
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
         with TiffFile(filename) as tif:
             store = tif.aszarr()
             zarray = zarr.open(store=store, mode='r')
             zdata = zarray[:]
-            assert_array_equal(zdata, data)
+            assert array_equal(zdata, data)
 
 
 def test_issue_not_binary():
@@ -4967,11 +4969,11 @@ def test_class_tiffseries():
 
             arr_nosq = tif.asarray(squeeze=False)
             assert arr_nosq.shape == (1, 3, 1, 32, 33, 1)
-            assert_array_equal(arr_nosq, data)
+            assert array_equal(arr_nosq, data)
 
             arr_sq = tif.asarray(squeeze=True)
             assert arr_sq.shape == (3, 32, 33)
-            assert_array_equal(arr_sq, numpy.squeeze(data))
+            assert array_equal(arr_sq, numpy.squeeze(data))
 
             # aszarr with squeeze variations
             import zarr
@@ -4983,23 +4985,23 @@ def test_class_tiffseries():
             with tif.aszarr(squeeze=False) as store:
                 z = zarr.open(store, mode='r')
                 assert z[:].shape == (1, 3, 1, 32, 33, 1)
-                assert_array_equal(z[:], data)
+                assert array_equal(z[:], data)
 
             with tif.aszarr(squeeze=True) as store:
                 z = zarr.open(store, mode='r')
                 assert z[:].shape == (3, 32, 33)
-                assert_array_equal(z[:], numpy.squeeze(data))
+                assert array_equal(z[:], numpy.squeeze(data))
 
             # TiffPageSeries.aszarr with squeeze
             with s0_unsq.aszarr(squeeze=True) as store:
                 z = zarr.open(store, mode='r')
                 assert z[:].shape == (3, 32, 33)
-                assert_array_equal(z[:], numpy.squeeze(data))
+                assert array_equal(z[:], numpy.squeeze(data))
 
             with s0_unsq.aszarr() as store:
                 z = zarr.open(store, mode='r')
                 assert z[:].shape == (1, 3, 1, 32, 33, 1)
-                assert_array_equal(z[:], data)
+                assert array_equal(z[:], data)
 
     # shaped series: squeeze=None preserves dimensions
     data_shaped = RNG.integers(0, 2**8, (1, 1, 32, 33), numpy.uint8)
@@ -5035,11 +5037,11 @@ def test_class_tiffseries():
         imwrite(filename, data, photometric='minisblack')
         arr = imread(filename, squeeze=False)
         assert arr.shape == (1, 3, 1, 32, 33, 1)
-        assert_array_equal(arr, data)
+        assert array_equal(arr, data)
 
         arr = imread(filename, squeeze=True)
         assert arr.shape == (3, 32, 33)
-        assert_array_equal(arr, numpy.squeeze(data))
+        assert array_equal(arr, numpy.squeeze(data))
 
 
 @pytest.mark.parametrize('bigtiff', [False, True])
@@ -5181,9 +5183,9 @@ def test_pages_delete_ome(caplog):
             assert 'index out of range' in caplog.text
             assert series.shape == (3, 32, 32)
             im = series.asarray()
-            assert_array_equal(im[0], data[0])
-            assert_array_equal(im[1], data[2])
-            assert_array_equal(im[2], numpy.zeros_like(data[2]))
+            assert array_equal(im[0], data[0])
+            assert array_equal(im[1], data[2])
+            assert array_equal(im[2], numpy.zeros_like(data[2]))
 
 
 def test_pages_delete_erase():
@@ -5208,8 +5210,8 @@ def test_pages_delete_erase():
         # remaining pages are intact
         with TiffFile(filename) as tif:
             assert len(tif.pages) == 2
-            assert_array_equal(tif.pages[0].asarray(), data[0])
-            assert_array_equal(tif.pages[1].asarray(), data[2])
+            assert array_equal(tif.pages[0].asarray(), data[0])
+            assert array_equal(tif.pages[1].asarray(), data[2])
 
 
 def test_pages_delete_erase_readonly_error():
@@ -5283,7 +5285,7 @@ def test_pages_delete_ndpi():
         assert page.index == 35
         assert series.name == 'Map'  # not 'Macro'
         assert series.shape == (196, 575)
-        assert_array_equal(series.asarray(), data)
+        assert array_equal(series.asarray(), data)
 
         # assert JPEG image was erased
         tif.filehandle.seek(jpeg[0])
@@ -5351,7 +5353,7 @@ def test_pages_delete_ndpi_large():
         assert page.index == 6
         assert series.name == 'Map'  # not 'Macro'
         assert series.shape == (200, 600)
-        assert_array_equal(series.asarray(), data)
+        assert array_equal(series.asarray(), data)
 
         # assert JPEG image was erased
         tif.filehandle.seek(jpeg[0])
@@ -5579,7 +5581,7 @@ def test_func_memmap_kind_squeeze():
 def test_func_repeat_nd():
     """Test repeat_nd function."""
     a = repeat_nd([[0, 1, 2], [3, 4, 5], [6, 7, 8]], (2, 3))
-    assert_array_equal(
+    assert array_equal(
         a,
         [
             [0, 0, 0, 1, 1, 1, 2, 2, 2],
@@ -5647,7 +5649,7 @@ def test_func_apply_colormap():
     """Test apply_colormap function."""
     image = numpy.arange(256, dtype=numpy.uint8)
     colormap = numpy.vstack([image, image, image]).astype(numpy.uint16) * 256
-    assert_array_equal(apply_colormap(image, colormap)[-1], colormap[:, -1])
+    assert array_equal(apply_colormap(image, colormap)[-1], colormap[:, -1])
 
 
 def test_func_parse_filenames():
@@ -5911,13 +5913,13 @@ def test_func_subresolution():
 def test_func_unpack_rgb():
     """Test unpack_rgb function."""
     data = struct.pack('BBBB', 0x21, 0x08, 0xFF, 0xFF)
-    assert_array_equal(
+    assert array_equal(
         unpack_rgb(data, '<B', (5, 6, 5), rescale=False), [1, 1, 1, 31, 63, 31]
     )
-    assert_array_equal(
+    assert array_equal(
         unpack_rgb(data, '<B', (5, 6, 5)), [8, 4, 8, 255, 255, 255]
     )
-    assert_array_equal(
+    assert array_equal(
         unpack_rgb(data, '<B', (5, 5, 5)), [16, 8, 8, 255, 255, 255]
     )
 
@@ -6715,21 +6717,21 @@ def test_func_create_output():
     a = create_output(None, shape, dtype)
     assert a.shape == shape
     assert a.dtype == dtype
-    # assert_array_equal(a, numpy.zeros(shape, dtype))
+    # assert array_equal(a, numpy.zeros(shape, dtype))
 
     # fillvalue
     a = create_output(None, shape, dtype, fillvalue=42)
-    assert_array_equal(a, numpy.full(shape, 42, dtype))
+    assert array_equal(a, numpy.full(shape, 42, dtype))
 
     # existing array
     b = create_output(a, a.shape, a.dtype)
     assert a is b
-    assert_array_equal(a, numpy.full(shape, 42, dtype))
+    assert array_equal(a, numpy.full(shape, 42, dtype))
 
     # existing array with fillvalue
     b = create_output(a, a.shape, a.dtype, fillvalue=1)
     assert a is b
-    assert_array_equal(a, numpy.ones(shape, dtype))
+    assert array_equal(a, numpy.ones(shape, dtype))
 
     # reshapeable
     b = create_output(a, (1, 17, 16), a.dtype)
@@ -6746,7 +6748,7 @@ def test_func_create_output():
     b = create_output(a[: shape[0], : shape[1]], shape, dtype, fillvalue=0)
     assert b.shape == shape
     assert a[shape[0], shape[1]] == 1
-    assert_array_equal(a[: shape[0], : shape[1]], numpy.zeros(shape, dtype))
+    assert array_equal(a[: shape[0], : shape[1]], numpy.zeros(shape, dtype))
 
     # 'memmap'
     a = create_output('memmap', shape, dtype)
@@ -6813,26 +6815,26 @@ def test_func_create_output_asarray(out, key):
             if out is None:
                 # new array
                 image = obj.asarray(out=None)
-                assert_array_equal(dat, image)
+                assert array_equal(dat, image)
                 del image
             elif out == 'empty':
                 # existing array
                 image = numpy.empty_like(dat)
                 obj.asarray(out=image)
-                assert_array_equal(dat, image)
+                assert array_equal(dat, image)
                 del image
             elif out == 'memmap':
                 # memmap in temp dir
                 image = obj.asarray(out='memmap')
                 assert isinstance(image, numpy.memmap)
-                assert_array_equal(dat, image)
+                assert array_equal(dat, image)
                 del image
             elif out == 'dir':
                 # memmap in specified dir
                 tempdir = os.path.dirname(filename)
                 image = obj.asarray(out=f'memmap:{tempdir}')
                 assert isinstance(image, numpy.memmap)
-                assert_array_equal(dat, image)
+                assert array_equal(dat, image)
                 del image
             elif out == 'name':
                 # memmap in specified file
@@ -6841,7 +6843,7 @@ def test_func_create_output_asarray(out, key):
                 ) as fileout:
                     image = obj.asarray(out=fileout)
                     assert isinstance(image, numpy.memmap)
-                    assert_array_equal(dat, image)
+                    assert array_equal(dat, image)
                     del image
 
 
@@ -6857,7 +6859,7 @@ def test_func_bitorder_decode():
     data = numpy.array([1, 666], dtype=numpy.uint16)
     reverse = numpy.array([128, 16473], dtype=numpy.uint16)
     # return new array
-    assert_array_equal(bitorder_decode(data), reverse)
+    assert array_equal(bitorder_decode(data), reverse)
     # array view not supported
     data = numpy.array(
         [
@@ -6879,7 +6881,7 @@ def test_func_bitorder_decode():
     #     with pytest.raises(NotImplementedError):
     #         bitorder_decode(data[1:, 1:3])
     # else:
-    assert_array_equal(bitorder_decode(data[1:, 1:3]), reverse[1:, 1:3])
+    assert array_equal(bitorder_decode(data[1:, 1:3]), reverse[1:, 1:3])
 
 
 @pytest.mark.parametrize(
@@ -6927,10 +6929,12 @@ def test_func_delta_codec(byteorder, kind):
     else:
         encoded = delta_encode(data, axis=-2)
         assert encoded.dtype.byteorder == data.dtype.byteorder
-        assert_array_equal(data, delta_decode(encoded, axis=-2))
+        assert array_equal(data, delta_decode(encoded, axis=-2))
         if not SKIP_CODECS:
-            assert_array_equal(
-                encoded, imagecodecs.delta_encode(data, axis=-2)
+            assert array_equal(
+                encoded,
+                imagecodecs.delta_encode(data, axis=-2),
+                equal_nan=True,
             )
 
 
@@ -7149,7 +7153,7 @@ def assert_filehandle(fh, offset=0):
     # assert array
     fh.seek(pad, whence=0)
     assert fh.tell() == pad
-    assert_array_equal(
+    assert array_equal(
         fh.read_array(numpy.uint8, 255), numpy.arange(255, dtype=numpy.uint8)
     )
     # assert records
@@ -7158,11 +7162,11 @@ def assert_filehandle(fh, offset=0):
     records = fh.read_record(
         [('x', numpy.float32), ('y', numpy.uint8)], (255, 3)
     )
-    assert_array_equal(records.y[:, 0], range(255))
-    assert_array_equal(records.x, records.y)
+    assert array_equal(records.y[:, 0], range(255))
+    assert array_equal(records.x, records.y)
     # assert memmap
     if fh.is_file:
-        assert_array_equal(
+        assert array_equal(
             fh.memmap_array(numpy.uint8, 255, pad),
             numpy.arange(255, dtype=numpy.uint8),
         )
@@ -7524,7 +7528,7 @@ def test_read_hopper_2bit():
         page = tif.pages.first
         assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.fillorder == FILLORDER.LSB2MSB
-        assert_array_equal(tif.asarray(), data)
+        assert array_equal(tif.asarray(), data)
         assert_aszarr_method(tif)
         assert__str__(tif)
     # inverted
@@ -7532,7 +7536,7 @@ def test_read_hopper_2bit():
     with TiffFile(filename) as tif:
         page = tif.pages.first
         assert page.photometric == PHOTOMETRIC.MINISWHITE
-        assert_array_equal(tif.asarray(), 3 - data)
+        assert array_equal(tif.asarray(), 3 - data)
         assert_aszarr_method(tif)
         assert__str__(tif)
     # inverted and reversed
@@ -7540,7 +7544,7 @@ def test_read_hopper_2bit():
     with TiffFile(filename) as tif:
         page = tif.pages.first
         assert page.photometric == PHOTOMETRIC.MINISWHITE
-        assert_array_equal(tif.asarray(), 3 - data)
+        assert array_equal(tif.asarray(), 3 - data)
         assert_aszarr_method(tif)
         assert__str__(tif)
 
@@ -7581,21 +7585,21 @@ def test_read_hopper_4bit():
         page = tif.pages.first
         assert page.photometric == PHOTOMETRIC.MINISBLACK
         assert page.fillorder == FILLORDER.LSB2MSB
-        assert_array_equal(tif.asarray(), data)
+        assert array_equal(tif.asarray(), data)
         assert__str__(tif)
     # inverted
     filename = _file('pillow/tiff_gray_2_4_bpp/hopper4I.tif')
     with TiffFile(filename) as tif:
         page = tif.pages.first
         assert page.photometric == PHOTOMETRIC.MINISWHITE
-        assert_array_equal(tif.asarray(), 15 - data)
+        assert array_equal(tif.asarray(), 15 - data)
         assert__str__(tif)
     # inverted and reversed
     filename = _file('pillow/tiff_gray_2_4_bpp/hopper4IR.tif')
     with TiffFile(filename) as tif:
         page = tif.pages.first
         assert page.photometric == PHOTOMETRIC.MINISWHITE
-        assert_array_equal(tif.asarray(), 15 - data)
+        assert array_equal(tif.asarray(), 15 - data)
         assert__str__(tif)
 
 
@@ -9480,7 +9484,7 @@ def test_read_cfa():
         assert page.tags['CFARepeatPatternDim'].value == (2, 2)
         assert page.tags['CFAPattern'].value == b'\x00\x01\x01\x02'
         image = page.asarray()
-        assert_array_equal(image, data)
+        assert array_equal(image, data)
         assert_aszarr_method(tif, data)
 
 
@@ -9662,7 +9666,7 @@ def test_read_lena_be_rgb48():
         assert data.flags['C_CONTIGUOUS']
         assert data.shape == (512, 512, 3)
         assert data.dtype == numpy.uint16
-        assert_array_equal(data[256, 256], (46259, 16706, 18504))
+        assert array_equal(data[256, 256], (46259, 16706, 18504))
         assert_aszarr_method(tif, data, series=0)
         assert__str__(tif)
 
@@ -10122,7 +10126,7 @@ def test_read_tiles():
                     tile, _indices, _shape = page.decode(
                         data, index, jpegtables=jpegtables
                     )
-                    assert_array_equal(tile, next(segments)[0])
+                    assert array_equal(tile, next(segments)[0])
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -10150,7 +10154,7 @@ def test_read_lsm_rgba_zstack():
         assert series.axes == 'ZCYX'
         assert series.kind == 'lsm'
         # assert coords: C must be strings, not spectral wavelengths
-        assert_array_equal(
+        assert array_equal(
             series.coords['C'], ['Ch1-T1', 'Ch2-T1', 'ChS1-T2', 'ChS2-T3']
         )
         assert_allclose(series.coords['Z'][1], 0.3759270443, rtol=1e-6)
@@ -10523,7 +10527,7 @@ def test_read_lsm_2chzt():
         assert_allclose(series.coords['Z'][1], 0.75)
         assert_allclose(series.coords['X'][1], 0.3845015347, rtol=1e-6)
         assert_allclose(series.coords['Y'][1], 0.3843424525, rtol=1e-6)
-        assert_array_equal(series.coords['C'], ['Ch3', 'Ch3'])
+        assert array_equal(series.coords['C'], ['Ch3', 'Ch3'])
         assert series.coord_units == {
             'X': 'micrometer',
             'Y': 'micrometer',
@@ -10640,6 +10644,22 @@ def test_read_lsm_unbounderror():
                 128,
             )
             assert series.kind == 'lsm'
+
+        # assert lsm_info tags
+        tags = tif.lsm_metadata
+        assert tags['DimensionX'] == 512
+        assert tags['DimensionY'] == 512
+        assert tags['DimensionZ'] == 2
+        assert tags['DimensionTime'] == 1
+        assert tags['DimensionChannels'] == 33
+        # assert lsm_scan_info tags
+        tags = tif.lsm_metadata['ScanInformation']
+        assert tags['ScanMode'] == 'Stack'
+        assert tags['User'] == 'lfdguest1'
+
+        if SKIP_LARGE:
+            return
+
         # assert data
         data = tif.asarray()
         assert isinstance(data, numpy.ndarray)
@@ -10655,17 +10675,6 @@ def test_read_lsm_unbounderror():
             assert data.dtype == numpy.uint8
             assert tuple(data[195, 1, :, 127, 127]) == (0, 61, 52)
             # assert_aszarr_method(tif, series=1)
-        # assert lsm_info tags
-        tags = tif.lsm_metadata
-        assert tags['DimensionX'] == 512
-        assert tags['DimensionY'] == 512
-        assert tags['DimensionZ'] == 2
-        assert tags['DimensionTime'] == 1
-        assert tags['DimensionChannels'] == 33
-        # assert lsm_scan_info tags
-        tags = tif.lsm_metadata['ScanInformation']
-        assert tags['ScanMode'] == 'Stack'
-        assert tags['User'] == 'lfdguest1'
         assert__str__(tif)
 
 
@@ -11777,7 +11786,7 @@ def test_read_ndpi_layers():
         assert series.levels[4].shape == (7, 752, 720, 3)
         assert series.levels[1].mpp[0] > series.levels[0].mpp[0]
         data = series.levels[3].asarray(maxworkers=1)
-        assert_array_equal(
+        assert array_equal(
             data[:, 1000, 1000],
             [
                 [234, 217, 225],
@@ -12242,7 +12251,7 @@ def test_read_bif_zstack(caplog):
             'Z': 'micrometer',
         }
         # Z coords: 5 layers, 1.5 micrometer spacing
-        assert_array_equal(series.coords['Z'], [0.0, 1.5, 3.0, 4.5, 6.0])
+        assert array_equal(series.coords['Z'], [0.0, 1.5, 3.0, 4.5, 6.0])
         assert series.coords['X'][-1] == pytest.approx(46080 * 0.465 - 0.465)
         assert series.coords['Y'][-1] == pytest.approx(48640 * 0.465 - 0.465)
         # last level: Z coords unchanged, mpp scaled
@@ -12253,7 +12262,7 @@ def test_read_bif_zstack(caplog):
             'Y': 'micrometer',
             'Z': 'micrometer',
         }
-        assert_array_equal(lv.coords['Z'], [0.0, 1.5, 3.0, 4.5, 6.0])
+        assert array_equal(lv.coords['Z'], [0.0, 1.5, 3.0, 4.5, 6.0])
         assert__str__(tif)
 
 
@@ -12801,7 +12810,7 @@ def test_read_ome_multi_channel_4d_series():
         assert 'Z' not in series.coords
         assert 'X' not in series.coords
         assert 'Y' not in series.coords
-        assert_array_equal(
+        assert array_equal(
             series.coords['C'], ['Channel:0:0', 'Channel:0:1', 'Channel:0:2']
         )
         # assert data
@@ -13037,7 +13046,7 @@ def test_read_ome_multiimage_nouuid():
             assert not series.is_multifile
             # assert data
             data = tif.asarray(series=i)
-            assert_array_equal(
+            assert array_equal(
                 data, imread(filename, series=i, is_micromanager=False)
             )
             assert isinstance(data, numpy.ndarray)
@@ -13079,7 +13088,7 @@ def test_read_ome_zen_2chzt():
         assert_allclose(series.coords['Z'][1], 0.75)
         assert_allclose(series.coords['X'][1], 0.384501547, rtol=1e-6)
         assert_allclose(series.coords['Y'][1], 0.384342462, rtol=1e-6)
-        assert_array_equal(series.coords['C'], ['Channel:1:0', 'Channel:1:1'])
+        assert array_equal(series.coords['C'], ['Channel:1:0', 'Channel:1:1'])
         # assert attrs
         assert_allclose(series.coord_scales['X'], 0.384501547, rtol=1e-6)
         assert_allclose(series.coord_scales['Y'], 0.384342462, rtol=1e-6)
@@ -13347,7 +13356,7 @@ def test_read_ome_companion(caplog):
 
     filename = _file('OME/companion/multifile-Z1.ome.tiff')
     image2 = imread(filename)
-    assert_array_equal(image, image2)
+    assert array_equal(image, image2)
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -13522,7 +13531,7 @@ def test_read_ome_corrupted_page(caplog):
         assert series.kind == 'ome'
         assert not series.is_multifile
         # C coords are numeric EmissionWavelengths (spectral scan)
-        assert_array_equal(series.coords['C'], [673, 561, 509, 465])
+        assert array_equal(series.coords['C'], [673, 561, 509, 465])
         assert series.coords['C'].dtype == numpy.float64
         # assert data
         data = tif.asarray()
@@ -15511,6 +15520,10 @@ def test_read_avs():
         assert series.name == 'Macro'
         assert series.axes == 'YXS'
         assert series.shape == (508, 1489, 3)
+
+        if SKIP_LARGE:
+            return
+
         # assert data
         series = tif.series[0]
         image = tif.asarray(series=0, level=4)
@@ -15589,6 +15602,9 @@ def test_read_philips():
         assert page.imagewidth == 43008
         assert page.imagelength == 44800
 
+        if SKIP_LARGE:
+            return
+
         for level in range(1, 9):
             tif.asarray(series=0, level=level)
 
@@ -15650,6 +15666,9 @@ def test_read_philips_issue249():
         assert page.imagewidth == 9696
         assert page.imagelength == 4896
 
+        if SKIP_LARGE:
+            return
+
         for level in range(3, 10):
             tif.asarray(series=0, level=level)
 
@@ -15668,7 +15687,7 @@ def test_read_philips_issue249():
         with TempFileName('issue_philips_fsspec', ext='.json') as jsonfile:
             page.aszarr().write_fsspec(jsonfile, url, version=0, zarr_format=3)
             zobj = zarr.open(refs_as_store(jsonfile), zarr_format=3)
-            assert_array_equal(zobj[:], image)
+            assert array_equal(zobj[:], image)
 
 
 @pytest.mark.skipif(
@@ -15734,6 +15753,9 @@ def test_read_philips_issue253():
         assert page.tags['ImageLength'].value == 47104
         assert page.imagewidth == 94208
         assert page.imagelength == 46848
+
+        if SKIP_LARGE:
+            return
 
         for level in range(1, 10):
             tif.asarray(series=0, level=level)
@@ -16049,7 +16071,7 @@ def test_read_mmstack_multifile(caplog):
         data1 = data[:, 0]
         data2 = imread(filename, is_mmstack=False)
         assert data1.shape == data2.shape
-        assert_array_equal(data1[17], data2[17])
+        assert array_equal(data1[17], data2[17])
         assert__str__(tif)
 
 
@@ -16145,8 +16167,8 @@ def test_read_mmstack_single():
         assert data[7, 1, 111, 222] == 6991
         assert_aszarr_method(series, data)
         # test OME; ImageJ can't handle positions
-        assert_array_equal(data[:, 0], imread(filename, is_mmstack=False))
-        assert_array_equal(data[:, 0], imread(filename, kind='ome'))
+        assert array_equal(data[:, 0], imread(filename, is_mmstack=False))
+        assert array_equal(data[:, 0], imread(filename, kind='ome'))
         assert__str__(tif)
 
 
@@ -16182,7 +16204,7 @@ def test_read_mmstack_missing(caplog):
         assert series.axes == 'TCYX'
         assert series.kind == 'mmstack'
         assert not series.is_multifile
-        assert_array_equal(series.coords['C'], ['Dual-GFP', 'Dual-Red'])
+        assert array_equal(series.coords['C'], ['Dual-GFP', 'Dual-Red'])
         assert series.coords['T'][1] == pytest.approx(1000.0)
         assert series.attrs['PixelSize_um'] == pytest.approx(0.0645)
         assert series.mpp == pytest.approx((0.0645, 0.0645))
@@ -16204,10 +16226,10 @@ def test_read_mmstack_missing(caplog):
                 assert not asyncio.run(store.exists('62.1.0.0'))
                 z = zarr.open(store, mode='r')
                 assert z[62, 1, 0, 0] == 100
-                assert_array_equal(data[:62], z[:62])
+                assert array_equal(data[:62], z[:62])
         # test OME and ImageJ
-        assert_array_equal(data, imread(filename, is_mmstack=False))
-        assert_array_equal(
+        assert array_equal(data, imread(filename, is_mmstack=False))
+        assert array_equal(
             data, imread(filename, is_mmstack=False, is_ome=False)
         )
         assert__str__(tif)
@@ -16289,7 +16311,7 @@ def test_read_mmstack_missing_sbs(caplog):
         assert series.axes == 'CYX'
         assert series.kind == 'mmstack'
         assert not series.is_multifile
-        assert_array_equal(
+        assert array_equal(
             series.coords['C'], ['DAPI_10p', 'Cy3', 'A594', 'Cy5', 'Cy7']
         )
         assert series.attrs['PixelSize_um'] == pytest.approx(1.32)
@@ -16304,7 +16326,7 @@ def test_read_mmstack_missing_sbs(caplog):
         assert data[3, 151, 186] == 542
         assert_aszarr_method(series, data)
         # test OME
-        assert_array_equal(data, imread(filename, is_mmstack=False))
+        assert array_equal(data, imread(filename, is_mmstack=False))
         assert__str__(tif)
 
 
@@ -16342,7 +16364,7 @@ def test_read_mmstack_trzc():
         assert series.axes == 'TRZCYX'
         assert series.kind == 'mmstack'
         assert series.is_multifile
-        assert_array_equal(series.coords['C'], ['Cy5', 'DAPI', 'FITC'])
+        assert array_equal(series.coords['C'], ['Cy5', 'DAPI', 'FITC'])
         assert series.coords['Z'][1] == pytest.approx(1.75)
         assert series.coords['T'][1] == pytest.approx(1.0)
         # no PixelSize_um -> X/Y fall back to resolution tags (float32)
@@ -16356,7 +16378,7 @@ def test_read_mmstack_trzc():
         assert data[27, 1, 3, 2, 151, 186] == 16
         assert_aszarr_method(series, data)
         # test OME
-        assert_array_equal(
+        assert array_equal(
             data[:, 1], imread(filename, is_mmstack=False, series=1)
         )
         assert__str__(tif)
@@ -16398,7 +16420,7 @@ def test_read_mmstack_zstep_str():
         assert data.shape == (3, 2048, 2048)
         assert data.dtype == numpy.uint16
         # reading without mmstack must give same pixel data
-        assert_array_equal(data, imread(filename, is_mmstack=False))
+        assert array_equal(data, imread(filename, is_mmstack=False))
         assert__str__(tif)
 
 
@@ -16556,7 +16578,7 @@ def test_read_ndtiff_tcz():
         assert series.dtype == numpy.uint16
         assert tif.series(squeeze=False)[0].shape == (1, 8, 2, 7, 512, 512)
         assert tif.series(squeeze=False)[0].axes == 'RTCZYX'
-        assert_array_equal(series.coords['C'], ['Cy5', 'DAPI'])
+        assert array_equal(series.coords['C'], ['Cy5', 'DAPI'])
         assert series.coords['Z'][1] == 5.0
         # no PixelSize_um in Summary -> X/Y from resolution tags (cm, float32)
         assert series.coords['X'].dtype == numpy.float32
@@ -16628,7 +16650,7 @@ def test_read_ndtiff_multichannel():
         assert series.dtype == numpy.uint16
         assert series.shape == (8, 2, 16, 64, 64)
         assert series.axes == 'TCZYX'
-        assert_array_equal(series.coords['C'], ['DAPI', 'FITC'])
+        assert array_equal(series.coords['C'], ['DAPI', 'FITC'])
         assert series.attrs['PixelSize_um'] == 1
         # X/Y from PixelSize_um -> float64
         assert series.coords['X'].dtype == numpy.float64
@@ -16661,7 +16683,7 @@ def test_read_ndtiff_labeled_positions():
         assert series.kind == 'ndtiff'
         assert series.axes == 'RYX'
         assert series.shape == (3, 512, 512)
-        assert_array_equal(series.coords['R'], ['Pos2', 'Pos0', 'Pos1'])
+        assert array_equal(series.coords['R'], ['Pos2', 'Pos0', 'Pos1'])
         assert series.attrs['PixelSize_um'] == 1
         assert series.coords['X'].dtype == numpy.float64
         assert series.coords['X'][1] == 1.0
@@ -16715,7 +16737,7 @@ def test_read_zarr():
         store = tif.aszarr()
     try:
         data = zarr.open(store, mode='r')
-        assert_array_equal(image, data)
+        assert array_equal(image, data)
         del data
     finally:
         store.close()
@@ -16734,7 +16756,7 @@ def test_read_zarr_lrucache():
     try:
         cache = zarr.LRUStoreCache(store, max_size=2**10)
         data = zarr.open(cache, mode='r')
-        assert_array_equal(image, data)
+        assert array_equal(image, data)
         del data
     finally:
         store.close()
@@ -16749,7 +16771,7 @@ def test_read_zarr_multifile():
         store = tif.aszarr()
     try:
         data = zarr.open(store, mode='r')
-        assert_array_equal(image, data)
+        assert array_equal(image, data)
         del data
     finally:
         store.close()
@@ -16769,23 +16791,23 @@ def test_read_zarr_multiscales(multiscales):
             z = zarr.open(store, mode='r')
             if multiscales:
                 assert isinstance(z, zarr.Group)
-                assert_array_equal(z['0'][:], image)
+                assert array_equal(z['0'][:], image)
             else:
                 assert isinstance(z, zarr.Array)
-                assert_array_equal(z[:], image)
+                assert array_equal(z[:], image)
             del z
         with series.aszarr(multiscales=multiscales) as store:
             z = zarr.open(store, mode='r')
             if multiscales or multiscales is None:
                 assert isinstance(z, zarr.Group)
-                assert_array_equal(z['0'][0, 0, 1], image)
+                assert array_equal(z['0'][0, 0, 1], image)
                 assert len(list(z.groups())) == 0
                 assert len(list(z.arrays())) == len(series.levels)
                 assert len(list(z.keys())) == len(series.levels)
                 assert z.tree()
             else:
                 assert isinstance(z, zarr.Array)
-                assert_array_equal(z[0, 0, 1], image)
+                assert array_equal(z[0, 0, 1], image)
             del z
 
 
@@ -16795,10 +16817,13 @@ def test_read_zarr_level():
     filename = _file('tifffile/multiscene_pyramidal.ome.tif')
     data = imread(filename, key=1, series=0, level=2)
     store = imread(filename, key=1, series=0, level=2, return_as='zarr')
-    z = zarr.open(store, mode='r')
-    image = z[:]
-    del z
-    assert_array_equal(image, data)
+    try:
+        z = zarr.open(store, mode='r')
+        image = z[:]
+        del z
+    finally:
+        store.close()
+    assert array_equal(image, data)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
@@ -16841,12 +16866,6 @@ def test_read_eer(caplog, superres):
         assert meta['meanDoseRate'] == 4.138042
         assert meta['meanDoseRate.unit'] == 'e/pixel/s'
 
-        # assert data
-        data = page.asarray()
-        assert data.shape == (size, size)
-        assert data.dtype == '?'
-        assert data.sum(dtype=numpy.uint32) == 278343
-
         # assert series
         series = tif.series[0]
         assert series.shape == (567, size, size)
@@ -16857,6 +16876,15 @@ def test_read_eer(caplog, superres):
         assert series.attrs['exposureTime'] == pytest.approx(2.360327)
         assert series.attrs['meanDoseRate'] == pytest.approx(4.138042)
         assert series.attrs['totalDose'] == pytest.approx(9.434352)
+
+        if SKIP_LARGE:
+            return
+
+        # assert data
+        data = page.asarray()
+        assert data.shape == (size, size)
+        assert data.dtype == '?'
+        assert data.sum(dtype=numpy.uint32) == 278343
 
         if superres == 0:
             assert data[791, 1112]
@@ -17039,10 +17067,12 @@ def test_read_agilent():
         # assert data
         series = tif.series[0]
         assert series.shape == (2, 7200, 20334)
-        assert series.asarray()[1, 277, 341] == 24
+        if not SKIP_LARGE:
+            assert series.asarray()[1, 277, 341] == 24
         series = tif.series[1]
         assert series.shape == (2, 2400, 6778)
-        assert series.asarray()[1, 277, 341] == 634
+        if not SKIP_LARGE:
+            assert series.asarray()[1, 277, 341] == 634
         assert__str__(tif)
 
 
@@ -17097,12 +17127,12 @@ def test_read_dicom():
         assert page.samplesperpixel == 3
         assert page.imagewidth == 4612
         assert page.imagelength == 3979
-        assert_array_equal(page.asarray()[100, 100], [243, 244, 243])
+        assert array_equal(page.asarray()[100, 100], [243, 244, 243])
 
         series = tif.series[0]
         assert series.shape == (3979, 4612, 3)
         assert series.axes == 'YXS'
-        assert_array_equal(series.asarray()[-1, -1], [242, 242, 242])
+        assert array_equal(series.asarray()[-1, -1], [242, 242, 242])
         assert__str__(tif)
 
 
@@ -17126,7 +17156,7 @@ def test_read_dicom_jpeg2000_ycbcr():
         assert page.photometric == PHOTOMETRIC.YCBCR
         assert page.compression == COMPRESSION.APERIO_JP2000_YCBC
         assert page.planarconfig == PLANARCONFIG.CONTIG
-        assert_array_equal(page.asarray()[100, 100], [244, 244, 244])
+        assert array_equal(page.asarray()[100, 100], [244, 244, 244])
 
         assert__str__(tif)
 
@@ -17193,12 +17223,12 @@ def test_read_selection(chunkmode):
     filename = _file('tifffile/multiscene_pyramidal.ome.tif')
     selection = (8, slice(16, 17), slice(None), slice(51, 99), slice(51, 99))
     # series 0
-    assert_array_equal(
+    assert array_equal(
         imread(filename)[8, 16:17, :, 51:99, 51:99],
         imread(filename, selection=selection, chunkmode=chunkmode),
     )
     # level 1
-    assert_array_equal(
+    assert array_equal(
         imread(filename, series=0, level=1)[8, 16:17, :, 51:99, 51:99],
         imread(
             filename,
@@ -17209,7 +17239,7 @@ def test_read_selection(chunkmode):
         ),
     )
     # page 99
-    assert_array_equal(
+    assert array_equal(
         imread(filename, key=99)[51:99, 51:99],
         imread(
             filename,
@@ -17219,7 +17249,7 @@ def test_read_selection(chunkmode):
         ),
     )
     # series 1
-    assert_array_equal(
+    assert array_equal(
         imread(filename, series=1)[51:99, 51:99],
         imread(
             filename,
@@ -17255,7 +17285,7 @@ def test_read_selection_out(out):
             image = imread(filename, selection=selection, out=fileout)
             assert isinstance(image, numpy.memmap)
 
-    assert_array_equal(image, expected)
+    assert array_equal(image, expected)
     del image  # close memmap
 
 
@@ -17263,7 +17293,7 @@ def test_read_selection_out(out):
 def test_read_selection_filesequence():
     """Test read selection from file sequence via imread."""
     filename = _files('TiffSequence/*.tif')
-    assert_array_equal(
+    assert array_equal(
         imread(filename)[5:8, 51:99, 51:99],
         imread(
             filename, selection=(slice(5, 8), slice(51, 99), slice(51, 99))
@@ -17350,8 +17380,8 @@ def test_read_xarray_page_properties():
             assert page.axes == 'YX'
             assert page.dims == ('Y', 'X')
             assert page.sizes == {'Y': 33, 'X': 31}
-            assert_array_equal(page.coords['Y'], ycoords)
-            assert_array_equal(page.coords['X'], xcoords)
+            assert array_equal(page.coords['Y'], ycoords)
+            assert array_equal(page.coords['X'], xcoords)
             assert page.attrs == {
                 'photometric': 'minisblack',
                 'resolutionunit': 'inch',
@@ -17366,11 +17396,11 @@ def test_read_xarray_page_properties():
             assert page.axes == 'YXS'
             assert page.dims == ('Y', 'X', 'S')
             assert page.sizes == {'Y': 33, 'X': 31, 'S': 3}
-            assert_array_equal(
+            assert array_equal(
                 page.coords['S'], numpy.array(['Red', 'Green', 'Blue'])
             )
-            assert_array_equal(page.coords['Y'], ycoords)
-            assert_array_equal(page.coords['X'], xcoords)
+            assert array_equal(page.coords['Y'], ycoords)
+            assert array_equal(page.coords['X'], xcoords)
 
             # RGBA
             page = tif.pages[2]
@@ -17380,12 +17410,12 @@ def test_read_xarray_page_properties():
             assert page.axes == 'YXS'
             assert page.dims == ('Y', 'X', 'S')
             assert page.sizes == {'Y': 33, 'X': 31, 'S': 4}
-            assert_array_equal(
+            assert array_equal(
                 page.coords['S'],
                 numpy.array(['Red', 'Green', 'Blue', 'Unassalpha']),
             )
-            assert_array_equal(page.coords['Y'], ycoords)
-            assert_array_equal(page.coords['X'], xcoords)
+            assert array_equal(page.coords['Y'], ycoords)
+            assert array_equal(page.coords['X'], xcoords)
 
             # CMYK
             page = tif.pages[3]
@@ -17395,12 +17425,12 @@ def test_read_xarray_page_properties():
             assert page.axes == 'YXS'
             assert page.dims == ('Y', 'X', 'S')
             assert page.sizes == {'Y': 33, 'X': 31, 'S': 4}
-            assert_array_equal(
+            assert array_equal(
                 page.coords['S'],
                 numpy.array(['Cyan', 'Magenta', 'Yellow', 'Black']),
             )
-            assert_array_equal(page.coords['Y'], ycoords)
-            assert_array_equal(page.coords['X'], xcoords)
+            assert array_equal(page.coords['Y'], ycoords)
+            assert array_equal(page.coords['X'], xcoords)
 
             # gray with extrasamples
             page = tif.pages[4]
@@ -17411,8 +17441,8 @@ def test_read_xarray_page_properties():
             assert page.dims == ('Y', 'X', 'S')
             assert page.sizes == {'Y': 33, 'X': 31, 'S': 5}
             assert 'S' not in page.coords
-            assert_array_equal(page.coords['Y'], ycoords)
-            assert_array_equal(page.coords['X'], xcoords)
+            assert array_equal(page.coords['Y'], ycoords)
+            assert array_equal(page.coords['X'], xcoords)
 
             # RRGGBB
             page = tif.pages[5]
@@ -17422,11 +17452,11 @@ def test_read_xarray_page_properties():
             assert page.axes == 'SYX'
             assert page.dims == ('S', 'Y', 'X')
             assert page.sizes == {'S': 3, 'Y': 33, 'X': 31}
-            assert_array_equal(
+            assert array_equal(
                 page.coords['S'], numpy.array(['Red', 'Green', 'Blue'])
             )
-            assert_array_equal(page.coords['Y'], ycoords)
-            assert_array_equal(page.coords['X'], xcoords)
+            assert array_equal(page.coords['Y'], ycoords)
+            assert array_equal(page.coords['X'], xcoords)
 
             # depth
             page = tif.pages[6]
@@ -17437,8 +17467,8 @@ def test_read_xarray_page_properties():
             assert page.dims == ('Z', 'Y', 'X')
             assert page.sizes == {'Z': 7, 'Y': 33, 'X': 31}
             assert 'Z' not in page.coords
-            assert_array_equal(page.coords['Y'], ycoords)
-            assert_array_equal(page.coords['X'], xcoords)
+            assert array_equal(page.coords['Y'], ycoords)
+            assert array_equal(page.coords['X'], xcoords)
 
 
 def test_read_xarray_series_uniform():
@@ -17471,8 +17501,8 @@ def test_read_xarray_series_uniform():
             assert 'resolutionunit' not in series.attrs
             assert series.coord_units == {'Y': 'inch', 'X': 'inch'}
             assert list(series.coords.keys()) == ['Y', 'X']
-            assert_array_equal(series.coords['Y'], ycoords)
-            assert_array_equal(series.coords['X'], xcoords)
+            assert array_equal(series.coords['Y'], ycoords)
+            assert array_equal(series.coords['X'], xcoords)
 
 
 def test_read_xarray_series_generic():
@@ -17508,9 +17538,9 @@ def test_read_xarray_series_generic():
             assert 'resolutionunit' not in series.attrs
             # coords filled from keyframe: Y, X, S (not I)
             assert list(series.coords.keys()) == ['Y', 'X', 'S']
-            assert_array_equal(series.coords['Y'], ycoords)
-            assert_array_equal(series.coords['X'], xcoords)
-            assert_array_equal(series.coords['S'], ['Red', 'Green', 'Blue'])
+            assert array_equal(series.coords['Y'], ycoords)
+            assert array_equal(series.coords['X'], xcoords)
+            assert array_equal(series.coords['S'], ['Red', 'Green', 'Blue'])
 
     # pages with different shapes
     with TempFileName('read_xarray_series_generic') as filename:
@@ -17538,8 +17568,8 @@ def test_read_xarray_series_generic():
             assert 'resolutionunit' not in series.attrs
             assert series.coord_units == {'Y': 'inch', 'X': 'inch'}
             assert list(series.coords.keys()) == ['Y', 'X']
-            assert_array_equal(series.coords['Y'], ycoords)
-            assert_array_equal(series.coords['X'], xcoords)
+            assert array_equal(series.coords['Y'], ycoords)
+            assert array_equal(series.coords['X'], xcoords)
 
 
 def test_read_xarray_series_imagej():
@@ -17575,16 +17605,16 @@ def test_read_xarray_series_imagej():
                 series.coords['T'],
                 numpy.linspace(0, 0.3, 3, endpoint=False),
             )
-            assert_array_equal(
+            assert array_equal(
                 series.coords['C'], numpy.array(['DAPI', 'GFP'])
             )
-            assert_array_equal(
+            assert array_equal(
                 series.coords['Y'],
                 numpy.linspace(
                     0, 33 * 0.5, 33, endpoint=False, dtype=numpy.float32
                 ),
             )
-            assert_array_equal(
+            assert array_equal(
                 series.coords['X'],
                 numpy.linspace(
                     0, 31 * 0.5, 31, endpoint=False, dtype=numpy.float32
@@ -17745,7 +17775,7 @@ def test_read_xarray_series_ome():
                 ),
             )
             # C coords from Channel Names
-            assert_array_equal(
+            assert array_equal(
                 series.coords['C'],
                 numpy.array(['DAPI', 'GFP']),
             )
@@ -17831,7 +17861,7 @@ def test_read_xarray_page():
             import xarray
 
             assert isinstance(da, xarray.DataArray)
-            assert_array_equal(da.values, data)
+            assert array_equal(da.values, data)
             assert da.dims == ('Y', 'X')
 
 
@@ -17851,12 +17881,12 @@ def test_read_xarray_series():
         with TiffFile(filename) as tif:
             # default: squeeze removes T=1 length-1 dim
             da = tif.asxarray()
-            assert_array_equal(da.values, tif.asarray())
+            assert array_equal(da.values, tif.asarray())
 
             # squeeze=False: preserve all dims including T=1
             da_unsqueezed = tif.asxarray(squeeze=False)
             assert da_unsqueezed.ndim > da.ndim
-            assert_array_equal(da_unsqueezed.values.squeeze(), tif.asarray())
+            assert array_equal(da_unsqueezed.values.squeeze(), tif.asarray())
 
 
 def test_read_xarray_imread():
@@ -17870,7 +17900,7 @@ def test_read_xarray_imread():
         import xarray
 
         assert isinstance(da, xarray.DataArray)
-        assert_array_equal(da.values, data)
+        assert array_equal(da.values, data)
 
     # asxarray not supported for file sequences
     with TempFileName('read_xarray_imread2') as filename2:
@@ -17898,7 +17928,7 @@ def test_read_xarray_squeeze():
             series_sq = tif.series[0]
 
             da_squeezed = assert_asxarray_method(series_unsq, squeeze=True)
-            assert_array_equal(da_squeezed.values, series_sq.asarray())
+            assert array_equal(da_squeezed.values, series_sq.asarray())
 
             da_full = assert_asxarray_method(series_unsq, squeeze=False)
             assert da_full.shape == series_unsq.shape
@@ -18018,11 +18048,11 @@ def test_write(data, byteorder, bigtiff, compression, dtype, shape, tile):
             )
             image = imread(filename)
             assert image.flags['C_CONTIGUOUS']
-            assert_array_equal(data.squeeze(), image.squeeze())
+            assert array_equal(data.squeeze(), image.squeeze())
             if not SKIP_ZARR:
                 with imread(filename, return_as='zarr') as store:
                     data = zarr.open(store, mode='r')
-                    assert_array_equal(data, image)
+                    assert array_equal(data, image)
 
         assert shape == image.shape
         assert dtype == image.dtype
@@ -18148,7 +18178,7 @@ def test_write_codecs(mode, tile, codec):
             if codec == 'jpeg':
                 assert_allclose(data, image, atol=10)
             else:
-                assert_array_equal(data, image)
+                assert array_equal(data, image)
             assert_decode_method(page)
             assert__str__(tif)
         if (
@@ -18160,7 +18190,7 @@ def test_write_codecs(mode, tile, codec):
             # if codec == 'jpeg':
             #     # tiff_decode returns JPEG compressed TIFF as RGBA
             #     im = numpy.squeeze(im[..., :samplesperpixel])
-            assert_array_equal(im, numpy.squeeze(image))
+            assert array_equal(im, numpy.squeeze(image))
 
 
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
@@ -18242,13 +18272,13 @@ def test_write_predictor(byteorder, dtype, tile, mode):
             assert page.samplesperpixel == 1 if mode == 'gray' else 3
             # samplesperpixel = page.samplesperpixel
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_decode_method(page)
             assert__str__(tif)
 
         if not SKIP_CODECS and imagecodecs.TIFF.available:
             im = imagecodecs.imread(filename, index=None)
-            assert_array_equal(im, numpy.squeeze(image))
+            assert array_equal(im, numpy.squeeze(image))
 
 
 @pytest.mark.parametrize('bytecount', [16, 256])
@@ -18308,7 +18338,7 @@ def test_write_bytecount(bigtiff, tiled, compression, count, bytecount):
             assert page.imagewidth == shape[1]
             assert page.imagelength == shape[0]
             assert page.samplesperpixel == 1
-            assert_array_equal(page.asarray(), data)
+            assert array_equal(page.asarray(), data)
             assert_aszarr_method(page, data)
             assert__str__(tif)
 
@@ -18342,7 +18372,7 @@ def test_write_align(bigtiff, multi):
                     if valuesize > threshold:
                         assert tag.valueoffset % align == 0
             result = tif.asarray()
-            assert_array_equal(result, data)
+            assert array_equal(result, data)
             assert__str__(tif)
 
 
@@ -18396,20 +18426,20 @@ def test_write_zeroshape(shaped, data, repeat, shape):
             if shaped:
                 if repeat > 1:
                     for i in range(repeat):
-                        assert_array_equal(image[i], data)
-                        assert_array_equal(zimage[i], data)
+                        assert array_equal(image[i], data)
+                        assert array_equal(zimage[i], data)
                 else:
-                    assert_array_equal(image, data)
-                    assert_array_equal(zimage, data)
+                    assert array_equal(image, data)
+                    assert array_equal(zimage, data)
             else:
                 empty = numpy.empty((0, 0), dtype)
                 if repeat > 1:
                     for i in range(repeat):
-                        assert_array_equal(image[i], empty)
-                        assert_array_equal(zimage[i], empty)
+                        assert array_equal(image[i], empty)
+                        assert array_equal(zimage[i], empty)
                 else:
-                    assert_array_equal(image.squeeze(), empty)
-                    # assert_array_equal(zimage.squeeze(), empty)
+                    assert array_equal(image.squeeze(), empty)
+                    # assert array_equal(zimage.squeeze(), empty)
 
         if repeat > 1:
             assert image.shape[0] == repeat
@@ -18477,13 +18507,13 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
                 else:
                     assert page.is_shaped
 
-                assert_array_equal(page.asarray(), data[0][i % 5])
+                assert array_equal(page.asarray(), data[0][i % 5])
                 assert_aszarr_method(page, data[0][i % 5])
                 if subifds:
                     assert len(page.pages) == subifds
                     for j, subifd in enumerate(page.pages):
                         assert subifd.is_subifd
-                        assert_array_equal(
+                        assert array_equal(
                             subifd.asarray(), data[j + 1][i % 5]
                         )
                         assert_aszarr_method(subifd, data[j + 1][i % 5])
@@ -18506,18 +18536,18 @@ def test_write_subidfs(ome, tiled, compressed, series, repeats, subifds):
             if repeats > 1:
                 for s in range(series):
                     assert tif.series[s].kind == 'ome' if ome else 'shaped'
-                    assert_array_equal(tif.series[s].asarray()[0], data[0])
+                    assert array_equal(tif.series[s].asarray()[0], data[0])
                     for i in range(subifds):
-                        assert_array_equal(
+                        assert array_equal(
                             tif.series[s].levels[i + 1].asarray()[0],
                             data[i + 1],
                         )
             else:
                 for s in range(series):
                     assert tif.series[s].kind == 'ome' if ome else 'shaped'
-                    assert_array_equal(tif.series[s].asarray(), data[0])
+                    assert array_equal(tif.series[s].asarray(), data[0])
                     for i in range(subifds):
-                        assert_array_equal(
+                        assert array_equal(
                             tif.series[s].levels[i + 1].asarray(), data[i + 1]
                         )
 
@@ -18543,14 +18573,14 @@ def test_write_subifd_chain():
             # reader follows only the single tag entry, not the chain
             assert len(page.pages) == 1
             subifd0 = page.pages[0]
-            assert_array_equal(subifd0.asarray(), data[1])
+            assert array_equal(subifd0.asarray(), data[1])
             # first subifd NextIFD points to the chained subifd
             next_offset = subifd0._nextifd_offset()
             assert next_offset != 0
             tif.filehandle.seek(next_offset)
             subifd1 = TiffPage(tif, index=(0, 1))
             assert subifd1._nextifd_offset() == 0
-            assert_array_equal(subifd1.asarray(), data[2])
+            assert array_equal(subifd1.asarray(), data[2])
 
 
 def test_write_subifd_tree():
@@ -18576,8 +18606,8 @@ def test_write_subifd_tree():
             # all subifds have NextIFD=0
             assert subifd0._nextifd_offset() == 0
             assert subifd1._nextifd_offset() == 0
-            assert_array_equal(subifd0.asarray(), data[1])
-            assert_array_equal(subifd1.asarray(), data[2])
+            assert array_equal(subifd0.asarray(), data[1])
+            assert array_equal(subifd1.asarray(), data[2])
 
 
 def test_write_lists():
@@ -18592,10 +18622,10 @@ def test_write_lists():
             with pytest.warns(UserWarning):
                 tif.write([])
         with TiffFile(filename) as tif:
-            assert_array_equal(tif.series[0].asarray(), array)
-            assert_array_equal(tif.series[1].asarray(), array)
-            assert_array_equal(tif.series[2].asarray(), [100.0])
-            assert_array_equal(tif.series[3].asarray(), [])
+            assert array_equal(tif.series[0].asarray(), array)
+            assert array_equal(tif.series[1].asarray(), array)
+            assert array_equal(tif.series[2].asarray(), [100.0])
+            assert array_equal(tif.series[3].asarray(), [])
             assert_aszarr_method(tif.series[0], array)
             assert_aszarr_method(tif.series[1], array)
             assert_aszarr_method(tif.series[2], [100.0])
@@ -18665,7 +18695,7 @@ def test_write_append_imwrite():
             imwrite(filename, data, append=True, metadata=None)
         a = imread(filename)
         assert a.shape == (4, 21, 31)
-        assert_array_equal(a[3], data)
+        assert array_equal(a[3], data)
 
 
 def test_write_append():
@@ -18697,7 +18727,7 @@ def test_write_append():
             page = tif.pages.first
             assert page.imagewidth == 31
             assert page.imagelength == 21
-            assert_array_equal(tif.asarray(series=1)[1], data)
+            assert array_equal(tif.asarray(series=1)[1], data)
             assert__str__(tif)
 
         assert_valid_tiff(filename)
@@ -18739,7 +18769,7 @@ def test_write_append_bytesio():
         page = tif.pages.first
         assert page.imagewidth == 31
         assert page.imagelength == 21
-        assert_array_equal(tif.asarray(series=1)[1], data)
+        assert array_equal(tif.asarray(series=1)[1], data)
         assert__str__(tif)
 
 
@@ -18749,7 +18779,7 @@ def test_write_roundtrip_filename():
     data = imread(_file('tifffile/generic_series.tif'))
     with TempFileName('write_roundtrip_filename') as filename:
         imwrite(filename, data, photometric=PHOTOMETRIC.RGB)
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
@@ -18764,7 +18794,7 @@ def test_write_roundtrip_openfile():
             fh.write(pad)
         with open(filename, 'rb') as fh:
             fh.seek(len(pad))
-            assert_array_equal(imread(fh), data)
+            assert array_equal(imread(fh), data)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
@@ -18777,7 +18807,7 @@ def test_write_roundtrip_bytesio():
     imwrite(buf, data, photometric=PHOTOMETRIC.RGB)
     buf.write(pad)
     buf.seek(len(pad))
-    assert_array_equal(imread(buf), data)
+    assert array_equal(imread(buf), data)
 
 
 def test_write_pages():
@@ -18797,13 +18827,13 @@ def test_write_pages():
                 assert page.imagelength == 219
                 assert page.samplesperpixel == 1
                 image = page.asarray()
-                assert_array_equal(data[i], image)
+                assert array_equal(data[i], image)
             # assert series
             series = tif.series[0]
             assert series.kind == 'shaped'
             assert series.dataoffset is not None
             image = series.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert__str__(tif)
 
 
@@ -18914,7 +18944,7 @@ def test_write_extratags():
             assert tags['50001'].value == 49
             assert tags['50002'].value == (49, 50)
             assert tags['50004'].value == (49, 50, 51, 52)
-            assert_array_equal(tags['50008'].value, b'12345678')
+            assert array_equal(tags['50008'].value, b'12345678')
             #                   (49, 50, 51, 52, 53, 54, 55, 56))
             assert__str__(tif)
 
@@ -18998,7 +19028,7 @@ def test_write_subfiletype(subfiletype):
             assert page.is_multipage == bool(subfiletype & 0b10)
             assert page.is_mask == bool(subfiletype & 0b100)
             assert page.is_mrc == bool(subfiletype & 0b1000)
-            assert_array_equal(data, page.asarray())
+            assert array_equal(data, page.asarray())
             assert__str__(tif)
 
 
@@ -19272,7 +19302,7 @@ def test_write_bitspersample(bps, dtype):
             photometric=PHOTOMETRIC.RGB,
             rowsperstrip=77,
         )
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
 
 
 def test_write_bitspersample_fail():
@@ -19392,7 +19422,7 @@ def test_write_enum_parameters(kind):
             assert page.compression == COMPRESSION.ADOBE_DEFLATE
             assert page.predictor == PREDICTOR.HORIZONTAL
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19454,7 +19484,7 @@ def test_write_compression_args(args):
             assert page.samplesperpixel == 3
             assert len(page.dataoffsets) == (9 if compressed else 3)
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert__str__(tif)
 
 
@@ -19505,7 +19535,7 @@ def test_write_compression_none():
             assert page.samplesperpixel == 3
             assert len(page.dataoffsets) == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19585,7 +19615,7 @@ def test_write_compression_deflate(dtype):
             assert page.rowsperstrip == 108
             assert len(page.dataoffsets) == 9
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19613,7 +19643,7 @@ def test_write_compression_deflate_level():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19645,7 +19675,7 @@ def test_write_compression_lzma(dtype):
             assert page.rowsperstrip == 108
             assert len(page.dataoffsets) == 9
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19680,7 +19710,7 @@ def test_write_compression_zstd(dtype):
             assert page.rowsperstrip == 108
             assert len(page.dataoffsets) == 9
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19710,7 +19740,7 @@ def test_write_compression_webp():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19740,7 +19770,7 @@ def test_write_compression_jpeg2k():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19770,7 +19800,7 @@ def test_write_compression_jpegxl():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19817,7 +19847,7 @@ def test_write_compression_lerc(compression):
             assert page.tags['LercParameters'].value == lercparameters
 
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19903,7 +19933,7 @@ def test_write_compression_packbits(dtype, tile):
             assert page.imagelength == 7
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19933,7 +19963,7 @@ def test_write_compression_rowsperstrip():
             assert page.rowsperstrip == 32
             assert len(page.dataoffsets) == 21
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19963,7 +19993,7 @@ def test_write_compression_tiled():
             assert page.samplesperpixel == 3
             assert len(page.dataoffsets) == 210
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -19992,7 +20022,7 @@ def test_write_compression_predictor():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20029,7 +20059,7 @@ def test_write_compression_predictor_tiled(dtype):
             assert page.samplesperpixel == 3
             assert page.predictor == 3 if dtype.kind == 'f' else 2
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20062,7 +20092,7 @@ def test_write_rowsperstrip():
             assert stripbytecounts[0] == 19264
             assert stripbytecounts[6] == 16254
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20097,43 +20127,43 @@ def test_write_bigendian():
             assert page.samplesperpixel == 3
             # test read data
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             image = page.asarray()
-            assert_array_equal(data[0], image)
+            assert array_equal(data[0], image)
             # test direct memory mapping; returns big endian array
             image = tif.asarray(out='memmap')
             assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('>f4')
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             del image
             image = page.asarray(out='memmap')
             assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('>f4')
-            assert_array_equal(data[0], image)
+            assert array_equal(data[0], image)
             del image
             # test indirect memory mapping; returns native endian array
             image = tif.asarray(out='memmap:')
             assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('=f4')
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             del image
             image = page.asarray(out='memmap:')
             assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('=f4')
-            assert_array_equal(data[0], image)
+            assert array_equal(data[0], image)
             del image
             # test 2nd page
             page = tif.pages[1]
             image = page.asarray(out='memmap')
             assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('>f4')
-            assert_array_equal(data[1], image)
+            assert array_equal(data[1], image)
             del image
             image = page.asarray(out='memmap:')
             assert isinstance(image, numpy.memmap)
             assert image.dtype == numpy.dtype('=f4')
-            assert_array_equal(data[1], image)
+            assert array_equal(data[1], image)
             del image
             assert__str__(tif)
 
@@ -20163,7 +20193,7 @@ def test_write_pixel():
             assert page.imagelength == 1
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert_aszarr_method(tif, image, chunkmode='page')
             assert__str__(tif)
@@ -20185,7 +20215,7 @@ def test_write_small():
             assert page.imagelength == 1
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20208,7 +20238,7 @@ def test_write_2d_as_rgb():
             assert page.imagelength == 1
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert_aszarr_method(tif, image, chunkmode='page')
             assert__str__(tif)
@@ -20349,7 +20379,7 @@ def test_write_invalid_contig_rgb():
             assert page.imagelength == 301
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # better save as contig samples
@@ -20367,7 +20397,7 @@ def test_write_invalid_contig_rgb():
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20398,7 +20428,7 @@ def test_write_invalid_planar_rgb():
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # or save as planar samples
@@ -20416,7 +20446,7 @@ def test_write_invalid_planar_rgb():
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20438,7 +20468,7 @@ def test_write_extrasamples_gray():
             assert page.samplesperpixel == 2
             assert page.extrasamples[0] == 2
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20465,7 +20495,7 @@ def test_write_extrasamples_gray_planar():
             assert page.samplesperpixel == 2
             assert page.extrasamples[0] == 2
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20487,7 +20517,7 @@ def test_write_extrasamples_false_gray():
             assert page.samplesperpixel == 2
             assert 'ExtraSamples' not in page.tags
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20514,7 +20544,7 @@ def test_write_extrasamples_false_gray_planar():
             assert page.samplesperpixel == 2
             assert 'ExtraSamples' not in page.tags
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20544,7 +20574,7 @@ def test_write_extrasamples_gray_mix():
             assert page.samplesperpixel == 4
             assert page.extrasamples == (1, 2, 0)
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20565,7 +20595,7 @@ def test_write_extrasamples_unspecified():
             assert page.samplesperpixel == 5
             assert page.extrasamples == (0, 0)
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20592,7 +20622,7 @@ def test_write_extrasamples_assocalpha():
             assert page.samplesperpixel == 4
             assert page.extrasamples[0] == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20623,7 +20653,7 @@ def test_write_extrasamples_mix():
             assert page.samplesperpixel == 6
             assert page.extrasamples == (1, 2, 0)
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20645,7 +20675,7 @@ def test_write_extrasamples_contig():
             assert page.samplesperpixel == 301
             assert len(page.extrasamples) == 301 - 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # better save as RGB planar
@@ -20667,7 +20697,7 @@ def test_write_extrasamples_contig():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20694,7 +20724,7 @@ def test_write_extrasamples_contig_rgb2():
             assert page.samplesperpixel == 301
             assert len(page.extrasamples) == 301 - 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
     # better save as planar
@@ -20716,7 +20746,7 @@ def test_write_extrasamples_contig_rgb2():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20738,7 +20768,7 @@ def test_write_extrasamples_planar():
             assert page.samplesperpixel == 219
             assert len(page.extrasamples) == 219 - 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20765,7 +20795,7 @@ def test_write_extrasamples_planar_rgb2():
             assert page.samplesperpixel == 219
             assert len(page.extrasamples) == 219 - 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20786,7 +20816,7 @@ def test_write_minisblack_planar():
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20807,7 +20837,7 @@ def test_write_minisblack_contig():
             assert page.imagelength == 301
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20828,7 +20858,7 @@ def test_write_scalar():
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20850,7 +20880,7 @@ def test_write_scalar_3d():
             assert page.samplesperpixel == 1
             image = tif.asarray()
             assert isinstance(image, numpy.ndarray)
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20871,7 +20901,7 @@ def test_write_scalar_4d():
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20892,7 +20922,7 @@ def test_write_contig_extrasample():
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20913,7 +20943,7 @@ def test_write_planar_extrasample():
             assert page.imagelength == 219
             assert page.samplesperpixel == 2
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20934,7 +20964,7 @@ def test_write_auto_rgb_contig():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20956,7 +20986,7 @@ def test_write_auto_rgb_planar():
             assert page.imagelength == 219
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -20978,7 +21008,7 @@ def test_write_auto_rgba_contig():
             assert page.samplesperpixel == 4
             assert page.extrasamples[0] == EXTRASAMPLE.UNASSALPHA
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21001,7 +21031,7 @@ def test_write_auto_rgba_planar():
             assert page.samplesperpixel == 4
             assert page.extrasamples[0] == EXTRASAMPLE.UNASSALPHA
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21024,7 +21054,7 @@ def test_write_extrasamples_contig_rgb():
             assert len(page.extrasamples) == 5
             assert page.extrasamples[0] == EXTRASAMPLE.UNSPECIFIED
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21047,7 +21077,7 @@ def test_write_extrasamples_planar_rgb():
             assert len(page.extrasamples) == 5
             assert page.extrasamples[0] == EXTRASAMPLE.UNSPECIFIED
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21112,7 +21142,7 @@ def test_write_cfa():
             assert page.bitspersample == 16
             assert page.tags['CFARepeatPatternDim'].value == (2, 2)
             assert page.tags['CFAPattern'].value == b'\x00\x01\x01\x02'
-            assert_array_equal(page.asarray(), data)
+            assert array_equal(page.asarray(), data)
             assert_aszarr_method(page, data)
 
 
@@ -21143,7 +21173,7 @@ def test_write_tiled_compressed():
             assert page.tilelength == 96
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21167,7 +21197,7 @@ def test_write_tiled():
             assert page.tilelength == 96
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21198,7 +21228,7 @@ def test_write_tiled_planar():
             assert page.tilelength == 96
             assert page.samplesperpixel == 4
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21222,7 +21252,7 @@ def test_write_tiled_contig():
             assert page.tilelength == 96
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21247,7 +21277,7 @@ def test_write_tiled_pages():
             assert page.tilelength == 96
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21319,9 +21349,9 @@ def test_write_iter_tiles(compression):
             assert page.tilewidth == 16
             assert page.compression == compression
             image = page.asarray()
-            assert_array_equal(image[:16, :16], data[0])
+            assert array_equal(image[:16, :16], data[0])
             for i, segment in enumerate(page.segments()):
-                assert_array_equal(numpy.squeeze(segment[0]), data[i])
+                assert array_equal(numpy.squeeze(segment[0]), data[i])
 
 
 @pytest.mark.parametrize('compression', [1, 8])
@@ -21352,9 +21382,9 @@ def test_write_iter_tiles_separate(compression):
             assert page.tilewidth == 16
             assert page.planarconfig == 2
             image = page.asarray()
-            assert_array_equal(image[0, :16, :16], data[0])
+            assert array_equal(image[0, :16, :16], data[0])
             for i, segment in enumerate(page.segments()):
-                assert_array_equal(numpy.squeeze(segment[0]), data[i])
+                assert array_equal(numpy.squeeze(segment[0]), data[i])
 
 
 @pytest.mark.parametrize('compression', [1, 8])
@@ -21391,12 +21421,12 @@ def test_write_iter_tiles_none(compression):
             assert page.databytecounts[1] == 0
             assert page.dataoffsets[1] == 0
             image = page.asarray()
-            assert_array_equal(image[:16, :16], data[0])
+            assert array_equal(image[:16, :16], data[0])
             for i, segment in enumerate(page.segments()):
                 if i % 3 == 1:
                     assert segment[0] is None
                 else:
-                    assert_array_equal(numpy.squeeze(segment[0]), data[i])
+                    assert array_equal(numpy.squeeze(segment[0]), data[i])
 
 
 @pytest.mark.parametrize('compression', [1, 8])
@@ -21435,7 +21465,7 @@ def test_write_iter_tiles_bytes(compression):
             planarconfig='separate',
             photometric='rgb',
         )
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
 
 
 @pytest.mark.parametrize('compression', [1, 8])
@@ -21477,7 +21507,7 @@ def test_write_iter_strips_bytes(compression, rowsperstrip):
             planarconfig='separate',
             photometric='rgb',
         )
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
 
 
 @pytest.mark.parametrize('compression', [1, 8])
@@ -21521,7 +21551,7 @@ def test_write_iter_tiles_tuple(compression):
             photometric='rgb',
             align=align,
         )
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
         with TiffFile(filename) as tif:
             for page in tif.pages:
                 assert page.is_tiled
@@ -21563,9 +21593,9 @@ def test_write_iter_pages_none(compression, rowsperstrip):
             for i, page in enumerate(tif.pages):
                 assert page.shape == (16, 16)
                 assert page.rowsperstrip == rowsperstrip
-                assert_array_equal(page.asarray(), data[i])
+                assert array_equal(page.asarray(), data[i])
                 for j, segment in enumerate(page.segments()):
-                    assert_array_equal(
+                    assert array_equal(
                         numpy.squeeze(segment[0]),
                         numpy.squeeze(
                             data[i, j * rowsperstrip : (j + 1) * rowsperstrip]
@@ -21637,27 +21667,27 @@ def test_write_pyramids():
             assert series.levels[0].shape == (31, 64, 96, 3)
             assert series.levels[1].shape == (11, 22, 32, 3)
 
-            assert_array_equal(tif.asarray(), data)
-            assert_array_equal(tif.asarray(series=0, level=0), data)
+            assert array_equal(tif.asarray(), data)
+            assert array_equal(tif.asarray(series=0, level=0), data)
             assert_aszarr_method(tif, data, series=0, level=0)
 
-            assert_array_equal(
+            assert array_equal(
                 data[:, ::2, ::2], tif.asarray(series=0, level=1)
             )
             assert_aszarr_method(tif, data[:, ::2, ::2], series=0, level=1)
 
-            assert_array_equal(
+            assert array_equal(
                 data[:, ::4, ::4], tif.asarray(series=0, level=2)
             )
             assert_aszarr_method(tif, data[:, ::4, ::4], series=0, level=2)
 
-            assert_array_equal(data[0, :, :, 0], tif.asarray(series=1))
+            assert array_equal(data[0, :, :, 0], tif.asarray(series=1))
             assert_aszarr_method(tif, data[0, :, :, 0], series=1)
 
-            assert_array_equal(data, tif.asarray(series=2, level=0))
+            assert array_equal(data, tif.asarray(series=2, level=0))
             assert_aszarr_method(tif, data, series=2, level=0)
 
-            assert_array_equal(
+            assert array_equal(
                 data[::3, ::3, ::3], tif.asarray(series=2, level=1)
             )
             assert_aszarr_method(tif, data[::3, ::3, ::3], series=2, level=1)
@@ -21688,7 +21718,7 @@ def test_write_volumetric_tiled():
             assert page.tile == (64, 64, 64)
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21723,7 +21753,7 @@ def test_write_volumetric_tiled_png():
             assert page.tiledepth == 1
             assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21764,7 +21794,7 @@ def test_write_volumetric_tiled_planar_rgb():
             assert series.dataoffset is not None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21808,7 +21838,7 @@ def test_write_volumetric_tiled_planar_extrasamples():
             assert series.dataoffset is None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21852,7 +21882,7 @@ def test_write_volumetric_tiled_contig_extrasamples():
             assert series.dataoffset is None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21891,12 +21921,12 @@ def test_write_volumetric_tiled_contig_rgb():
             assert series.dataoffset is not None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             # assert iterating over series
             data = data.reshape((6, 256, 64, 96, 3))
             for i, page in enumerate(series):
                 image = page.asarray()
-                assert_array_equal(data[i], image)
+                assert array_equal(data[i], image)
                 assert_aszarr_method(page, image)
             assert__str__(tif)
 
@@ -21938,7 +21968,7 @@ def test_write_volumetric_tiled_contig_rgb_empty():
             assert series.dataoffset is not None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(image.shape, shape)
+            assert array_equal(image.shape, shape)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21964,7 +21994,7 @@ def test_write_volumetric_striped():
             assert len(page.databytecounts) == 15
             assert page.samplesperpixel == 1
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -21999,7 +22029,7 @@ def test_write_volumetric_striped_png():
             assert len(page.dataoffsets) == 30
             assert len(page.databytecounts) == 30
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert_aszarr_method(tif, image, chunkmode='page')
             assert__str__(tif)
@@ -22034,7 +22064,7 @@ def test_write_volumetric_striped_planar_rgb():
             assert series.dataoffset is not None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -22068,12 +22098,12 @@ def test_write_volumetric_striped_contig_rgb():
             assert series.dataoffset is not None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             # assert iterating over series
             data = data.reshape((6, 15, 63, 95, 3))
             for i, page in enumerate(series):
                 image = page.asarray()
-                assert_array_equal(data[i], image)
+                assert array_equal(data[i], image)
                 assert_aszarr_method(page, image)
             assert__str__(tif)
 
@@ -22112,7 +22142,7 @@ def test_write_volumetric_striped_contig_rgb_empty():
             assert series.dataoffset is not None
             assert series.shape == shape
             image = tif.asarray()
-            assert_array_equal(image.shape, shape)
+            assert array_equal(image.shape, shape)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -22140,7 +22170,7 @@ def test_write_contiguous():
                 assert page.imagelength == 219
                 assert page.samplesperpixel == 3
             image = tif.asarray()
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -22180,7 +22210,7 @@ def test_write_6gb():
             assert tif.pages.first.dataoffsets[1] > 2**16
             assert tif.pages.first.databytecounts[1] == 3221225472
             # image = tif.asarray()
-        # assert_array_equal(data, image)
+        # assert array_equal(data, image)
 
 
 @pytest.mark.skipif(SKIP_LARGE, reason=REASON)
@@ -22217,7 +22247,7 @@ def test_write_5gb_bigtiff():
             assert page.imagelength == 1024
             assert page.samplesperpixel == 1
             image = tif.asarray(out='memmap')
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             del image
             del data
             assert__str__(tif)
@@ -22249,7 +22279,7 @@ def test_write_palette(dtype, compression):
             assert page.imagelength == 219
             assert page.samplesperpixel == 1
             for i, page in enumerate(tif.pages):
-                assert_array_equal(apply_colormap(data[i], cmap), page.asrgb())
+                assert array_equal(apply_colormap(data[i], cmap), page.asrgb())
             assert__str__(tif)
 
 
@@ -22283,7 +22313,7 @@ def test_write_palette_django():
             assert page.imagelength == 480
             assert page.samplesperpixel == 1
             image = page.asrgb(uint8=False)
-            assert_array_equal(apply_colormap(data, cmap), image)
+            assert array_equal(apply_colormap(data, cmap), image)
             assert__str__(tif)
 
 
@@ -22326,13 +22356,13 @@ def test_write_multiple_series():
             assert not series.dataoffset
             assert series.axes == 'YX'
             assert series.kind == 'shaped'
-            assert_array_equal(image1, series.asarray())
+            assert array_equal(image1, series.asarray())
             assert_aszarr_method(series, image1)
             series = tif.series[1]
             assert series.dataoffset
             assert series.axes == 'YXS'
             assert series.kind == 'shaped'
-            assert_array_equal(image2, series.asarray())
+            assert array_equal(image2, series.asarray())
             assert_aszarr_method(series, image2)
             series = tif.series[2]
             assert series.dataoffset
@@ -22347,7 +22377,7 @@ def test_write_multiple_series():
             assert series.axes == 'TCZYX'
             assert series.kind == 'shaped'
             result = series.asarray(out='memmap')
-            assert_array_equal(data1, result)
+            assert array_equal(data1, result)
             assert_aszarr_method(series, data1)
             assert tif.filehandle.path == result.filename
             del result
@@ -22355,52 +22385,52 @@ def test_write_multiple_series():
             assert series.dataoffset
             assert series.axes == 'QQYX'
             assert series.kind == 'shaped'
-            assert_array_equal(data1[0], series.asarray())
+            assert array_equal(data1[0], series.asarray())
             assert_aszarr_method(series, data1[0])
             series = tif.series[4]
             assert not series.dataoffset
             assert series.axes == 'YX'
             assert series.kind == 'shaped'
-            assert_array_equal(data1[0, 0, 0], series.asarray())
+            assert array_equal(data1[0, 0, 0], series.asarray())
             assert_aszarr_method(series, data1[0, 0, 0])
             series = tif.series[5]
             assert not series.dataoffset
             assert series.axes == 'YX'
             assert series.kind == 'shaped'
-            assert_array_equal(image1, series.asarray())
+            assert array_equal(image1, series.asarray())
             assert_aszarr_method(series, image1)
             assert__str__(tif)
 
             # test TiffFile.asarray key and series parameters
-            assert_array_equal(image1, tif.asarray(key=0))
-            assert_array_equal(image1, tif.asarray(key=-1))
+            assert array_equal(image1, tif.asarray(key=0))
+            assert array_equal(image1, tif.asarray(key=-1))
 
-            assert_array_equal(image2, tif.asarray(key=[1]))
-            assert_array_equal(image2, tif.asarray(key=0, series=1))
-            assert_array_equal(
+            assert array_equal(image2, tif.asarray(key=[1]))
+            assert array_equal(image2, tif.asarray(key=0, series=1))
+            assert array_equal(
                 image2, tif.asarray(key=0, series=tif.series[1])
             )
 
-            assert_array_equal(
+            assert array_equal(
                 data1, tif.asarray(key=range(2, 107)).reshape(data1.shape)
             )
 
-            assert_array_equal(
+            assert array_equal(
                 data1,
                 tif.asarray(key=range(105), series=2).reshape(data1.shape),
             )
 
-            assert_array_equal(
+            assert array_equal(
                 data1,
                 tif.asarray(key=slice(None), series=2).reshape(data1.shape),
             )
 
-            assert_array_equal(
+            assert array_equal(
                 data1[0],
                 tif.asarray(key=slice(107, 122)).reshape(data1[0].shape),
             )
 
-            assert_array_equal(
+            assert array_equal(
                 data1[0].reshape((-1, 167, 439))[::2],
                 tif.asarray(key=slice(107, 122, 2)).reshape((-1, 167, 439)),
             )
@@ -22411,24 +22441,24 @@ def test_write_multiple_series():
             with pytest.raises(RuntimeError):
                 tif.asarray(key=[-3, -2])
 
-        assert_array_equal(image1, imread(filename, key=0))
-        assert_array_equal(image1, imread(filename, key=-1))
-        assert_array_equal(image2, imread(filename, key=[1]))
-        assert_array_equal(
+        assert array_equal(image1, imread(filename, key=0))
+        assert array_equal(image1, imread(filename, key=-1))
+        assert array_equal(image2, imread(filename, key=[1]))
+        assert array_equal(
             data1, imread(filename, key=range(2, 107)).reshape(data1.shape)
         )
-        assert_array_equal(
+        assert array_equal(
             data1,
             imread(filename, key=range(105), series=2).reshape(data1.shape),
         )
-        assert_array_equal(
+        assert array_equal(
             data1[0],
             imread(filename, key=slice(107, 122)).reshape(data1[0].shape),
         )
 
 
 @pytest.mark.skipif(
-    SKIP_CODECS or not imagecodecs.PNG.available, reason=REASON
+    SKIP_LARGE or SKIP_CODECS or not imagecodecs.PNG.available, reason=REASON
 )
 def test_write_multithreaded():
     """Test write large tiled multithreaded."""
@@ -22452,7 +22482,7 @@ def test_write_multithreaded():
             assert page.imagelength == 4001
             assert page.samplesperpixel == 3
             image = tif.asarray(maxworkers=6)
-            assert_array_equal(data, image)
+            assert array_equal(data, image)
             assert_aszarr_method(tif, image)
             assert__str__(tif)
 
@@ -22599,7 +22629,7 @@ def test_write_fsspec(zarr_format, version, byteorder):
                     version=version,
                     zarr_format=zarr_format,
                 )
-            assert_array_equal(tif.series[0].asarray(), data0)
+            assert array_equal(tif.series[0].asarray(), data0)
             assert_fsspec(
                 URL + filename + f'.v{version}.{zf}.s0.json',
                 data0,
@@ -22614,7 +22644,7 @@ def test_write_fsspec(zarr_format, version, byteorder):
                     version=version,
                     zarr_format=zarr_format,
                 )
-            assert_array_equal(tif.series[1].asarray(), data1)
+            assert array_equal(tif.series[1].asarray(), data1)
             assert_fsspec(
                 URL + filename + f'.v{version}.{zf}.s1.json',
                 data1,
@@ -22628,7 +22658,7 @@ def test_write_fsspec(zarr_format, version, byteorder):
                     version=version,
                     zarr_format=zarr_format,
                 )
-            assert_array_equal(tif.series[2].asarray(), data2)
+            assert array_equal(tif.series[2].asarray(), data2)
             assert_fsspec(
                 URL + filename + f'.v{version}.{zf}.s2.json',
                 data2,
@@ -22642,7 +22672,7 @@ def test_write_fsspec(zarr_format, version, byteorder):
                     version=version,
                     zarr_format=zarr_format,
                 )
-            assert_array_equal(tif.series[3].asarray(), data1)
+            assert array_equal(tif.series[3].asarray(), data1)
             assert_fsspec(
                 URL + filename + f'.v{version}.{zf}.s3.json',
                 data1,
@@ -22679,7 +22709,7 @@ def test_write_fsspec(zarr_format, version, byteorder):
                     version=version,
                     zarr_format=zarr_format,
                 )
-            assert_array_equal(tif.series[5].asarray(), data3)
+            assert array_equal(tif.series[5].asarray(), data3)
 
             assert_fsspec(
                 URL + filename + f'.v{version}.{zf}.s5.json',
@@ -22715,7 +22745,7 @@ def test_write_fsspec_multifile(zarr_format, version, chunkmode):
                     zarr_format=zarr_format,
                 )
         zobj = zarr.open(refs_as_store(jsonfile), zarr_format=zarr_format)
-        assert_array_equal(zobj[:], data)
+        assert array_equal(zobj[:], data)
 
 
 @pytest.mark.skipif(
@@ -22756,7 +22786,7 @@ def test_write_fsspec_sequence(zarr_format, version):
             )
 
         zobj = zarr.open(refs_as_store(jsonfile), zarr_format=zarr_format)
-        assert_array_equal(zobj[:], data)
+        assert array_equal(zobj[:], data)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_ZARR, reason=REASON)
@@ -22778,7 +22808,7 @@ def test_write_tiff2fsspec(zarr_format):
             zarr_format=zarr_format,
         )
         zobj = zarr.open(refs_as_store(jsonfile), zarr_format=zarr_format)
-        assert_array_equal(zobj[:], data)
+        assert array_equal(zobj[:], data)
 
         with pytest.raises(ValueError):
             tiff2fsspec(
@@ -22821,7 +22851,7 @@ def test_write_numcodecs():
             zarr_format=2,
         )
         z[:] = data
-        assert_array_equal(z[:], data)
+        assert array_equal(z[:], data)
 
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
@@ -22852,7 +22882,7 @@ def test_write_zarr_codec():
             zarr_format=3,
         )
         z[:] = data
-        assert_array_equal(z[:], data)
+        assert array_equal(z[:], data)
 
 
 ###############################################################################
@@ -22904,7 +22934,7 @@ def test_write_imagej(byteorder, dtype, shape):
     with TempFileName(filename) as filename:
         imwrite(filename, data, byteorder=byteorder, kind='imagej')
         image = imread(filename)
-        assert_array_equal(data.squeeze(), image.squeeze())
+        assert array_equal(data.squeeze(), image.squeeze())
         # TODO: assert_aszarr_method
         assert_valid_tiff(filename)
 
@@ -22980,7 +23010,7 @@ def test_write_imagej_colormap(dtype, photometric):
             assert tif.is_imagej
             page = tif.pages.first
             assert page.photometric == photometric_out
-            assert_array_equal(page.colormap, colormap)
+            assert array_equal(page.colormap, colormap)
             assert__str__(tif)
         assert_valid_tiff(filename)
 
@@ -23034,7 +23064,7 @@ def test_write_imagej_ijmetadata_tag():
 
             assert__str__(tif)
 
-    assert_array_equal(data, data2)
+    assert array_equal(data, data2)
     assert imagej_metadata is not None
     assert imagej_metadata['mode'] == 'composite'
     assert imagej_metadata['Info'] == ijmeta['Info']
@@ -23043,7 +23073,7 @@ def test_write_imagej_ijmetadata_tag():
     assert ijmeta2['Overlays'] == ijmeta['Overlays']
     assert ijmeta2['Ranges'] == ijmeta['Ranges']
     assert ijmeta2['Labels'] == ijmeta['Labels']
-    assert_array_equal(ijmeta2['LUTs'][2], ijmeta['LUTs'][2])
+    assert array_equal(ijmeta2['LUTs'][2], ijmeta['LUTs'][2])
     assert_valid_tiff(filename)
 
 
@@ -23084,7 +23114,7 @@ def test_write_imagej_roundtrip():
             data2 = tif.asarray()
             assert__str__(tif)
 
-    assert_array_equal(data, data2)
+    assert array_equal(data, data2)
     assert ijmeta2 is not None
     assert ijmeta2['ImageJ'] == ijmeta['ImageJ']
     assert ijmeta2['mode'] == ijmeta['mode']
@@ -23093,7 +23123,7 @@ def test_write_imagej_roundtrip():
     assert ijmeta2['Overlays'] == ijmeta['Overlays']
     assert ijmeta2['Ranges'] == ijmeta['Ranges']
     assert ijmeta2['Labels'] == ijmeta['Labels']
-    assert_array_equal(ijmeta2['LUTs'][2], ijmeta['LUTs'][2])
+    assert array_equal(ijmeta2['LUTs'][2], ijmeta['LUTs'][2])
     assert_valid_tiff(filename)
 
 
@@ -23145,13 +23175,13 @@ def test_write_imagej_hyperstack(truncate, mmap):
             assert series.axes == 'TZCYXS'
             # assert data
             image = tif.asarray(out='memmap')
-            assert_array_equal(data.squeeze(), image.squeeze())
+            assert array_equal(data.squeeze(), image.squeeze())
             del image
             # assert iterating over series
             data = data.reshape((210, 49, 61, 3))
             for i, page in enumerate(series):
                 image = page.asarray()
-                assert_array_equal(data[i], image)
+                assert array_equal(data[i], image)
             del image
             assert__str__(tif)
         assert_valid_tiff(filename)
@@ -23192,7 +23222,7 @@ def test_write_imagej_append():
             assert unsqueezed.shape == (1, 256, 1, 256, 256, 1)
             # assert data
             image = tif.asarray(out='memmap')
-            assert_array_equal(data.squeeze(), image)
+            assert array_equal(data.squeeze(), image)
             del image
             assert__str__(tif)
 
@@ -23254,7 +23284,7 @@ def test_write_imagej_raw():
             )
             # assert data
             image = tif.asarray(out='memmap')
-            assert_array_equal(data.squeeze(), image.squeeze())
+            assert array_equal(data.squeeze(), image.squeeze())
             del image
 
             if not SKIP_ZARR:
@@ -23264,7 +23294,7 @@ def test_write_imagej_raw():
                     chunk = z[333:356, 99:513, 31:127]
                 finally:
                     store.close()
-                assert_array_equal(chunk, data[333:356, 0, 99:513, 31:127])
+                assert array_equal(chunk, data[333:356, 0, 99:513, 31:127])
 
                 store = imread(filename, return_as='zarr', chunkmode=2)
                 try:
@@ -23272,7 +23302,7 @@ def test_write_imagej_raw():
                     chunk = z[333:356, 99:513, 31:127]
                 finally:
                     store.close()
-                assert_array_equal(chunk, data[333:356, 0, 99:513, 31:127])
+                assert array_equal(chunk, data[333:356, 0, 99:513, 31:127])
 
             assert__str__(tif)
 
@@ -23345,7 +23375,7 @@ def test_write_ome(shape, axes):
                 elif axes == 'YXC':
                     axes = 'YXS'
                 assert tif.series[0].axes == squeeze_axes(shape, axes)[1]
-            assert_array_equal(data.squeeze(), image.squeeze())
+            assert array_equal(data.squeeze(), image.squeeze())
             assert_aszarr_method(tif, image)
             assert_valid_omexml(omexml)
         assert_valid_tiff(filename)
@@ -23513,7 +23543,7 @@ def test_write_ome_methods(method):
             assert series.dtype == numpy.int8
             assert series.axes == 'TZYX'
             # assert data
-            assert_array_equal(data, tif.asarray())
+            assert array_equal(data, tif.asarray())
             assert_valid_omexml(tif.ome_metadata)
             assert__str__(tif)
 
@@ -23556,12 +23586,12 @@ def test_write_ome_manual(contiguous):
             assert series.kind == 'ome'
             assert series.axes == 'ZYX'
             assert bool(series.dataoffset) == contiguous
-            assert_array_equal(data[:16], series.asarray())
+            assert array_equal(data[:16], series.asarray())
             series = tif.series[1]
             assert series.kind == 'ome'
             assert series.axes == 'CYX'
             assert bool(series.dataoffset) == contiguous
-            assert_array_equal(data[16:], series.asarray())
+            assert array_equal(data[16:], series.asarray())
             assert_valid_omexml(tif.ome_metadata)
             assert__str__(tif)
 
@@ -23722,7 +23752,7 @@ def test_write_ome_copy():
                 for level, level_ in zip(levels[1:], levels_[1:], strict=True):
                     assert level.shape == level_.shape
                     assert level.dtype == level_.dtype
-                    assert_array_equal(level.asarray(), level_.asarray())
+                    assert array_equal(level.asarray(), level_.asarray())
                     assert level_.keyframe.subfiletype == FILETYPE.REDUCEDIMAGE
 
 
@@ -23796,7 +23826,7 @@ def test_write_geotiff_copy():
                     0.0,
                 )
                 assert tif.geotiff_metadata['GeogAngularUnitsGeoKey'] == 9102
-                assert_array_equal(tif.asarray(), geotiff.asarray())
+                assert array_equal(tif.asarray(), geotiff.asarray())
 
 
 @pytest.mark.parametrize('ext', ['', 'b'])
@@ -23806,25 +23836,25 @@ def test_write_open_mode(ext):
     with TempFileName('write_open_mode' + ext) as filename:
         # write
         imwrite(filename, data, mode='w' + ext)
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
         # exclusive creation
         with pytest.raises(FileExistsError):
             imwrite(filename, data, mode='x' + ext)
         os.remove(filename)
         imwrite(filename, data, mode='x' + ext)
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
         # append
         imwrite(filename, data, mode='r+' + ext)
         with TiffFile(filename) as tif:
             assert len(tif.pages) == 10
             assert len(tif.series) == 2
-            assert_array_equal(tif.series[0].asarray(), data)
-            assert_array_equal(tif.series[1].asarray(), data)
+            assert array_equal(tif.series[0].asarray(), data)
+            assert array_equal(tif.series[1].asarray(), data)
 
         # write to file handle
         with FileHandle(filename, mode='w' + ext) as fh:
             imwrite(fh, data, mode='ignored')
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
         # exclusive creation with file handle
         with pytest.raises(FileExistsError):  # noqa: SIM117
             with FileHandle(filename, mode='x' + ext) as fh:
@@ -23836,7 +23866,7 @@ def test_write_open_mode(ext):
             fh.seek(0)
             with pytest.raises(OSError):  # io.UnsupportedOperation
                 fh.read(8)
-        assert_array_equal(imread(filename), data)
+        assert array_equal(imread(filename), data)
         # append to file handle
         with FileHandle(filename, mode='r+' + ext) as fh:
             imwrite(fh, data, mode='ignored')
@@ -23845,8 +23875,8 @@ def test_write_open_mode(ext):
             with TiffFile(fh) as tif:
                 assert len(tif.pages) == 10
                 assert len(tif.series) == 2
-                assert_array_equal(tif.series[0].asarray(), data)
-                assert_array_equal(tif.series[1].asarray(), data)
+                assert array_equal(tif.series[0].asarray(), data)
+                assert array_equal(tif.series[1].asarray(), data)
 
         with pytest.raises(ValueError):
             imwrite(filename, data, mode=ext)
@@ -23892,10 +23922,10 @@ def test_write_array_types(atype, byteorder, tiled, compression):
             byteorder=byteorder,
             **kwargs,
         )
-        assert_array_equal(
+        assert array_equal(
             imread(filename), data[1:, 33 : 33 + 261, 31 : 31 + 200]
         )
-        assert_array_equal(
+        assert array_equal(
             imagecodecs.imread(filename, index=None),
             data[1:, 33 : 33 + 261, 31 : 31 + 200],
         )
@@ -24194,7 +24224,7 @@ def test_sequence_glob_pattern(case):
         with tifs.aszarr() as store:
             assert isinstance(store, ZarrStore)
             assert isinstance(store, ZarrFileSequenceStore)
-            assert_array_equal(data, zarr.open(store, mode='r'))
+            assert array_equal(data, zarr.open(store, mode='r'))
     assert__repr__(tifs)
 
 
@@ -24217,7 +24247,7 @@ def test_sequence_name_list():
     assert data[1, 256, 256] == 135
     if not SKIP_ZARR:
         with tifs.aszarr() as store:
-            assert_array_equal(data, zarr.open(store, mode='r'))
+            assert array_equal(data, zarr.open(store, mode='r'))
     assert__repr__(tifs)
 
 
@@ -24240,7 +24270,7 @@ def test_sequence_oif_series():
     assert data[1, 377, 70, 146] == 29
     if not SKIP_ZARR:
         with tifs.aszarr() as store:
-            assert_array_equal(data, zarr.open(store, mode='r'))
+            assert array_equal(data, zarr.open(store, mode='r'))
     del data
     assert__repr__(tifs)
 
@@ -24262,7 +24292,7 @@ def test_sequence_leica_series():
     assert tuple(data[45, 256, 256]) == (93, 56, 56)
     if not SKIP_ZARR:
         with tifs.aszarr() as store:
-            assert_array_equal(data, zarr.open(store, mode='r'))
+            assert array_equal(data, zarr.open(store, mode='r'))
     del data
 
 
@@ -24280,7 +24310,7 @@ def test_sequence_zip_container():
         assert data.shape == (10, 480, 640)
         assert data.dtype == numpy.uint8
         assert data[9, 256, 256] == 135
-    assert_array_equal(data, imread(container=filename))
+    assert array_equal(data, imread(container=filename))
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_LARGE or SKIP_CODECS, reason=REASON)
@@ -24308,7 +24338,7 @@ def test_sequence_wells_axesorder():
     assert data[8, 12, 1, 0, 1, 256, 519] == 1579
     if not SKIP_ZARR:
         with tifs.aszarr(ioworkers=16, maxworkers=1) as store:
-            assert_array_equal(data, zarr.open(store, mode='r'))
+            assert array_equal(data, zarr.open(store, mode='r'))
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_LARGE, reason=REASON)
@@ -24342,15 +24372,112 @@ def test_sequence_tiled(tiled):
             axestiled=tiled, is_ome=False, ioworkers=16, maxworkers=1
         ) as store:
             if tiled:
-                assert_array_equal(
+                assert array_equal(
                     data[1, 3, 2048:3072],
                     zarr.open(store, mode='r')[1, 3, 2048:3072],
                 )
             else:
-                assert_array_equal(
+                assert array_equal(
                     data[1, 2, 1, 3:5],
                     zarr.open(store, mode='r')[1, 2, 1, 3:5],
                 )
+
+
+@pytest.mark.parametrize(
+    ('filenames', 'axes', 'shape'),
+    [
+        (
+            [
+                'P692_588_128Q_overview_C001T001.tif',
+                'P692_588_128Q_overview_C001T002.tif',
+            ],
+            ('C', 'T'),
+            (1, 2),
+        ),
+        (
+            ['Al488-yoyo1-2_C001L001.tif', 'Al488-yoyo1-2_C002L001.tif'],
+            ('C', 'L'),
+            (2, 1),
+        ),
+        (['s_C001Z001.tif', 's_C002Z003.tif'], ('C', 'Z'), (2, 3)),
+        (['Series019_y00.tif', 'Series019_y45.tif'], ('y',), (46,)),
+        (['img_c01t02.ome.tif', 'img_c01t03.ome.tif'], ('c', 't'), (1, 2)),
+    ],
+)
+def test_sequence_axes_pattern_suffix(filenames, axes, shape):
+    """Test 'axes' pattern matches only axes at end of file name."""
+    dims, parsedshape, _, _ = parse_filenames(filenames, 'axes')
+    assert dims == axes
+    assert parsedshape == shape
+
+
+def test_sequence_parse_filenames_shape():
+    """Test parse_filenames with _shape argument."""
+    files = ['c1t002.ext', 'c2t003.ext']
+    ptrn = r'(c)(\d)(t)(\d+)'
+    # indices are not shifted if first plane is missing
+    _, shape, indices, _ = parse_filenames(files, ptrn, _shape=(3, 4))
+    assert shape == (3, 4)
+    assert indices == [(1, 2), (2, 3)]
+    # provided shape too small
+    with pytest.raises(ValueError):
+        parse_filenames(files, ptrn, _shape=(2, 4))
+    with pytest.raises(ValueError):
+        parse_filenames(files, ptrn, _shape=(3, 3))
+    # provided shape of wrong length
+    with pytest.raises(ValueError):
+        parse_filenames(files, ptrn, _shape=(3, 4, 1))
+
+
+def test_sequence_duplicate_indices():
+    """Test FileSequence raises if files map to same index."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        filenames = []
+        for name in ('a_C001T001.tif', 'a_C001T002.tif'):
+            filenames.append(os.path.join(tmpdir, name))
+            imwrite(filenames[-1], numpy.zeros((4, 4), dtype=numpy.uint8))
+        with pytest.raises(ValueError, match='same index'):
+            TiffSequence(filenames, pattern=r'_(C)(\d+)')
+        with TiffSequence(filenames, pattern='axes') as tifs:
+            assert tifs.shape == (1, 2)
+
+
+@pytest.mark.parametrize('tiled', [False, True])
+@pytest.mark.parametrize('out', [None, 'array', 'memmap'])
+def test_sequence_missing_chunks(out, tiled):
+    """Test FileSequence.asarray zero-fills missing chunks."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # T002 missing
+        for name in ('a_C001T001.tif', 'a_C001T003.tif'):
+            imwrite(
+                os.path.join(tmpdir, name),
+                numpy.full((4, 4), 7, dtype=numpy.uint8),
+            )
+        with TiffSequence(
+            os.path.join(tmpdir, '*.tif'), pattern='axes'
+        ) as tifs:
+            assert tifs.shape == (1, 3)
+            axestiled = {1: 1} if tiled else None
+            shape = (1, 4, 12) if tiled else (1, 3, 4, 4)
+            if out == 'array':
+                out = numpy.full(shape, 255, dtype=numpy.uint8)
+            data = tifs.asarray(
+                out=out, axestiled=axestiled, out_inplace=not tiled
+            )
+            assert data.shape == shape
+            if tiled:
+                assert numpy.all(data[0, :, 0:4] == 7)
+                assert numpy.all(data[0, :, 4:8] == 0)
+                assert numpy.all(data[0, :, 8:12] == 7)
+            else:
+                assert numpy.all(data[0, 0] == 7)
+                assert numpy.all(data[0, 1] == 0)
+                assert numpy.all(data[0, 2] == 7)
+            del data
 
 
 @pytest.mark.skipif(SKIP_ZARR, reason=REASON)
@@ -24398,6 +24525,160 @@ def test_sequence_store_dimension_names():
             assert zj['dimension_names'] is None
 
 
+async def _store_list_all(store, prefix=None, listdir=None):
+    """Return sorted keys from store listing methods."""
+    if listdir is not None:
+        return sorted([k async for k in store.list_dir(listdir)])
+    if prefix is not None:
+        return sorted([k async for k in store.list_prefix(prefix)])
+    return sorted([k async for k in store.list()])
+
+
+async def _store_copy(store, target):
+    """Copy all listed keys of store to target store."""
+    from zarr.core.buffer import default_buffer_prototype
+
+    prototype = default_buffer_prototype()
+    async for key in store.list():
+        await target.set(key, await store.get(key, prototype))
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+@pytest.mark.parametrize('chunkmode', [0, 2])
+def test_zarr_store_listing(chunkmode):
+    """Test ZarrTiffStore lists existing chunk keys."""
+    import asyncio
+
+    data = numpy.arange(64 * 48, dtype=numpy.uint16).reshape((64, 48))
+    empty = {(0, 1), (2, 2)}
+
+    def tiles():
+        for i in range(4):
+            for j in range(3):
+                if (i, j) in empty:
+                    yield None
+                else:
+                    yield data[i * 16 : i * 16 + 16, j * 16 : j * 16 + 16]
+
+    with TempFileName(f'zarr_store_listing_{chunkmode}') as filename:
+        imwrite(
+            filename,
+            tiles(),
+            shape=data.shape,
+            dtype=data.dtype,
+            tile=(16, 16),
+            photometric='minisblack',
+        )
+        with imread(filename, return_as='zarr', chunkmode=chunkmode) as store:
+            keys = asyncio.run(_store_list_all(store))
+            if chunkmode:
+                chunkkeys = ['c/0/0']
+            else:
+                chunkkeys = [
+                    f'c/{i}/{j}'
+                    for i in range(4)
+                    for j in range(3)
+                    if (i, j) not in empty
+                ]
+            assert keys == sorted(['zarr.json', *chunkkeys])
+            for key in chunkkeys:
+                assert asyncio.run(store.exists(key))
+
+            assert asyncio.run(_store_list_all(store, listdir='')) == [
+                'c',
+                'zarr.json',
+            ]
+            if not chunkmode:
+                assert asyncio.run(_store_list_all(store, listdir='c')) == [
+                    '0',
+                    '1',
+                    '2',
+                    '3',
+                ]
+                assert asyncio.run(_store_list_all(store, listdir='c/2')) == [
+                    '0',
+                    '1',
+                ]
+                assert asyncio.run(_store_list_all(store, prefix='c/1/')) == [
+                    'c/1/0',
+                    'c/1/1',
+                    'c/1/2',
+                ]
+
+            z = zarr.open(store, mode='r')
+            assert z.nchunks_initialized == len(chunkkeys)
+
+            target = zarr.storage.MemoryStore()
+            asyncio.run(_store_copy(store, target))
+            copied = zarr.open(target, mode='r')[:]
+            expected = data.copy()
+            for i, j in empty:
+                expected[i * 16 : i * 16 + 16, j * 16 : j * 16 + 16] = 0
+            assert array_equal(copied, expected)
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_zarr_store_listing_multiscales():
+    """Test ZarrTiffStore lists chunk keys of multiscales group."""
+    import asyncio
+
+    data = numpy.arange(64 * 64, dtype=numpy.uint8).reshape((64, 64))
+    with TempFileName('zarr_store_listing_multiscales') as filename:
+        with TiffWriter(filename) as tif:
+            tif.write(data, tile=(32, 32), subifds=1)
+            tif.write(data[::2, ::2], tile=(16, 16), subfiletype=1)
+        with imread(filename, return_as='zarr') as store:
+            assert asyncio.run(_store_list_all(store, listdir='')) == [
+                '0',
+                '1',
+                'zarr.json',
+            ]
+            assert asyncio.run(_store_list_all(store, listdir='0')) == [
+                'c',
+                'zarr.json',
+            ]
+            assert asyncio.run(_store_list_all(store, prefix='1/c/')) == [
+                f'1/c/{i}/{j}' for i in range(2) for j in range(2)
+            ]
+            assert len(asyncio.run(_store_list_all(store))) == 3 + 4 + 4
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_sequence_store_listing():
+    """Test ZarrFileSequenceStore lists existing chunk keys."""
+    import asyncio
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for z, c in ((0, 0), (0, 2), (1, 1)):
+            fname = os.path.join(tmpdir, f'z{z}_c{c}.tif')
+            imwrite(fname, numpy.full((8, 8), z * 3 + c + 1, numpy.uint16))
+        tifs = TiffSequence(
+            os.path.join(tmpdir, '*.tif'), pattern=r'(z)(\d+)_(c)(\d+)'
+        )
+        with tifs.aszarr() as store:
+            assert asyncio.run(_store_list_all(store)) == [
+                'c/0/0/0/0',
+                'c/0/2/0/0',
+                'c/1/1/0/0',
+                'zarr.json',
+            ]
+            assert asyncio.run(_store_list_all(store, listdir='c')) == [
+                '0',
+                '1',
+            ]
+            assert asyncio.run(_store_list_all(store, listdir='c/0')) == [
+                '0',
+                '2',
+            ]
+            z = zarr.open(store, mode='r')
+            assert z.nchunks_initialized == 3
+            target = zarr.storage.MemoryStore()
+            asyncio.run(_store_copy(store, target))
+            assert array_equal(zarr.open(target, mode='r')[:], z[:])
+        tifs.close()
+
+
 @pytest.mark.skipif(SKIP_FILE or SKIP_CODECS, reason=REASON)
 def test_sequence_imread():
     """Test TiffSequence with imagecodecs.imread."""
@@ -24412,7 +24693,7 @@ def test_sequence_imread():
     assert data.dtype == numpy.uint16
     if not SKIP_ZARR:
         with pngs.aszarr(codec=imagecodecs.png_decode) as store:
-            assert_array_equal(data, zarr.open(store, mode='r'))
+            assert array_equal(data, zarr.open(store, mode='r'))
     del data
 
 
@@ -24456,7 +24737,7 @@ def test_sequence_imread_glob():
             chunkdtype=numpy.uint8,
         )
         try:
-            assert_array_equal(data, zarr.open(store, mode='r'))
+            assert array_equal(data, zarr.open(store, mode='r'))
         finally:
             store.close()
 
@@ -24465,7 +24746,7 @@ def test_sequence_imread_glob():
 def test_sequence_imread_one():
     """Test imread function with one item in sequence."""
     filename = _file('TiffSequence/AT3_1m4_01.tif')
-    assert_array_equal(imread([filename]), imread(filename))
+    assert array_equal(imread([filename]), imread(filename))
 
 
 ###############################################################################
@@ -24499,7 +24780,7 @@ def test_dependent_lfdfiles():
             assert len(tif.series) == 1
             assert tif.series[0].shape == (256, 256, 256)
             assert tif.series[0].dtype == numpy.float32
-            assert_array_equal(data, tif.asarray())
+            assert array_equal(data, tif.asarray())
 
     filename = _file('SimFCS/gpint')
     with lfdfiles.LfdFileSequence(
@@ -24525,7 +24806,7 @@ def test_dependent_cmapfile():
             cfile.replace('.cmap', '.ch0000.cmap'),
         )
         with cmapfile.CmapFile(filename, mode='r') as cmap:
-            assert_array_equal(
+            assert array_equal(
                 cmap['map00000']['data00000'], data.squeeze()[:, 0, :, :]
             )
 
@@ -24707,7 +24988,7 @@ def test_dependent_aicsimageio():
     assert img.shape == (1, 1, 1, 128, 128, 3)
     img.set_scene('Image:0')
     lazy_t1 = img.get_image_dask_data('ZCYX', T=1)
-    assert_array_equal(lazy_t1.compute(), t1)
+    assert array_equal(lazy_t1.compute(), t1)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_DASK, reason=REASON)
@@ -24737,7 +25018,7 @@ def test_dependent_bioio():
     assert img.shape == (1, 1, 1, 128, 128, 3)
     img.set_scene('Image:0')
     lazy_t1 = img.get_image_dask_data('ZCYX', T=1)
-    assert_array_equal(lazy_t1.compute(), t1)
+    assert array_equal(lazy_t1.compute(), t1)
 
 
 @pytest.mark.skipif(SKIP_FILE or SKIP_DASK, reason=REASON)
@@ -24768,7 +25049,7 @@ def test_dependent_imageio():
         iio.imwrite(filename1, data)
         im = iio.imread(filename1)
         assert im.shape == data.shape
-        assert_array_equal(im, data)
+        assert array_equal(im, data)
 
         # multiple images
         # written with shaped metadata, each write is its own series
@@ -24778,12 +25059,12 @@ def test_dependent_imageio():
             W.write(data)
         im = iio.imread(filename1, index=0)
         assert im.shape == data.shape
-        assert_array_equal(im, data)
+        assert array_equal(im, data)
         ims = list(iio.imiter(filename1))
         assert len(ims) == 3
         for frame in ims:
             assert frame.shape == data.shape
-            assert_array_equal(frame, data)
+            assert array_equal(frame, data)
 
         # multiple pages as one series
         # (metadata=None suppresses per-write series)
@@ -24793,14 +25074,14 @@ def test_dependent_imageio():
             W.write(data, metadata=None)
         ims = iio.imread(filename1, index=None)
         assert ims.shape == (3, *data.shape)
-        assert_array_equal(ims[0], data)
+        assert array_equal(ims[0], data)
 
         # volumetric data
         iio.imwrite(filename1, numpy.tile(data, (3, 1, 1, 1)))
         vol = iio.imread(filename1)
         assert vol.shape == (3, *data.shape)
         for i in range(3):
-            assert_array_equal(vol[i], data)
+            assert array_equal(vol[i], data)
 
         # channel-first volume rgb (2, 3, 10, 10)
         img = iio.imread(filename2)
@@ -24812,7 +25093,7 @@ def test_dependent_imageio():
             W.write(data, planarconfig='SEPARATE')
         ims = list(iio.imiter(filename1))
         assert len(ims) == 2
-        assert_array_equal(ims[0], data)
+        assert array_equal(ims[0], data)
 
         # ensure imread + imwrite works round trip
         im1 = iio.imread(filename1, index=0)
@@ -24820,7 +25101,7 @@ def test_dependent_imageio():
         im3 = iio.imread(filename3, index=0)
         assert im1.ndim == 3
         assert im1.shape == im3.shape
-        assert_array_equal(im1, im3)
+        assert array_equal(im1, im3)
 
         # ensure imread + imwrite works round trip - volume like
         vol = numpy.tile(data, (3, 1, 1, 1))
@@ -24828,7 +25109,7 @@ def test_dependent_imageio():
         im3 = iio.imread(filename3)
         assert vol.ndim == 4
         assert vol.shape == im3.shape
-        assert_array_equal(vol, im3)
+        assert array_equal(vol, im3)
 
         # read metadata
         md = iio.immeta(filename2)
@@ -24871,7 +25152,7 @@ def test_dependent_pims():
 
     filename = _file('pims/tiff_stack.tif')
     ims = pims.TiffStack_tifffile(filename)
-    assert_array_equal(ims.get_frame(2), imread(filename, key=2))
+    assert array_equal(ims.get_frame(2), imread(filename, key=2))
     repr(ims)
     ims.close()
 
