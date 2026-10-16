@@ -1,6 +1,20 @@
 Revisions
 =========
 
+2026.10.15
+
+- Fix TiffWriter truncating existing file on invalid kind argument.
+- Fix TiffPage.asarray not closing reopened file handle on exceptions.
+- Fix ZarrTiffStore not releasing file cache reference on decode errors.
+- Fix Tiff codec configuration not JSON-serializable with slice key.
+- Fix ZarrStore listing methods omitting chunk keys.
+- Fix FileSequence.asarray leaving missing chunks uninitialized.
+- Fix 'axes' file name pattern matching characters in file name prefix.
+- Fix parse_filenames with _shape argument.
+- Raise ValueError if FileSequence files map to same index (breaking).
+- Disallow writable ZarrFileSequenceStore (breaking).
+- Use struct.unpack_from when possible.
+
 2026.9.20
 
 - Fix TiffPage.delete corrupting NDPI files.
