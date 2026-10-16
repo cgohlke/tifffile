@@ -37,7 +37,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.9.20
+:Version: 2026.10.15
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -51,12 +51,12 @@ Install the tifffile package and all dependencies from the
 Tifffile is also available in other package repositories such as Anaconda,
 Debian, and MSYS2.
 
-See `Examples`_ and `Documentation <https://www.cgohlke.com/docs/tifffile/>`_
-for using the programming interface.
-
-Tifffile can be used as a console script to inspect and preview TIFF files::
+Use tifffile from the command line to inspect and preview TIFF files::
 
     python -m tifffile --help
+
+See `Examples`_ and `Documentation <https://www.cgohlke.com/docs/tifffile/>`_
+for using the programming interface.
 
 Source code and support are available on
 `GitHub <https://github.com/cgohlke/tifffile>`_.
@@ -70,23 +70,37 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.12.10, 3.13.15, 3.14.7, 3.15.0rc 64-bit
-- `Numpy <https://pypi.org/project/numpy>`_ 2.5.3
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.8.16
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.16, 3.14.8, 3.15.0 64-bit
+- `Numpy <https://pypi.org/project/numpy>`_ 2.5.4
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.10.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
-- `Xarray <https://pypi.org/project/xarray>`_ 2026.7.0
+- `Xarray <https://pypi.org/project/xarray>`_ 2026.9.0
   (required only for reading xarray DataArrays)
 - `Matplotlib <https://pypi.org/project/matplotlib/>`_ 3.11.2
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.1.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.0
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.1
   (required only for using Zarr stores)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
+
+2026.10.15
+
+- Fix TiffWriter truncating existing file on invalid kind argument.
+- Fix TiffPage.asarray not closing reopened file handle on exceptions.
+- Fix ZarrTiffStore not releasing file cache reference on decode errors.
+- Fix Tiff codec configuration not JSON-serializable with slice key.
+- Fix ZarrStore listing methods omitting chunk keys.
+- Fix FileSequence.asarray leaving missing chunks uninitialized.
+- Fix 'axes' file name pattern matching characters in file name prefix.
+- Fix parse_filenames with _shape argument.
+- Raise ValueError if FileSequence files map to same index (breaking).
+- Disallow writable ZarrFileSequenceStore (breaking).
+- Use struct.unpack_from when possible.
 
 2026.9.20
 
