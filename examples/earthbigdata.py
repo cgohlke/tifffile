@@ -38,7 +38,7 @@
 
 by [Christoph Gohlke](https://www.cgohlke.com)
 
-Published October 9, 2021. Last updated May 15, 2026.
+Published October 9, 2021. Last updated October 15, 2026.
 
 This Python script uses the [tifffile](https://github.com/cgohlke/tifffile) and
 [imagecodecs](https://github.com/cgohlke/imagecodecs) packages to create a
@@ -59,6 +59,7 @@ https://github.com/cgohlke/tifffile/blob/master/examples/earthbigdata.py).
 # %%
 import base64
 import os
+import subprocess
 
 import imagecodecs.zarr
 import kerchunk.utils
@@ -80,13 +81,25 @@ remove the common path.
 
 # %%
 if not os.path.exists('earthbigdata.txt'):
-    os.system(
-        'aws s3 ls sentinel-1-global-coherence-earthbigdata/data/tiles '
-        '--recursive > earthbigdata.txt'
-    )
+    # write to temporary file so failed runs do not leave a cached listing
+    with open('earthbigdata.txt.tmp', 'wb') as out:
+        subprocess.run(
+            [
+                'aws',
+                's3',
+                'ls',
+                's3://sentinel-1-global-coherence-earthbigdata/data/tiles',
+                '--recursive',
+            ],
+            stdout=out,
+            check=True,
+        )
+    os.replace('earthbigdata.txt.tmp', 'earthbigdata.txt')
 
 with open('earthbigdata.txt', encoding='utf-8') as fh:
     tiff_files = [line.split()[-1][11:] for line in fh if '.tif' in line]
+# skip stray duplicate files outside of tile directories
+tiff_files = [file for file in tiff_files if '/' in file]
 print('Number of TIFF files:', len(tiff_files))
 
 
@@ -303,8 +316,8 @@ fileseq = tifffile.TiffSequence(
         coherence_label: coherence_category,
     },
 )
-assert len(fileseq) == 444821
-assert fileseq.files_missing == 5119339
+assert len(fileseq) == 444797
+assert fileseq.files_missing == 5119363
 assert fileseq.shape == (161, 360, 4, 4, 6)
 assert fileseq.dims == (
     'latitude',
@@ -483,7 +496,7 @@ decoded, and stitched to an in-memory NumPy array and plotted using Matplotlib.
 """
 
 # %%
-image = socal['COH'].loc['winter', 'vv', 12]
+image = socal['COH'].sel(season='winter', polarization='vv', coherence=12)
 assert image[100, 100] == 53
 xarray.plot.imshow(image, figsize=(10.8, 6), aspect=1.8)
 matplotlib.pyplot.show()
