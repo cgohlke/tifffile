@@ -329,8 +329,13 @@ def delta_encode(
         raise NotImplementedError(msg)
     if isinstance(data, (bytes, bytearray)):
         data = numpy.frombuffer(data, dtype=numpy.uint8)
+        if data.size == 0:
+            return b''
         diff = numpy.diff(data, axis=0)
         return numpy.insert(diff, 0, data[0]).tobytes()
+
+    if data.size == 0:
+        return data
 
     dtype = data.dtype
     if dtype.kind == 'f':
