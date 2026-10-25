@@ -17,6 +17,15 @@ if os.environ.get('VSCODE_CWD'):
 if os.environ.get('SKIP_CODECS', ''):
     sys.modules['imagecodecs'] = None  # type: ignore[assignment]
 
+collect_ignore = [
+    '_tmp',
+    'data',
+    'data-',
+    'test_corpus.py',
+    'test_tifffile_envars.py',
+    'test_tifffile_more.py',
+]
+
 
 def pytest_report_header(config: Any, start_path: Any) -> str:
     """Return pytest report header."""
@@ -58,6 +67,3 @@ def pytest_report_header(config: Any, start_path: Any) -> str:
         )
     except Exception as exc:
         return f'pytest_report_header failed: {exc!s}'
-
-
-collect_ignore = ['_tmp', 'data', 'data-']
