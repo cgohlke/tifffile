@@ -1,5 +1,21 @@
+..
+  This file is updated by setup.py. Do not edit.
+
 Revisions
 =========
+
+2026.11.8
+
+- Exclude zero-size pages from generic series (breaking).
+- Require matching UUID for OME-TIFF files outside directory (security).
+- Support new imagecodecs.imread 'imagecodec' argument in FileSequence.
+- Deprecate FileSequence imreadargs 'codec' for imagecodecs > 2026.10.10.
+- Fix ZarrFileSequenceStore.write_fsspec writing imread codec argument.
+- Fix TiledSequence accepting duplicate or out-of-range axestiled.
+- Fix FileSequence.asarray reading first file twice.
+- Fix FileSequence.asarray and aszarr discarding chunkshape or chunkdtype.
+- Fix reorient swapping RIGHTBOT and LEFTBOT orientations.
+- Add more Andor tags.
 
 2026.10.15
 
