@@ -237,7 +237,7 @@ class Tiff(ArrayBytesCodec):
                 'stop': self.key.stop,
                 'step': self.key.step,
             }
-        elif isinstance(self.key, (int, numpy.integer)):
+        elif isinstance(self.key, int | numpy.integer):
             cfg['key'] = int(self.key)
         elif self.key is not None:
             cfg['key'] = [int(k) for k in self.key]
@@ -1542,6 +1542,7 @@ class ZarrFileSequenceStore(ZarrStore):
     _commonpath: str
     _ioworkers: int
     _kwargs: dict[str, Any]
+    _codeckey: str | None
 
     def __init__(
         self,
@@ -1587,20 +1588,24 @@ class ZarrFileSequenceStore(ZarrStore):
         # TODO: deprecate kwargs?
         if imreadargs is not None:
             kwargs |= imreadargs
+        kwargs = filesequence._imreadargs(kwargs)
 
         self._ioworkers = 1 if ioworkers is None else ioworkers
 
         self._kwargs = kwargs
         self._imread = filesequence.imread
+        self._codeckey = filesequence._codeckey
         self._commonpath = filesequence.commonpath()
 
         if chunkshape is None or chunkdtype is None:
             chunk = filesequence.imread(filesequence[0], **kwargs)
-            self._chunks = chunk.shape
-            self._dtype = chunk.dtype
-        else:
-            self._chunks = tuple(chunkshape)
-            self._dtype = numpy.dtype(chunkdtype)
+            if chunkshape is None:
+                chunkshape = chunk.shape
+            if chunkdtype is None:
+                chunkdtype = chunk.dtype
+            del chunk
+        self._chunks = tuple(chunkshape)
+        self._dtype = numpy.dtype(chunkdtype)
 
         self._tiled = TiledSequence(
             filesequence.shape, self._chunks, axestiled=axestiled
@@ -1798,19 +1803,16 @@ class ZarrFileSequenceStore(ZarrStore):
             msg = f'invalid {zarr_format=!r} not in {{2, 3}}'
             raise ValueError(msg)
 
+        codec = None
+        if self._codeckey is not None:
+            codec = kwargs.pop(self._codeckey, None)
+
         if codec_id is not None:
             pass
         elif self._imread is imread:
             codec_id = 'tifffile'
-        elif 'imagecodecs' in self._imread.__module__:
-            if (
-                self._imread.__name__ != 'imread'
-                or 'codec' not in self._kwargs
-            ):
-                msg = 'cannot determine codec_id'
-                raise ValueError(msg)
-            codec = kwargs.pop('codec')
-            if isinstance(codec, (list, tuple)):
+        elif codec is not None:
+            if isinstance(codec, tuple | list):
                 codec = codec[0]
             if callable(codec):
                 codec = codec.__name__.split('_')[0]
