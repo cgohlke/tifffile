@@ -64,7 +64,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.10.15
+:Version: 2026.11.8
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -97,7 +97,7 @@ Requirements
 This revision was tested with the following requirements and dependencies
 (other versions may work):
 
-- `CPython <https://www.python.org>`_ 3.12.10, 3.13.16, 3.14.8, 3.15.0 64-bit
+- `CPython <https://www.python.org>`_ 3.12.10, 3.13.17, 3.14.10, 3.15.2 64-bit
 - `Numpy <https://pypi.org/project/numpy>`_ 2.5.4
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.10.10
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
@@ -114,6 +114,19 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.11.8
+
+- Exclude zero-size pages from generic series (breaking).
+- Require matching UUID for OME-TIFF files outside directory (security).
+- Support new imagecodecs.imread 'imagecodec' argument in FileSequence.
+- Deprecate FileSequence imreadargs 'codec' for imagecodecs > 2026.10.10.
+- Fix ZarrFileSequenceStore.write_fsspec writing imread codec argument.
+- Fix TiledSequence accepting duplicate or out-of-range axestiled.
+- Fix FileSequence.asarray reading first file twice.
+- Fix FileSequence.asarray and aszarr discarding chunkshape or chunkdtype.
+- Fix reorient swapping RIGHTBOT and LEFTBOT orientations.
+- Add more Andor tags.
 
 2026.10.15
 
@@ -843,7 +856,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.10.15'
+__version__ = '2026.11.8'
 
 __all__ = [
     'CHUNKMODE',
@@ -968,7 +981,7 @@ if TYPE_CHECKING:
     from xarray import DataArray
 
 type ByteOrder = Literal['>', '<']
-type OutputType = str | IO[bytes] | NDArray[Any] | None
+type OutputType = str | os.PathLike[Any] | IO[bytes] | NDArray[Any] | None
 type TagTuple = tuple[int | str, int | str, int | None, Any, bool]
 type DecodeResult = tuple[
     NDArray[Any] | None,
@@ -2608,7 +2621,7 @@ class TiffWriter:
                     int(enumarg(EXTRASAMPLE, x))
                     for x in (
                         extrasamples
-                        if isinstance(extrasamples, (tuple, list))
+                        if isinstance(extrasamples, tuple | list)
                         else (extrasamples,)
                     )
                 )
@@ -4338,12 +4351,12 @@ class TiffWriter:
             # flatten a sequence of (numerator, denominator) pairs into a
             # flat sequence of ints, e.g. [(1,2),(3,4)] -> (1,2,3,4).
             if (
-                not isinstance(value, (bytes, numpy.ndarray))
+                not isinstance(value, bytes | numpy.ndarray)
                 and hasattr(value, '__iter__')
                 and count > 0
             ):
                 first = next(iter(value), None)
-                if isinstance(first, (tuple, list)):
+                if isinstance(first, tuple | list):
                     flat: list[int] = []
                     for pair in value:
                         flat.extend(pair)
@@ -4363,7 +4376,7 @@ class TiffWriter:
             if isinstance(value, bytes):
                 ifdentry.append(pack(valueformat, value))
             elif count == 1:
-                if isinstance(value, (tuple, list, numpy.ndarray)):
+                if isinstance(value, tuple | list | numpy.ndarray):
                     value = value[0]
                 ifdentry.append(pack(valueformat, pack(dataformat, value)))
             else:
@@ -4383,7 +4396,7 @@ class TiffWriter:
                     msg = 'value.dtype.char != dtype'
                     raise RuntimeError(msg)
                 ifdvalue = value.tobytes()
-            elif isinstance(value, (tuple, list)):
+            elif isinstance(value, tuple | list):
                 ifdvalue = pack(f'{count}{dataformat}', *value)
             else:
                 ifdvalue = pack(dataformat, value)
@@ -4824,7 +4837,7 @@ class TiffFile:
             pass
         elif series is None:
             pages = pages._getlist(key)
-        elif isinstance(key, (int, numpy.integer)):
+        elif isinstance(key, int | numpy.integer):
             pages = [pages[int(key)]]
         elif isinstance(key, slice):
             pages = pages[key]
@@ -4974,7 +4987,7 @@ class TiffFile:
                 The default is :py:attr:`_TIFF.BUFFERSIZE`.
 
         Returns:
-            :py:class:`xarray.DataArray`
+            :
                 Image data with coordinates, dimensions, and attributes.
 
         """
@@ -5014,7 +5027,7 @@ class TiffFile:
                 series = series.levels[level]
             pages = series
 
-        if isinstance(key, (int, numpy.integer)):
+        if isinstance(key, int | numpy.integer):
             page: TiffPage | TiffFrame = pages[int(key)]
             return page.asxarray(maxworkers=maxworkers, buffersize=buffersize)
         msg = 'key must be None or an integer index'
@@ -5084,7 +5097,7 @@ class TiffFile:
                 series = series.levels[level]
             pages = series
 
-        if isinstance(key, (int, numpy.integer)):
+        if isinstance(key, int | numpy.integer):
             page: TiffPage | TiffFrame = pages[key]
             return page.aszarr(**kwargs)
         msg = 'key must be an integer index'
@@ -6833,11 +6846,12 @@ class TiffPage:
                 if any.
 
         Returns:
-            - Decoded segment or ``None`` for empty segments.
-            - Position of segment in image array of normalized shape
-              (separate sample, depth, length, width, contig sample).
-            - Shape of segment (depth, length, width, contig samples).
-              The shape of strips depends on their linear index.
+            :
+                - Decoded segment or ``None`` for empty segments.
+                - Position of segment in image array of normalized shape
+                  (separate sample, depth, length, width, contig sample).
+                - Shape of segment (depth, length, width, contig samples).
+                  The shape of strips depends on their linear index.
 
         Raises:
             ValueError or NotImplementedError:
@@ -6846,6 +6860,10 @@ class TiffPage:
                 Invalid TIFF structure.
 
         """
+        # if self.compression == 32773 and 40976 in self.tags:
+        #     msg = 'Samsung SRW3 compression is not supported'
+        #     raise NotImplementedError(msg)
+
         if self.hash in self.parent.root._decoders:
             return self.parent.root._decoders[self.hash]
 
@@ -7110,6 +7128,7 @@ class TiffPage:
                     pass
                 else:
                     return data
+                # TODO: JPEG strip short by less than one block row (MCU)
                 msg = (
                     'corrupted strip cannot be reshaped from '
                     f'{datashape} to {shape}'
@@ -7914,7 +7933,7 @@ class TiffPage:
             **kwargs: Passed to :py:meth:`asarray`.
 
         Returns:
-            :py:class:`xarray.DataArray`
+            :
                 Image data with coordinates, dimensions, and attributes.
 
         """
@@ -9773,7 +9792,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
 
         if index is None:
             self._index = None
-        elif isinstance(index, (int, numpy.integer)):
+        elif isinstance(index, int | numpy.integer):
             self._index = (int(index),)
         else:
             self._index = tuple(index)
@@ -9883,7 +9902,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         file and added to the cache.
 
         """
-        if not isinstance(index, (int, numpy.integer)):
+        if not isinstance(index, int | numpy.integer):
             msg = f'indices must be integers, not {type(index)}'
             raise TypeError(msg)
         index = int(index)
@@ -9981,7 +10000,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         #     raise ValueError(msg)
 
         # normalise key to sorted unique list
-        if isinstance(key, (int, numpy.integer)):
+        if isinstance(key, int | numpy.integer):
             indices: list[int] = [int(key)]
         else:
             indices = sorted({int(k) for k in key})
@@ -10494,7 +10513,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
                     msg = 'page hash mismatch'
                     raise RuntimeError(msg)
                 return page
-            if isinstance(page, (TiffPage, tiffpage)):
+            if isinstance(page, TiffPage | tiffpage):
                 if validate and validate != page.hash:
                     msg = 'page hash mismatch'
                     raise RuntimeError(msg)
@@ -10505,7 +10524,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         )
         self._seek(key)
         page = tiffpage(self.parent, index=pageindex, keyframe=self._keyframe)
-        assert isinstance(page, (TiffPage, TiffFrame))
+        assert isinstance(page, TiffPage | TiffFrame)
         if validate and validate != page.hash:
             msg = 'page hash mismatch'
             raise RuntimeError(msg)
@@ -10528,7 +10547,7 @@ class TiffPages(Sequence[TiffPage | TiffFrame]):
         offsets = self._offsets
         getitem = self._getitem
 
-        if isinstance(key, (int, numpy.integer)):
+        if isinstance(key, int | numpy.integer):
             return getitem(int(key))
 
         if isinstance(key, slice):
@@ -10815,7 +10834,7 @@ class TiffTag:
             value is None
             or dtype in {1, 7}  # BYTE, UNDEFINED
             or code in TIFF.TAG_READERS
-            or not isinstance(value, (bytes, tuple))
+            or not isinstance(value, bytes | tuple)
         ):
             return value
 
@@ -11241,7 +11260,7 @@ class TiffTag:
                 else:
                     value = pformat(tuple(enumstr(v) for v in value))
             except Exception:
-                if isinstance(value, (tuple, list)):
+                if isinstance(value, tuple | list):
                     if detail <= 0:
                         value = value[:256]
                     elif is_strip_tile:
@@ -11597,10 +11616,10 @@ class TiffTagRegistry:
         return sorted(items, key=lambda i: i[0])  # type: ignore[arg-type]
 
     @overload
-    def get(self, key: int, /, default: None) -> str | None: ...
+    def get(self, key: int, /, default: None = None) -> str | None: ...
 
     @overload
-    def get(self, key: str, /, default: None) -> int | None: ...
+    def get(self, key: str, /, default: None = None) -> int | None: ...
 
     @overload
     def get(self, key: int, /, default: str) -> str: ...
@@ -11624,10 +11643,14 @@ class TiffTagRegistry:
         return default
 
     @overload
-    def getall(self, key: int, /, default: None) -> list[str] | None: ...
+    def getall(
+        self, key: int, /, default: None = None
+    ) -> list[str] | None: ...
 
     @overload
-    def getall(self, key: str, /, default: None) -> list[int] | None: ...
+    def getall(
+        self, key: str, /, default: None = None
+    ) -> list[int] | None: ...
 
     @overload
     def getall(self, key: int, /, default: list[str]) -> list[str]: ...
@@ -11999,15 +12022,18 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
                 num = self._shape[self._axes.index(key)]
                 if num > 0:
                     result[key] = (stop - start) / num
-            elif isinstance(value, numpy.ndarray) and value.dtype.kind == 'f':
+            elif (
+                isinstance(value, numpy.ndarray)
+                and value.dtype.kind == 'f'
+                and len(value) > 1
+            ):
                 # for axes already materialised as arrays the scale is the
                 # average step (last - first) / (n - 1), accepted when all
                 # individual steps are within 10% of that average
-                if len(value) > 1:
-                    avg = (value[-1] - value[0]) / (len(value) - 1)
-                    diffs = numpy.diff(value)
-                    if numpy.allclose(diffs, avg, rtol=0.05, atol=0):
-                        result[key] = float(avg)
+                avg = (value[-1] - value[0]) / (len(value) - 1)
+                diffs = numpy.diff(value)
+                if numpy.allclose(diffs, avg, rtol=0.05, atol=0):
+                    result[key] = float(avg)
         # fall back to keyframe coords for missing axes
         if not all(ax in result for ax in self._axes):
             kf_coords = self.keyframe.coords
@@ -12141,7 +12167,7 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
             **kwargs: Passed to :py:meth:`asarray`.
 
         Returns:
-            :py:class:`xarray.DataArray`
+            :
                 Image data with coordinates, dimensions, and attributes.
 
         """
@@ -12260,7 +12286,7 @@ class TiffPageSeries(Sequence[TiffPage | TiffFrame | None]):
         self, key: int | numpy.integer[Any] | slice | Sequence[int], /
     ) -> TiffPage | TiffFrame | list[TiffPage | TiffFrame | None] | None:
         """Return specified page(s)."""
-        if isinstance(key, (int, numpy.integer)):
+        if isinstance(key, int | numpy.integer):
             return self._getitem(int(key))
         if isinstance(key, slice):
             return [self._getitem(i) for i in range(*key.indices(self._len))]
@@ -12403,7 +12429,7 @@ class TiffSeries(Sequence[TiffPageSeries]):
     ) -> TiffPageSeries | list[TiffPageSeries]:
         """Return specified series."""
         series = self._series
-        if isinstance(key, (int, numpy.integer)):
+        if isinstance(key, int | numpy.integer):
             return series[int(key)]
         if isinstance(key, slice):
             return series[key]
@@ -12487,6 +12513,7 @@ class FileSequence(Sequence[str]):
 
     _files: list[str]  # list of file names
     _container: Any  # TODO: container type?
+    _codeckey: str | None  # name of imagecodecs.imread codec parameter
 
     def __init__(
         self,
@@ -12517,7 +12544,7 @@ class FileSequence(Sequence[str]):
         if container is not None:
             import fnmatch
 
-            if isinstance(container, (str, os.PathLike)):
+            if isinstance(container, str | os.PathLike):
                 import zipfile
 
                 self._container = zipfile.ZipFile(container)
@@ -12546,6 +12573,19 @@ class FileSequence(Sequence[str]):
         if not callable(imread):
             msg = 'invalid imread function'
             raise TypeError(msg)
+
+        self._codeckey = None
+        try:
+            import inspect
+
+            parameters = inspect.signature(imread).parameters
+        except (TypeError, ValueError):
+            pass  # signature not introspectable
+        else:
+            if 'imagecodec' in parameters:
+                self._codeckey = 'imagecodec'  # imagecodecs > 2026.10.10
+            elif 'codec' in parameters:
+                self._codeckey = 'codec'
 
         if container:
             # redefine imread to read from container
@@ -12664,6 +12704,7 @@ class FileSequence(Sequence[str]):
         #     )
         if imreadargs is not None:
             kwargs |= imreadargs
+        kwargs = self._imreadargs(kwargs)
 
         files = self._files
         if ioworkers is None or ioworkers < 1:
@@ -12676,11 +12717,13 @@ class FileSequence(Sequence[str]):
         else:
             out_inplace = bool(out_inplace)
 
+        first = None
         if chunkshape is None or chunkdtype is None:
-            im = self.imread(files[0], **kwargs)
-            chunkshape = im.shape
-            chunkdtype = im.dtype
-            del im
+            first = self.imread(files[0], **kwargs)
+            if chunkshape is None:
+                chunkshape = first.shape
+            if chunkdtype is None:
+                chunkdtype = first.dtype
         chunkdtype = numpy.dtype(chunkdtype)
         assert chunkshape is not None
 
@@ -12704,16 +12747,19 @@ class FileSequence(Sequence[str]):
                     result[index] = im
                     del im  # delete memory-mapped file
 
+            slices = list(tiled.slices(self.indices))
+            if first is not None:
+                result[slices[0]] = first
+                del first  # delete memory-mapped file
+                slices = slices[1:]
+                files = files[1:]
+
             if ioworkers < 2:
-                for index, filename in zip(
-                    tiled.slices(self.indices), files, strict=True
-                ):
+                for index, filename in zip(slices, files, strict=True):
                     func(index, filename)
             else:
                 with ThreadPoolExecutor(ioworkers) as executor:
-                    for _ in executor.map(
-                        func, tiled.slices(self.indices), files
-                    ):
+                    for _ in executor.map(func, slices, files):
                         pass
         else:
             shape = self.shape + chunkshape
@@ -12734,12 +12780,21 @@ class FileSequence(Sequence[str]):
                     result[index_] = im
                     del im  # delete memory-mapped file
 
+            indices: Sequence[tuple[int, ...]] = self.indices
+            if first is not None:
+                result[
+                    int(numpy.ravel_multi_index(indices[0], self.shape))
+                ] = first
+                del first  # delete memory-mapped file
+                indices = indices[1:]
+                files = files[1:]
+
             if ioworkers < 2:
-                for index, filename in zip(self.indices, files, strict=True):
+                for index, filename in zip(indices, files, strict=True):
                     func(index, filename)
             else:
                 with ThreadPoolExecutor(ioworkers) as executor:
-                    for _ in executor.map(func, self.indices, files):
+                    for _ in executor.map(func, indices, files):
                         pass
 
             result = result.reshape(shape, copy=False)
@@ -12770,6 +12825,30 @@ class FileSequence(Sequence[str]):
         else:
             commonpath = os.path.commonpath(self._files)
         return commonpath
+
+    def _imreadargs(self, kwargs: dict[str, Any], /) -> dict[str, Any]:
+        """Return imread arguments with codec mapped to imagecodec if needed.
+
+        If imread has an imagecodec parameter, `codec` selects the
+        imagecodecs codec unless `imagecodec` is also specified.
+
+        """
+        if (
+            self._codeckey == 'imagecodec'
+            and 'codec' in kwargs
+            and 'imagecodec' not in kwargs
+        ):
+            # TODO: enable deprecation warning
+            # warnings.warn(
+            #     "<tifffile.FileSequence> passing 'codec' to "
+            #     "imagecodecs.imread is deprecated as of "
+            #     "imagecodecs > 2026.10.10. Use 'imagecodec'",
+            #     DeprecationWarning,
+            #     stacklevel=3,
+            # )
+            kwargs = kwargs.copy()
+            kwargs['imagecodec'] = kwargs.pop('codec')
+        return kwargs
 
     @property
     def files_missing(self) -> int:
@@ -12935,28 +13014,39 @@ class TiledSequence:
             raise ValueError(msg)
 
         if axestiled:
-            # sorted reverse so deletions by index don't shift
-            # remaining indices
-            self._axestiled = tuple(
-                sorted(
-                    (
-                        (ax0, ax1 + self._stackdims)
-                        for ax0, ax1 in dict(axestiled).items()
-                    ),
-                    reverse=True,
-                )
+            pairs = (
+                list(axestiled.items())
+                if isinstance(axestiled, dict)
+                else [tuple(pair) for pair in axestiled]
             )
-
-            axes_list = [] if axes is None else list(axes)
-            shape = list(self._shape_untiled)
-            chunks = [1] * self._stackdims + list(chunkshape)
             used = set()
-            for ax0, ax1 in self._axestiled:
+            validated = []
+            for pair in pairs:
+                if len(pair) != 2:
+                    msg = f'invalid axestiled item {pair!r}'
+                    raise ValueError(msg)
+                ax0, ax1 = (int(ax) for ax in pair)
+                if not 0 <= ax0 < self._stackdims:
+                    msg = f'stack axis {ax0} out of range'
+                    raise ValueError(msg)
+                if not 0 <= ax1 < self._chunkdims:
+                    msg = f'chunk axis {ax1} out of range'
+                    raise ValueError(msg)
+                ax1 += self._stackdims
                 if ax0 in used or ax1 in used:
                     msg = 'duplicate axis'
                     raise ValueError(msg)
                 used.add(ax0)
                 used.add(ax1)
+                validated.append((ax0, ax1))
+            # sorted reverse so deletions by index don't shift
+            # remaining indices
+            self._axestiled = tuple(sorted(validated, reverse=True))
+
+            axes_list = [] if axes is None else list(axes)
+            shape = list(self._shape_untiled)
+            chunks = [1] * self._stackdims + list(chunkshape)
+            for ax0, ax1 in self._axestiled:
                 shape[ax1] *= stackshape[ax0]
             # delete highest indices first (reverse-sorted)
             # to avoid index shift
@@ -13497,7 +13587,7 @@ class FileHandle:
             # fall back to read() for streams such as BytesIO
             if shape is None:
                 shape = self._size // dtype.itemsize
-            if isinstance(shape, (tuple, list)):
+            if isinstance(shape, tuple | list):
                 size = product(shape) * dtype.itemsize
             else:
                 size = shape * dtype.itemsize
@@ -14524,7 +14614,7 @@ class OmeXml:
         # get Image and Pixels metadata
         metadata = metadata.get('OME', metadata)
         metadata = metadata.get('Image', metadata)
-        if isinstance(metadata, (list, tuple)):
+        if isinstance(metadata, tuple | list):
             # multiple images
             metadata = metadata[index]
         if 'Pixels' in metadata:
@@ -14798,7 +14888,7 @@ class OmeXml:
         if value is None:
             return ''
         if index is not None:
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, tuple | list):
                 try:
                     value = value[index]
                 except IndexError as exc:
@@ -14821,7 +14911,7 @@ class OmeXml:
             return ''
         if index_ is None:
             attributes = (OmeXml._attribute(metadata, name) for name in names)
-        elif isinstance(metadata, (list, tuple)):
+        elif isinstance(metadata, tuple | list):
             metadata = metadata[index_]
             attributes = (OmeXml._attribute(metadata, name) for name in names)
         elif isinstance(metadata, dict):
@@ -15150,7 +15240,7 @@ class OmeXml:
         """
         if not metadata:
             return ''
-        if isinstance(metadata, (list, tuple)):
+        if isinstance(metadata, tuple | list):
             ref = ''
             for m in metadata:
                 ref = self._experimenter(m)
@@ -15182,7 +15272,7 @@ class OmeXml:
         """Add Project element to self.projects."""
         if not metadata:
             return
-        if isinstance(metadata, (list, tuple)):
+        if isinstance(metadata, tuple | list):
             for m in metadata:
                 self._project(m)
             return
@@ -15240,7 +15330,7 @@ class OmeXml:
             if name not in _supported:
                 continue
 
-            if not isinstance(annotation_values, (list, tuple)):
+            if not isinstance(annotation_values, tuple | list):
                 annotation_values = [annotation_values]
 
             for value in annotation_values:
@@ -15788,7 +15878,7 @@ class COMPRESSION(enum.IntEnum):
     SAMSUNG_SRW = 32770
     CCIRLEW = 32771  # Word-aligned 1D Huffman compression
     SAMSUNG_SRW2 = 32772
-    PACKBITS = 32773
+    PACKBITS = 32773  # conflicts with SAMSUNG_SRW3
     """PackBits, aka Macintosh RLE."""
     THUNDERSCAN = 32809
     IT8CTPAD = 32895  # TIFF/IT
@@ -16287,31 +16377,66 @@ class _TIFF:
                 (907, 'SiffCompress'),  # https://github.com/MaimonLab/SiffPy
                 (999, 'USPTO_Miscellaneous'),
                 (4864, 'AndorId'),  # TODO, Andor Technology 4864 - 5030
+                # (4866, 'AndorType'),
+                # (4867, 'AndorActive'),
+                # (4868, 'AndorStructureVersion'),
                 (4869, 'AndorTemperature'),
+                (4870, 'AndorHead'),
+                (4871, 'AndorStoreType'),
+                (4872, 'AndorDataType'),
+                (4873, 'AndorMode'),
+                (4874, 'AndorTriggerSource'),
+                (4875, 'AndorTriggerLevel'),
                 (4876, 'AndorExposureTime'),
+                # (4877, 'AndorDelay'),  # or IntegrationCycleTime
                 (4878, 'AndorKineticCycleTime'),
                 (4879, 'AndorAccumulations'),
+                (4880, 'AndorSync'),
                 (4881, 'AndorAcquisitionCycleTime'),
                 (4882, 'AndorReadoutTime'),
+                # (4883, 'AndorNumberPoints'),
                 (4884, 'AndorPhotonCounting'),
                 (4885, 'AndorEmDacLevel'),
+                # (4886, 'AndorGateDelay'),
+                # (4887, 'AndorGateWidth'),
+                # (4888, 'AndorGateStep'),
+                # (4889, 'AndorTrackHeight'),
                 (4890, 'AndorFrames'),
+                (4891, 'AndorReadPattern'),
+                # (4892, 'AndorShutterDelay'),
+                # (4893, 'AndorCentreRow'),
+                # (4894, 'AndorRowOffset'),
+                # (4895, 'AndorOperation'),
                 (4896, 'AndorHorizontalFlip'),
                 (4897, 'AndorVerticalFlip'),
                 (4898, 'AndorClockwise'),
                 (4899, 'AndorCounterClockwise'),
+                # (4900, 'AndorMCP'),
+                # (4901, 'AndorProp'),
+                # (4902, 'AndorIOC'),
+                # (4903, 'AndorFrequency'),
                 (4904, 'AndorVerticalClockVoltage'),
                 (4905, 'AndorVerticalShiftSpeed'),
+                # (4906, 'AndorOutputAmplifier'),
                 (4907, 'AndorPreAmpSetting'),
                 (4908, 'AndorCameraSerial'),
+                # (4909, 'AndorNumberPulses'),
+                # (4910, 'AndorFrameTransferAcquisitionMode'),
                 (4911, 'AndorActualTemperature'),
                 (4912, 'AndorBaselineClamp'),
                 (4913, 'AndorPrescans'),
                 (4914, 'AndorModel'),
                 (4915, 'AndorChipSizeX'),
                 (4916, 'AndorChipSizeY'),
+                # (4925, 'AndorCentreWavelength'),
+                # (4928, 'AndorGratingLines'),
+                # (4929, 'AndorGratingBlaze'),
                 (4944, 'AndorBaselineOffset'),
                 (4966, 'AndorSoftwareVersion'),
+                (5027, 'AndorSubImageLeft'),
+                (5028, 'AndorSubImageRight'),
+                (5029, 'AndorSubImageBottom'),
+                (5030, 'AndorSubImageTop'),
                 (18246, 'Rating'),
                 (18247, 'XP_DIP_XML'),
                 (18248, 'StitchInfo'),
@@ -18587,7 +18712,9 @@ def series_generic(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     seriesdict: dict[int, list[TiffPage | TiffFrame]] = {}
 
     def addpage(page: TiffPage | TiffFrame, /) -> None:
-        if not page.shape:
+        # if not page.shape:
+        if not page.size:
+            # skip pages with no data
             return
         key = page.hash
         if key in seriesdict:
@@ -19062,11 +19189,30 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
         atif.pages.set_keyframe(0)
         atif.pages._load(None)
 
+    def is_subpath(path: str, directory: str, /) -> bool:
+        try:
+            return (
+                os.path.commonpath((os.path.realpath(path), directory))
+                == directory
+            )
+        except ValueError:
+            return False  # different drives on Windows
+
+    def ome_uuid(atif: TiffFile, /) -> str | None:
+        try:
+            value = ElementTree.fromstring(
+                atif.pages.first.description
+            ).attrib.get('UUID')
+        except (ElementTree.ParseError, IndexError):
+            return None
+        return None if value is None else value.strip().lower()
+
     load_pages(tif)
 
     root_uuid = root.attrib.get('UUID')
     tif._files = {root_uuid: tif}
     dirname = tif._fh.dirname
+    realdirname = os.path.realpath(dirname)
     files_missing = 0
     is_pyramidal = False
     moduloref = []
@@ -19235,19 +19381,33 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                             # and fall back to generic series
                             return []
                         filename = uuid.attrib['FileName']
+                        ftif = None
                         try:
                             if not tif.filehandle.is_file:
                                 raise ValueError
-                            ftif = TiffFile(
-                                os.path.join(dirname, filename),
-                                _root=tif,
-                            )
+                            path = os.path.join(dirname, filename)
+                            if not os.path.isfile(path):
+                                msg = f'not a regular file {path!r}'
+                                raise FileNotFoundError(msg)
+                            ftif = TiffFile(path, _root=tif)
+                            # security: files outside directory must match UUID
+                            if not is_subpath(path, realdirname) and (
+                                uuid.text is None
+                                or ome_uuid(ftif) != uuid.text.strip().lower()
+                            ):
+                                msg = (
+                                    'UUID of file outside directory '
+                                    'does not match'
+                                )
+                                raise ValueError(msg)
                             load_pages(ftif)
                         except (
                             OSError,
                             FileNotFoundError,
                             ValueError,
                         ) as exc:
+                            if ftif is not None:
+                                ftif.close()
                             if files_missing == 0:
                                 logger().warning(
                                     f'{tif!r} OME series failed to read '
@@ -19816,28 +19976,28 @@ def series_imagej(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     yorigin = meta.get('yorigin', 0)
     zorigin = meta.get('zorigin', 0)
     spacing = meta.get('spacing')
-    if isinstance(spacing, (int, float)) and spacing > 0 and slices > 1:
+    if isinstance(spacing, int | float) and spacing > 0 and slices > 1:
         # zorigin is in pixels; physical(z) = (z - zOrigin) * spacing
         z0 = (
             -float(zorigin) * spacing
-            if isinstance(zorigin, (int, float))
+            if isinstance(zorigin, int | float)
             else 0.0
         )
         coords['Z'] = (z0, z0 + slices * spacing)
     finterval = meta.get('finterval')
-    if not isinstance(finterval, (int, float)) or finterval <= 0:
+    if not isinstance(finterval, int | float) or finterval <= 0:
         fps_val = meta.get('fps')
-        if isinstance(fps_val, (int, float)) and fps_val > 0:
+        if isinstance(fps_val, int | float) and fps_val > 0:
             finterval = 1.0 / fps_val
-    if isinstance(finterval, (int, float)) and finterval > 0 and frames > 1:
+    if isinstance(finterval, int | float) and finterval > 0 and frames > 1:
         coords['T'] = (0.0, frames * finterval)
     labels = meta.get('Labels')
     if isinstance(labels, list) and len(labels) == channels:
         coords['C'] = numpy.array(labels)
     # xorigin/yorigin are in pixels; physical(x) = (x-xOrigin) * pixelWidth
     if (
-        (isinstance(xorigin, (int, float)) and xorigin)
-        or (isinstance(yorigin, (int, float)) and yorigin)
+        (isinstance(xorigin, int | float) and xorigin)
+        or (isinstance(yorigin, int | float) and yorigin)
     ) and 282 in page.tags:
         xres, yres = page.get_resolution()
         if xorigin and xres > 0:
@@ -20213,7 +20373,7 @@ def series_eer(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     meta = tif.eer_metadata
     if meta is not None:
         for key in ('exposureTime', 'meanDoseRate', 'totalDose'):
-            if key in meta and isinstance(meta[key], (int, float)):
+            if key in meta and isinstance(meta[key], int | float):
                 attrs[key] = meta[key]
 
     frames = TiffPageSeries(
@@ -20274,14 +20434,14 @@ def series_scanimage(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             coords['T'] = (0.0, sizet * period)
 
         zstep = framedata.get('SI.hStackManager.actualStackZStepSize')
-        if not isinstance(zstep, (int, float)) or zstep <= 0:
+        if not isinstance(zstep, int | float) or zstep <= 0:
             zstep = framedata.get('SI.hStackManager.stackZStepSize', 0.0)
         if zstep > 0 and 'Z' in axes:
             sizez = shape[axes.index('Z')]
             coords['Z'] = (0.0, sizez * zstep)
 
         ores = framedata.get('SI.objectiveResolution')
-        if isinstance(ores, (int, float)) and ores > 0:
+        if isinstance(ores, int | float) and ores > 0:
             attrs['objectiveResolution'] = ores
 
         fov = framedata.get('SI.hRoiManager.imagingFovUm')
@@ -21192,7 +21352,7 @@ def series_ndpi(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                 for pg in s._pages[:z_size]:
                     if isinstance(pg, TiffPage):
                         z_v = pg.tags.valueof(65424)
-                        if isinstance(z_v, (int, float)):
+                        if isinstance(z_v, int | float):
                             z_vals.append(float(z_v) * 1e-3)
                 if len(z_vals) == z_size and len(set(z_vals)) > 1:
                     s._coords['Z'] = numpy.array(z_vals)
@@ -21201,7 +21361,7 @@ def series_ndpi(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             for level in s.levels:
                 page = level.keyframe
                 mag = page.tags.valueof(65421)
-                if isinstance(mag, (int, float)) and mag > 0:
+                if isinstance(mag, int | float) and mag > 0:
                     level._attrs['magnification'] = mag
                 rx, ry = page.get_resolution(unit='micrometer')
                 if rx > 0 and ry > 0:
@@ -21438,7 +21598,7 @@ def series_svs(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     try:
         meta = svs_description_metadata(page0.description)
         mpp = meta.get('MPP')
-        if isinstance(mpp, (int, float)) and mpp > 0:
+        if isinstance(mpp, int | float) and mpp > 0:
             mpp_val = float(mpp)
             units = {'X': 'micrometer', 'Y': 'micrometer'}
             coords['X'] = (0.0, page0.imagewidth * mpp_val)
@@ -23448,7 +23608,7 @@ def read_nih_image_header(
 
 
 def read_scanimage_metadata(
-    fh: FileHandle, /
+    fh: FileHandle | IO[bytes], /
 ) -> tuple[dict[str, Any], dict[str, Any], int]:
     """Read ScanImage BigTIFF v3 or v4 static and ROI metadata from file.
 
@@ -23462,9 +23622,10 @@ def read_scanimage_metadata(
         fh: Binary file handle to read from.
 
     Returns:
-        - Non-varying frame data, parsed with :py:func:`matlabstr2py`.
-        - ROI group data, parsed from JSON.
-        - Version of metadata (3 or 4).
+        :
+            - Non-varying frame data, parsed with :py:func:`matlabstr2py`.
+            - ROI group data, parsed from JSON.
+            - Version of metadata (3 or 4).
 
     Raises:
         ValueError: File does not contain valid ScanImage metadata.
@@ -23489,7 +23650,7 @@ def read_scanimage_metadata(
         raise ValueError(msg) from exc
 
     frame_data = matlabstr2py(bytes2str(fh.read(size0)[:-1]))
-    roi_data = read_json(fh, '<', 0, size1, 0) if size1 > 1 else {}
+    roi_data = read_json(fh, '<', 0, size1, 0) if size1 > 1 else {}  # type: ignore[arg-type]
     return frame_data, roi_data, version
 
 
@@ -23893,7 +24054,7 @@ def imagej_metadata_tag(
             # encode all floats as one blob; count refers to one entry
             values = [values]
             count = 1
-        elif isinstance(values, (list, tuple)):
+        elif isinstance(values, tuple | list):
             count = len(values)
         else:
             values = [values]
@@ -25208,10 +25369,11 @@ def parse_filenames(
             ``maximum - minimum + 1`` of the parsed indices for each dimension.
 
     Returns:
-        - Axes names for each dimension.
-        - Shape of file series.
-        - Index of each file in shape.
-        - Filtered sequence of file names.
+        :
+            - Axes names for each dimension.
+            - Shape of file series.
+            - Index of each file in shape.
+            - Filtered sequence of file names.
 
     Examples:
         >>> parse_filenames(
@@ -25580,9 +25742,9 @@ def reorient(
         case ORIENTATION.RIGHTTOP:
             return numpy.swapaxes(image, -3, -2)[..., ::-1, :]
         case ORIENTATION.RIGHTBOT:
-            return numpy.swapaxes(image, -3, -2)[..., ::-1, :, :]
-        case ORIENTATION.LEFTBOT:
             return numpy.swapaxes(image, -3, -2)[..., ::-1, ::-1, :]
+        case ORIENTATION.LEFTBOT:
+            return numpy.swapaxes(image, -3, -2)[..., ::-1, :, :]
         case _:
             logger().warning(f'<tifffile.reorient> unknown {orientation=!r}')
             return image
@@ -25718,12 +25880,13 @@ def squeeze_axes(
             not removed. The default is 'XY'.
 
     Returns:
-        shape:
-            Sequence of dimension sizes with length-1 dimensions removed.
-        axes:
-            Character codes for dimensions in output ``shape``.
-        kept:
-            Dimensions were kept (True) or removed (False).
+        :
+            shape:
+                Sequence of dimension sizes with length-1 dimensions removed.
+            axes:
+                Character codes for dimensions in output ``shape``.
+            kept:
+                Dimensions were kept (True) or removed (False).
 
     Examples:
         >>> squeeze_axes((5, 1, 2, 1, 1), 'TZYXC')
@@ -26278,13 +26441,13 @@ def create_output(
     *,
     mode: Literal['r+', 'w+', 'r', 'c'] = 'w+',
     suffix: str | None = None,
-    fillvalue: float | None = None,
+    fillvalue: ArrayLike | None = None,
 ) -> NDArray[Any] | numpy.memmap[Any, Any]:
     """Return NumPy array where data of shape and dtype can be copied.
 
     Parameters:
         out:
-            Specifies kind of array of ``shape`` and ``dtype`` to return:
+            Kind of array of ``shape`` and ``dtype`` to return:
 
                 ``None``:
                     Return new array.
@@ -26302,15 +26465,14 @@ def create_output(
             data type.
         mode:
             File mode to create memory-mapped array.
-            Only used when ``out`` is a file path or ``'memmap'``.
-            The default is 'w+' to create new, or overwrite existing file for
+            Default: ``'w+'``. Creates new or overwrites existing file for
             reading and writing.
         suffix:
             Suffix of ``NamedTemporaryFile`` if ``out`` is ``'memmap'``.
-            Only used when ``out`` is ``'memmap'``.
-            The default is '.memmap'.
+            Default: ``'.memmap'``.
         fillvalue:
             Value to initialize output array.
+            Must be broadcastable to ``shape``.
             By default, return uninitialized array.
 
     Returns:
@@ -26327,9 +26489,10 @@ def create_output(
     if out is None:
         if fillvalue is None:
             return numpy.empty(shape, dtype)
-        if fillvalue:  # fillvalue=0 handled faster by zeros
-            return numpy.full(shape, fillvalue, dtype)
-        return numpy.zeros(shape, dtype)
+        if numpy.ndim(fillvalue) == 0 and not fillvalue:
+            # zeros is faster than full: pages are zeroed lazily by the OS
+            return numpy.zeros(shape, dtype)
+        return numpy.full(shape, fillvalue, dtype)
     if isinstance(out, numpy.ndarray):
         if product(shape) != product(out.shape):
             msg = f'cannot reshape {shape} to {out.shape}'
@@ -26340,22 +26503,22 @@ def create_output(
         if out.shape != shape:
             out = out.reshape(shape, copy=False)
         if fillvalue is not None:
-            out.fill(fillvalue)
+            out[...] = fillvalue
         return out
-    if isinstance(out, str) and out.startswith('memmap'):
+    if isinstance(out, str) and out[:6] == 'memmap':
         import tempfile
 
-        tempdir = out[7:] or None
+        tempdir = out[7:] if len(out) > 7 else None
         if suffix is None:
             suffix = '.memmap'
         with tempfile.NamedTemporaryFile(dir=tempdir, suffix=suffix) as fh:
             out = numpy.memmap(fh, shape=shape, dtype=dtype, mode=mode)
             if fillvalue is not None:
-                out.fill(fillvalue)
+                out[...] = fillvalue
             return out
     out = numpy.memmap(out, shape=shape, dtype=dtype, mode=mode)
     if fillvalue is not None:
-        out.fill(fillvalue)
+        out[...] = fillvalue
     return out
 
 
@@ -26495,13 +26658,13 @@ def matlabstr2py(matlabstr: str, /) -> Any:
                     break
                 x = levels.pop()
                 addto = levels[-1]
-                if len(x) == 1 and isinstance(x[0], (list, str)):
+                if len(x) == 1 and isinstance(x[0], list | str):
                     addto.append(x[0])
                 else:
                     addto.append(x)
             else:
                 addto.append(value(t))
-        if len(result) == 1 and isinstance(result[0], (list, str)):
+        if len(result) == 1 and isinstance(result[0], list | str):
             return result[0]
         return result
 
@@ -26665,7 +26828,7 @@ def rational(arg: float | tuple[int, int], /) -> tuple[int, int]:
     (0, 1)
 
     """
-    if isinstance(arg, (tuple, list)):
+    if isinstance(arg, tuple | list):
         f = Fraction(arg[0], arg[1])
     else:
         if arg == 0:
@@ -27994,7 +28157,7 @@ def imshow(
                 bitspersample = math.ceil(math.log2(data.max()))
             except (ValueError, OverflowError):
                 bitspersample = data.dtype.itemsize * 8
-        elif not isinstance(bitspersample, (int, numpy.integer)):
+        elif not isinstance(bitspersample, int | numpy.integer):
             # bitspersample can be tuple, such as (5, 6, 5)
             bitspersample = data.dtype.itemsize * 8
         assert bitspersample is not None
