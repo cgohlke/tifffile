@@ -64,7 +64,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.11.8
+:Version: 2026.11.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -99,7 +99,7 @@ This revision was tested with the following requirements and dependencies
 
 - `CPython <https://www.python.org>`_ 3.12.10, 3.13.17, 3.14.10, 3.15.2 64-bit
 - `Numpy <https://pypi.org/project/numpy>`_ 2.5.4
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.10.10
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.11.11
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Xarray <https://pypi.org/project/xarray>`_ 2026.9.0
   (required only for reading xarray DataArrays)
@@ -107,13 +107,23 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.1.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.1
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.2
   (required only for using Zarr stores)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
+
+2026.11.12
+
+- Zero-pad truncated strips and tiles instead of raising (breaking).
+- Raise ValueError when reading unsupported data types (breaking).
+- Ignore predictor for uncompressed data like libtiff (breaking).
+- Fix ImageJ series with fewer pages than images.
+- Fix TiffWriter allowing floating-point predictor with 64-bit integers.
+- Fix opening NDPI files with invalid McuStarts or restart intervals.
+- Raise ValueError for unsupported PlanarConfiguration.
 
 2026.11.8
 
@@ -151,78 +161,6 @@ Revisions
 
 2026.9.15
 
-- Fix MMStack series when numeric Summary metadata values are strings (#334).
-
-2026.9.9
-
-- Fix TiffSeries(squeeze=None) incorrectly squeezes 'shaped' series (breaking).
-
-2026.8.23
-
-- Add methods to delete pages from main IFD chain and erase their content.
-
-2026.8.16
-
-- Fix fsspec v3 stores with big-endian floatpred codec (breaking).
-- Require imagecodecs >= 2026.8.16.
-
-2026.7.31
-
-- Fsspec v3 stores using big-endian floatpred are incompatible with zarr>=3.3.
-- Specify bytes codec endian configuration in ZarrFileSequenceStore.
-- Add additional NDPI tags from specification (#331).
-
-2026.7.14
-
-- Fix series.asxarray returns wrong series for sublevels.
-- Support Huron TIFF series and metadata.
-- Support FLIMage FLIM series and metadata.
-- Support DECTRIS IFD and tags.
-- Allow subsampling with any image compression scheme.
-- Detect DICOM-TIFF dual-personality format.
-
-2026.6.1
-
-- Replace NullContext with contextlib.nullcontext (breaking).
-- Fix writing monochrome linear_raw (#328).
-- Fix keyboard axis selection in imshow interactive viewer (#327).
-- Fix reading short ASCII string tag values from NDPI.
-- Add option to suppress writing extrasamples tag.
-- Verify origin of codecs.
-
-2026.5.15
-
-- Update ZarrFileSequenceStore to zarr format 3 (breaking).
-- Derive ZarrFileSequenceStore dimension names from FileSequence.dims.
-- Add option to override dimension names in zarr stores.
-- Add support for Python 3.15.
-
-2026.5.2
-
-- Change TiffFile.series from list to callable TiffSeries sequence (breaking).
-- Remove TiffPageSeries squeeze dual-state (breaking).
-- Remove TiffPageSeries.get_shape, get_axes, and get_coords (breaking).
-- Remove ZarrTiffStore squeeze parameter (breaking).
-- Update ZarrTiffStore to zarr format 3 and multiscales to NGFF 0.5 (breaking).
-- Update multiscales zarr format 2 fsspec files to NGFF 0.4 (breaking).
-- Remove generic TiffPage coords (breaking).
-- Change dims and sizes to use single-char axis codes (breaking).
-- Add zarr format 3 compatible Tiff codec.
-- Add asxarray methods to TiffFile, TiffPage, TiffPageSeries (requires xarray).
-- Add geotiff kind of TiffPageSeries.
-- Add mpp and coord_offsets/scales/units properties to TiffPageSeries.
-- Add attrs property to TiffPage and TiffPageSeries.
-- Add kind and squeeze parameters to memmap.
-- Add kind parameter to imwrite and TiffFile; deprecate ome, imagej, shaped.
-- Add return_as parameter to imread; deprecate aszarr.
-- Fix writing TIFF trees (#326).
-- Fix wrong TiffTagRegistry entries (#323).
-- Implement TiffPageSeries.coords property.
-- Deprecate kwargs to FileSequence.asarray; use imreadargs.
-- Require zarr>=3.2.0 for zarr support.
-- Drop support for numpy 2.0 (SPEC0, #324).
-
-2026.4.11
 
 - …
 
@@ -856,7 +794,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.11.8'
+__version__ = '2026.11.12'
 
 __all__ = [
     'CHUNKMODE',
@@ -2677,7 +2615,6 @@ class TiffWriter:
                 if (
                     datadtype.kind in 'iu'
                     and predictor.value not in {2, 34892, 34893}
-                    and datadtype.itemsize <= 4
                 ) or (
                     datadtype.kind == 'f'
                     and predictor.value not in {3, 34894, 34895}
@@ -5369,9 +5306,9 @@ class TiffFile:
             )
 
     def _ndpi_load_pages(self) -> None:
-        """Read and fix pages from NDPI slide file if CaptureMode > 6.
+        """Read and fix pages from NDPI slide file if CaptureMode >= 6.
 
-        If the value of the CaptureMode tag is greater than 6, change the
+        If the value of the CaptureMode tag is 6 or greater, change the
         attributes of TiffPage instances that are part of the pyramid to
         match 16-bit grayscale data. TiffTag values are not corrected.
 
@@ -6611,6 +6548,14 @@ class TiffPage:
             self.imagelength *= 2 ** (min(vertbits, parent._superres))
             self.rowsperstrip *= 2 ** (min(vertbits, parent._superres))
 
+        if self.compression == 1 and self.predictor != 1:
+            # libtiff ignores predictor for uncompressed data
+            logger().warning(
+                f'{self!r} ignoring predictor {self.predictor} '
+                'for uncompressed data'
+            )
+            self.predictor = PREDICTOR.NONE
+
         tag = tags.get(50839)
         if tag is not None:
             # decode IJMetadata tag
@@ -6795,9 +6740,18 @@ class TiffPage:
                 high = high.astype(numpy.uint64)
                 high <<= 32
                 mcustarts += high.astype(numpy.int64)
-            fh.seek(self.dataoffsets[0])
-            jpegheader = fh.read(mcustarts[0])
             try:
+                stripsize = self.databytecounts[0]
+                if (
+                    len(mcustarts) == 0
+                    or not 0 < mcustarts[0] < stripsize
+                    or mcustarts[-1] >= stripsize
+                    or numpy.any(numpy.diff(mcustarts) <= 0)
+                ):
+                    msg = 'invalid McuStarts'
+                    raise ValueError(msg)
+                fh.seek(self.dataoffsets[0])
+                jpegheader = fh.read(int(mcustarts[0]))
                 (
                     self.tilelength,
                     self.tilewidth,
@@ -6805,7 +6759,7 @@ class TiffPage:
                 ) = ndpi_jpeg_tile(jpegheader)
             except ValueError as exc:
                 logger().warning(
-                    f'{self!r} <tifffile.ndpi_jpeg_tile> raised {exc!r:.128}'
+                    f'{self!r} ignoring NDPI McuStarts, raised {exc!r:.128}'
                 )
             else:
                 # TODO: optimize tuple(ndarray.tolist())
@@ -6882,6 +6836,14 @@ class TiffPage:
                 raise ValueError(msg)
 
             return cache(decode_raise_dtype)
+
+        if self.samplesperpixel > 1 and self.planarconfig not in {1, 2}:
+            msg = f'PlanarConfiguration {self.planarconfig} not supported'
+
+            def decode_raise_planarconfig(*args, msg=msg, **kwargs):
+                raise ValueError(msg)
+
+            return cache(decode_raise_planarconfig)
 
         if 0 in self.shaped:
 
@@ -7053,6 +7015,14 @@ class TiffPage:
                     )
                 except ValueError:
                     pass
+                if data.ndim == 1 and data.size < size:
+                    logger().error(
+                        f'{self!r} truncated tile @ {indices} '
+                        f'({data.size} < {size} samples) zero-padded'
+                    )
+                    padded = numpy.zeros(size, data.dtype)
+                    padded[: data.size] = data
+                    return padded.reshape(shape)
                 msg = (
                     f'corrupted tile @ {indices} cannot be reshaped from '
                     f'{data.shape} to {shape}'
@@ -7117,6 +7087,7 @@ class TiffPage:
                     # expected size
                     return data.reshape(shape)
                 datashape = data.shape
+                original = data
                 try:
                     # too many rows?
                     data = data.reshape(
@@ -7128,6 +7099,14 @@ class TiffPage:
                     pass
                 else:
                     return data
+                if original.ndim == 1 and original.size < size:
+                    logger().error(
+                        f'{self!r} truncated strip @ {indices} '
+                        f'({original.size} < {size} samples) zero-padded'
+                    )
+                    padded = numpy.zeros(size, original.dtype)
+                    padded[: original.size] = original
+                    return padded.reshape(shape)
                 # TODO: JPEG strip short by less than one block row (MCU)
                 msg = (
                     'corrupted strip cannot be reshaped from '
@@ -7750,7 +7729,8 @@ class TiffPage:
             Exceptions are YCbCr JPEG compressed images, which are converted to
             RGB.
             Return an empty, two-dimensional array if the page contains no
-            image or is missing required tags.
+            image.
+            Truncated segments are zero-padded.
 
         Raises:
             TiffFileError:
@@ -7761,7 +7741,7 @@ class TiffPage:
         """
         keyframe = self.keyframe  # self or keyframe
 
-        if 0 in keyframe.shaped or keyframe._dtype is None:
+        if 0 in keyframe.shaped:
             return numpy.empty(
                 (0, 0),
                 (
@@ -7770,6 +7750,14 @@ class TiffPage:
                     else numpy.bool_
                 ),
             )
+
+        if keyframe._dtype is None:
+            msg = (
+                'data type not supported '
+                f'(SampleFormat {keyframe.sampleformat}, '
+                f'{keyframe.bitspersample}-bit)'
+            )
+            raise ValueError(msg)
 
         if len(self.dataoffsets) == 0:
             msg = 'missing data offset'
@@ -7826,14 +7814,14 @@ class TiffPage:
                     )
                 if keyframe.fillorder == 2:
                     result = imagecodecs.bitorder_decode(result, out=result)
-                if keyframe.predictor != 1:
-                    # predictors without compression
-                    unpredict = TIFF.UNPREDICTORS[keyframe.predictor]
-                    if keyframe.predictor == 2:
-                        result = unpredict(result, axis=-2, out=result)
-                    else:
-                        # floatpred cannot decode in-place
-                        result[:] = unpredict(result, axis=-2, out=result)
+                # if keyframe.predictor != 1:
+                #     # predictors without compression
+                #     unpredict = TIFF.UNPREDICTORS[keyframe.predictor]
+                #     if keyframe.predictor == 2:
+                #         result = unpredict(result, axis=-2, out=result)
+                #     else:
+                #         # floatpred cannot decode in-place
+                #         result[:] = unpredict(result, axis=-2, out=result)
 
             elif (
                 keyframe.jpegheader is not None
@@ -8418,6 +8406,7 @@ class TiffPage:
             self.sampleformat == 5
             or self.compression != 1
             or self.bitspersample not in {8, 16, 32, 64}
+            or (self.samplesperpixel > 1 and self.planarconfig not in {1, 2})
         ):
             return False
         if 322 in self.tags:  # TileWidth
@@ -19917,6 +19906,13 @@ def series_imagej(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     # no need to read other pages if virtual
     page_list: list[TiffPage | TiffFrame] = [page] if isvirtual else pages[:]
 
+    if not isvirtual and len(page_list) < images:
+        logger().warning(
+            f'{tif!r} ImageJ series metadata specify {images} images '
+            f'but file contains {len(page_list)} pages'
+        )
+        return None
+
     shape: tuple[int, ...]
     axes: str
 
@@ -24558,6 +24554,9 @@ def ndpi_jpeg_tile(jpeg: bytes, /) -> tuple[int, int, bytes]:
     # patch jpeg header for tile size
     tilelength = mcuheight
     tilewidth = restartinterval * mcuwidth
+    if tilelength > 65535 or tilewidth > 65535:
+        msg = f'invalid tile shape ({tilelength}, {tilewidth})'
+        raise ValueError(msg)
     jpegheader = (
         jpeg[:sofoffset]
         + struct.pack('>HH', tilelength, tilewidth)
