@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.11.8
+:Version: 2026.11.12
 
 """
 
@@ -345,6 +345,19 @@ def _files(pathname: str, base: str = DATA_DIR) -> list[str]:
     files = _data_file(pathname, base, expand=True)
     assert isinstance(files, list)
     return files
+
+
+def _patch_tag(
+    filename: str, code: int, value: int, /, offset: int = 0
+) -> None:
+    """Overwrite value of tag in first page of little-endian file."""
+    with TiffFile(filename) as tif:
+        tag = tif.pages.first.tags[code]
+        size = tag.valuebytecount // tag.count
+        pos = tag.valueoffset + offset * size
+    with open(filename, 'r+b') as fh:
+        fh.seek(pos)
+        fh.write(value.to_bytes(size, 'little'))
 
 
 def random_data(dtype: DTypeLike, shape: tuple[int, ...]) -> NDArray[Any]:
@@ -3305,6 +3318,132 @@ def test_issue_ometiff_pixel() -> None:
             assert series.shape == (3, 1, 1)
 
 
+@pytest.mark.parametrize(
+    ('dtype', 'predictor'), [('uint16', 2), ('float32', 3)]
+)
+def test_issue_predictor_uncompressed(
+    caplog: pytest.LogCaptureFixture, dtype: str, predictor: int
+) -> None:
+    """Test predictor is ignored for uncompressed data, like libtiff."""
+    data = random_data(dtype, (32, 31))
+    with TempFileName(f'issue_predictor_uncompressed_{dtype}') as filename:
+        imwrite(
+            filename,
+            data,
+            rowsperstrip=8,
+            extratags=[(65000, 'H', 1, predictor, False)],
+        )
+        with TiffFile(filename) as tif:
+            offset = tif.pages.first.tags[65000].offset
+        with open(filename, 'r+b') as fh:
+            fh.seek(offset)
+            fh.write(struct.pack('<H', 317))  # rename tag to Predictor
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            assert page.compression == 1
+            assert page.predictor == 1
+            assert 'ignoring predictor' in caplog.text
+            assert array_equal(page.asarray(), data)
+
+
+def test_issue_unsupported_dtype() -> None:
+    """Test reading unsupported data type raises ValueError."""
+    data = numpy.zeros((32, 31, 3), numpy.uint8)
+    with TempFileName('issue_unsupported_dtype') as filename:
+        imwrite(filename, data, photometric='rgb')
+        _patch_tag(filename, 258, 16, offset=2)  # BitsPerSample (8, 8, 16)
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            assert page.dtype is None
+            with pytest.raises(ValueError, match='data type not supported'):
+                page.asarray()
+
+
+def test_issue_planarconfig_invalid() -> None:
+    """Test reading PlanarConfiguration 3 raises ValueError."""
+    data = numpy.zeros((32, 31, 3), numpy.uint8)
+    with TempFileName('issue_planarconfig_invalid') as filename:
+        imwrite(filename, data, photometric='rgb')
+        _patch_tag(filename, 284, 3)
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            assert not page.is_contiguous
+            with pytest.raises(ValueError, match='PlanarConfiguration 3'):
+                page.asarray()
+
+
+@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
+@pytest.mark.parametrize('compression', [None, 'lzw'])
+def test_issue_truncated_strip(
+    caplog: pytest.LogCaptureFixture, compression: str | None
+) -> None:
+    """Test truncated strip is zero-padded."""
+    data = random_data(numpy.uint8, (40, 16))
+    with TempFileName(f'issue_truncated_strip_{compression}') as filename:
+        imwrite(filename, data, rowsperstrip=16, compression=compression)
+        _patch_tag(filename, 279, 2, offset=1)  # StripByteCounts
+        with TiffFile(filename) as tif:
+            image = tif.asarray()
+        assert 'truncated strip' in caplog.text
+        assert array_equal(image[:16], data[:16])
+        assert array_equal(image[32:], data[32:])
+        if compression is None:
+            assert array_equal(image[16, :2], data[16, :2])
+            assert not image[16, 2:].any()
+            assert not image[17:32].any()
+
+
+def test_issue_strip_offset_past_eof(caplog: pytest.LogCaptureFixture) -> None:
+    """Test strip beyond end of file is zero-padded."""
+    data = random_data(numpy.uint8, (40, 16))
+    with TempFileName('issue_strip_offset_past_eof') as filename:
+        imwrite(filename, data, rowsperstrip=16)
+        _patch_tag(filename, 273, os.path.getsize(filename) + 64, offset=1)
+        with TiffFile(filename) as tif:
+            image = tif.asarray()
+        assert 'truncated strip' in caplog.text
+        assert array_equal(image[:16], data[:16])
+        assert not image[16:32].any()
+        assert array_equal(image[32:], data[32:])
+
+
+def test_issue_imagej_missing_pages(caplog: pytest.LogCaptureFixture) -> None:
+    """Test ImageJ hyperstack with fewer pages than images."""
+    data = random_data(numpy.uint8, (12, 16, 16))
+    with TempFileName('issue_imagej_missing_pages') as filename:
+        imwrite(
+            filename,
+            data,
+            description='ImageJ=1.11a\nimages=12\nchannels=2\nslices=2\n'
+            'frames=4\n',
+            metadata=None,
+            photometric='minisblack',
+        )
+        with TiffFile(filename) as tif:
+            assert tif.is_imagej
+            series = tif.series[0]
+            assert 'ImageJ series metadata specify 16 images' in caplog.text
+            assert series.kind != 'imagej'
+            assert series.shape == (12, 16, 16)
+            assert array_equal(series.asarray(), data)
+
+
+def test_issue_imagej_noncontiguous(caplog: pytest.LogCaptureFixture) -> None:
+    """Test single-IFD ImageJ stack with non-contiguous strips."""
+    data = random_data(numpy.uint8, (4, 16, 16))
+    with TempFileName('issue_imagej_noncontiguous') as filename:
+        imwrite(filename, data, imagej=True, truncate=True, rowsperstrip=4)
+        with TiffFile(filename) as tif:
+            offset = tif.pages.first.dataoffsets[1]
+        _patch_tag(filename, 273, offset + 2, offset=1)
+        with TiffFile(filename) as tif:
+            assert len(tif.pages) == 1
+            series = tif.series[0]
+            assert 'ImageJ series metadata specify 4 images' in caplog.text
+            assert series.shape == (16, 16)
+            assert series.asarray().shape == (16, 16)
+
+
 @pytest.mark.parametrize('arg', [None, 'none', 'None', 'NONE', 1])
 def test_issue_none_str(arg: str | int | None) -> None:
     """Test predictor and compression none arguments."""
@@ -3565,6 +3704,13 @@ class TestExceptions:
         with pytest.raises(ValueError):
             imwrite(
                 filename, self.data.astype('H'), predictor=3, compression=8
+            )
+
+    def test_predictor_int64(self, filename: str) -> None:
+        # cannot apply float predictor to int64
+        with pytest.raises(ValueError):
+            imwrite(
+                filename, self.data.astype('q'), predictor=3, compression=8
             )
 
     def test_predictor_wrong_compression(self, filename: str) -> None:
@@ -10582,9 +10728,10 @@ def test_read_lsm_sfcs() -> None:
             assert series.kind == 'lsm'
             assert tif.series(squeeze=False)[1].shape == (3, 128, 1)
             assert tif.series(squeeze=False)[1].axes == 'SYX'
-            with pytest.raises(TiffFileError):
-                # strip cannot be reshaped from (1,) to (1, 128, 1, 1)
-                series.asarray()
+            # truncated strips of 1 byte are zero-padded
+            data = series.asarray()
+            assert data.shape == (3, 128, 1)
+            assert not data[:, 1:].any()
         # assert lsm_info tags
         tags = tif.lsm_metadata
         assert tags is not None
@@ -10644,9 +10791,10 @@ def test_read_lsm_line_2channel() -> None:
             assert series.kind == 'lsm'
             assert tif.series(squeeze=False)[1].shape == (3, 128, 1)
             assert tif.series(squeeze=False)[1].axes == 'SYX'
-            with pytest.raises(TiffFileError):
-                # strip cannot be reshaped from (1,) to (1, 128, 1, 1)
-                series.asarray()
+            # truncated strips of 1 byte are zero-padded
+            data = series.asarray()
+            assert data.shape == (3, 128, 1)
+            assert not data[:, 1:].any()
         # assert lsm_info tags
         tags = tif.lsm_metadata
         assert tags is not None
