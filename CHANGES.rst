@@ -4,6 +4,16 @@
 Revisions
 =========
 
+2026.11.12
+
+- Zero-pad truncated strips and tiles instead of raising (breaking).
+- Raise ValueError when reading unsupported data types (breaking).
+- Ignore predictor for uncompressed data like libtiff (breaking).
+- Fix ImageJ series with fewer pages than images.
+- Fix TiffWriter allowing floating-point predictor with 64-bit integers.
+- Fix opening NDPI files with invalid McuStarts or restart intervals.
+- Raise ValueError for unsupported PlanarConfiguration.
+
 2026.11.8
 
 - Exclude zero-size pages from generic series (breaking).
