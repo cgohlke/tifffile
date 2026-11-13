@@ -37,7 +37,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.11.8
+:Version: 2026.11.12
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -72,7 +72,7 @@ This revision was tested with the following requirements and dependencies
 
 - `CPython <https://www.python.org>`_ 3.12.10, 3.13.17, 3.14.10, 3.15.2 64-bit
 - `Numpy <https://pypi.org/project/numpy>`_ 2.5.4
-- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.10.10
+- `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.11.11
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Xarray <https://pypi.org/project/xarray>`_ 2026.9.0
   (required only for reading xarray DataArrays)
@@ -80,13 +80,23 @@ This revision was tested with the following requirements and dependencies
   (required for plotting)
 - `Lxml <https://pypi.org/project/lxml/>`_ 6.1.3
   (required only for validating and printing XML)
-- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.1
+- `Zarr <https://pypi.org/project/zarr/>`_ 3.4.2
   (required only for using Zarr stores)
 - `Kerchunk <https://pypi.org/project/kerchunk/>`_ 0.2.10
   (required only for opening ReferenceFileSystem files)
 
 Revisions
 ---------
+
+2026.11.12
+
+- Zero-pad truncated strips and tiles instead of raising (breaking).
+- Raise ValueError when reading unsupported data types (breaking).
+- Ignore predictor for uncompressed data like libtiff (breaking).
+- Fix ImageJ series with fewer pages than images.
+- Fix TiffWriter allowing floating-point predictor with 64-bit integers.
+- Fix opening NDPI files with invalid McuStarts or restart intervals.
+- Raise ValueError for unsupported PlanarConfiguration.
 
 2026.11.8
 
@@ -124,78 +134,6 @@ Revisions
 
 2026.9.15
 
-- Fix MMStack series when numeric Summary metadata values are strings (#334).
-
-2026.9.9
-
-- Fix TiffSeries(squeeze=None) incorrectly squeezes 'shaped' series (breaking).
-
-2026.8.23
-
-- Add methods to delete pages from main IFD chain and erase their content.
-
-2026.8.16
-
-- Fix fsspec v3 stores with big-endian floatpred codec (breaking).
-- Require imagecodecs >= 2026.8.16.
-
-2026.7.31
-
-- Fsspec v3 stores using big-endian floatpred are incompatible with zarr>=3.3.
-- Specify bytes codec endian configuration in ZarrFileSequenceStore.
-- Add additional NDPI tags from specification (#331).
-
-2026.7.14
-
-- Fix series.asxarray returns wrong series for sublevels.
-- Support Huron TIFF series and metadata.
-- Support FLIMage FLIM series and metadata.
-- Support DECTRIS IFD and tags.
-- Allow subsampling with any image compression scheme.
-- Detect DICOM-TIFF dual-personality format.
-
-2026.6.1
-
-- Replace NullContext with contextlib.nullcontext (breaking).
-- Fix writing monochrome linear_raw (#328).
-- Fix keyboard axis selection in imshow interactive viewer (#327).
-- Fix reading short ASCII string tag values from NDPI.
-- Add option to suppress writing extrasamples tag.
-- Verify origin of codecs.
-
-2026.5.15
-
-- Update ZarrFileSequenceStore to zarr format 3 (breaking).
-- Derive ZarrFileSequenceStore dimension names from FileSequence.dims.
-- Add option to override dimension names in zarr stores.
-- Add support for Python 3.15.
-
-2026.5.2
-
-- Change TiffFile.series from list to callable TiffSeries sequence (breaking).
-- Remove TiffPageSeries squeeze dual-state (breaking).
-- Remove TiffPageSeries.get_shape, get_axes, and get_coords (breaking).
-- Remove ZarrTiffStore squeeze parameter (breaking).
-- Update ZarrTiffStore to zarr format 3 and multiscales to NGFF 0.5 (breaking).
-- Update multiscales zarr format 2 fsspec files to NGFF 0.4 (breaking).
-- Remove generic TiffPage coords (breaking).
-- Change dims and sizes to use single-char axis codes (breaking).
-- Add zarr format 3 compatible Tiff codec.
-- Add asxarray methods to TiffFile, TiffPage, TiffPageSeries (requires xarray).
-- Add geotiff kind of TiffPageSeries.
-- Add mpp and coord_offsets/scales/units properties to TiffPageSeries.
-- Add attrs property to TiffPage and TiffPageSeries.
-- Add kind and squeeze parameters to memmap.
-- Add kind parameter to imwrite and TiffFile; deprecate ome, imagej, shaped.
-- Add return_as parameter to imread; deprecate aszarr.
-- Fix writing TIFF trees (#326).
-- Fix wrong TiffTagRegistry entries (#323).
-- Implement TiffPageSeries.coords property.
-- Deprecate kwargs to FileSequence.asarray; use imreadargs.
-- Require zarr>=3.2.0 for zarr support.
-- Drop support for numpy 2.0 (SPEC0, #324).
-
-2026.4.11
 
 - …
 
