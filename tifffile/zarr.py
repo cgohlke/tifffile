@@ -617,7 +617,8 @@ class ZarrTiffStore(ZarrStore):
             Use strips or tiles (0) or whole page data (2) as chunks.
             The default is 0.
         fillvalue:
-            Value to use for missing chunks. The default is 0.
+            Value of missing chunks and empty or truncated segments.
+            The default is :py:attr:`TiffPage.fillvalue` of the keyframe.
         dimension_names:
             Names of dimensions in image array.
             Overrides dimension names derived from series axes.
@@ -853,7 +854,7 @@ class ZarrTiffStore(ZarrStore):
         shape = series.shape
         dtype = series.dtype
         if fillvalue is None:
-            fillvalue = keyframe.nodata
+            fillvalue = numpy.asarray(keyframe.fillvalue).item()
             self._fillvalue = fillvalue
         if keyframe._dtype is None:
             # empty page (e.g. C2PA), consistent with TiffPage.asarray()
@@ -1276,6 +1277,7 @@ class ZarrTiffStore(ZarrStore):
                     lock=self._filecache.lock,
                     maxworkers=self._maxworkers,
                     buffersize=self._buffersize,
+                    fillvalue=self._fillvalue,
                 )
             finally:
                 self._filecache.close(fh)
@@ -1289,7 +1291,10 @@ class ZarrTiffStore(ZarrStore):
         assert bytecount is not None
         chunk_bytes = self._filecache.read(fh, offset, bytecount)
 
-        decodeargs: dict[str, Any] = {'_fullsize': True}
+        decodeargs: dict[str, Any] = {
+            '_fullsize': True,
+            '_fillvalue': keyframe._fillvalue(self._fillvalue),
+        }
         if page.jpegtables is not None:
             decodeargs['jpegtables'] = page.jpegtables
         if keyframe.jpegheader is not None:
