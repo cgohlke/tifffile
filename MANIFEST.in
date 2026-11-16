@@ -3,22 +3,34 @@ include README.rst
 include CHANGES.rst
 include pyproject.toml
 
+include setup.py
 include tifffile/py.typed
 
 exclude .env
-exclude *.cmd
-exclude *.yaml
+exclude .gitignore
+exclude *.code-workspace
 exclude mypy.ini
 exclude ruff.toml
+exclude typos.toml
+
+global-exclude *.ini
+global-exclude *.cmd
+global-exclude *.rar
+global-exclude *.zip
+global-exclude *.md
+global-exclude *.yaml
+global-exclude *.html
+global-exclude *?-?Copy*
+
 recursive-exclude doc *
+recursive-exclude docs *
 recursive-exclude test *
 recursive-exclude tests *
-
-recursive-exclude * __pycache__
-recursive-exclude * *.py[co]
-recursive-exclude * *-
+recursive-exclude examples *
 recursive-exclude test/data *
 recursive-exclude test/_tmp *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
 
 include tests/conftest.py
 include tests/test_tifffile.py
@@ -27,4 +39,6 @@ include examples/earthbigdata.py
 include examples/issue125.py
 include examples/write_dng.py
 
-recursive-exclude docs *
+# include docs/conf.py
+# include docs/make.py
+# include docs/_static/custom.css
