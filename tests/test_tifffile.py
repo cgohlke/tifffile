@@ -19282,6 +19282,32 @@ def test_write_subifd_tree() -> None:
             assert array_equal(subifd1.asarray(), data[2])
 
 
+def test_write_subifds_axes() -> None:
+    """Test SubIFD levels inherit axes of shaped series."""
+    data = (RNG.random((3, 64, 64)) * 255).astype(numpy.uint8)
+    with TempFileName('write_subifds_axes') as filename:
+        with TiffWriter(filename) as tif:
+            tif.write(
+                data,
+                subifds=1,
+                photometric=PHOTOMETRIC.MINISBLACK,
+                metadata={'axes': 'CYX'},
+            )
+            tif.write(
+                data[:, ::2, ::2],
+                subfiletype=1,
+                photometric=PHOTOMETRIC.MINISBLACK,
+            )
+
+        with TiffFile(filename) as tif:
+            assert len(tif.series) == 1
+            series = tif.series[0]
+            assert series.axes == 'CYX'
+            assert len(series.levels) == 2
+            assert series.levels[1].axes == 'CYX'
+            assert array_equal(series.levels[1].asarray(), data[:, ::2, ::2])
+
+
 def test_write_lists() -> None:
     """Test write lists."""
     array = numpy.arange(1000).reshape((10, 10, 10)).astype(numpy.uint16)

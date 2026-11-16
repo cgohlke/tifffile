@@ -18817,6 +18817,7 @@ def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     def detect_series(
         pages: TiffPages | list[TiffPage | TiffFrame | None],
         series: list[TiffPageSeries],
+        parentaxes: str | None = None,
         /,
     ) -> list[TiffPageSeries] | None:
         shape: tuple[int, ...] | None
@@ -18871,6 +18872,15 @@ def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                     logger().error(
                         f'{tif!r} shaped series axes do not match shape'
                     )
+            elif (
+                parentaxes is not None
+                and keyframe.is_reduced
+                and len(parentaxes) == len(reshape)
+                and parentaxes.endswith(keyframe.axes)
+            ):
+                # reduced SubIFDs may not repeat axes of parent series
+                axes = parentaxes
+                shape = reshape
             # skip pages if possible
             spages: list[TiffPage | TiffFrame | None] = [keyframe]
             size = product(reshape)
@@ -18921,6 +18931,7 @@ def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
 
             # create series from SubIFDs
             if keyframe.subifds:
+                seriesaxes = series[-1].axes
                 subifds_size = len(keyframe.subifds)
                 for i, offset in enumerate(keyframe.subifds):
                     if offset < 8:
@@ -18953,7 +18964,7 @@ def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                             return None
                         subifds.append(subifd)
                     if subifds:
-                        result = detect_series(subifds, series)
+                        result = detect_series(subifds, series, seriesaxes)
                         if result is None:
                             return None
                         series = result
