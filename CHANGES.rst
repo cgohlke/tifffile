@@ -4,6 +4,17 @@
 Revisions
 =========
 
+2026.11.16
+
+- Add fillvalue parameter to asarray functions.
+- Fill missing pages and truncated segments with NODATA value (breaking).
+- Fill missing pages of ImageJ hyperstacks (breaking).
+- Write offset 0 for empty segments from iterator of tuples (breaking).
+- Warn instead of log for ignored TiffWriter arguments (breaking).
+- Revise log levels of many messages.
+- Fix read_segments shifting strips after segment with zero byte count.
+- Treat segments with zero byte count and nonzero offset as empty.
+
 2026.11.12
 
 - Zero-pad truncated strips and tiles instead of raising (breaking).
