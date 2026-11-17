@@ -37,7 +37,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.11.12
+:Version: 2026.11.16
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -71,7 +71,7 @@ This revision was tested with the following requirements and dependencies
 (other versions may work):
 
 - `CPython <https://www.python.org>`_ 3.12.10, 3.13.17, 3.14.10, 3.15.2 64-bit
-- `Numpy <https://pypi.org/project/numpy>`_ 2.5.4
+- `Numpy <https://pypi.org/project/numpy>`_ 2.5.5
 - `Imagecodecs <https://pypi.org/project/imagecodecs/>`_ 2026.11.11
   (required for encoding or decoding LZW, JPEG, etc. compressed segments)
 - `Xarray <https://pypi.org/project/xarray>`_ 2026.9.0
@@ -87,6 +87,17 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.11.16
+
+- Add fillvalue parameter to asarray functions.
+- Fill missing pages and truncated segments with NODATA value (breaking).
+- Fill missing pages of ImageJ hyperstacks (breaking).
+- Write offset 0 for empty segments from iterator of tuples (breaking).
+- Warn instead of log for ignored TiffWriter arguments (breaking).
+- Revise log levels of many messages.
+- Fix read_segments shifting strips after segment with zero byte count.
+- Treat segments with zero byte count and nonzero offset as empty.
 
 2026.11.12
 
@@ -126,14 +137,6 @@ Revisions
 - Use struct.unpack_from when possible.
 
 2026.9.20
-
-- Fix TiffPage.delete corrupting NDPI files.
-- Fix unwrapping offsets in LSM files > 4GB with T, P, and M dimensions.
-- Support Mikroscan and Motic formats (structurally identical to SVS).
-- Support MedScan Trestle series and metadata.
-
-2026.9.15
-
 
 - …
 
