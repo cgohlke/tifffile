@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.11.12
+:Version: 2026.11.16
 
 """
 
@@ -57,6 +57,7 @@ import sysconfig
 import tempfile
 import urllib.error
 import urllib.request
+import zlib
 from io import BytesIO
 from typing import TYPE_CHECKING
 
@@ -2841,23 +2842,25 @@ def test_issue_tile_generator(
         assert array_equal(imagecodecs.imread(filename), data.squeeze())
 
 
-def test_issue_extratags_filter(caplog: pytest.LogCaptureFixture) -> None:
+def test_issue_extratags_filter() -> None:
     """Test filtering extratags."""
     # https://github.com/cgohlke/tifffile/pull/188
     with TempFileName('issue_extratags_filter') as filename:
-        imwrite(
-            filename,
-            shape=(10, 10),
-            dtype='u1',
-            extratags=[
-                (322, 3, 1, 2, False),  # TileWidth is filtered
-                (34665, 13, 1, 0, False),  # ExifIFD is filtered
-                (270, 2, 0, 'second description', True),  # filtered
-                ('FillOrder', 3, 1, 1, True),  # by name should go through
-            ],
-        )
-        assert 'extratag 322' in caplog.text
-        assert 'extratag 34665' in caplog.text
+        with pytest.warns(UserWarning) as record:
+            imwrite(
+                filename,
+                shape=(10, 10),
+                dtype='u1',
+                extratags=[
+                    (322, 3, 1, 2, False),  # TileWidth is filtered
+                    (34665, 13, 1, 0, False),  # ExifIFD is filtered
+                    (270, 2, 0, 'second description', True),  # filtered
+                    ('FillOrder', 3, 1, 1, True),  # by name should go through
+                ],
+            )
+        messages = ' '.join(str(w.message) for w in record)
+        assert 'extratag 322' in messages
+        assert 'extratag 34665' in messages
         with TiffFile(filename) as tif:
             tags = tif.pages.first.tags
             assert 322 not in tags
@@ -2938,7 +2941,7 @@ def test_issue_logging_filter(caplog: pytest.LogCaptureFixture) -> None:
     import logging
 
     def log_filter(record: Any) -> bool:
-        if record.levelno == logging.ERROR:
+        if record.levelno == logging.WARNING:
             assert record.funcName == '__init__'
             assert 'invalid value offset' in record.msg
             raise ValueError(record.msg)
@@ -3405,6 +3408,149 @@ def test_issue_strip_offset_past_eof(caplog: pytest.LogCaptureFixture) -> None:
         assert array_equal(image[:16], data[:16])
         assert not image[16:32].any()
         assert array_equal(image[32:], data[32:])
+
+
+@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
+@pytest.mark.parametrize('compression', [None, 'zlib'])
+def test_issue_strip_bytecount_zero(
+    caplog: pytest.LogCaptureFixture, compression: str | None
+) -> None:
+    """Test strip with zero byte count does not shift following strips."""
+    data = random_data(numpy.uint8, (64, 16)) | 1
+    with TempFileName(f'issue_strip_bytecount_zero_{compression}') as filename:
+        imwrite(filename, data, rowsperstrip=16, compression=compression)
+        with TiffFile(filename) as tif:
+            tif.asarray()
+        assert 'zero byte count' not in caplog.text
+        _patch_tag(filename, 279, 0, offset=1)  # StripByteCounts
+        with TiffFile(filename) as tif:
+            image = tif.asarray()
+        assert 'zero byte count and nonzero offset' in caplog.text
+        assert array_equal(image[:16], data[:16])
+        assert not image[16:32].any()
+        assert array_equal(image[32:], data[32:])
+
+
+def test_issue_write_tuple_iter_empty_segment(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test empty segment from iterator of tuples is written as sparse."""
+    data = random_data(numpy.uint8, (3, 16, 16))
+    strips = [zlib.compress(data[i].tobytes()) for i in (0, 2)]
+    segments = [
+        (strips[0], len(strips[0])),
+        (b'', 0),
+        (strips[1], len(strips[1])),
+    ]
+    with TempFileName('issue_write_tuple_iter_empty_segment') as filename:
+        imwrite(
+            filename,
+            iter(segments),
+            shape=(48, 16),
+            dtype=numpy.uint8,
+            rowsperstrip=16,
+            compression='zlib',
+        )
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            assert page.databytecounts[1] == 0
+            assert page.dataoffsets[1] == 0
+            image = page.asarray()
+        assert 'zero byte count' not in caplog.text
+        assert array_equal(image[:16], data[0])
+        assert not image[16:32].any()
+        assert array_equal(image[32:], data[2])
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_issue_fillvalue_sparse() -> None:
+    """Test fillvalue argument fills empty segments."""
+    data = random_data(numpy.uint8, (3, 16, 16))
+    strips = [zlib.compress(data[i].tobytes()) for i in (0, 2)]
+    segments = [
+        (strips[0], len(strips[0])),
+        (b'', 0),
+        (strips[1], len(strips[1])),
+    ]
+    with TempFileName('issue_fillvalue_sparse') as filename:
+        imwrite(
+            filename,
+            iter(segments),
+            shape=(48, 16),
+            dtype=numpy.uint8,
+            rowsperstrip=16,
+            compression='zlib',
+        )
+        with TiffFile(filename) as tif:
+            assert tif.pages.first.fillvalue == 0
+            assert tif.pages.first.nodata == 0
+            image = tif.asarray()
+            assert not image[16:32].any()
+            image = tif.asarray(fillvalue=255)
+            assert array_equal(image[:16], data[0])
+            assert (image[16:32] == 255).all()
+            assert array_equal(image[32:], data[2])
+            assert array_equal(tif.pages.first.asarray(fillvalue=255), image)
+            with tif.aszarr(fillvalue=255) as store:
+                assert array_equal(zarr.open(store, mode='r')[:], image)
+        assert array_equal(imread(filename, fillvalue=255), image)
+
+
+@pytest.mark.skipif(SKIP_ZARR, reason=REASON)
+def test_issue_fillvalue_missing_pages(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test fillvalue argument fills missing pages of series."""
+    data = random_data(numpy.uint16, (4, 16, 16))
+    with TempFileName('issue_fillvalue_missing_pages.ome') as filename:
+        imwrite(filename, data, photometric='minisblack')
+        with TiffFile(filename, mode='r+') as tif:
+            tif.pages.delete(3)
+        with TiffFile(filename) as tif:
+            image = tif.series[0].asarray()
+            assert image.shape == (4, 16, 16)
+            assert array_equal(image[:3], data[:3])
+            assert not image[3].any()
+            image = tif.series[0].asarray(fillvalue=7)
+            assert image.shape == (4, 16, 16)
+            assert array_equal(image[:3], data[:3])
+            assert (image[3] == 7).all()
+            with tif.series[0].aszarr(fillvalue=7) as store:
+                assert array_equal(zarr.open(store, mode='r')[:], image)
+        assert 'index out of range' in caplog.text
+
+
+def test_issue_fillvalue_invalid() -> None:
+    """Test invalid fillvalue argument raises ValueError."""
+    with TempFileName('issue_fillvalue_invalid') as filename:
+        imwrite(filename, numpy.zeros((16, 16), numpy.uint8))
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            for value in (-1, 256, 1.5, math.nan):
+                with pytest.raises(ValueError, match='not castable'):
+                    page.asarray(fillvalue=value)
+            with pytest.raises(ValueError, match='numeric scalar'):
+                page.asarray(
+                    fillvalue=(255, 255, 255),  # type: ignore[arg-type]
+                )
+    with TempFileName('issue_fillvalue_invalid_bool') as filename:
+        imwrite(filename, numpy.zeros((16, 16), numpy.bool_))
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            for value, expected in ((0, False), (1, True), (True, True)):
+                assert page._fillvalue(value) is numpy.bool(expected)
+            for value in (2, -1, 1.0):
+                with pytest.raises(ValueError, match='not castable'):
+                    page.asarray(fillvalue=value)
+    with TempFileName('issue_fillvalue_invalid_int8') as filename:
+        imwrite(filename, numpy.zeros((16, 16), numpy.int8))
+        with TiffFile(filename) as tif:
+            page = tif.pages.first
+            for value in (-128, 0, 127):
+                assert page._fillvalue(value) == value
+            for value in (-129, 128, 1.5):
+                with pytest.raises(ValueError, match='not castable'):
+                    page.asarray(fillvalue=value)
 
 
 def test_issue_imagej_missing_pages(caplog: pytest.LogCaptureFixture) -> None:
@@ -15211,6 +15357,40 @@ def test_read_imagej_invalid_metadata(
         del data
 
 
+@pytest.mark.parametrize(
+    ('slices', 'shape', 'kind'),
+    [(2, (2, 3, 32, 32), 'imagej'), (4, (5, 32, 32), 'generic')],
+)
+def test_read_imagej_missing_pages(
+    caplog: pytest.LogCaptureFixture,
+    slices: int,
+    shape: tuple[int, ...],
+    kind: str,
+) -> None:
+    """Test read ImageJ hyperstack with fewer pages than specified."""
+    data = random_data(numpy.uint8, (5, 32, 32)) | 1
+    description = (
+        f'ImageJ=1.54f\nimages={3 * slices}\nchannels=3\n'
+        f'slices={slices}\nhyperstack=true\nmode=grayscale\n'
+    )
+    with TempFileName(f'read_imagej_missing_pages_{slices}') as filename:
+        imwrite(filename, data, description=description, metadata=None)
+        with TiffFile(filename) as tif:
+            assert tif.is_imagej
+            series = tif.series[0]
+            assert series.kind == kind
+            assert series.shape == shape
+            image = tif.asarray()
+        if kind == 'imagej':
+            assert series.axes == 'ZCYX'
+            assert 'Missing data are filled' in caplog.text
+            assert array_equal(image.reshape(6, 32, 32)[:5], data)
+            assert not image[1, 2].any()
+        else:
+            assert 'specify 12 images but file contains 5' in caplog.text
+            assert array_equal(image, data)
+
+
 @pytest.mark.skipif(SKIP_FILE, reason=REASON)
 def test_read_imagej_invalid_hyperstack() -> None:
     """Test read bad ImageJ hyperstack."""
@@ -18722,17 +18902,17 @@ def test_write_deprecated_planarconfig() -> None:
             assert page.planarconfig == PLANARCONFIG.SEPARATE
 
 
-def test_write_ycbcr_subsampling(caplog: pytest.LogCaptureFixture) -> None:
+def test_write_ycbcr_subsampling() -> None:
     """Test write YCBCR."""
     with TempFileName('write_ycbcr_subsampling') as filename:
-        imwrite(
-            filename,
-            shape=(31, 33, 3),
-            dtype=numpy.uint8,
-            photometric=PHOTOMETRIC.YCBCR,
-            subsampling=(1, 2),
-        )
-        assert 'cannot apply subsampling' in caplog.text
+        with pytest.warns(UserWarning, match='cannot apply subsampling'):
+            imwrite(
+                filename,
+                shape=(31, 33, 3),
+                dtype=numpy.uint8,
+                photometric=PHOTOMETRIC.YCBCR,
+                subsampling=(1, 2),
+            )
         with TiffFile(filename) as tif:
             page = tif.pages.first
             assert page.photometric == PHOTOMETRIC.YCBCR
@@ -19280,6 +19460,51 @@ def test_write_subifd_tree() -> None:
             assert subifd1._nextifd_offset() == 0
             assert array_equal(subifd0.asarray(), data[1])
             assert array_equal(subifd1.asarray(), data[2])
+
+
+@pytest.mark.parametrize('metadata', [None, {}, {'axes': 'CYX'}])
+def test_write_subifds_shaped_axes(metadata: Any) -> None:
+    """Test write shaped pyramid with axes metadata on all SubIFDs."""
+    # https://github.com/cgohlke/tifffile/pull/337
+    data = (RNG.random((3, 64, 64)) * 255).astype(numpy.uint8)
+    with TempFileName('write_subifds_shaped_axes') as filename:
+        with TiffWriter(filename) as tif:
+            tif.write(
+                data,
+                subifds=2,
+                photometric=PHOTOMETRIC.MINISBLACK,
+                metadata=metadata,
+            )
+            for level in (1, 2):
+                mag = 2**level
+                tif.write(
+                    data[:, ::mag, ::mag],
+                    subfiletype=1,
+                    photometric=PHOTOMETRIC.MINISBLACK,
+                    metadata=metadata,
+                )
+
+        axes = (
+            metadata['axes']
+            if metadata
+            else 'IYX' if metadata is None else 'QYX'
+        )
+
+        with TiffFile(filename) as tif:
+            assert len(tif.series) == 1
+            series = tif.series[0]
+            assert series.kind == 'generic' if metadata is None else 'shaped'
+            assert series.axes == axes
+            assert series.shape == (3, 64, 64)
+            assert len(series.levels) == 3
+            for level in (1, 2):
+                mag = 2**level
+                assert series.levels[level].axes == axes
+                assert series.levels[level].shape == (3, 64 // mag, 64 // mag)
+                assert array_equal(
+                    series.levels[level].asarray(), data[:, ::mag, ::mag]
+                )
+        assert array_equal(imread(filename, level=2), data[:, ::4, ::4])
 
 
 def test_write_lists() -> None:
@@ -19990,6 +20215,42 @@ def test_write_bitspersample(bps: int, dtype: DTypeLike) -> None:
             rowsperstrip=77,
         )
         assert array_equal(imread(filename), data)
+
+
+@pytest.mark.skipif(SKIP_CODECS, reason=REASON)
+@pytest.mark.parametrize('byteorder', ['<', '>'])
+@pytest.mark.parametrize('dtype', ['<u2', '>u2'])
+@pytest.mark.parametrize(
+    'kwargs',
+    [
+        {},
+        {'rowsperstrip': 8},
+        {'tile': (16, 16)},
+        {'photometric': 'rgb', 'rowsperstrip': 8},
+    ],
+)
+def test_write_bitspersample12_byteorder(
+    byteorder: Literal['<', '>'], dtype: str, kwargs: dict[str, Any]
+) -> None:
+    """Test 12-bit samples written in either byte order read back."""
+    shape = (64, 51, 3) if 'photometric' in kwargs else (64, 51)
+    data = random_data(numpy.uint16, shape) % 4096
+    data = data.astype(dtype)
+    with TempFileName(
+        f'write_bitspersample12_{byteorder == ">"}_{dtype[0] == ">"}'
+        f'_{len(kwargs)}{"tile" in kwargs}'
+    ) as filename:
+        imwrite(
+            filename, data, bitspersample=12, byteorder=byteorder, **kwargs
+        )
+        assert array_equal(imread(filename), data)
+        with TiffFile(filename) as tif:
+            assert tif.byteorder == byteorder
+            page = tif.pages.first
+            assert page.bitspersample == 12
+            image = page.asarray()
+            assert array_equal(image, data)
+            assert_aszarr_method(page, image)
 
 
 def test_write_bitspersample_fail() -> None:
@@ -24424,6 +24685,7 @@ def test_write_ome_copy() -> None:
                     compressionargs = {}
                 extratags = (
                     # copy some extra tags
+                    # ImageDepth is not written, raises UserWarning
                     page.tags.get('ImageDepth').astuple(),  # type: ignore[union-attr]  # this is ignored
                     page.tags.get('InterColorProfile').astuple(),  # type: ignore[union-attr]
                 )
