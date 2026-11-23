@@ -1,5 +1,9 @@
 # tifffile/tests/conftest.py
 
+# Copyright (c) Christoph Gohlke
+# SPDX-License-Identifier: BSD-3-Clause
+# See LICENSE file in the project root for details.
+
 """Pytest configuration."""
 
 from __future__ import annotations
@@ -23,7 +27,6 @@ collect_ignore = [
     'data-',
     'test_corpus.py',
     'test_tifffile_envars.py',
-    'test_tifffile_more.py',
 ]
 
 
@@ -44,7 +47,7 @@ def pytest_report_header(config: Any, start_path: Any) -> str:
         except ImportError:
             zarr = 'N/A'
         try:
-            from dask import __version__ as dask
+            from dask import __version__ as dask  # type: ignore[attr-defined]
         except ImportError:
             dask = 'N/A'
         try:
