@@ -9,6 +9,7 @@ include tifffile/py.typed
 exclude .env
 exclude .gitignore
 exclude *.code-workspace
+exclude bench*.py
 exclude mypy.ini
 exclude ruff.toml
 exclude typos.toml
