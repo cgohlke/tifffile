@@ -31,7 +31,7 @@
 
 """Unittests for the tifffile package.
 
-:Version: 2026.11.16
+:Version: 2026.11.26
 
 """
 
@@ -290,7 +290,6 @@ else:
         fsspec = None
         SKIP_ZARR = True
     else:
-
         imagecodecs.numcodecs.register_codecs(verbose=False)
         imagecodecs.zarr.register_codecs(verbose=False)
 
@@ -3905,6 +3904,63 @@ class TestExceptions:
                 filename, self.data, kind='imagej', planarconfig='separate'
             )
 
+    def test_imagej_unsupported(self, filename: str) -> None:
+        # ImageJ labels are per image
+        with pytest.warns(UserWarning, match='number of ImageJ Labels'):
+            imwrite(
+                filename,
+                self.data,
+                kind='imagej',
+                metadata={'Labels': ['a', 'b']},
+            )
+        # invalid LUT
+        with pytest.raises(ValueError):
+            imwrite(
+                filename,
+                self.data,
+                kind='imagej',
+                metadata={'LUTs': [numpy.zeros((3, 256), numpy.uint16)]},
+            )
+        # multiple ROIs
+        with pytest.raises(ValueError):
+            imwrite(
+                filename,
+                self.data,
+                kind='imagej',
+                metadata={'ROI': [b'Iout', b'Iout']},
+            )
+        # Ranges, LUTs, and resolution unit
+        with (
+            pytest.warns(UserWarning, match='number of ImageJ Ranges'),
+            pytest.warns(UserWarning, match='number of ImageJ LUTs'),
+            # pytest.warns(UserWarning, match='resolution without unit'),
+        ):
+            imwrite(
+                filename,
+                self.data,
+                kind='imagej',
+                resolution=(2.0, 2.0),
+                metadata={
+                    'Ranges': (0.0, 1.0, 0.0, 1.0),
+                    'LUTs': [numpy.zeros((3, 256), numpy.uint8)] * 6,
+                },
+            )
+        # if SKIP_CODECS:
+        #     return
+        # ImageJ cannot read tiles
+        # with pytest.warns(UserWarning, match='does not support tiles'):
+        #     imwrite(filename, self.data, kind='imagej', tile=(16, 16))
+        # with pytest.warns(UserWarning, match='does not support'):
+        #     imwrite(filename, self.data, kind='imagej', compression='zstd')
+        # with pytest.warns(UserWarning, match='does not support'):
+        #     imwrite(
+        #         filename,
+        #         self.data.astype(numpy.float32),
+        #         kind='imagej',
+        #         compression='zlib',
+        #         predictor=True,
+        #     )
+
     def test_colormap_shape(self, filename: str) -> None:
         # invalid colormap shape
         with pytest.raises(ValueError):
@@ -5208,7 +5264,72 @@ def test_class_omexml_project() -> None:
     assert '<AnnotationRef ID="Annotation:0"/>' in xml5
     assert_valid_omexml(xml5)
 
+    # same Experimenter and Project at init and image level are not repeated
+    meta: dict[str, Any] = {
+        'Experimenter': {'FirstName': 'Eve'},
+        'Project': {'Name': 'P'},
+    }
+    omexml6 = OmeXml(**meta)
+    omexml6.addimage(*args, **meta)
+    omexml6.addimage(
+        *args, Experimenter={'FirstName': 'Eve'}, Project={'Name': 'Q'}
+    )
+    xml6 = omexml6.tostring()
+    assert xml6.count('<Experimenter ') == 1
+    assert '<ExperimenterRef ID="Experimenter:0"/>' in xml6
+    assert xml6.count('<Project ') == 2
+    assert_valid_omexml(xml6)
+
     assert__repr__(omexml)
+
+
+def test_class_omexml_modulo_coords() -> None:
+    """Test OME-TIFF coordinates with modulo dimensions and units."""
+    data = numpy.zeros((2, 3, 8, 8), numpy.uint8)
+    with TempFileName('issue_ome_modulo_coords', ext='.ome.tif') as fname:
+        # modulo split of C axis, channel names, unknown and partial units
+        imwrite(
+            fname,
+            data,
+            metadata={
+                'axes': 'CEYX',
+                'Channel': {'Name': ['a', 'b']},
+                'PhysicalSizeX': 2.0,
+                'PhysicalSizeXUnit': '\xc5',
+                'PhysicalSizeY': 100,
+                'PhysicalSizeYUnit': 'nm',
+                'TypeDescription': {'E': '<"&>'},
+                'DoubleAnnotation': [float('nan'), float('-inf')],
+            },
+        )
+        with TiffFile(fname) as tif:
+            omexml = tif.ome_metadata
+            assert omexml is not None
+            assert omexml.count('<Channel ') == 6
+            assert 'TypeDescription="&lt;&quot;&amp;&gt;"' in omexml
+            assert '<Value>NaN</Value>' in omexml
+            assert '<Value>-INF</Value>' in omexml
+            assert_valid_omexml(omexml)
+            series = tif.series(squeeze=False)[0]
+            assert series.axes == 'TZCEYXS'
+            assert series.shape == (1, 1, 2, 3, 8, 8, 1)
+            assert list(series.coords['C']) == ['a', 'b']
+            assert series.coord_units['X'] == '\xc5'
+            assert series.coord_units['Y'] == 'micrometer'
+            assert series.coord_scales['X'] == pytest.approx(2.0)
+            assert series.coord_scales['Y'] == pytest.approx(0.1)
+
+        # modulo renames T axis; TimeIncrement does not apply
+        imwrite(
+            fname,
+            data[0],
+            metadata={'axes': 'EYX', 'TimeIncrement': 1.0},
+        )
+        with TiffFile(fname) as tif:
+            series = tif.series(squeeze=False)[0]
+            assert series.axes == 'EZCYXS'
+            assert 'T' not in series._coords
+            assert 'T' not in series.coords
 
 
 def test_class_omexml_multiimage() -> None:
@@ -6362,7 +6483,7 @@ def test_func_imagej_description() -> None:
     """Test imagej_description function."""
     expected = (
         'ImageJ=1.11a\nimages=510\nchannels=2\nslices=5\n'
-        'frames=51\nhyperstack=true\nmode=grayscale\nloop=false\n'
+        'frames=51\nhyperstack=true\nmode=composite\nloop=false\n'
     )
     assert imagej_description((51, 5, 2, 196, 171)) == expected
     assert imagej_description((51, 5, 2, 196, 171), axes='TZCYX') == expected
@@ -6377,6 +6498,11 @@ def test_func_imagej_description() -> None:
     expected = 'ImageJ=1.11a\nimages=1\nhyperstack=true\n'
     assert imagej_description((196, 171, 3)) == expected
     assert imagej_description((196, 171, 3), axes='YXS') == expected
+
+    # test escaping of values
+    assert imagej_description((196, 171, 3), unit='\xb5m\\\n').endswith(
+        'unit=\\u00B5m\\u005C\\u000A\n'
+    )
 
     # test colormapped parameter
     expected = 'ImageJ=1.11a\nimages=1\nhyperstack=false\n'
@@ -6411,6 +6537,17 @@ def test_func_imagej_description_metadata() -> None:
         'loop': False,
     }
     assert imagej_description_metadata(imagej_str) == imagej_dict
+
+    meta = imagej_description_metadata(
+        'ImageJ=1.54f\nunit=\\u00B5m\ninfo=a\\\\b\\tc\\uD83D\\uDE00\n'
+        'name=1_2\nlabel=nan\nmin=-Infinity\nmax=1.5E3\n'
+    )
+    assert meta['unit'] == '\xb5m'
+    assert meta['info'] == 'a\\b\tc\U0001f600'
+    assert meta['name'] == '1_2'
+    assert meta['label'] == 'nan'
+    assert meta['min'] == float('-inf')
+    assert meta['max'] == 1500.0
 
 
 def test_func_pilatus_header_metadata() -> None:
@@ -18402,12 +18539,23 @@ def test_read_xarray_series_imagej() -> None:
             metadata={
                 'spacing': 2.0,
                 'finterval': 0.1,
-                'unit': 'um',
+                'tunit': 'ms',
+                'unit': '\xb5m',
                 'mode': 'composite',
-                'Labels': ['DAPI', 'GFP'],
+                'Labels': [
+                    f'{c}\nimage {i}'
+                    for i, c in enumerate(['DAPI', 'GFP'] * 15)
+                ],
+                'cf': 0,
+                'c0': -32768.0,
+                'c1': 1.0,
+                'vunit': 'gray value',
             },
         )
         with TiffFile(filename) as tif:
+            assert 'unit=\\u00B5m' in tif.pages.first.description
+            assert tif.imagej_metadata is not None
+            assert tif.imagej_metadata['unit'] == '\xb5m'
             series = tif.series[0]
             assert series.kind == 'imagej'
             assert series.axes == 'TZCYX'
@@ -18446,8 +18594,13 @@ def test_read_xarray_series_imagej() -> None:
                 'X': 'micrometer',
                 'Y': 'micrometer',
                 'Z': 'micrometer',
+                'T': 'millisecond',
             }
             assert series.attrs['mode'] == 'composite'
+            assert series.attrs['cf'] == 0
+            assert series.attrs['c0'] == -32768.0
+            assert series.attrs['c1'] == 1.0
+            assert series.attrs['vunit'] == 'gray value'
             assert 'description' not in series.attrs
 
     # test fps fallback for T coords and x/y/zorigin offsets
@@ -18464,6 +18617,8 @@ def test_read_xarray_series_imagej() -> None:
                 'xorigin': 2,
                 'yorigin': 4,
                 'zorigin': 1,
+                'inverty': True,
+                'unit': 'um',
             },
         )
         with TiffFile(filename) as tif:
@@ -18489,10 +18644,10 @@ def test_read_xarray_series_imagej() -> None:
                 series.coords['X'],
                 numpy.linspace(0, 7 * 0.5, 7, endpoint=False) - 2 * 0.5,
             )
-            # Y with yorigin=4, pixelsize=0.5: shift = -4*0.5 = -2.0
+            # Y inverted with yorigin=4, pixelsize=0.5: (4 - y) * 0.5
             assert_allclose(
                 series.coords['Y'],
-                numpy.linspace(0, 5 * 0.5, 5, endpoint=False) - 4 * 0.5,
+                2.0 - numpy.linspace(0, 5 * 0.5, 5, endpoint=False),
             )
 
 
@@ -18534,7 +18689,7 @@ def test_read_xarray_series_resolution_units() -> None:
             dtype=numpy.uint8,
             kind='imagej',
             resolution=(1 / 0.5, 1 / 0.5),
-            metadata={'unit': 'nm'},
+            metadata={'unit': 'nm', 'yunit': 'mm'},
         )
         with TiffFile(filename) as tif:
             series = tif.series[0]
@@ -18546,6 +18701,14 @@ def test_read_xarray_series_resolution_units() -> None:
                 'X': 'micrometer',
                 'Y': 'micrometer',
             }
+            assert_allclose(
+                series.coords['X'],
+                numpy.linspace(0, 31 * 0.5e-3, 31, endpoint=False),
+            )
+            assert_allclose(
+                series.coords['Y'],
+                numpy.linspace(0, 33 * 0.5e3, 33, endpoint=False),
+            )
 
 
 def test_read_xarray_series_ome() -> None:
@@ -18799,7 +18962,8 @@ WRITE_DATA = numpy.arange(
     ],
 )
 @pytest.mark.parametrize(
-    'compression', [None]  # , 'zlib', 'lzw', 'lzma', 'zstd', 'packbits']
+    'compression',
+    [None],  # , 'zlib', 'lzw', 'lzma', 'zstd', 'packbits']
 )
 @pytest.mark.parametrize('dtype', list('?bhiqefdBHIQFD'))
 @pytest.mark.parametrize('byteorder', ['>', '<'])
@@ -19283,6 +19447,9 @@ def test_write_zeroshape(
             assert shape == zimage.shape
         assert dtype == image.dtype
         assert dtype == zimage.dtype
+
+        # TODO: fix ResourceWarning: unclosed file
+        del zimage
 
 
 @pytest.mark.parametrize('repeats', [1, 2])
