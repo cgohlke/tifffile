@@ -37,7 +37,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.11.16
+:Version: 2026.11.26
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -87,6 +87,23 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.11.26
+
+- Reject NDTiff.index file names outside directory (security).
+- Return ImageJ Labels, LUTs, and Overlays as lists (breaking).
+- Default ImageJ mode to composite for multi-channel images (breaking).
+- Escape ImageJ description values and parse them like Java Properties.
+- Fix ImageJ series coordinates (unit scaling, negative spacing, inverty).
+- Support ImageJ yunit, zunit, and tunit.
+- Use ImageJ Labels as channel coords only if per channel.
+- Add ImageJ calibration and display range to series attrs.
+- Fix OME series and level coordinates (modulo, DeltaTUnit, unknown units).
+- Fix OME series modulo, UUID, and SubIFD tree index handling.
+- Fix writing OME Experimenter, Project, and modulo Channel elements.
+- Raise ValueError when writing invalid ImageJ LUTs or multiple ROIs.
+- Log errors instead of raising on invalid or incomplete OME-XML.
+- Escape OME UUID and TypeDescription, format special DoubleAnnotations.
 
 2026.11.16
 
@@ -238,34 +255,6 @@ handling multi-dimensional data, or working around format constraints:
   series, where only the first page of a series is present, and the image data
   are stored contiguously. No other software besides Tifffile supports the
   truncated format.
-
-Other libraries for reading, writing, inspecting, or manipulating scientific
-TIFF files from Python are
-`bioio <https://github.com/bioio-devs/bioio>`_,
-`aicsimageio <https://github.com/AllenCellModeling/aicsimageio>`_,
-`apeer-ometiff-library
-<https://github.com/apeer-micro/apeer-ometiff-library>`_,
-`bigtiff <https://pypi.org/project/bigtiff>`_,
-`fabio.TiffIO <https://github.com/silx-kit/fabio>`_,
-`GDAL <https://github.com/OSGeo/gdal/>`_,
-`imread <https://github.com/luispedro/imread>`_,
-`large_image <https://github.com/girder/large_image>`_,
-`openslide-python <https://github.com/openslide/openslide-python>`_,
-`opentile <https://github.com/imi-bigpicture/opentile>`_,
-`pylibtiff <https://github.com/pearu/pylibtiff>`_,
-`pylsm <https://launchpad.net/pylsm>`_,
-`pymimage <https://github.com/ardoi/pymimage>`_,
-`python-bioformats <https://github.com/CellProfiler/python-bioformats>`_,
-`pytiff <https://github.com/FZJ-INM1-BDA/pytiff>`_,
-`scanimagetiffreader-python
-<https://gitlab.com/vidriotech/scanimagetiffreader-python>`_,
-`SimpleITK <https://github.com/SimpleITK/SimpleITK>`_,
-`slideio <https://gitlab.com/bioslide/slideio>`_,
-`tiffslide <https://github.com/bayer-science-for-a-better-life/tiffslide>`_,
-`tifftools <https://github.com/DigitalSlideArchive/tifftools>`_,
-`tyf <https://github.com/Moustikitos/tyf>`_,
-`xtiff <https://github.com/BodenmillerGroup/xtiff>`_, and
-`ndtiff <https://github.com/micro-manager/NDTiffStorage>`_.
 
 References
 ----------
