@@ -4,6 +4,23 @@
 Revisions
 =========
 
+2026.11.26
+
+- Reject NDTiff.index file names outside directory (security).
+- Return ImageJ Labels, LUTs, and Overlays as lists (breaking).
+- Default ImageJ mode to composite for multi-channel images (breaking).
+- Escape ImageJ description values and parse them like Java Properties.
+- Fix ImageJ series coordinates (unit scaling, negative spacing, inverty).
+- Support ImageJ yunit, zunit, and tunit.
+- Use ImageJ Labels as channel coords only if per channel.
+- Add ImageJ calibration and display range to series attrs.
+- Fix OME series and level coordinates (modulo, DeltaTUnit, unknown units).
+- Fix OME series modulo, UUID, and SubIFD tree index handling.
+- Fix writing OME Experimenter, Project, and modulo Channel elements.
+- Raise ValueError when writing invalid ImageJ LUTs or multiple ROIs.
+- Log errors instead of raising on invalid or incomplete OME-XML.
+- Escape OME UUID and TypeDescription, format special DoubleAnnotations.
+
 2026.11.16
 
 - Add fillvalue parameter to asarray functions.
