@@ -64,7 +64,7 @@ many proprietary metadata formats.
 
 :Author: `Christoph Gohlke <https://www.cgohlke.com>`_
 :License: BSD-3-Clause
-:Version: 2026.11.16
+:Version: 2026.11.26
 :DOI: `10.5281/zenodo.6795860 <https://doi.org/10.5281/zenodo.6795860>`_
 
 Quickstart
@@ -114,6 +114,23 @@ This revision was tested with the following requirements and dependencies
 
 Revisions
 ---------
+
+2026.11.26
+
+- Reject NDTiff.index file names outside directory (security).
+- Return ImageJ Labels, LUTs, and Overlays as lists (breaking).
+- Default ImageJ mode to composite for multi-channel images (breaking).
+- Escape ImageJ description values and parse them like Java Properties.
+- Fix ImageJ series coordinates (unit scaling, negative spacing, inverty).
+- Support ImageJ yunit, zunit, and tunit.
+- Use ImageJ Labels as channel coords only if per channel.
+- Add ImageJ calibration and display range to series attrs.
+- Fix OME series and level coordinates (modulo, DeltaTUnit, unknown units).
+- Fix OME series modulo, UUID, and SubIFD tree index handling.
+- Fix writing OME Experimenter, Project, and modulo Channel elements.
+- Raise ValueError when writing invalid ImageJ LUTs or multiple ROIs.
+- Log errors instead of raising on invalid or incomplete OME-XML.
+- Escape OME UUID and TypeDescription, format special DoubleAnnotations.
 
 2026.11.16
 
@@ -265,34 +282,6 @@ handling multi-dimensional data, or working around format constraints:
   series, where only the first page of a series is present, and the image data
   are stored contiguously. No other software besides Tifffile supports the
   truncated format.
-
-Other libraries for reading, writing, inspecting, or manipulating scientific
-TIFF files from Python are
-`bioio <https://github.com/bioio-devs/bioio>`_,
-`aicsimageio <https://github.com/AllenCellModeling/aicsimageio>`_,
-`apeer-ometiff-library
-<https://github.com/apeer-micro/apeer-ometiff-library>`_,
-`bigtiff <https://pypi.org/project/bigtiff>`_,
-`fabio.TiffIO <https://github.com/silx-kit/fabio>`_,
-`GDAL <https://github.com/OSGeo/gdal/>`_,
-`imread <https://github.com/luispedro/imread>`_,
-`large_image <https://github.com/girder/large_image>`_,
-`openslide-python <https://github.com/openslide/openslide-python>`_,
-`opentile <https://github.com/imi-bigpicture/opentile>`_,
-`pylibtiff <https://github.com/pearu/pylibtiff>`_,
-`pylsm <https://launchpad.net/pylsm>`_,
-`pymimage <https://github.com/ardoi/pymimage>`_,
-`python-bioformats <https://github.com/CellProfiler/python-bioformats>`_,
-`pytiff <https://github.com/FZJ-INM1-BDA/pytiff>`_,
-`scanimagetiffreader-python
-<https://gitlab.com/vidriotech/scanimagetiffreader-python>`_,
-`SimpleITK <https://github.com/SimpleITK/SimpleITK>`_,
-`slideio <https://gitlab.com/bioslide/slideio>`_,
-`tiffslide <https://github.com/bayer-science-for-a-better-life/tiffslide>`_,
-`tifftools <https://github.com/DigitalSlideArchive/tifftools>`_,
-`tyf <https://github.com/Moustikitos/tyf>`_,
-`xtiff <https://github.com/BodenmillerGroup/xtiff>`_, and
-`ndtiff <https://github.com/micro-manager/NDTiffStorage>`_.
 
 References
 ----------
@@ -797,7 +786,7 @@ Inspect the TIFF file from the command line::
 
 from __future__ import annotations
 
-__version__ = '2026.11.16'
+__version__ = '2026.11.26'
 
 __all__ = [
     'CHUNKMODE',
@@ -2778,7 +2767,8 @@ class TiffWriter:
         # normalize data shape to 5D or 6D, depending on volume:
         #   (pages, separate_samples, [depth,] length, width, contig_samples)
         shape = reshape_nd(
-            datashape, TIFF.PHOTOMETRIC_SAMPLES.get(photometric, 2)  # type: ignore[arg-type]
+            datashape,
+            TIFF.PHOTOMETRIC_SAMPLES.get(photometric, 2),  # type: ignore[arg-type]
         )
         ndim = len(shape)
 
@@ -2823,11 +2813,11 @@ class TiffWriter:
                         "and 'planarconfig' parameters are",
                     )
                 warnings.warn(
-                    f"<tifffile.TiffWriter.write> data with shape {datashape} "
+                    f'<tifffile.TiffWriter.write> data with shape {datashape} '
                     f"and dtype '{datadtype}' are stored as RGB with {msgs[0]}"
                     '. Future versions will store such data as MINISBLACK in '
                     "separate pages by default, unless the 'photometric' "
-                    f"{msgs[1]} specified.",
+                    f'{msgs[1]} specified.',
                     DeprecationWarning,
                     stacklevel=2,
                 )
@@ -3095,6 +3085,40 @@ class TiffWriter:
                 'overlays',
                 'prop',
             )
+            labels = ijmetadata.get('Labels', ijmetadata.get('labels'))
+            if not contiguous and labels is not None:
+                nlabels = 1 if isinstance(labels, str) else len(labels)
+                nimages = product(ijshape[:3])
+                if nlabels != nimages:
+                    warnings.warn(
+                        f'{self!r} number of ImageJ Labels ({nlabels}) '
+                        f'does not match number of images ({nimages})',
+                        UserWarning,
+                        stacklevel=2,
+                    )
+            nchannels = ijshape[2]
+            ranges = ijmetadata.get('Ranges', ijmetadata.get('ranges'))
+            if ranges is not None and len(ranges) != 2 * nchannels:
+                warnings.warn(
+                    f'{self!r} number of ImageJ Ranges ({len(ranges)}) '
+                    f'does not match two per channel ({2 * nchannels})',
+                    UserWarning,
+                    stacklevel=2,
+                )
+            luts = ijmetadata.get('LUTs', ijmetadata.get('luts'))
+            if luts is not None:
+                nluts = (
+                    1
+                    if isinstance(luts, numpy.ndarray) and luts.ndim == 2
+                    else len(luts)
+                )
+                if nluts > nchannels:
+                    warnings.warn(
+                        f'{self!r} number of ImageJ LUTs ({nluts}) '
+                        f'exceeds number of channels ({nchannels})',
+                        UserWarning,
+                        stacklevel=2,
+                    )
 
             for t in imagej_metadata_tag(ijmetadata, byteorder):
                 addtag(tags, *t)
@@ -3313,6 +3337,19 @@ class TiffWriter:
                         6,
                         (0, 1, 255, 1, 128, 1, 255, 1, 128, 1, 255, 1),
                     )
+
+        # if (
+        #     self._imagej
+        #     and resolution is not None
+        #     and resolutionunit is None
+        #     and not (self._metadata or {}).get('unit')
+        # ):
+        #     warnings.warn(
+        #         f'{self!r} ImageJ resolution without unit is interpreted '
+        #         'as pixels or inches',
+        #         UserWarning,
+        #         stacklevel=2,
+        #     )
 
         if resolutionunit is not None:
             resolutionunit = enumarg(RESUNIT, resolutionunit)
@@ -14632,6 +14669,7 @@ class OmeXml:
     """
 
     __slots__ = (
+        '_added',
         '_ifd',
         '_xml',
         'annotations',
@@ -14658,12 +14696,14 @@ class OmeXml:
 
     _xml: str
     _ifd: int
+    _added: list[tuple[str, dict[str, Any], str]]  # (kind, metadata, ref)
     _schema: ClassVar[list[Any]] = []  # cached OME XMLSchema instance
 
     def __init__(self, **metadata: Any) -> None:
         metadata = metadata.get('OME', metadata)
 
         self._ifd = 0
+        self._added = []
         self.images = []
         self.annotations = []
         self.datasets = []
@@ -14678,7 +14718,7 @@ class OmeXml:
         #   Instrument
         #   ROI
         if 'UUID' in metadata:
-            uuid = metadata['UUID'].split(':')[-1]
+            uuid = OmeXml._escape(str(metadata['UUID']).split(':')[-1])
         else:
             from uuid import uuid1
 
@@ -14686,6 +14726,9 @@ class OmeXml:
         creator = OmeXml._attribute(
             metadata, 'Creator', default=f'tifffile.py {__version__}'
         )
+        # self._xml is a format string
+        uuid = uuid.replace('{', '{{').replace('}', '}}')
+        creator = creator.replace('{', '{{').replace('}', '}}')
         schema = 'http://www.openmicroscopy.org/Schemas/OME/2016-06'
         self._xml = (
             '{declaration}'
@@ -14893,7 +14936,11 @@ class OmeXml:
             metadata.get('Plane', ''), planecount, dimorder, dimsizes
         )
         channels = OmeXml._channels(
-            metadata.get('Channel', ''), sizec, samples, index
+            metadata.get('Channel', ''),
+            sizec,
+            samples,
+            index,
+            modulo['C'][1] if 'C' in modulo else 1,
         )
 
         # TODO: support more Image elements
@@ -14931,6 +14978,7 @@ class OmeXml:
         )
         annotationref = ''.join(annotation_refs)
         experimenterref = self._experimenter(metadata.get('Experimenter'))
+        self._project(metadata.get('Project'))
 
         self.images.append(
             f'<Image ID="Image:{index}"{name}>'
@@ -15216,7 +15264,10 @@ class OmeXml:
         for i, ax in enumerate(hiaxes):
             if ax in 'APRHEQ':
                 if ax in axestypedescr:
-                    typedescr = f'TypeDescription="{axestypedescr[ax]}" '
+                    typedescr = (
+                        'TypeDescription='
+                        f'"{OmeXml._escape(axestypedescr[ax])}" '
+                    )
                 else:
                     typedescr = ''
                 x = hiaxes[i - 1 : i]
@@ -15304,10 +15355,29 @@ class OmeXml:
         sizec: int,
         samples: int,
         index: int,
+        modulo: int = 1,
     ) -> str:
-        """Return Channel XML elements."""
+        """Return Channel XML elements.
+
+        If ``modulo > 1``, ``sizec * modulo`` channels are returned.
+        Channel metadata of length ``sizec`` are repeated along modulo.
+
+        """
+        total = sizec * modulo
+        if isinstance(channel_metadata, dict):
+            lengths = {
+                len(v)
+                for v in channel_metadata.values()
+                if isinstance(v, tuple | list)
+            }
+        elif isinstance(channel_metadata, tuple | list):
+            lengths = {len(channel_metadata)}
+        else:
+            lengths = set()
+        if total in lengths:
+            modulo = 1
         channel_list = []
-        for c in range(sizec):
+        for c in range(total):
             lightpath = '<LightPath/>'
             # TODO: use LightPath elements from metadata
             #    'AnnotationRef',
@@ -15317,7 +15387,7 @@ class OmeXml:
             # LightPath requires full Instrument support first
             attributes = OmeXml._attributes(
                 channel_metadata,
-                c,
+                c // modulo,
                 'Name',
                 'AcquisitionMode',
                 'Color',
@@ -15405,6 +15475,9 @@ class OmeXml:
             return ref
         if not isinstance(metadata, dict):
             return ''
+        for kind, added, ref in self._added:
+            if kind == 'Experimenter' and added == metadata:
+                return ref
         index = len(self.experimenters)
         attributes = OmeXml._attributes(
             metadata,
@@ -15424,7 +15497,9 @@ class OmeXml:
             f'{annotationref}'
             '</Experimenter>'
         )
-        return f'<ExperimenterRef ID="Experimenter:{index}"/>'
+        ref = f'<ExperimenterRef ID="Experimenter:{index}"/>'
+        self._added.append(('Experimenter', metadata, ref))
+        return ref
 
     def _project(self, metadata: Any) -> None:
         """Add Project element to self.projects."""
@@ -15436,7 +15511,11 @@ class OmeXml:
             return
         if not isinstance(metadata, dict):
             return
+        for kind, added, _ in self._added:
+            if kind == 'Project' and added == metadata:
+                return
         index = len(self.projects)
+        self._added.append(('Project', metadata, ''))
         name = metadata.get('Name', '')
         if name:
             name = f' Name="{OmeXml._escape(name)}"'
@@ -15520,7 +15599,13 @@ class OmeXml:
                 elif name == 'LongAnnotation':
                     values = [str(int(value))]
                 elif name == 'DoubleAnnotation':
-                    values = [str(float(value))]
+                    value = float(value)  # noqa: PLW2901
+                    if math.isnan(value):
+                        values = ['NaN']
+                    elif math.isinf(value):
+                        values = ['INF' if value > 0 else '-INF']
+                    else:
+                        values = [str(value)]
                 else:
                     values = [OmeXml._escape(str(value))]
                 annotation_refs.append(
@@ -18859,6 +18944,7 @@ SU2UM: dict[str, float] = {
     'nanometer': 1e-3,
     'nanometers': 1e-3,
     'µm': 1.0,
+    '\u03bcm': 1.0,  # Greek small letter mu
     'um': 1.0,
     'micron': 1.0,
     'microns': 1.0,
@@ -18995,8 +19081,7 @@ def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             shape = reshape
         except ValueError as exc:
             logger().warning(
-                f'{tif!r} shaped series failed to reshape, '
-                f'raised {exc!r:.128}'
+                f'{tif!r} shaped series failed to reshape, raised {exc!r:.128}'
             )
         attrs: dict[str, Any] | None = None
         if metadata:
@@ -19046,8 +19131,7 @@ def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
 
             if keyframe.shaped_description is None:
                 logger().warning(
-                    f'{tif!r} '
-                    'invalid shaped series metadata or corrupted file'
+                    f'{tif!r} invalid shaped series metadata or corrupted file'
                 )
                 return None
             # read metadata
@@ -19151,8 +19235,7 @@ def series_shaped(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                                 )
                         except Exception as exc:
                             logger().warning(
-                                f'{tif!r} shaped series '
-                                f'raised {exc!r:.128}'
+                                f'{tif!r} shaped series raised {exc!r:.128}'
                             )
                             return None
                         subifds.append(subifd)
@@ -19400,18 +19483,21 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             return None
         return None if value is None else value.strip().lower()
 
+    def uuid_key(text: str | None, /) -> str | None:
+        return None if text is None else text.strip().lower()
+
     load_pages(tif)
 
-    root_uuid = root.attrib.get('UUID')
+    root_uuid = uuid_key(root.attrib.get('UUID'))
     tif._files = {root_uuid: tif}
     dirname = tif._fh.dirname
     realdirname = os.path.realpath(dirname)
     files_missing = 0
     is_pyramidal = False
-    moduloref = []
     modulo: dict[str, dict[str, tuple[str, int]]] = {}
     series: list[TiffPageSeries] = []
     # collect Objective ID -> NominalMagnification from Instrument elements
+    # and modulo dimensions from StructuredAnnotations
     objectives: dict[str, float] = {}
     for element in root:
         if element.tag.endswith('Instrument'):
@@ -19422,6 +19508,41 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                     if obj_id and mag is not None:
                         with contextlib.suppress(ValueError, TypeError):
                             objectives[obj_id] = float(mag)
+        elif element.tag.endswith('StructuredAnnotations'):
+            for annot in element:
+                if not annot.attrib.get('Namespace', '').endswith('modulo'):
+                    continue
+                annot_id = annot.attrib.get('ID')
+                if annot_id is None:
+                    continue
+                modulo[annot_id] = mod = {}
+                for along in annot.iter():
+                    if not along.tag[:-1].endswith('Along'):
+                        continue
+                    axis = along.tag[-1]
+                    newaxis = along.attrib.get('Type', 'other')
+                    newaxis = TIFF.AXES_CODES.get(newaxis.lower(), 'Q')
+                    try:
+                        if 'Start' in along.attrib:
+                            step = float(along.attrib.get('Step', 1))
+                            start = float(along.attrib['Start'])
+                            end = float(along.attrib['End'])
+                            labels = round((end - start) / step) + 1
+                        else:
+                            labels = sum(
+                                1
+                                for label in along
+                                if label.tag.endswith('Label')
+                            )
+                    except (KeyError, ValueError, ZeroDivisionError) as exc:
+                        logger().warning(
+                            f'{tif!r} OME series invalid modulo '
+                            f'{along.attrib!r:.64}, raised {exc!r:.128}'
+                        )
+                        continue
+                    if labels > 0:
+                        mod[axis] = (newaxis, labels)
+
     for element in root:
         if element.tag.endswith('BinaryOnly'):
             # TODO: load OME-XML from root or companion file
@@ -19429,43 +19550,18 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                 f'{tif!r} OME series is BinaryOnly, not an OME-TIFF root file'
             )
             break
-        if element.tag.endswith('StructuredAnnotations'):
-            for annot in element:
-                if not annot.attrib.get('Namespace', '').endswith('modulo'):
-                    continue
-                modulo[annot.attrib['ID']] = mod = {}
-                for value in annot:
-                    for modulo_ns in value:
-                        for along in modulo_ns:
-                            if not along.tag[:-1].endswith('Along'):
-                                continue
-                            axis = along.tag[-1]
-                            newaxis = along.attrib.get('Type', 'other')
-                            newaxis = TIFF.AXES_CODES[newaxis]
-                            if 'Start' in along.attrib:
-                                step = float(along.attrib.get('Step', 1))
-                                start = float(along.attrib['Start'])
-                                stop = float(along.attrib['End']) + step
-                                labels = len(numpy.arange(start, stop, step))
-                            else:
-                                labels = len(
-                                    [
-                                        label
-                                        for label in along
-                                        if label.tag.endswith('Label')
-                                    ]
-                                )
-                            mod[axis] = (newaxis, labels)
 
         if not element.tag.endswith('Image'):
             continue
 
+        annotationref = None
         for annot in element:
-            if annot.tag.endswith('AnnotationRef'):
+            if (
+                annot.tag.endswith('AnnotationRef')
+                and annot.attrib.get('ID') in modulo
+            ):
                 annotationref = annot.attrib['ID']
                 break
-        else:
-            annotationref = None
 
         # extract magnification from ObjectiveSettings reference
         image_magnification: float | None = None
@@ -19485,8 +19581,15 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             attr = pixels.attrib
             pixels_attrib = attr  # save for coords/attrs
             # dtype = attr.get('PixelType')
-            axes = ''.join(reversed(attr['DimensionOrder']))
-            shape = [int(attr['Size' + ax]) for ax in axes]
+            try:
+                axes = ''.join(reversed(attr['DimensionOrder']))
+                shape = [int(attr['Size' + ax]) for ax in axes]
+            except (KeyError, ValueError) as exc:
+                logger().warning(
+                    f'{tif!r} OME series contains invalid Pixels, '
+                    f'raised {exc!r:.128}'
+                )
+                continue
             ifds = []
             spp = 1  # samples per pixel
             first = True
@@ -19494,6 +19597,7 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             excitation_wavelengths: list[float] = []
             emission_wavelengths: list[float] = []
             plane_deltas: dict[int, float] = {}
+            plane_deltas_unit = 's'
 
             for data in pixels:
                 if data.tag.endswith('Channel'):
@@ -19530,9 +19634,11 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                     attr = data.attrib
                     delta_t = attr.get('DeltaT')
                     if delta_t is not None:
-                        the_t = int(attr.get('TheT', 0))
-                        if the_t not in plane_deltas:
-                            with contextlib.suppress(ValueError, TypeError):
+                        with contextlib.suppress(ValueError, TypeError):
+                            the_t = int(attr.get('TheT', 0))
+                            if not plane_deltas:
+                                plane_deltas_unit = attr.get('DeltaTUnit', 's')
+                            if the_t not in plane_deltas:
                                 plane_deltas[the_t] = float(delta_t)
                     continue
 
@@ -19540,11 +19646,11 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                     continue
 
                 attr = data.attrib
-                ifd_index = int(attr.get('IFD', 0))
-                num = int(attr.get('NumPlanes', 1 if 'IFD' in attr else 0))
-                num = int(attr.get('PlaneCount', num))
-                idxs = [int(attr.get('First' + ax, 0)) for ax in axes[:-2]]
                 try:
+                    ifd_index = int(attr.get('IFD', 0))
+                    num = int(attr.get('NumPlanes', 1 if 'IFD' in attr else 0))
+                    num = int(attr.get('PlaneCount', num))
+                    idxs = [int(attr.get('First' + ax, 0)) for ax in axes[:-2]]
                     idx = int(numpy.ravel_multi_index(idxs, shape[:-2]))
                 except ValueError as exc:
                     # ImageJ produces invalid ome-xml when cropping
@@ -19556,28 +19662,33 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                 for uuid in data:
                     if not uuid.tag.endswith('UUID'):
                         continue
+                    uuid_text = uuid_key(uuid.text)
                     if (
                         root_uuid is None
-                        and uuid.text is not None
+                        and uuid_text is not None
                         and (
                             uuid.attrib.get('FileName', '').lower()
                             == tif.filename.lower()
                         )
                     ):
                         # no global UUID, use this file
-                        root_uuid = uuid.text
+                        root_uuid = uuid_text
                         tif._files[root_uuid] = tif._files[None]
                         del tif._files[None]
-                    elif uuid.text not in tif._files:
+                    elif uuid_text not in tif._files:
                         if not tif._multifile:
                             # abort reading multifile OME series
                             # and fall back to generic series
                             return []
-                        filename = uuid.attrib['FileName']
+                        filename = uuid.attrib.get('FileName', '')
                         ftif = None
                         try:
+                            if not filename:
+                                msg = 'missing FileName'
+                                raise ValueError(msg)
                             if not tif.filehandle.is_file:
-                                raise ValueError
+                                msg = 'not a file'
+                                raise ValueError(msg)
                             path = os.path.join(dirname, filename)
                             if not os.path.isfile(path):
                                 msg = f'not a regular file {path!r}'
@@ -19585,8 +19696,8 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                             ftif = TiffFile(path, _root=tif)
                             # security: files outside directory must match UUID
                             if not is_subpath(path, realdirname) and (
-                                uuid.text is None
-                                or ome_uuid(ftif) != uuid.text.strip().lower()
+                                uuid_text is None
+                                or ome_uuid(ftif) != uuid_text
                             ):
                                 msg = (
                                     'UUID of file outside directory '
@@ -19613,16 +19724,16 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                             if num:
                                 size = num
                             elif size == -1:
-                                msg = (
-                                    'OME series missing '
+                                logger().error(
+                                    f'{tif!r} OME series missing '
                                     'NumPlanes or PlaneCount'
                                 )
-                                raise ValueError(msg) from exc
+                                break
                             ifds.extend([None] * (size + idx - len(ifds)))
                             break
-                        tif._files[uuid.text] = ftif
+                        tif._files[uuid_text] = ftif
                         ftif.close()
-                    pages = tif._files[uuid.text].pages
+                    pages = tif._files[uuid_text].pages
                     try:
                         size = num or len(pages)
                         ifds.extend([None] * (size + idx - len(ifds)))
@@ -19746,66 +19857,103 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                 if page.keyframe != page:
                     page.keyframe = keyframes[fh.name]
 
+            # apply modulo dimensions
+            modsizes: dict[str, int] = {}  # split axes -> factor
+            if annotationref is not None:
+                for axis, (newaxis, size) in modulo[annotationref].items():
+                    if axis not in axes:
+                        continue
+                    i = axes.index(axis)
+                    if shape[i] == size:
+                        axes = axes.replace(axis, newaxis, 1)
+                    elif shape[i] % size == 0:
+                        shape[i] //= size
+                        shape.insert(i + 1, size)
+                        axes = axes.replace(axis, axis + newaxis, 1)
+                        modsizes[axis] = size
+                    else:
+                        logger().warning(
+                            f'{tif!r} OME series modulo {axis} '
+                            f'size {size} does not divide {shape[i]}'
+                        )
+
             # build coords from OME-XML Pixels attributes
             coords: dict[str, Any] = {}
-            sizez = shape[axes.index('Z')] if 'Z' in axes else 1
+            units: dict[str, str] = {}
             sizet = shape[axes.index('T')] if 'T' in axes else 1
             sizec = shape[axes.index('C')] if 'C' in axes else 1
-            psz = pixels_attrib.get('PhysicalSizeZ')
-            if psz is not None and sizez > 1:
+            modt = modsizes.get('T', 1)
+            modc = modsizes.get('C', 1)
+
+            for ax in 'XYZ':
+                if ax not in axes:
+                    continue
                 try:
-                    psz_f = float(psz)
-                    if psz_f > 0:
-                        coords['Z'] = (0.0, sizez * psz_f)
+                    step = float(pixels_attrib.get(f'PhysicalSize{ax}', 0))
                 except (ValueError, TypeError):
-                    pass
+                    continue
+                if step <= 0:
+                    continue
+                # size of axis before modulo split
+                size = shape[axes.index(ax)] * modsizes.get(ax, 1)
+                if ax == 'Z' and size < 2:
+                    continue
+                unit = pixels_attrib.get(f'PhysicalSize{ax}Unit', 'µm')
+                scale = SU2UM.get(unit.lower())
+                if scale is None:
+                    units[ax] = unit
+                    scale = 1.0
+                else:
+                    units[ax] = 'micrometer'
+                if size > 1:
+                    coords[ax] = (0.0, size * step * scale)
+
+            time_units = {
+                's': 'second',
+                'ms': 'millisecond',
+                'µs': 'microsecond',
+                'ns': 'nanosecond',
+                'min': 'minute',
+                'h': 'hour',
+                'd': 'day',
+            }
             if (
                 sizet > 1
-                and len(plane_deltas) == sizet
-                and all(t in plane_deltas for t in range(sizet))
+                and len(plane_deltas) == sizet * modt
+                and all(t in plane_deltas for t in range(sizet * modt))
             ):
                 coords['T'] = numpy.array(
-                    [plane_deltas[t] for t in range(sizet)]
+                    [plane_deltas[t * modt] for t in range(sizet)]
                 )
-            else:
-                ti = pixels_attrib.get('TimeIncrement')
-                if ti is not None and sizet > 1:
-                    try:
-                        ti_f = float(ti)
-                        if ti_f > 0:
-                            coords['T'] = (0.0, sizet * ti_f)
-                    except (ValueError, TypeError):
-                        pass
-            if (
-                len(emission_wavelengths) == sizec
-                and len(set(emission_wavelengths)) == sizec
+                units['T'] = time_units.get(
+                    plane_deltas_unit, plane_deltas_unit
+                )
+            elif sizet > 1:
+                with contextlib.suppress(ValueError, TypeError):
+                    ti = float(pixels_attrib.get('TimeIncrement', 0))
+                    if ti > 0:
+                        coords['T'] = (0.0, sizet * modt * ti)
+                        unit = pixels_attrib.get('TimeIncrementUnit', 's')
+                        units['T'] = time_units.get(unit, unit)
+
+            # use one value per channel along split C axis
+            for values, unique in (
+                (emission_wavelengths, True),
+                (excitation_wavelengths, True),
+                (channel_names, False),
             ):
-                coords['C'] = numpy.array(emission_wavelengths)
-            elif (
-                len(excitation_wavelengths) == sizec
-                and len(set(excitation_wavelengths)) == sizec
-            ):
-                coords['C'] = numpy.array(excitation_wavelengths)
-            elif len(channel_names) == sizec:
-                coords['C'] = numpy.array(channel_names)
-            psx = pixels_attrib.get('PhysicalSizeX')
-            if psx is not None:
-                try:
-                    psx_f = float(psx)
-                    sizex = shape[axes.index('X')]
-                    if psx_f > 0 and sizex > 1:
-                        coords['X'] = (0.0, sizex * psx_f)
-                except (ValueError, TypeError):
-                    pass
-            psy = pixels_attrib.get('PhysicalSizeY')
-            if psy is not None:
-                try:
-                    psy_f = float(psy)
-                    sizey = shape[axes.index('Y')]
-                    if psy_f > 0 and sizey > 1:
-                        coords['Y'] = (0.0, sizey * psy_f)
-                except (ValueError, TypeError):
-                    pass
+                if modc > 1 and len(values) == sizec * modc:
+                    if any(
+                        values[i] != values[i - i % modc]
+                        for i in range(len(values))
+                    ):
+                        continue
+                    values = values[::modc]  # noqa: PLW2901
+                if len(values) == sizec and (
+                    not unique or len(set(values)) == sizec
+                ):
+                    coords['C'] = numpy.array(values)
+                    break
 
             # build attrs from OME-XML Pixels attributes
             attrs: dict[str, Any] = {}
@@ -19816,62 +19964,7 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                         attrs['bitspersample'] = int(sbits)
             if image_magnification is not None and image_magnification > 0:
                 attrs['magnification'] = image_magnification
-            # if emission_wavelengths:
-            #     attrs['EmissionWavelengths'] = tuple(
-            #         emission_wavelengths
-            #     )
-            # if excitation_wavelengths:
-            #     attrs['ExcitationWavelengths'] = tuple(
-            #         excitation_wavelengths
-            #     )
 
-            # compute mpp (micrometer/pixel) from PhysicalSizeX/Y
-            units: dict[str, str] | None = None
-            psx_val = pixels_attrib.get('PhysicalSizeX')
-            psy_val = pixels_attrib.get('PhysicalSizeY')
-            if psx_val is not None and psy_val is not None:
-                try:
-                    psx_f = float(psx_val)
-                    psy_f = float(psy_val)
-                except (ValueError, TypeError):
-                    psx_f = psy_f = 0.0
-                xu = SU2UM.get(
-                    pixels_attrib.get('PhysicalSizeXUnit', 'µm').lower(), 1.0
-                )
-                yu = SU2UM.get(
-                    pixels_attrib.get('PhysicalSizeYUnit', 'µm').lower(), 1.0
-                )
-                mpp_x = psx_f * xu
-                mpp_y = psy_f * yu
-                if mpp_x > 0 and mpp_y > 0:
-                    units = {'X': 'micrometer', 'Y': 'micrometer'}
-                    if xu != 1.0 and 'X' in coords:
-                        coords['X'] = (0.0, float(coords['X'][1]) * xu)
-                    if yu != 1.0 and 'Y' in coords:
-                        coords['Y'] = (0.0, float(coords['Y'][1]) * yu)
-            psz_unit = pixels_attrib.get('PhysicalSizeZUnit', 'µm')
-            if 'Z' in coords:
-                zu = SU2UM.get(psz_unit.lower(), 1.0)
-                if units is None:
-                    units = {}
-                units['Z'] = 'micrometer'
-                if zu != 1.0:
-                    coords['Z'] = (0.0, float(coords['Z'][1]) * zu)
-            ti_unit = pixels_attrib.get('TimeIncrementUnit', 'second')
-            if 'T' in coords and ti_unit:
-                if units is None:
-                    units = {}
-                units['T'] = {
-                    's': 'second',
-                    'ms': 'millisecond',
-                    'µs': 'microsecond',
-                    'ns': 'nanosecond',
-                    'min': 'minute',
-                    'h': 'hour',
-                    'd': 'day',
-                }.get(ti_unit, ti_unit)
-
-            moduloref.append(annotationref)
             series.append(
                 TiffPageSeries(
                     ifds,
@@ -19884,7 +19977,7 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                     kind='ome',
                     coords=coords,
                     attrs=attrs,
-                    units=units,
+                    units=units or None,
                 )
             )
             del ifds
@@ -19893,28 +19986,6 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
         logger().error(
             f'{tif!r} OME series failed to read {files_missing} files'
         )
-
-    # apply modulo according to AnnotationRef
-    for aseries, annotationref in zip(series, moduloref, strict=True):
-        if annotationref not in modulo:
-            continue
-        shape = list(aseries.shape)
-        axes = aseries.axes
-        for axis, (newaxis, size) in modulo[annotationref].items():
-            i = axes.index(axis)
-            if shape[i] == size:
-                axes = axes.replace(axis, newaxis, 1)
-            elif shape[i] % size == 0:
-                shape[i] //= size
-                shape.insert(i + 1, size)
-                axes = axes.replace(axis, axis + newaxis, 1)
-            else:
-                logger().warning(
-                    f'{tif!r} OME series modulo {axis} '
-                    f'size {size} does not divide {shape[i]}'
-                )
-        aseries._shape = tuple(shape)
-        aseries._axes = axes
 
     # pyramids
     if is_pyramidal:
@@ -19963,7 +20034,7 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                             # first keyframe for this level
                             ifd = TiffPage(
                                 page.parent,
-                                (page.index, level + 1),
+                                (page.index, level),
                             )
                             levels_keyframes[level] = ifd
                         elif levels_keyframes[level] is None:
@@ -19972,7 +20043,7 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                         else:
                             ifd = TiffFrame(
                                 page.parent,
-                                (page.index, level + 1),
+                                (page.index, level),
                                 keyframe=levels_keyframes[level],
                             )
                         levels_pages[level].append(ifd)
@@ -20006,12 +20077,17 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
 
                 # scale mpp and coords by downsample ratio
                 level_attrs: dict[str, Any] = {}
-                level_units: dict[str, str] | None = None
-                level_coords: dict[str, Any] = {}
+                level_units: dict[str, str] = {
+                    k: v for k, v in aseries._units.items() if k not in 'XY'
+                }
+                level_coords: dict[str, Any] = {
+                    k: v for k, v in aseries._coords.items() if k not in 'XY'
+                }
                 if base_mpp is not None and base_width > 0 and base_length > 0:
                     sx = base_width / level_keyframe.imagewidth
                     sy = base_length / level_keyframe.imagelength
-                    level_units = {'X': 'micrometer', 'Y': 'micrometer'}
+                    level_units['X'] = 'micrometer'
+                    level_units['Y'] = 'micrometer'
                     level_coords['X'] = (
                         0.0,
                         level_keyframe.imagewidth * base_mpp[0] * sx,
@@ -20036,7 +20112,7 @@ def series_ome(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                         kind='ome',
                         attrs=level_attrs or None,
                         coords=level_coords or None,
-                        units=level_units,
+                        units=level_units or None,
                     )
                 )
 
@@ -20142,6 +20218,7 @@ def series_imagej(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             logger().warning(
                 f'{tif!r} ImageJ series of unknown order {order!r}'
             )
+    cfastest = axes[-1] == 'C'
 
     remain = images // product(shape)
     if remain > 1:
@@ -20182,20 +20259,38 @@ def series_imagej(tif: TiffFile, /) -> list[TiffPageSeries] | None:
 
     truncated = isvirtual and not pages.is_multipage and page.nbytes != nbytes
 
+    # spatial units. yunit and zunit default to unit
+    units: dict[str, str] = {}
+    scales: dict[str, float] = {}
+    unit = meta.get('unit', 'pixel')
+    for ax, key in (('X', 'unit'), ('Y', 'yunit'), ('Z', 'zunit')):
+        axunit = meta.get(key, unit)
+        if not isinstance(axunit, str) or not axunit:
+            continue
+        scale = SU2UM.get(axunit.lower())
+        if scale is None:
+            units[ax] = axunit
+        else:
+            units[ax] = 'micrometer'
+            scales[ax] = scale
+
     # build coords from ImageJ metadata
     coords: dict[str, Any] = {}
     xorigin = meta.get('xorigin', 0)
     yorigin = meta.get('yorigin', 0)
     zorigin = meta.get('zorigin', 0)
     spacing = meta.get('spacing')
-    if isinstance(spacing, int | float) and spacing > 0 and slices > 1:
+    if isinstance(spacing, int | float) and spacing != 0 and slices > 1:
         # zorigin is in pixels; physical(z) = (z - zOrigin) * spacing
+        spacing = abs(spacing) * scales.get('Z', 1.0)
         z0 = (
             -float(zorigin) * spacing
             if isinstance(zorigin, int | float)
             else 0.0
         )
         coords['Z'] = (z0, z0 + slices * spacing)
+    else:
+        units.pop('Z', None)
     finterval = meta.get('finterval')
     if not isinstance(finterval, int | float) or finterval <= 0:
         fps_val = meta.get('fps')
@@ -20203,48 +20298,66 @@ def series_imagej(tif: TiffFile, /) -> list[TiffPageSeries] | None:
             finterval = 1.0 / fps_val
     if isinstance(finterval, int | float) and finterval > 0 and frames > 1:
         coords['T'] = (0.0, frames * finterval)
+        tunit = meta.get('tunit', 'sec')
+        if isinstance(tunit, str) and tunit:
+            units['T'] = {
+                's': 'second',
+                'sec': 'second',
+                'second': 'second',
+                'seconds': 'second',
+                'ms': 'millisecond',
+                'msec': 'millisecond',
+                'min': 'minute',
+                'minute': 'minute',
+                'minutes': 'minute',
+                'h': 'hour',
+                'hr': 'hour',
+                'hour': 'hour',
+                'hours': 'hour',
+            }.get(tunit.lower(), tunit)
     labels = meta.get('Labels')
-    if isinstance(labels, list) and len(labels) == channels:
-        coords['C'] = numpy.array(labels)
+    if isinstance(labels, list) and channels > 1:
+        # ImageJ displays first line of labels only
+        labels = [
+            label.split('\n', 1)[0] if isinstance(label, str) else label
+            for label in labels
+        ]
+        # ImageJ labels are per image, not per channel
+        if len(labels) == channels and frames * slices == 1:
+            coords['C'] = numpy.array(labels)
+        elif (
+            cfastest
+            and len(labels) == images
+            and all(labels[i] == labels[i % channels] for i in range(images))
+        ):
+            coords['C'] = numpy.array(labels[:channels])
     # xorigin/yorigin are in pixels; physical(x) = (x-xOrigin) * pixelWidth
-    if (
-        (isinstance(xorigin, int | float) and xorigin)
-        or (isinstance(yorigin, int | float) and yorigin)
-    ) and 282 in page.tags:
+    inverty = meta.get('inverty') is True
+    if 282 in page.tags:  # XResolution
         xres, yres = page.get_resolution()
-        if xorigin and xres > 0:
-            width = page.shape[page.axes.index('X')]
-            if width > 1:
-                pixel_width = 1.0 / xres
-                x0 = -float(xorigin) * pixel_width
-                coords['X'] = (x0, x0 + width * pixel_width)
-        if yorigin and yres > 0:
-            height = page.shape[page.axes.index('Y')]
-            if height > 1:
-                pixel_height = 1.0 / yres
-                y0 = -float(yorigin) * pixel_height
-                coords['Y'] = (y0, y0 + height * pixel_height)
+        for ax, res, origin in (('Y', yres, yorigin), ('X', xres, xorigin)):
+            if not isinstance(origin, int | float):
+                origin = 0  # noqa: PLW2901
+            scale = scales.get(ax, 1.0)
+            invert = inverty and ax == 'Y'
+            if res > 0 and (origin or scale != 1.0 or invert):
+                step = scale / res
+                size = page.shape[page.axes.index(ax)]
+                if invert:
+                    start = (float(origin) if origin else size - 1.0) * step
+                    coords[ax] = (start, start - size * step)
+                else:
+                    start = -float(origin) * step
+                    coords[ax] = (start, start + size * step)
 
     attrs: dict[str, Any] = {}
-    units: dict[str, str] | None = None
-    unit = meta.get('unit', 'pixel')
-    if isinstance(unit, str) and unit:
-        scale = SU2UM.get(unit.lower())
-        unit_out = 'micrometer' if scale is not None else unit
-        if scale is not None and scale != 1.0:
-            for ax in ('X', 'Y', 'Z'):
-                val = coords.get(ax)
-                if val is not None:
-                    if isinstance(val, tuple) and len(val) == 2:
-                        coords[ax] = (val[0] * scale, val[1] * scale)
-                    else:
-                        coords[ax] = numpy.asarray(val) * scale
-        units = {'X': unit_out, 'Y': unit_out}
-        if 'Z' in coords:
-            units['Z'] = unit_out
     mode = meta.get('mode')
     if isinstance(mode, str) and mode:
         attrs['mode'] = mode
+    # value calibration and display range
+    for key in ('cf', *(f'c{i}' for i in range(10)), 'vunit', 'min', 'max'):
+        if key in meta:
+            attrs[key] = meta[key]
 
     tif.is_uniform = True
     return [
@@ -21245,6 +21358,7 @@ def series_ndtiff(tif: TiffFile, /) -> list[TiffPageSeries] | None:
         return None
 
     keyframes: dict[str, TiffPage] = {}
+    invalid: set[str] = set()
     shape: tuple[int, ...]
     dims: tuple[str, ...]
     page: TiffPage | TiffFrame
@@ -21275,6 +21389,18 @@ def series_ndtiff(tif: TiffFile, /) -> list[TiffPageSeries] | None:
         _metabytecount,
         _metacompression,
     ) in read_ndtiff_index(indexfile):
+        # security: data files must be in the directory of NDTiff.index
+        if filename != tif.filename and (
+            filename in {'', '.', '..'} or any(c in filename for c in '/\\:\0')
+        ):
+            if filename not in invalid:
+                invalid.add(filename)
+                logger().error(
+                    f'{tif!r} NDTiff.index contains invalid file name '
+                    f'{filename!r}. Frames are skipped'
+                )
+            continue
+
         if filename in keyframes:
             # create virtual frame from index
             pageindex += 1  # TODO
@@ -21348,6 +21474,10 @@ def series_ndtiff(tif: TiffFile, /) -> list[TiffPageSeries] | None:
                 continue
         indices[tuple(int(axes_dict[dim]) for dim in dims)] = page
 
+    if not keyframes:
+        logger().warning(f'{tif!r} NDTiff.index has no keyframes')
+        return None
+
     # indices may be negative or missing
     indices_array = numpy.array(list(indices.keys()), dtype=numpy.int32)
     min_index = numpy.min(indices_array, axis=0).tolist()
@@ -21367,9 +21497,6 @@ def series_ndtiff(tif: TiffFile, /) -> list[TiffPageSeries] | None:
         indices.get(idx) for idx in numpy.ndindex(shape)
     ]
 
-    if not keyframes:
-        logger().warning(f'{tif!r} NDTiff.index has no keyframes')
-        return None
     keyframe = next(iter(keyframes.values()))
     shape += keyframe.shape
     axes = ''.join(TIFF.AXES_CODES.get(i.lower(), 'Q') for i in dims)
@@ -22530,8 +22657,7 @@ def series_philips(tif: TiffFile, /) -> list[TiffPageSeries] | None:
     levels = series_dict.pop('Level')
     if len(levels) != len(pixel_spacing):
         logger().warning(
-            f'{tif!r} Philips series '
-            f'{len(levels)=} != {len(pixel_spacing)=}'
+            f'{tif!r} Philips series {len(levels)=} != {len(pixel_spacing)=}'
         )
         return None
 
@@ -22834,11 +22960,7 @@ def read_tags(
                 continue
 
             valuesize = count * struct.calcsize(valueformat)
-            fmt = (
-                f'{byteorder}'
-                f'{count * int(valueformat[0])}'
-                f'{valueformat[1]}'
-            )
+            fmt = f'{byteorder}{count * int(valueformat[0])}{valueformat[1]}'
             if valuesize > offsetsize or code in customtags:
                 valueoffset = unpack(offsetformat, valuebytes)[0]
                 if valueoffset < 8 or valueoffset + valuesize > fh.size:
@@ -23641,7 +23763,7 @@ def read_sis(
             # general data
             try:
                 lenexp, xcal, ycal, mag, camname, pictype = struct.unpack(
-                    '<10xhdd8xd2x34s32s', fh.read(112)  # 220
+                    '<10xhdd8xd2x34s32s', fh.read(112)
                 )
             except struct.error:
                 continue
@@ -24236,6 +24358,10 @@ def imagej_metadata_tag(
         return struct.pack(f'{byteorder}{len(data)}d', *data)
 
     def _ndarray(data: NDArray[Any], byteorder: ByteOrder, /) -> bytes:
+        data = numpy.asarray(data)
+        if data.dtype != numpy.uint8 or data.shape != (3, 256):
+            msg = f'invalid ImageJ LUT {data.dtype!r} {data.shape!r}'
+            raise ValueError(msg)
         return data.tobytes()
 
     def _bytes(data: bytes, byteorder: ByteOrder, /) -> bytes:
@@ -24270,7 +24396,14 @@ def imagej_metadata_tag(
             # encode all floats as one blob; count refers to one entry
             values = [values]
             count = 1
-        elif isinstance(values, tuple | list):
+        elif mtype in {b'roi ', b' ior'} and isinstance(values, tuple | list):
+            msg = 'ImageJ ROI must be bytes. Use Overlays for multiple ROIs'
+            raise ValueError(msg)
+        elif isinstance(values, tuple | list) or (
+            func is _ndarray
+            and isinstance(values, numpy.ndarray)
+            and values.ndim == 3
+        ):
             count = len(values)
         else:
             values = [values]
@@ -24318,15 +24451,15 @@ def imagej_metadata(
                 dicts with :py:func:`matlabstr2py` or the
                 ``oiffile.SettingsFile()`` function of the
                 `oiffile <https://pypi.org/project/oiffile/>`_  package.
-            'Labels' (Sequence[str]):
-                Human-readable labels for each channel.
+            'Labels' (list[str]):
+                Human-readable labels for each image.
             'Ranges' (Sequence[float]):
                 Lower and upper values for each channel.
             'LUTs' (list[numpy.ndarray[(3, 256), 'uint8']]):
                 Color palettes for each channel.
             'Plot' (bytes):
                 Undocumented ImageJ internal format.
-            'ROI', 'Overlays' (bytes):
+            'ROI' (bytes), 'Overlays' (list[bytes]):
                 Undocumented ImageJ internal region of interest and overlay
                 format. Can be parsed with the
                 `roifile <https://pypi.org/project/roifile/>`_  package.
@@ -24383,13 +24516,21 @@ def imagej_metadata(
     result = {}
     for mtype, count in zip(header[::2], header[1::2], strict=True):
         values = []
-        name, func = metadata_types.get(mtype, (bytes2str(mtype), _bytes))
+        if mtype in metadata_types:
+            name, func = metadata_types[mtype]
+        elif mtype.isascii() and mtype.decode().isprintable():
+            name, func = bytes2str(mtype), _bytes
+        else:
+            name, func = mtype.hex(), _bytes
         for _ in range(count):
             counter += 1
             pos1 = pos + bytecounts[counter]
             values.append(func(data[pos:pos1], byteorder))
             pos = pos1
-        result[name.strip()] = values[0] if count == 1 else values
+        if count == 1 and name not in {'Labels', 'LUTs', 'Overlays'}:
+            result[name.strip()] = values[0]
+        else:
+            result[name.strip()] = values
     prop = result.get('Properties')
     if isinstance(prop, list) and len(prop) % 2 == 0:
         result['Properties'] = dict(itertools.batched(prop, 2))
@@ -24406,9 +24547,16 @@ def imagej_description_metadata(description: str, /) -> dict[str, Any]:
     {'ImageJ': '1.11a', 'images': 510, 'hyperstack': True}
 
     """
+    _isint = re.compile(r'[+-]?\d+').fullmatch
+    _isfloat = re.compile(
+        r'[+-]?(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity)|NaN'
+    ).fullmatch
 
-    def _bool(val: str, /) -> bool:
-        return {'true': True, 'false': False}[val.lower()]
+    def _unescape(match: re.Match[str], /) -> str:
+        esc = match.group(1)
+        if len(esc) == 5:
+            return chr(int(esc[1:], 16))
+        return {'t': '\t', 'n': '\n', 'r': '\r', 'f': '\f'}.get(esc, esc)
 
     result: dict[str, Any] = {}
     for line in description.splitlines():
@@ -24418,13 +24566,19 @@ def imagej_description_metadata(description: str, /) -> dict[str, Any]:
             continue
         key = key.strip()
         val = val.strip()
-        for dtype in (int, float, _bool):
-            try:
-                val = dtype(val)  # type: ignore[assignment]
-                break
-            except Exception:  # noqa: S110
-                pass
-        result[key] = val
+        if '\\' in val:
+            val = re.sub(r'\\(u[0-9a-fA-F]{4}|.)', _unescape, val)
+            val = val.encode('utf-16-le', 'surrogatepass').decode(
+                'utf-16-le', 'replace'
+            )
+        if _isint(val):
+            result[key] = int(val)
+        elif _isfloat(val):
+            result[key] = float(val)
+        elif val.lower() in {'true', 'false'}:
+            result[key] = val.lower() == 'true'
+        else:
+            result[key] = val
 
     if 'ImageJ' not in result and 'SCIFIO' not in result:
         msg = f'not an ImageJ image description: {result!r}'
@@ -24441,7 +24595,7 @@ def imagej_description(
     colormapped: bool = False,
     **metadata: Any,  # TODO: use TypedDict
 ) -> str:
-    """Return ImageJ image description from data shape and metadata.
+    r"""Return ImageJ image description from data shape and metadata.
 
     Parameters:
         shape:
@@ -24465,7 +24619,8 @@ def imagej_description(
                 The default is ``True`` unless ``colormapped`` is ``True``.
             mode (str):
                 Display mode: 'grayscale', 'composite', or 'color'.
-                The default is 'grayscale' unless ``rgb`` or ``colormapped``
+                The default is 'composite' if the image has more than one
+                channel, else 'grayscale', unless ``rgb`` or ``colormapped``
                 are ``True``. Ignored if ``hyperstack`` is ``False``.
             loop (bool):
                 Loop frames back and forth. The default is ``False``.
@@ -24483,6 +24638,10 @@ def imagej_description(
             images, channels, slices, frames (int):
                 Ignored.
 
+            Other items are written as ``key=value`` lines.
+            Non-ASCII, control, and backslash characters in values are
+            escaped as ``\\uXXXX``.
+
     Examples:
         >>> print(imagej_description((51, 5, 2, 196, 171)))
         ImageJ=1.11a
@@ -24491,7 +24650,7 @@ def imagej_description(
         slices=5
         frames=51
         hyperstack=true
-        mode=grayscale
+        mode=composite
         loop=false
         <BLANKLINE>
 
@@ -24527,7 +24686,7 @@ def imagej_description(
     if shape[2] > 1:
         result.append(f'channels={shape[2]}')
     if mode is None and not rgb and not colormapped:
-        mode = 'grayscale'
+        mode = 'composite' if shape[2] > 1 else 'grayscale'
     if hyperstack and mode:
         append.append(f'mode={mode}')
     if shape[1] > 1:
@@ -24539,10 +24698,22 @@ def imagej_description(
     if loop is not None:
         append.append(f'loop={str(bool(loop)).lower()}')
 
+    def _escape(value: str, /) -> str:
+        result = []
+        for c in value:
+            if ' ' <= c < '\x7f' and c != '\\':
+                result.append(c)
+            else:
+                b = c.encode('utf-16-be', 'surrogatepass')
+                result.extend(
+                    f'\\u{b[i]:02X}{b[i + 1]:02X}' for i in range(0, len(b), 2)
+                )
+        return ''.join(result)
+
     for key, value in metadata.items():
         if key not in {'images', 'channels', 'slices', 'frames', 'SCIFIO'}:
             val = str(value).lower() if isinstance(value, bool) else value
-            append.append(f'{key.lower()}={val}')
+            append.append(f'{key.lower()}={_escape(str(val))}')
 
     return '\n'.join(result + append + [''])
 
@@ -27561,7 +27732,7 @@ def hexdump(
             result.append(elps)
             continue
         hexstr = binascii.hexlify(bstr)
-        strstr = re.sub(br'[^\x20-\x7f]', b'.', bstr)
+        strstr = re.sub(rb'[^\x20-\x7f]', b'.', bstr)
         for i in range(0, len(bstr), bytesperline):
             h = hexstr[2 * i : 2 * i + bytesperline * 2]
             r = (addr % (i + start)) if height > 1 else addr
